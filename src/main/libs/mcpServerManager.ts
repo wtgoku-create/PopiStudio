@@ -231,7 +231,7 @@ async function resolveStdioCommand(server: McpServerRecord): Promise<ResolvedStd
           log('INFO', `"${server.name}": using system Node.js "${systemNode}" (preferred over Electron runtime)`);
         } else {
           const enhancedEnv = await getEnhancedEnv();
-          const npmBinDir = enhancedEnv.LOBSTERAI_NPM_BIN_DIR;
+          const npmBinDir = enhancedEnv.POPIAI_NPM_BIN_DIR;
           const cliJs = nodeCommandType === 'npx'
             ? (npmBinDir ? path.join(npmBinDir, 'npx-cli.js') : '')
             : (npmBinDir ? path.join(npmBinDir, 'npm-cli.js') : '');
@@ -246,14 +246,14 @@ async function resolveStdioCommand(server: McpServerRecord): Promise<ResolvedStd
         }
       } else {
         const enhancedEnv = await getEnhancedEnv();
-        const npmBinDir = enhancedEnv.LOBSTERAI_NPM_BIN_DIR;
+        const npmBinDir = enhancedEnv.POPIAI_NPM_BIN_DIR;
         const npxCliJs = npmBinDir ? path.join(npmBinDir, 'npx-cli.js') : '';
         const npmCliJs = npmBinDir ? path.join(npmBinDir, 'npm-cli.js') : '';
 
         const withElectronNodeEnv = (base: Record<string, string> | undefined): Record<string, string> => ({
           ...(base || {}),
           ELECTRON_RUN_AS_NODE: '1',
-          LOBSTERAI_ELECTRON_PATH: electronNodeRuntimePath,
+          POPIAI_ELECTRON_PATH: electronNodeRuntimePath,
         });
 
         if (nodeCommandType === 'node') {
@@ -294,7 +294,7 @@ async function resolveStdioCommand(server: McpServerRecord): Promise<ResolvedStd
       stdioEnv = {
         ...(stdioEnv || {}),
         ELECTRON_RUN_AS_NODE: '1',
-        LOBSTERAI_ELECTRON_PATH: electronNodeRuntimePath,
+        POPIAI_ELECTRON_PATH: electronNodeRuntimePath,
       };
       log('INFO', `"${server.name}": rewrote macOS command → Electron helper`);
     }
@@ -431,7 +431,7 @@ export class McpServerManager {
     }
 
     const client = new Client(
-      { name: `lobsterai-mcp-bridge`, version: '1.0.0' },
+      { name: `popiai-mcp-bridge`, version: '1.0.0' },
       { capabilities: {} },
     );
 

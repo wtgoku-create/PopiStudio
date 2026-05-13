@@ -1,7 +1,7 @@
-# LobsterAI — All-in-One Personal Assistant Agent
+# Popiai — All-in-One Personal Assistant Agent
 
 <p align="center">
-  <img src="public/logo.png" alt="LobsterAI" width="120">
+  <img src="public/logo.png" alt="Popiai" width="120">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 
 ---
 
-**LobsterAI** is an all-in-one personal assistant Agent developed by [NetEase Youdao](https://www.youdao.com/). It works around the clock to handle your everyday tasks — data analysis, making presentations, generating videos, writing documents, searching the web, sending emails, scheduling tasks, and more.
+**Popiai** is an all-in-one personal assistant Agent developed by [NetEase Youdao](https://www.youdao.com/). It works around the clock to handle your everyday tasks — data analysis, making presentations, generating videos, writing documents, searching the web, sending emails, scheduling tasks, and more.
 
 At its core is **Cowork mode** — it executes tools, manipulates files, and runs commands in a local or sandboxed environment, all under your supervision. You can also reach the Agent via WeChat, WeCom, DingTalk, Feishu, QQ, Telegram, Discord, and more — getting work done from your phone anytime, anywhere.
 
@@ -57,8 +57,8 @@ At its core is **Cowork mode** — it executes tools, manipulates files, and run
 
 ```bash
 # Clone the repository
-git clone https://github.com/netease-youdao/LobsterAI.git
-cd LobsterAI
+git clone https://github.com/netease-youdao/Popiai.git
+cd Popiai
 
 # Install dependencies
 npm install
@@ -71,7 +71,7 @@ The dev server runs at `http://localhost:5175` by default.
 
 #### Develop with OpenClaw Agent Engine
 
-LobsterAI can use [OpenClaw](https://github.com/openclaw/openclaw) as its agent engine.
+Popiai can use [OpenClaw](https://github.com/openclaw/openclaw) as its agent engine.
 The required OpenClaw version is pinned in `package.json` under `openclaw.version`.
 
 ```bash
@@ -157,18 +157,18 @@ OPENCLAW_SRC=/path/to/openclaw npm run dist:win
 ```
 
 Windows builds bundle a portable Python runtime under `resources/python-win` (included as installer resource `python-win`), so end users do not need to install Python manually.
-The bundled runtime is interpreter-focused and does not preinstall LobsterAI skill Python packages; those can be installed at runtime on demand.
+The bundled runtime is interpreter-focused and does not preinstall Popiai skill Python packages; those can be installed at runtime on demand.
 By default, packaging downloads the official Python embeddable runtime from python.org if no prebuilt archive is provided.
 For offline/non-network builds, provide a prebuilt runtime archive explicitly.
 
 Offline/runtime source options for packaging:
-- `LOBSTERAI_PORTABLE_PYTHON_ARCHIVE`: Local prebuilt runtime archive path (recommended for offline CI/CD)
-- `LOBSTERAI_PORTABLE_PYTHON_URL`: Download URL for the prebuilt runtime archive
-- `LOBSTERAI_WINDOWS_EMBED_PYTHON_VERSION` / `LOBSTERAI_WINDOWS_EMBED_PYTHON_URL` / `LOBSTERAI_WINDOWS_GET_PIP_URL`: Optional overrides for Windows-host bootstrap sources
+- `POPIAI_PORTABLE_PYTHON_ARCHIVE`: Local prebuilt runtime archive path (recommended for offline CI/CD)
+- `POPIAI_PORTABLE_PYTHON_URL`: Download URL for the prebuilt runtime archive
+- `POPIAI_WINDOWS_EMBED_PYTHON_VERSION` / `POPIAI_WINDOWS_EMBED_PYTHON_URL` / `POPIAI_WINDOWS_GET_PIP_URL`: Optional overrides for Windows-host bootstrap sources
 
 ## Architecture
 
-LobsterAI uses Electron's strict process isolation. All cross-process communication goes through IPC.
+Popiai uses Electron's strict process isolation. All cross-process communication goes through IPC.
 
 ### Process Model
 
@@ -236,7 +236,7 @@ SKILLs/                              # Skill definitions
 
 ## Cowork System
 
-Cowork is the core feature of LobsterAI — an AI working session system powered by OpenClaw as the primary agent engine. Designed for productivity scenarios, it can autonomously complete complex tasks like data analysis, document generation, and information retrieval.
+Cowork is the core feature of Popiai — an AI working session system powered by OpenClaw as the primary agent engine. Designed for productivity scenarios, it can autonomously complete complex tasks like data analysis, document generation, and information retrieval.
 
 ### Execution Modes
 
@@ -261,7 +261,7 @@ All tool invocations involving file system access, terminal commands, or network
 
 ## Skills System
 
-LobsterAI ships with 29 built-in skills covering productivity, creative, investment research, and automation scenarios, configured via `SKILLs/skills.config.json`:
+Popiai ships with 29 built-in skills covering productivity, creative, investment research, and automation scenarios, configured via `SKILLs/skills.config.json`:
 
 | Skill | Function | Typical Use Case |
 |-------|----------|-----------------|
@@ -298,7 +298,7 @@ Custom skills can be created via `skill-creator` and hot-loaded at runtime.
 
 ## Scheduled Tasks
 
-LobsterAI supports scheduled tasks that let the Agent automatically execute recurring work on a set schedule.
+Popiai supports scheduled tasks that let the Agent automatically execute recurring work on a set schedule.
 
 ### How to Create
 
@@ -319,7 +319,7 @@ Scheduled tasks are powered by Cron expressions, supporting minute, hourly, dail
 
 ## IM Integration — Mobile Remote Control
 
-LobsterAI can bridge the Agent to multiple IM platforms. Send a message from your phone via IM to remotely trigger the desktop Agent — command your personal assistant anytime, anywhere.
+Popiai can bridge the Agent to multiple IM platforms. Send a message from your phone via IM to remotely trigger the desktop Agent — command your personal assistant anytime, anywhere.
 
 | Platform | Protocol | Description |
 |----------|----------|-------------|
@@ -331,14 +331,14 @@ LobsterAI can bridge the Agent to multiple IM platforms. Send a message from you
 | Telegram | OpenClaw gateway | Bot API, supports webhook and polling |
 | Discord | OpenClaw gateway | Discord bot, supports servers and DMs |
 | NetEase IM | node-nim V2 SDK | [NetEase IM P2P messaging](https://doc.yunxin.163.com/messaging2/getting-started) |
-| NetEase Bee | node-nim V2 SDK | [NetEase Bee personal digital assistant](https://wp.m.163.com/163/html/bee/lobsterai_guide/index.html) |
+| NetEase Bee | node-nim V2 SDK | [NetEase Bee personal digital assistant](https://wp.m.163.com/163/html/bee/popiai_guide/index.html) |
 | NetEase POPO | OpenClaw gateway | NetEase POPO enterprise IM, supports WebSocket and Webhook |
 
 Configure the corresponding platform Token/Secret in the Settings panel to enable. Once set up, you can send instructions directly to the Agent from your phone IM (e.g., "analyze this dataset", "make a weekly summary PPT"), and the Agent will execute on the desktop and return results.
 
 ## Persistent Memory
 
-LobsterAI's memory system is built on OpenClaw and persists information as files in the working directory, so the Agent remembers your preferences and context across sessions.
+Popiai's memory system is built on OpenClaw and persists information as files in the working directory, so the Agent remembers your preferences and context across sessions.
 
 ### Memory File Structure
 
@@ -363,7 +363,7 @@ Memory writes go through file tools — there is no background extraction or inf
 
 ## Data Storage
 
-All data is stored in a local SQLite database (`lobsterai.sqlite` in the user data directory).
+All data is stored in a local SQLite database (`popiai.sqlite` in the user data directory).
 
 | Table | Purpose |
 |-------|---------|
@@ -381,7 +381,7 @@ All data is stored in a local SQLite database (`lobsterai.sqlite` in the user da
 
 ## Security Model
 
-LobsterAI enforces security at multiple layers:
+Popiai enforces security at multiple layers:
 
 - **Process Isolation** — Context isolation enabled, node integration disabled
 - **Permission Gating** — Tool invocations require explicit user approval
@@ -426,7 +426,7 @@ Currently English and Chinese are supported. Switch languages in the Settings pa
 
 ## OpenClaw Version Management
 
-LobsterAI pins its OpenClaw dependency to a specific release version, declared in `package.json`:
+Popiai pins its OpenClaw dependency to a specific release version, declared in `package.json`:
 
 ```json
 {
@@ -458,7 +458,7 @@ LobsterAI pins its OpenClaw dependency to a specific release version, declared i
 | `OPENCLAW_SRC` | Path to OpenClaw source directory | `../openclaw` |
 | `OPENCLAW_FORCE_BUILD` | Set to `1` to force rebuild even if version matches | — |
 | `OPENCLAW_SKIP_ENSURE` | Set to `1` to skip automatic version checkout | — |
-| `LOBSTERAI_SQLITE_BACKUP_ALWAYS_ON_STARTUP` | Set to `1` or `true` to force an automatic backup on every app startup for QA/testing | — |
+| `POPIAI_SQLITE_BACKUP_ALWAYS_ON_STARTUP` | Set to `1` or `true` to force an automatic backup on every app startup for QA/testing | — |
 
 ## Development Guidelines
 
@@ -528,7 +528,7 @@ Please include in your PR description: a summary of changes, linked issue (if an
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=netease-youdao/LobsterAI&type=date&legend=top-left)](https://www.star-history.com/#netease-youdao/LobsterAI&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=netease-youdao/Popiai&type=date&legend=top-left)](https://www.star-history.com/#netease-youdao/Popiai&type=date&legend=top-left)
 
 ---
 

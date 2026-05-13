@@ -277,7 +277,7 @@ const composeExportCanvas = async (
 
   ctx.fillStyle = brandColor;
   ctx.font = `600 ${brandFontSize}px ${fontStack}`;
-  ctx.fillText('LobsterAI — 全场景个人助理 Agent', textX, footerCenterY - taglineFontSize / 2 - 2);
+  ctx.fillText('Popiai — 全场景个人助理 Agent', textX, footerCenterY - taglineFontSize / 2 - 2);
 
   ctx.fillStyle = subtitleColor;
   ctx.font = `400 ${taglineFontSize}px ${fontStack}`;
@@ -2839,7 +2839,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                   items.push({
                     key: `${turn.id}-asst`,
                     turnIndex: i,
-                    label: getLabel(asstContent, 'LobsterAI'),
+                    label: getLabel(asstContent, 'Popiai'),
                     contentLen: asstContent.length,
                     isUser: false,
                   });
@@ -2945,7 +2945,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           >
             {!railTooltip.isUser && (
               <div className="text-[12px] font-medium mb-0.5 text-neutral-800 dark:text-neutral-200">
-                LobsterAI:
+                Popiai:
               </div>
             )}
             <div

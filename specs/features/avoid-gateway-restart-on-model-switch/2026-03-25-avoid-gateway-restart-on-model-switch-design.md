@@ -2,7 +2,7 @@
 
 ## Overview
 
-Eliminate OpenClaw gateway process restarts when users switch between 套餐模型 (lobsterai-server) and 自定义模型 (custom providers), or between different custom providers with different apiKeys.
+Eliminate OpenClaw gateway process restarts when users switch between 套餐模型 (popiai-server) and 自定义模型 (custom providers), or between different custom providers with different apiKeys.
 
 ## Problem
 
@@ -41,7 +41,7 @@ After (per-provider env vars):
 ```
 resolveAllProviderApiKeys() ──────────────────────────┐
   (claudeSettings.ts)                                  │
-  Enumerates all enabled providers + lobsterai-server   │
+  Enumerates all enabled providers + popiai-server   │
   Returns: { SERVER: token, MOONSHOT: key, ... }        │
                                                         ▼
 collectSecretEnvVars() ◄──── Sets LOBSTER_APIKEY_<NAME> for each provider
@@ -55,16 +55,16 @@ buildProviderSelection() ──► apiKey: '${LOBSTER_APIKEY_<NAME>}'
 
 | Provider | Env Var Name | Source |
 |----------|-------------|--------|
-| lobsterai-server | `LOBSTER_APIKEY_SERVER` | accessToken from auth |
+| popiai-server | `LOBSTER_APIKEY_SERVER` | accessToken from auth |
 | moonshot | `LOBSTER_APIKEY_MOONSHOT` | provider config apiKey |
 | anthropic | `LOBSTER_APIKEY_ANTHROPIC` | provider config apiKey |
-| ollama | `LOBSTER_APIKEY_OLLAMA` | `sk-lobsterai-local` (no key needed) |
+| ollama | `LOBSTER_APIKEY_OLLAMA` | `sk-popiai-local` (no key needed) |
 | custom | `LOBSTER_APIKEY_CUSTOM` | provider config apiKey |
 | (legacy) | `LOBSTER_PROVIDER_API_KEY` | active provider's key (backward compat) |
 
 Formula: `LOBSTER_APIKEY_` + `providerName.toUpperCase().replace(/[^A-Z0-9]/g, '_')`
 
-For lobsterai-server, hardcoded as `SERVER` (since it's a dynamic provider, not in app_config.providers).
+For popiai-server, hardcoded as `SERVER` (since it's a dynamic provider, not in app_config.providers).
 
 ### Changes
 
@@ -79,7 +79,7 @@ New export `resolveAllProviderApiKeys()`:
 
 1. New helper `providerApiKeyEnvVar(providerName)` → `LOBSTER_APIKEY_<NAME>`
 2. `buildProviderSelection()` — all 4 cases updated:
-   - lobsterai-server: `${LOBSTER_APIKEY_SERVER}` (was inline apiKey)
+   - popiai-server: `${LOBSTER_APIKEY_SERVER}` (was inline apiKey)
    - moonshot+codingPlan: `${LOBSTER_APIKEY_MOONSHOT}` (was `${LOBSTER_PROVIDER_API_KEY}`)
    - moonshot: `${LOBSTER_APIKEY_MOONSHOT}` (was `${LOBSTER_PROVIDER_API_KEY}`)
    - default: `${LOBSTER_APIKEY_<PROVIDER>}` (was `${LOBSTER_PROVIDER_API_KEY}`)

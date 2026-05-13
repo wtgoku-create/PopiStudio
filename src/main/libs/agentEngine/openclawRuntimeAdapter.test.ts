@@ -119,14 +119,14 @@ test('patchSession uses the persisted IM channel session key after runtime cache
     persistedSessionKey: 'agent:main:feishu:dm:ou_123',
   });
 
-  await adapter.patchSession('session-1', { model: 'lobsterai-server/qwen3.6-plus-YoudaoInner' });
+  await adapter.patchSession('session-1', { model: 'popiai-server/qwen3.6-plus-YoudaoInner' });
 
   expect(requests).toEqual([
     {
       method: 'sessions.patch',
       params: {
         key: 'agent:main:feishu:dm:ou_123',
-        model: 'lobsterai-server/qwen3.6-plus-YoudaoInner',
+        model: 'popiai-server/qwen3.6-plus-YoudaoInner',
       },
     },
   ]);
@@ -138,7 +138,7 @@ test('patchSession rejects IM channel sessions when the real OpenClaw key is mis
     persistedSessionKey: null,
   });
 
-  await expect(adapter.patchSession('session-1', { model: 'lobsterai-server/qwen3.6-plus-YoudaoInner' }))
+  await expect(adapter.patchSession('session-1', { model: 'popiai-server/qwen3.6-plus-YoudaoInner' }))
     .rejects.toThrow('Cannot patch IM channel session because the OpenClaw session key is missing.');
 
   expect(requests).toHaveLength(0);
@@ -155,7 +155,7 @@ test('patchSession keeps managed-key fallback for normal Cowork sessions', async
   expect(requests[0]).toEqual({
     method: 'sessions.patch',
     params: {
-      key: 'agent:main:lobsterai:session-1',
+      key: 'agent:main:popiai:session-1',
       model: 'moonshot/kimi-k2.6',
     },
   });
@@ -224,7 +224,7 @@ function createRunTurnAdapter(options: {
       ? {
         id: 'main',
         name: 'Main',
-        model: options.agentModel ?? 'lobsterai-server/qwen3.5-plus-YoudaoInner',
+        model: options.agentModel ?? 'popiai-server/qwen3.5-plus-YoudaoInner',
       }
       : null),
     updateAgent: () => {},
@@ -262,7 +262,7 @@ function createRunTurnAdapter(options: {
           : 'run-1';
         const sessionKey = typeof requestParams.sessionKey === 'string'
           ? requestParams.sessionKey
-          : 'agent:main:lobsterai:session-1';
+          : 'agent:main:popiai:session-1';
         queueMicrotask(() => {
           (adapter as unknown as {
             handleChatEvent: (payload: unknown, seq?: number) => void;
@@ -296,7 +296,7 @@ function createRunTurnAdapter(options: {
 }
 
 test('continueSession patches a session override before chat.send even when the model cache matches', async () => {
-  const model = 'lobsterai-server/qwen3.6-plus-YoudaoInner';
+  const model = 'popiai-server/qwen3.6-plus-YoudaoInner';
   const { adapter, requests } = createRunTurnAdapter({
     sessionModelOverride: model,
     cachedModel: model,
@@ -310,13 +310,13 @@ test('continueSession patches a session override before chat.send even when the 
     'chat.send',
   ]);
   expect(requests[0].params).toEqual({
-    key: 'agent:main:lobsterai:session-1',
+    key: 'agent:main:popiai:session-1',
     model,
   });
 });
 
 test('continueSession waits for an in-flight model patch before chat.send', async () => {
-  const model = 'lobsterai-server/qwen3.6-plus-YoudaoInner';
+  const model = 'popiai-server/qwen3.6-plus-YoudaoInner';
   const {
     adapter,
     requests,
@@ -350,14 +350,14 @@ test('continueSession waits for an in-flight model patch before chat.send', asyn
 
 test('continueSession sends the session cwd to OpenClaw chat.send', async () => {
   const { adapter, requests } = createRunTurnAdapter({
-    sessionCwd: '/tmp/lobsterai-selected-project',
+    sessionCwd: '/tmp/popiai-selected-project',
   });
 
   await adapter.continueSession('session-1', 'hello');
 
   const chatSend = requests.find((request) => request.method === 'chat.send');
   expect(chatSend?.params).toMatchObject({
-    cwd: path.resolve('/tmp/lobsterai-selected-project'),
+    cwd: path.resolve('/tmp/popiai-selected-project'),
   });
 });
 
@@ -631,7 +631,7 @@ test('lifecycle fallback repairs managed session assistant text from history', a
 
   const turn = {
     sessionId: session.id,
-    sessionKey: `agent:main:lobsterai:${session.id}`,
+    sessionKey: `agent:main:popiai:${session.id}`,
     runId: 'run-1',
     turnToken: 1,
     startedAtMs: 1,
@@ -676,7 +676,7 @@ test('late lifecycle fallback event does not reopen a completed managed session'
     },
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
 
   adapter.rememberSessionKey(session.id, sessionKey);
   adapter.handleGatewayEvent({
@@ -701,7 +701,7 @@ test('late event for a closed run does not recreate a managed session turn', () 
     { id: 'msg-2', type: 'assistant', content: 'done', timestamp: 2, metadata: { isStreaming: false, isFinal: true } },
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
 
   adapter.rememberSessionKey(session.id, sessionKey);
   adapter.ensureActiveTurn(session.id, sessionKey, 'closed-run');
@@ -1257,10 +1257,10 @@ test('getSessionKeysForSession prefers channel keys before managed fallback', ()
   const adapter = new OpenClawRuntimeAdapter(store, {});
 
   adapter.rememberSessionKey('session-1', 'agent:main:openai-user:dingtalk-connector:__default__:2459325231940374');
-  adapter.rememberSessionKey('session-1', 'agent:main:lobsterai:session-1');
+  adapter.rememberSessionKey('session-1', 'agent:main:popiai:session-1');
 
   expect(adapter.getSessionKeysForSession('session-1')).toEqual([
     'agent:main:openai-user:dingtalk-connector:__default__:2459325231940374',
-    'agent:main:lobsterai:session-1',
+    'agent:main:popiai:session-1',
   ]);
 });

@@ -205,10 +205,10 @@ const MANAGED_SKILL_ENTRY_OVERRIDES: Record<string, { enabled: boolean }> = {
   'feishu-cron-reminder': {
     enabled: false,
   },
-  // LobsterAI implements its own MCP integration. The bundled mcporter skill
+  // Popiai implements its own MCP integration. The bundled mcporter skill
   // tries to discover MCP servers via its own CLI, finds none, and produces
   // confusing "no MCP servers" output. Disable it so users are routed through
-  // LobsterAI's MCP layer instead.
+  // Popiai's MCP layer instead.
   'mcporter': {
     enabled: false,
   },
@@ -235,10 +235,10 @@ const MANAGED_WEB_SEARCH_POLICY_PROMPT = [
   'When you need live web information:',
   '- If you already have a specific URL, use `web_fetch`.',
   '- If you need search discovery, dynamic pages, or interactive browsing, use the built-in `browser` tool.',
-  '- Only use the LobsterAI `web-search` skill when local command execution is available. Native channel sessions may deny `exec`, so prefer `browser` or `web_fetch` there.',
+  '- Only use the Popiai `web-search` skill when local command execution is available. Native channel sessions may deny `exec`, so prefer `browser` or `web_fetch` there.',
   '- Exception: the `imap-smtp-email` skill must always use `exec` to run its scripts, even in native channel sessions. Do not skip it because of exec restrictions.',
   '',
-  'Do not claim you searched the web unless you actually used `browser`, `web_fetch`, or the LobsterAI `web-search` skill.',
+  'Do not claim you searched the web unless you actually used `browser`, `web_fetch`, or the Popiai `web-search` skill.',
 ].join('\n');
 
 const MANAGED_EXEC_SAFETY_PROMPT = [
@@ -268,9 +268,9 @@ const MANAGED_EXEC_SAFETY_PROMPT = [
  * embedding in AGENTS.md so the model knows where to create new skills.
  *
  * Example outputs:
- *   macOS:   ~/Library/Application Support/LobsterAI/SKILLs
- *   Windows: ~/AppData/Roaming/LobsterAI/SKILLs
- *   Linux:   ~/.config/LobsterAI/SKILLs
+ *   macOS:   ~/Library/Application Support/Popiai/SKILLs
+ *   Windows: ~/AppData/Roaming/Popiai/SKILLs
+ *   Linux:   ~/.config/Popiai/SKILLs
  */
 const resolveSkillCreationPath = (): string => {
   const skillsDir = path.join(app.getPath('userData'), 'SKILLs');
@@ -285,7 +285,7 @@ const resolveSkillCreationPath = (): string => {
 const buildManagedSkillCreationPrompt = (skillsDirPath: string): string => [
   '## Skill Creation',
   '',
-  'When the user asks you to create a new skill, you MUST place it under the LobsterAI skills directory:',
+  'When the user asks you to create a new skill, you MUST place it under the Popiai skills directory:',
   '',
   `  ${skillsDirPath}/<skill-name>/SKILL.md`,
   '',
@@ -567,8 +567,8 @@ type ProviderDescriptor = {
 };
 
 const PROVIDER_REGISTRY: Record<string, ProviderDescriptor> = {
-  [ProviderName.LobsteraiServer]: {
-    providerId: OpenClawProviderId.LobsteraiServer,
+  [ProviderName.PopiaiServer]: {
+    providerId: OpenClawProviderId.PopiaiServer,
     resolveApi: () => OpenClawApiConst.OpenAICompletions as OpenClawProviderApi,
     normalizeBaseUrl: url => {
       const proxyPort = getOpenClawTokenProxyPort();
@@ -689,7 +689,7 @@ const PROVIDER_REGISTRY: Record<string, ProviderDescriptor> = {
   },
 
   [ProviderName.Copilot]: {
-    providerId: OpenClawProviderId.LobsteraiCopilot,
+    providerId: OpenClawProviderId.PopiaiCopilot,
     resolveApi: () => OpenClawApiConst.OpenAICompletions as OpenClawProviderApi,
     normalizeBaseUrl: stripChatCompletionsSuffix,
     resolveRuntimeBaseUrl: () => {
@@ -1009,7 +1009,7 @@ export class OpenClawConfigSync {
    * read against a "last known good" fingerprint.  One of the checks is
    * `hasConfigMeta` — if the previous good config had `meta` but the current
    * one doesn't, an anomaly is logged and the file content is persisted as a
-   * `.clobbered.<timestamp>` snapshot.  Because LobsterAI writes openclaw.json
+   * `.clobbered.<timestamp>` snapshot.  Because Popiai writes openclaw.json
    * directly (bypassing OpenClaw's own `writeConfigFile` which calls
    * `stampConfigVersion`), we need to stamp `meta` ourselves.
    */
@@ -1135,7 +1135,7 @@ export class OpenClawConfigSync {
       const proxyPort = getOpenClawTokenProxyPort();
       if (proxyPort) {
         const serverModels = getAllServerModelMetadata();
-        const providerId = OpenClawProviderId.LobsteraiServer;
+        const providerId = OpenClawProviderId.PopiaiServer;
 
         if (serverModels.length > 0 || !allProvidersMap[providerId]) {
           const firstServerModelId = serverModels[0]?.modelId || modelId;
@@ -1144,18 +1144,18 @@ export class OpenClawConfigSync {
             baseURL: `http://127.0.0.1:${proxyPort}/v1`,
             modelId: firstServerModelId,
             apiType: 'openai',
-            providerName: ProviderName.LobsteraiServer,
+            providerName: ProviderName.PopiaiServer,
             supportsImage: serverModels[0]?.supportsImage,
           });
-          const lobsteraiProviderConfig =
+          const popiaiProviderConfig =
             allProvidersMap[providerId] ?? {
               ...firstServerSel.providerConfig,
               models: [] as typeof firstServerSel.providerConfig.models,
             };
-          allProvidersMap[providerId] = lobsteraiProviderConfig;
+          allProvidersMap[providerId] = popiaiProviderConfig;
 
           if (serverModels.length === 0) {
-            upsertProviderModel(lobsteraiProviderConfig, firstServerSel.providerConfig.models[0]);
+            upsertProviderModel(popiaiProviderConfig, firstServerSel.providerConfig.models[0]);
           } else {
             for (const sm of serverModels) {
               const serverSel = buildProviderSelection({
@@ -1163,11 +1163,11 @@ export class OpenClawConfigSync {
                 baseURL: `http://127.0.0.1:${proxyPort}/v1`,
                 modelId: sm.modelId,
                 apiType: 'openai',
-                providerName: ProviderName.LobsteraiServer,
+                providerName: ProviderName.PopiaiServer,
                 supportsImage: sm.supportsImage,
                 modelName: sm.modelId,
               });
-              upsertProviderModel(lobsteraiProviderConfig, serverSel.providerConfig.models[0]);
+              upsertProviderModel(popiaiProviderConfig, serverSel.providerConfig.models[0]);
             }
           }
         }
@@ -1415,7 +1415,7 @@ export class OpenClawConfigSync {
           // Qwen/DashScope URLs. Declare it only when the plugin actually
           // exists, otherwise it becomes a stale entry on every startup.
           ...(hasQwenProvider && qwenPortalAuthPluginId ? { [qwenPortalAuthPluginId]: { enabled: true } } : {}),
-          // Disable acpx (ACP agent runtime) — LobsterAI does not use ACP and
+          // Disable acpx (ACP agent runtime) — Popiai does not use ACP and
           // the embedded probe adds ~11s to gateway startup while it waits for
           // a process that always fails.  See openclaw/openclaw#62588.
           'acpx': { enabled: false },
@@ -1687,7 +1687,7 @@ export class OpenClawConfigSync {
         clientSecret: `\${${secretEnvVar}}`,
         // v3.5.x schema: dmPolicy/groupPolicy/allowFrom are valid; sessionTimeout/
         // separateSessionByConversation/groupSessionScope/sharedMemoryAcrossConversations/
-        // gatewayBaseUrl were LobsterAI-specific and are not in the plugin schema.
+        // gatewayBaseUrl were Popiai-specific and are not in the plugin schema.
         dmPolicy: inst.dmPolicy || 'open',
         allowFrom: (() => {
           const ids = inst.allowFrom?.length ? [...inst.allowFrom] : [];
@@ -2272,7 +2272,7 @@ export class OpenClawConfigSync {
   }
 
   /**
-   * Ensures exec-approvals.json under the LobsterAI-managed openclaw home has
+   * Ensures exec-approvals.json under the Popiai-managed openclaw home has
    * security=full + ask=off so the gateway never triggers approval-pending
    * for any command. The path must match the OPENCLAW_HOME env var passed to
    * the gateway process so both sides read/write the same file.
@@ -2411,7 +2411,7 @@ export class OpenClawConfigSync {
           }
         }
 
-        if (!/^agent:[^:]+:lobsterai:/.test(sessionKey)) {
+        if (!/^agent:[^:]+:popiai:/.test(sessionKey)) {
           continue;
         }
 
@@ -2474,13 +2474,13 @@ export class OpenClawConfigSync {
   }
 
   /**
-   * Resolve the LobsterAI SKILLs installation directory for OpenClaw's
+   * Resolve the Popiai SKILLs installation directory for OpenClaw's
    * `skills.load.extraDirs` configuration.
    *
    * Cross-platform paths (via Electron app.getPath('userData')):
-   *   macOS:   ~/Library/Application Support/LobsterAI/SKILLs
-   *   Windows: %APPDATA%/LobsterAI/SKILLs
-   *   Linux:   ~/.config/LobsterAI/SKILLs
+   *   macOS:   ~/Library/Application Support/Popiai/SKILLs
+   *   Windows: %APPDATA%/Popiai/SKILLs
+   *   Linux:   ~/.config/Popiai/SKILLs
    */
   private resolveSkillsExtraDirs(): string[] {
     const userDataSkillsDir = path.join(app.getPath('userData'), 'SKILLs');
@@ -2503,8 +2503,8 @@ export class OpenClawConfigSync {
   }
 
   /**
-   * Build per-skill `enabled` overrides from the LobsterAI SkillManager state,
-   * so that skills disabled in the LobsterAI UI are also hidden from OpenClaw.
+   * Build per-skill `enabled` overrides from the Popiai SkillManager state,
+   * so that skills disabled in the Popiai UI are also hidden from OpenClaw.
    */
   private buildSkillEntries(): Record<string, { enabled: boolean }> {
     const skills = this.getSkillsList?.() ?? [];
@@ -2519,10 +2519,10 @@ export class OpenClawConfigSync {
    * Sync AGENTS.md to the OpenClaw workspace directory.
    * Embeds the skills routing prompt and system prompt so that OpenClaw's
    * native channel connectors (DingTalk, Feishu, etc.) can discover and
-   * invoke LobsterAI skills.
+   * invoke Popiai skills.
    */
   private syncAgentsMd(workspaceDir: string, coworkConfig: CoworkConfig): string | undefined {
-    const MARKER = '<!-- LobsterAI managed: do not edit below this line -->';
+    const MARKER = '<!-- Popiai managed: do not edit below this line -->';
 
     try {
       ensureDir(workspaceDir);

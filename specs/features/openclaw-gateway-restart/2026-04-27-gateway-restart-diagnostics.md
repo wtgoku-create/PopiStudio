@@ -202,13 +202,13 @@ needsHardRestart = secretEnvVarsChanged
 ### 4.1 提取完整重启时间线
 
 ```bash
-grep 'GW-RESTART-DIAG' ~/Library/Logs/lobsterai/main.log
+grep 'GW-RESTART-DIAG' ~/Library/Logs/popiai/main.log
 ```
 
 ### 4.2 只看重启决策和执行
 
 ```bash
-grep 'GW-RESTART-DIAG.*\(HARD RESTART\|NO RESTART\|DEFERRED\|restartGateway: reason\|gateway process exited\|auto-restart\)' ~/Library/Logs/lobsterai/main.log
+grep 'GW-RESTART-DIAG.*\(HARD RESTART\|NO RESTART\|DEFERRED\|restartGateway: reason\|gateway process exited\|auto-restart\)' ~/Library/Logs/popiai/main.log
 ```
 
 ### 4.3 常见场景分析

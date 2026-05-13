@@ -4,7 +4,7 @@
 
 ### 现状
 
-`buildProviderSelection`（`src/main/libs/openclawConfigSync.ts`，搜索 `const buildProviderSelection` 定位）负责将 LobsterAI 的 provider 配置映射为 OpenClaw 的 `OpenClawProviderSelection` 结构。当前存在三个核心问题：
+`buildProviderSelection`（`src/main/libs/openclawConfigSync.ts`，搜索 `const buildProviderSelection` 定位）负责将 Popiai 的 provider 配置映射为 OpenClaw 的 `OpenClawProviderSelection` 结构。当前存在三个核心问题：
 
 **1. 覆盖不完整**
 
@@ -12,7 +12,7 @@
 
 | Provider | 处理方式 | 状态 |
 |----------|----------|------|
-| `lobsterai-server` | 专用分支（token proxy） | ✅ 已覆盖 |
+| `popiai-server` | 专用分支（token proxy） | ✅ 已覆盖 |
 | `moonshot` + codingPlan | 专用分支（kimi-coding） | ✅ 已覆盖 |
 | `moonshot` | 专用分支 | ✅ 已覆盖 |
 | `gemini` | 专用分支（google-generative-ai） | ✅ 已覆盖 |
@@ -52,7 +52,7 @@
 
 | 类别 | 散落的字符串 | 出现位置 |
 |------|-------------|---------|
-| Provider Name | `'lobsterai-server'`, `'moonshot'`, `'gemini'` 等 | `buildProviderSelection` 的 if 条件、`claudeSettings.ts` 的 `getEffectiveProviderApiFormat`、renderer `config.ts` 的 key |
+| Provider Name | `'popiai-server'`, `'moonshot'`, `'gemini'` 等 | `buildProviderSelection` 的 if 条件、`claudeSettings.ts` 的 `getEffectiveProviderApiFormat`、renderer `config.ts` 的 key |
 | OpenClaw Provider ID | `'lobster'`, `'kimi-coding'`, `'google'` 等 | `buildProviderSelection` 返回值、`syncManagedSessionStore` 迁移逻辑 |
 | OpenClaw API 协议 | `'anthropic-messages'`, `'openai-completions'`, `'openai-responses'`, `'google-generative-ai'` | `buildProviderSelection` 每个分支、`mapApiTypeToOpenClawApi` |
 | API Format | `'openai'`, `'anthropic'`, `'gemini'` | `claudeSettings.ts`、renderer config、shared ProviderDef |
@@ -72,7 +72,7 @@
 
 ```typescript
 // ─── Provider Name ──────────────────────────────────────────────────────
-// providerName 用于标识 LobsterAI 内部的 provider（对应 config key）
+// providerName 用于标识 Popiai 内部的 provider（对应 config key）
 export const ProviderName = {
   OpenAI: 'openai',
   Gemini: 'gemini',
@@ -89,14 +89,14 @@ export const ProviderName = {
   OpenRouter: 'openrouter',
   Ollama: 'ollama',
   Custom: 'custom',
-  LobsteraiServer: 'lobsterai-server',
+  PopiaiServer: 'popiai-server',
 } as const;
 export type ProviderName = typeof ProviderName[keyof typeof ProviderName];
 
 // ─── OpenClaw Provider ID ───────────────────────────────────────────────
 // OpenClaw gateway 识别的 provider 标识，与 ProviderName 不一定相同
 export const OpenClawProviderId = {
-  LobsteraiServer: 'lobsterai-server',
+  PopiaiServer: 'popiai-server',
   KimiCoding: 'kimi-coding',
   Moonshot: 'moonshot',
   Google: 'google',
@@ -177,8 +177,8 @@ if (providerName === ProviderName.Gemini) {
 
 ```typescript
 const PROVIDER_REGISTRY: Record<string, ProviderDescriptor> = {
-  [ProviderName.LobsteraiServer]: {
-    providerId: OpenClawProviderId.LobsteraiServer,
+  [ProviderName.PopiaiServer]: {
+    providerId: OpenClawProviderId.PopiaiServer,
     resolveApi: () => OpenClawApi.OpenAICompletions,
     // ...
   },
@@ -277,7 +277,7 @@ type ProviderDescriptor = {
 
   /**
    * Resolve the API key placeholder or literal value.
-   * Most providers use env var placeholders; lobsterai-server may use 'proxy-managed'.
+   * Most providers use env var placeholders; popiai-server may use 'proxy-managed'.
    * Default: returns '${LOBSTER_APIKEY_<PROVIDER>}'.
    */
   resolveApiKey?: (options: { apiKey: string; providerName: string }) => string;
@@ -314,8 +314,8 @@ type ProviderDescriptor = {
 const PROVIDER_REGISTRY: Record<string, ProviderDescriptor> = {
   // === Special providers with unique routing logic ===
 
-  'lobsterai-server': {
-    providerId: 'lobsterai-server',
+  'popiai-server': {
+    providerId: 'popiai-server',
     resolveApi: () => 'openai-completions',
     normalizeBaseUrl: (url) => {
       const proxyPort = getOpenClawTokenProxyPort();
@@ -639,12 +639,12 @@ const buildProviderSelection = (options: {
    - 场景 9: `buildProviderSelection({ providerName: 'ollama', ... })` → `providerId === 'ollama'`
    - 场景 11: `buildProviderSelection({ providerName: '', ... })` → `providerId === 'lobster'`（兜底行为保持）
 
-### Step 3: 保留 `lobsterai-server` 的日志
+### Step 3: 保留 `popiai-server` 的日志
 
-原函数中 `lobsterai-server` 分支有 `console.log` 输出调试信息（搜索 `buildProviderSelection lobsterai-server` 定位），需在 descriptor 的 `normalizeBaseUrl` 或核心函数中保留。
+原函数中 `popiai-server` 分支有 `console.log` 输出调试信息（搜索 `buildProviderSelection popiai-server` 定位），需在 descriptor 的 `normalizeBaseUrl` 或核心函数中保留。
 
 **QA**（通过 Step 4 的测试验证，运行 `npm test -- openclawConfigSync`）:
-1. 测试用例 `'lobsterai-server logs proxy info'`：使用 `vi.spyOn(console, 'log')` 断言当 `providerName === 'lobsterai-server'` 时，`console.log` 被调用且参数包含 `'[OpenClawConfigSync]'` 标签。
+1. 测试用例 `'popiai-server logs proxy info'`：使用 `vi.spyOn(console, 'log')` 断言当 `providerName === 'popiai-server'` 时，`console.log` 被调用且参数包含 `'[OpenClawConfigSync]'` 标签。
 2. 测试用例 `'non-server provider does not log'`：调用 `buildProviderSelection({ providerName: 'openai', ... })` 后断言 `console.log` 未被调用（或不包含 `'[OpenClawConfigSync]'` 标签）。
 
 ### Step 4: 补充测试
@@ -674,11 +674,11 @@ vi.mock('./openclawTokenProxy', () => ({
 import { getOpenClawTokenProxyPort } from './openclawTokenProxy';
 const mockGetProxyPort = vi.mocked(getOpenClawTokenProxyPort);
 
-// 场景 1a: lobsterai-server with proxy port
+// 场景 1a: popiai-server with proxy port
 mockGetProxyPort.mockReturnValue(12345);
 // → 断言 apiKey === 'proxy-managed', baseUrl === 'http://127.0.0.1:12345/v1'
 
-// 场景 1b: lobsterai-server without proxy port
+// 场景 1b: popiai-server without proxy port
 mockGetProxyPort.mockReturnValue(undefined);
 // → 断言 apiKey 使用 env var placeholder, baseUrl strip /chat/completions
 ```
@@ -688,10 +688,10 @@ mockGetProxyPort.mockReturnValue(undefined);
 **必须覆盖的测试场景**（每个场景验证 `providerId`、`baseUrl`、`api`、`sessionModelId`、`apiKey` 五个字段）：
 
 ```typescript
-// 场景 1: lobsterai-server（token proxy 模式）
-// 输入: providerName='lobsterai-server', baseURL='http://example.com/v1/chat/completions', apiType='openai'
+// 场景 1: popiai-server（token proxy 模式）
+// 输入: providerName='popiai-server', baseURL='http://example.com/v1/chat/completions', apiType='openai'
 // 断言:
-//   providerId === 'lobsterai-server'
+//   providerId === 'popiai-server'
 //   api === 'openai-completions'
 //   apiKey === 'proxy-managed' (当 proxy port 存在时)
 //   baseUrl 为 proxy URL 格式

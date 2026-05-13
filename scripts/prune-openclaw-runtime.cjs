@@ -67,7 +67,7 @@ const DIRS_TO_DELETE = new Set([
 // pruned unless explicitly added here.
 
 const BUNDLED_EXTENSIONS_TO_KEEP = new Set([
-  // --- Providers (LobsterAI may route to these) ---
+  // --- Providers (Popiai may route to these) ---
   'anthropic', 'deepseek', 'google', 'kimi-coding', 'minimax', 'moonshot',
   'ollama', 'openai', 'openrouter', 'qianfan', 'qwen', 'stepfun', 'volcengine',
   // --- Channels (managed via entries or third-party replacements) ---

@@ -241,7 +241,7 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.agents.defaults.cwd).toBe(path.resolve(tmpDir));
   });
 
-  test('merges all server models into existing lobsterai provider and updates image input', async () => {
+  test('merges all server models into existing popiai provider and updates image input', async () => {
     mockRuntimeState.proxyPort = 56646;
     mockRuntimeState.serverModels = [
       { modelId: 'qwen3.5-plus-YoudaoInner', supportsImage: true },
@@ -250,13 +250,13 @@ describe('OpenClawConfigSync runtime config output', () => {
     ];
     mockRuntimeState.rawApiConfig = {
       config: {
-        baseURL: 'https://lobsterai-server.youdao.com/api/proxy/v1',
+        baseURL: 'https://popiai-server.youdao.com/api/proxy/v1',
         apiKey: 'access-token',
         model: 'qwen3.5-plus-YoudaoInner',
         apiType: 'openai',
       },
       providerMetadata: {
-        providerName: 'lobsterai-server',
+        providerName: 'popiai-server',
         codingPlanEnabled: false,
         supportsImage: false,
         modelName: 'Qwen3.5 Plus',
@@ -305,7 +305,7 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(result.ok).toBe(true);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const provider = config.models.providers['lobsterai-server'];
+    const provider = config.models.providers['popiai-server'];
     expect(provider.baseUrl).toBe('http://127.0.0.1:56646/v1');
     expect(provider.models).toEqual(expect.arrayContaining([
       expect.objectContaining({

@@ -1,7 +1,7 @@
-# LobsterAI — 全场景个人助理 Agent
+# Popiai — 全场景个人助理 Agent
 
 <p align="center">
-  <img src="public/logo.png" alt="LobsterAI" width="120">
+  <img src="public/logo.png" alt="Popiai" width="120">
 </p>
 
 <p align="center">
@@ -23,9 +23,9 @@
 
 ---
 
-**LobsterAI** 是由[网易有道](https://www.youdao.com/)开发的全场景个人助理 Agent。它 7×24 小时待命，能够帮你完成日常办公中的各类事务 —— 数据分析、制作 PPT、生成视频、撰写文档、搜索信息、收发邮件、定时任务，以及更多。
+**Popiai** 是由[网易有道](https://www.youdao.com/)开发的全场景个人助理 Agent。它 7×24 小时待命，能够帮你完成日常办公中的各类事务 —— 数据分析、制作 PPT、生成视频、撰写文档、搜索信息、收发邮件、定时任务，以及更多。
 
-LobsterAI 的核心是 **Cowork 模式**，它能在本地或沙箱环境中执行工具、操作文件、运行命令，一切都在你的监督下自主完成。此外，LobsterAI 支持通过微信、企业微信、钉钉、飞书、Telegram、Discord 等 IM 平台远程触发，让你在手机上也能随时指挥 Agent 工作。
+Popiai 的核心是 **Cowork 模式**，它能在本地或沙箱环境中执行工具、操作文件、运行命令，一切都在你的监督下自主完成。此外，Popiai 支持通过微信、企业微信、钉钉、飞书、Telegram、Discord 等 IM 平台远程触发，让你在手机上也能随时指挥 Agent 工作。
 
 ## 核心特性
 
@@ -57,8 +57,8 @@ LobsterAI 的核心是 **Cowork 模式**，它能在本地或沙箱环境中执�
 
 ```bash
 # 克隆仓库
-git clone https://github.com/netease-youdao/LobsterAI.git
-cd LobsterAI
+git clone https://github.com/netease-youdao/Popiai.git
+cd Popiai
 
 # 安装依赖
 npm install
@@ -70,7 +70,7 @@ npm run electron:dev
 开发服务器默认运行在 `http://localhost:5175`。
 
 
-LobsterAI 使用 [OpenClaw](https://github.com/openclaw/openclaw) 作为 Agent 引擎。
+Popiai 使用 [OpenClaw](https://github.com/openclaw/openclaw) 作为 Agent 引擎。
 所依赖的 OpenClaw 版本在 `package.json` 的 `openclaw.version` 字段中声明。
 
 ```bash
@@ -157,18 +157,18 @@ OPENCLAW_SRC=/path/to/openclaw npm run dist:win
 ```
 
 Windows 打包会内置便携 Python 运行时到 `resources/python-win`（安装包资源目录为 `python-win`），终端用户无需手动安装 Python。
-该运行时以解释器为主，不预装 LobsterAI 技能所需的 Python 三方包；相关依赖可在运行时按需安装。
+该运行时以解释器为主，不预装 Popiai 技能所需的 Python 三方包；相关依赖可在运行时按需安装。
 默认情况下，如果未提供预构建压缩包，打包脚本会直接从 python.org 下载官方 embeddable Python 运行时。
 离线或无法联网的构建场景，请显式提供预构建运行时压缩包。
 
 企业离线/私有源打包可通过以下环境变量配置：
-- `LOBSTERAI_PORTABLE_PYTHON_ARCHIVE`：本地预构建运行时压缩包路径（离线 CI/CD 推荐）
-- `LOBSTERAI_PORTABLE_PYTHON_URL`：预构建运行时压缩包下载地址
-- `LOBSTERAI_WINDOWS_EMBED_PYTHON_VERSION` / `LOBSTERAI_WINDOWS_EMBED_PYTHON_URL` / `LOBSTERAI_WINDOWS_GET_PIP_URL`：Windows 主机构建时自动拉取源的可选覆盖项
+- `POPIAI_PORTABLE_PYTHON_ARCHIVE`：本地预构建运行时压缩包路径（离线 CI/CD 推荐）
+- `POPIAI_PORTABLE_PYTHON_URL`：预构建运行时压缩包下载地址
+- `POPIAI_WINDOWS_EMBED_PYTHON_VERSION` / `POPIAI_WINDOWS_EMBED_PYTHON_URL` / `POPIAI_WINDOWS_GET_PIP_URL`：Windows 主机构建时自动拉取源的可选覆盖项
 
 ## 架构概览
 
-LobsterAI 采用 Electron 严格进程隔离架构，所有跨进程通信通过 IPC 完成。
+Popiai 采用 Electron 严格进程隔离架构，所有跨进程通信通过 IPC 完成。
 
 ### 进程模型
 
@@ -236,7 +236,7 @@ SKILLs/                              # 技能定义目录
 
 ## Cowork 系统
 
-Cowork 是 LobsterAI 的核心功能 —— 以 OpenClaw 为主引擎的 AI 工作会话系统。它面向办公场景设计，能够自主完成数据分析、文档生成、信息检索等复杂任务。
+Cowork 是 Popiai 的核心功能 —— 以 OpenClaw 为主引擎的 AI 工作会话系统。它面向办公场景设计，能够自主完成数据分析、文档生成、信息检索等复杂任务。
 
 ### 执行模式
 
@@ -262,7 +262,7 @@ Cowork 通过 IPC 事件实现实时双向通信：
 
 ## 技能系统
 
-LobsterAI 内置 29 种技能，覆盖办公、创作、投研、自动化等多种场景，通过 `SKILLs/skills.config.json` 配置启停和排序：
+Popiai 内置 29 种技能，覆盖办公、创作、投研、自动化等多种场景，通过 `SKILLs/skills.config.json` 配置启停和排序：
 
 | 技能 | 功能 | 典型场景 |
 |------|------|---------|
@@ -299,7 +299,7 @@ LobsterAI 内置 29 种技能，覆盖办公、创作、投研、自动化等多
 
 ## 定时任务
 
-LobsterAI 支持创建定时任务，让 Agent 按计划自动执行重复性工作。
+Popiai 支持创建定时任务，让 Agent 按计划自动执行重复性工作。
 
 ### 创建方式
 
@@ -320,7 +320,7 @@ LobsterAI 支持创建定时任务，让 Agent 按计划自动执行重复性工
 
 ## IM 集成 — 手机端远程操控
 
-LobsterAI 支持将 Agent 桥接到多种 IM 平台。在手机上通过 IM 发送消息即可远程触发桌面端的 Agent 执行任务，随时随地指挥你的个人助理。
+Popiai 支持将 Agent 桥接到多种 IM 平台。在手机上通过 IM 发送消息即可远程触发桌面端的 Agent 执行任务，随时随地指挥你的个人助理。
 
 | 平台 | 协议 | 说明 |
 |------|------|------|
@@ -332,14 +332,14 @@ LobsterAI 支持将 Agent 桥接到多种 IM 平台。在手机上通过 IM 发�
 | Telegram | grammY | Bot API 接入，支持 Webhook 与轮询 |
 | Discord | discord.js | Discord Bot 接入，支持服务器与私聊 |
 | 云信 IM | node-nim V2 SDK | [网易云信 IM P2P 私聊](https://doc.yunxin.163.com/messaging2/getting-started) |
-| 网易小蜜蜂 | node-nim V2 SDK | [网易小蜜蜂个人数字助理](https://wp.m.163.com/163/html/bee/lobsterai_guide/index.html) |
+| 网易小蜜蜂 | node-nim V2 SDK | [网易小蜜蜂个人数字助理](https://wp.m.163.com/163/html/bee/popiai_guide/index.html) |
 | 网易 POPO | OpenClaw 网关 | 网易 POPO 企业 IM，支持 WebSocket 与 Webhook 两种接入方式 |
 
 在设置面板中配置对应平台的 Token/密钥即可启用。配置完成后，你可以在手机 IM 中直接对 Agent 下达指令（如「帮我分析这份数据」「做一份本周工作汇报 PPT」），Agent 会在桌面端自动执行并返回结果。
 
 ## 持久记忆
 
-LobsterAI 的记忆系统基于 OpenClaw，以文件形式持久化存储在工作目录中，让 Agent 跨会话记住你的信息和偏好。
+Popiai 的记忆系统基于 OpenClaw，以文件形式持久化存储在工作目录中，让 Agent 跨会话记住你的信息和偏好。
 
 ### 记忆文件结构
 
@@ -364,7 +364,7 @@ LobsterAI 的记忆系统基于 OpenClaw，以文件形式持久化存储在工�
 
 ## 数据存储
 
-所有数据存储在本地 SQLite 数据库（`lobsterai.sqlite`，位于用户数据目录）。
+所有数据存储在本地 SQLite 数据库（`popiai.sqlite`，位于用户数据目录）。
 
 | 表 | 用途 |
 |----|------|
@@ -382,7 +382,7 @@ LobsterAI 的记忆系统基于 OpenClaw，以文件形式持久化存储在工�
 
 ## 安全模型
 
-LobsterAI 在多个层面实施安全控制：
+Popiai 在多个层面实施安全控制：
 
 - **进程隔离** — context isolation 启用，node integration 禁用
 - **权限门控** — 敏感工具调用需用户明确审批
@@ -426,7 +426,7 @@ Cowork 会话配置包含：
 
 ## OpenClaw 版本管理
 
-LobsterAI 将 OpenClaw 依赖锁定到指定的 release 版本，在 `package.json` 中声明：
+Popiai 将 OpenClaw 依赖锁定到指定的 release 版本，在 `package.json` 中声明：
 
 ```json
 {
@@ -525,7 +525,7 @@ PR 描述中请包含：变更说明、关联 issue、UI 变更附截图，以�
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=netease-youdao/LobsterAI&type=date&legend=top-left)](https://www.star-history.com/#netease-youdao/LobsterAI&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=netease-youdao/Popiai&type=date&legend=top-left)](https://www.star-history.com/#netease-youdao/Popiai&type=date&legend=top-left)
 
 
 ---
