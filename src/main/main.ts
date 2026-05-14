@@ -151,7 +151,7 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
 };
 const POPI_LLM_GATEWAY_BASE_URL = 'https://llmapitest.popi.art';
 const POPI_DEFAULT_SERVER_MODELS = [
-  { modelId: 'gdoubao-seed-2-0-lite-260428', modelName: 'doubao-seed-2-0-lite-260428', provider: 'popi-gateway', apiFormat: 'openai', supportsImage: false },
+  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: false },
 ] as const;
 
 function sanitizeOptionalPatchValue(
@@ -2374,10 +2374,12 @@ if (!gotTheLock) {
     if (!resp.ok) {
       throw new Error(`Gateway API key request failed: ${resp.status}`);
     }
-
+    console.log('[Auth] fetched API keys list from server, selecting active key...',resp);
     const data = await parsePopiResponse<{
       list?: Array<{ apikey?: string; status?: number; deleted?: boolean }>;
     }>(resp);
+    console.log('data==>',data);
+    
     const activeKey = data?.list?.find(item => item.apikey && item.deleted !== true && item.status === 1)
       ?? data?.list?.find(item => item.apikey && item.deleted !== true)
       ?? data?.list?.find(item => item.apikey);
@@ -2741,7 +2743,7 @@ if (!gotTheLock) {
             .map(id => ({
               modelId: id,
               modelName: id,
-              provider: 'popi-gateway',
+              provider: ProviderName.PopiaiServer,
               apiFormat: 'openai',
               supportsImage: true,
             }));
