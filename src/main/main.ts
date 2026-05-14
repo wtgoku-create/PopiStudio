@@ -149,6 +149,10 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'application/json': '.json',
   'text/csv': '.csv',
 };
+const POPI_LLM_GATEWAY_BASE_URL = 'https://llmapitest.popi.art';
+const POPI_DEFAULT_SERVER_MODELS = [
+  { modelId: 'gdoubao-seed-2-0-lite-260428', modelName: 'doubao-seed-2-0-lite-260428', provider: 'popi-gateway', apiFormat: 'openai', supportsImage: false },
+] as const;
 
 function sanitizeOptionalPatchValue(
   value: unknown,
@@ -1992,9 +1996,9 @@ const showSystemMenu = (position?: { x?: number; y?: number }) => {
 
   const isMaximized = mainWindow.isMaximized();
   const menu = Menu.buildFromTemplate([
-    { label: 'Restore', enabled: isMaximized, click: () => mainWindow.restore() },
+    { label: 'Restore', enabled: isMaximized, click: () => mainWindow!.restore() },
     { role: 'minimize' },
-    { label: 'Maximize', enabled: !isMaximized, click: () => mainWindow.maximize() },
+    { label: 'Maximize', enabled: !isMaximized, click: () => mainWindow!.maximize() },
     { type: 'separator' },
     { role: 'close' },
   ]);
@@ -2291,6 +2295,125 @@ if (!gotTheLock) {
 
   const clearAuthTokens = () => {
     getStore().delete('auth_tokens');
+    getStore().delete('auth_token_meta');
+  };
+
+  type PopiUser = {
+    id?: number;
+    code?: string;
+    name?: string;
+    avatar?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    isMember?: boolean;
+    memberLevel?: number;
+    allCoins?: number;
+    memberCoins?: number;
+    otherCoins?: number;
+    pointPackageCoins?: number;
+    status?: number;
+  };
+
+  type ModelGatewayCredential = {
+    apiKey: string;
+    baseURL: string;
+    expiresAt?: number;
+  };
+
+  const normalizePopiBaseUrl = (url: string): string => url.trim().replace(/\/+$/, '');
+
+  const saveModelGatewayCredential = (credential: ModelGatewayCredential) => {
+    getStore().set('model_gateway_credential', credential);
+  };
+
+  const getModelGatewayCredential = (): ModelGatewayCredential | null => {
+    return getStore().get<ModelGatewayCredential>('model_gateway_credential') || null;
+  };
+
+  const clearModelGatewayCredential = () => {
+    getStore().delete('model_gateway_credential');
+  };
+
+  const normalizePopiUser = (user: PopiUser) => ({
+    yid: user.code || String(user.id || ''),
+    nickname: user.name || user.phone || user.email || 'Popi user',
+    avatarUrl: user.avatar || null,
+    phone: user.phone || null,
+    userId: user.id !== undefined ? String(user.id) : undefined,
+    id: user.id,
+    status: user.status,
+  });
+
+  const normalizePopiQuota = (raw?: Record<string, unknown> | null) => {
+    const availableTotalPoints = typeof raw?.availableTotalPoints === 'number'
+      ? raw.availableTotalPoints
+      : typeof raw?.allCoins === 'number'
+        ? raw.allCoins
+        : 0;
+    const consumePoints = typeof raw?.consumePoints === 'number' ? raw.consumePoints : 0;
+    return {
+      planName: typeof raw?.planName === 'string' ? raw.planName : t('authPlanFree'),
+      subscriptionStatus: raw?.isMember === true ? 'active' : 'free',
+      creditsLimit: availableTotalPoints + consumePoints,
+      creditsUsed: consumePoints,
+      creditsRemaining: availableTotalPoints,
+    };
+  };
+
+  const parsePopiResponse = async <T>(resp: Response): Promise<T> => {
+    const body = await resp.json() as { status?: string; message?: string; data?: T };
+    if (body.status !== '0000') {
+      throw new Error(body.message || 'Popi API request failed');
+    }
+    return body.data as T;
+  };
+
+  const refreshModelGatewayCredential = async (): Promise<ModelGatewayCredential> => {
+    const serverBaseUrl = getServerApiBaseUrl();
+    const resp = await fetchWithAuth(`${serverBaseUrl}/api_client/gateway/apikey/list`);
+    if (!resp.ok) {
+      throw new Error(`Gateway API key request failed: ${resp.status}`);
+    }
+
+    const data = await parsePopiResponse<{
+      list?: Array<{ apikey?: string; status?: number; deleted?: boolean }>;
+    }>(resp);
+    const activeKey = data?.list?.find(item => item.apikey && item.deleted !== true && item.status === 1)
+      ?? data?.list?.find(item => item.apikey && item.deleted !== true)
+      ?? data?.list?.find(item => item.apikey);
+
+    if (!activeKey?.apikey) {
+      throw new Error('Gateway API key not found for current account.');
+    }
+
+    const credential = {
+      apiKey: activeKey.apikey,
+      baseURL: `${normalizePopiBaseUrl(POPI_LLM_GATEWAY_BASE_URL)}/v1`,
+    };
+    saveModelGatewayCredential(credential);
+    return credential;
+  };
+
+  const fetchPopiUserPoints = async () => {
+    const serverBaseUrl = getServerApiBaseUrl();
+    const resp = await fetchWithAuth(`${serverBaseUrl}/api_client/users/userPoints/total`);
+    if (!resp.ok) return null;
+    return parsePopiResponse<Record<string, unknown>>(resp);
+  };
+
+  const buildPopiAuthResult = async (token: string, user: PopiUser, expired?: number) => {
+    const expiresAt = expired ? Date.now() + expired * 1000 : undefined;
+    saveAuthTokens(token, token);
+    getStore().set('auth_token_meta', { expiresAt });
+    await refreshModelGatewayCredential();
+    const quota = normalizePopiQuota({
+      ...(user as Record<string, unknown>),
+      ...(await fetchPopiUserPoints() ?? {}),
+    });
+    clearServerModelMetadata();
+    updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
+    syncOpenClawConfig({ reason: 'popi-login', restartGatewayIfRunning: false }).catch(() => {});
+    return { success: true, user: normalizePopiUser(user), quota };
   };
 
   /**
@@ -2303,26 +2426,14 @@ if (!gotTheLock) {
     const doFetch = (accessToken: string) =>
       net.fetch(url, {
         ...options,
-        headers: { ...(options?.headers as Record<string, string>), Authorization: `Bearer ${accessToken}` },
+        headers: {
+          ...(options?.headers as Record<string, string>),
+          Authorization: `Bearer ${accessToken}`,
+          token: accessToken,
+        },
       });
 
     let resp = await doFetch(tokens.accessToken);
-
-    if (resp.status === 401 && tokens.refreshToken) {
-      const serverBaseUrl = getServerApiBaseUrl();
-      const refreshResp = await net.fetch(`${serverBaseUrl}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
-      });
-      if (refreshResp.ok) {
-        const refreshBody = await refreshResp.json() as { code: number; data: { accessToken: string; refreshToken?: string } };
-        if (refreshBody.code === 0 && refreshBody.data) {
-          saveAuthTokens(refreshBody.data.accessToken, refreshBody.data.refreshToken || tokens.refreshToken);
-          resp = await doFetch(refreshBody.data.accessToken);
-        }
-      }
-    }
 
     return resp;
   };
@@ -2369,14 +2480,99 @@ if (!gotTheLock) {
   };
 
   ipcMain.handle('auth:login', async (_event, { loginUrl }: { loginUrl?: string } = {}) => {
+    return { success: true, loginUrl };
+  });
+
+  ipcMain.handle('auth:getCaptcha', async () => {
     try {
-      const baseUrl = loginUrl || `${getServerApiBaseUrl()}/login`;
-      const finalUrl = `${baseUrl}?source=electron`;
-      await shell.openExternal(finalUrl);
+      const serverBaseUrl = getServerApiBaseUrl();
+      const resp = await net.fetch(`${serverBaseUrl}/api_client/captcha/gen`);
+      if (!resp.ok) {
+        return { success: false, error: `Captcha request failed: ${resp.status}` };
+      }
+      const data = await parsePopiResponse<{ id: number; data: string }>(resp);
+      return { success: true, captcha: data };
+    } catch (error) {
+      console.error('[Auth] captcha request failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to request captcha' };
+    }
+  });
+
+  ipcMain.handle('auth:sendSmsCode', async (_event, payload: { phone: string; captchaId: number; captchaValue: string }) => {
+    try {
+      const phone = payload.phone?.trim();
+      const captchaValue = payload.captchaValue?.trim();
+      if (!phone || !payload.captchaId || !captchaValue) {
+        return { success: false, error: 'Phone and captcha are required.' };
+      }
+      const serverBaseUrl = getServerApiBaseUrl();
+      const params = new URLSearchParams({
+        phone,
+        usage: 'LOGIN',
+        captchaId: String(payload.captchaId),
+        captchaValue,
+      });
+      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/code?${params.toString()}`);
+      if (!resp.ok) {
+        return { success: false, error: `SMS code request failed: ${resp.status}` };
+      }
+      await parsePopiResponse<Record<string, unknown>>(resp);
       return { success: true };
     } catch (error) {
-      console.error('[Auth] login failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to open login' };
+      console.error('[Auth] SMS code request failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to send SMS code' };
+    }
+  });
+
+  ipcMain.handle('auth:loginWithPassword', async (_event, payload: { username: string; password: string; inviteCode?: string }) => {
+    try {
+      const serverBaseUrl = getServerApiBaseUrl();
+      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: payload.username?.trim(),
+          password: payload.password,
+          inviteCode: payload.inviteCode?.trim() || '',
+        }),
+      });
+      if (!resp.ok) {
+        return { success: false, error: `Login failed: ${resp.status}` };
+      }
+      const data = await parsePopiResponse<{ token: string; expired?: number; user: PopiUser }>(resp);
+      if (!data?.token || !data.user) {
+        return { success: false, error: 'Login response is missing token or user.' };
+      }
+      return await buildPopiAuthResult(data.token, data.user, data.expired);
+    } catch (error) {
+      console.error('[Auth] password login failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Login failed' };
+    }
+  });
+
+  ipcMain.handle('auth:loginWithCode', async (_event, payload: { phone: string; code: string; inviteCode?: string }) => {
+    try {
+      const serverBaseUrl = getServerApiBaseUrl();
+      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/loginByCode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: payload.phone?.trim(),
+          code: payload.code?.trim(),
+          inviteCode: payload.inviteCode?.trim() || '',
+        }),
+      });
+      if (!resp.ok) {
+        return { success: false, error: `Login failed: ${resp.status}` };
+      }
+      const data = await parsePopiResponse<{ token: string; expired?: number; user: PopiUser }>(resp);
+      if (!data?.token || !data.user) {
+        return { success: false, error: 'Login response is missing token or user.' };
+      }
+      return await buildPopiAuthResult(data.token, data.user, data.expired);
+    } catch (error) {
+      console.error('[Auth] SMS login failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Login failed' };
     }
   });
 
@@ -2418,22 +2614,24 @@ if (!gotTheLock) {
       const tokens = getAuthTokens();
       if (!tokens) return { success: false };
       const serverBaseUrl = getServerApiBaseUrl();
-      // Fetch user profile
-      const profileResp = await fetchWithAuth(`${serverBaseUrl}/api/user/profile`);
+      const profileResp = await fetchWithAuth(`${serverBaseUrl}/api_client/auth/userInfo`);
       if (!profileResp.ok) return { success: false };
-      const profileBody = await profileResp.json() as { code: number; data: Record<string, unknown> };
-      if (profileBody.code !== 0 || !profileBody.data) return { success: false };
-      // Fetch quota separately
-      const quotaResp = await fetchWithAuth(`${serverBaseUrl}/api/user/quota`);
-      let quota = null;
-      if (quotaResp.ok) {
-        const quotaBody = await quotaResp.json() as { code: number; data: Record<string, unknown> };
-        if (quotaBody.code === 0 && quotaBody.data) {
-          quota = normalizeQuota(quotaBody.data);
-        }
+      const profileData = await parsePopiResponse<{ token?: string; user: PopiUser }>(profileResp);
+      if (!profileData?.user) return { success: false };
+      if (profileData.token && profileData.token !== tokens.accessToken) {
+        saveAuthTokens(profileData.token, profileData.token);
       }
-      console.log('[Auth] getUser profile data:', JSON.stringify(profileBody.data));
-      return { success: true, user: profileBody.data, quota };
+      if (!getModelGatewayCredential()?.apiKey) {
+        await refreshModelGatewayCredential();
+      }
+      const points = await fetchPopiUserPoints();
+      const quota = normalizePopiQuota({
+        ...(profileData.user as Record<string, unknown>),
+        ...(points ?? {}),
+      });
+      updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
+      console.log('[Auth] restored Popi user session');
+      return { success: true, user: normalizePopiUser(profileData.user), quota };
     } catch {
       return { success: false };
     }
@@ -2443,12 +2641,8 @@ if (!gotTheLock) {
     try {
       const tokens = getAuthTokens();
       if (!tokens) return { success: false };
-      const serverBaseUrl = getServerApiBaseUrl();
-      const resp = await fetchWithAuth(`${serverBaseUrl}/api/user/quota`);
-      if (!resp.ok) return { success: false };
-      const body = await resp.json() as { code: number; data: Record<string, unknown> };
-      if (body.code !== 0 || !body.data) return { success: false };
-      return { success: true, quota: normalizeQuota(body.data) };
+      const points = await fetchPopiUserPoints();
+      return { success: true, quota: normalizePopiQuota(points) };
     } catch {
       return { success: false };
     }
@@ -2458,12 +2652,29 @@ if (!gotTheLock) {
     try {
       const tokens = getAuthTokens();
       if (!tokens) return { success: false };
-      const serverBaseUrl = getServerApiBaseUrl();
-      const resp = await fetchWithAuth(`${serverBaseUrl}/api/user/profile-summary`);
-      if (!resp.ok) return { success: false };
-      const body = await resp.json() as { code: number; data: Record<string, unknown> };
-      if (body.code !== 0 || !body.data) return { success: false };
-      return { success: true, data: body.data };
+      const points = await fetchPopiUserPoints();
+      const userResp = await fetchWithAuth(`${getServerApiBaseUrl()}/api_client/auth/userInfo`);
+      if (!userResp.ok) return { success: false };
+      const userData = await parsePopiResponse<{ user: PopiUser }>(userResp);
+      const totalCreditsRemaining = typeof points?.availableTotalPoints === 'number' ? points.availableTotalPoints : 0;
+      return {
+        success: true,
+        data: {
+          id: userData.user.id ?? 0,
+          nickname: userData.user.name || userData.user.phone || 'Popi user',
+          avatarUrl: userData.user.avatar || null,
+          totalCreditsRemaining,
+          creditItems: [
+            {
+              type: userData.user.isMember ? 'subscription' : 'free',
+              label: userData.user.isMember ? `会员 Lv.${userData.user.memberLevel ?? 0}` : '积分',
+              labelEn: userData.user.isMember ? `Member Lv.${userData.user.memberLevel ?? 0}` : 'Points',
+              creditsRemaining: totalCreditsRemaining,
+              expiresAt: null,
+            },
+          ],
+        },
+      };
     } catch {
       return { success: false };
     }
@@ -2474,16 +2685,18 @@ if (!gotTheLock) {
       const tokens = getAuthTokens();
       if (tokens) {
         const serverBaseUrl = getServerApiBaseUrl();
-        await net.fetch(`${serverBaseUrl}/api/auth/logout`, {
+        await net.fetch(`${serverBaseUrl}/api_client/auth/logout`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${tokens.accessToken}` },
+          headers: { Authorization: `Bearer ${tokens.accessToken}`, token: tokens.accessToken },
         }).catch(() => { /* best-effort */ });
       }
       clearAuthTokens();
+      clearModelGatewayCredential();
       clearServerModelMetadata();
       return { success: true };
     } catch {
       clearAuthTokens();
+      clearModelGatewayCredential();
       clearServerModelMetadata();
       return { success: true };
     }
@@ -2492,18 +2705,9 @@ if (!gotTheLock) {
   ipcMain.handle('auth:refreshToken', async () => {
     try {
       const tokens = getAuthTokens();
-      if (!tokens?.refreshToken) return { success: false };
-      const serverBaseUrl = getServerApiBaseUrl();
-      const resp = await net.fetch(`${serverBaseUrl}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
-      });
-      if (!resp.ok) return { success: false };
-      const body = await resp.json() as { code: number; data: { accessToken: string; refreshToken?: string } };
-      if (body.code !== 0 || !body.data) return { success: false };
-      saveAuthTokens(body.data.accessToken, body.data.refreshToken || tokens.refreshToken);
-      return { success: true, accessToken: body.data.accessToken };
+      if (!tokens?.accessToken) return { success: false };
+      await refreshModelGatewayCredential();
+      return { success: true, accessToken: tokens.accessToken };
     } catch {
       return { success: false };
     }
@@ -2521,20 +2725,36 @@ if (!gotTheLock) {
         console.log('[Auth:getModels] No auth tokens available');
         return { success: false };
       }
-      const serverBaseUrl = getServerApiBaseUrl();
-      const url = `${serverBaseUrl}/api/models/available`;
-      console.log('[Auth:getModels] Fetching:', url);
-      const resp = await fetchWithAuth(url);
-      console.log('[Auth:getModels] Response status:', resp.status);
-      if (!resp.ok) {
-        console.log('[Auth:getModels] Response not ok:', resp.status, resp.statusText);
-        return { success: false };
+      const credential = getModelGatewayCredential() ?? await refreshModelGatewayCredential();
+      let models: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }> = [...POPI_DEFAULT_SERVER_MODELS];
+
+      try {
+        const modelsUrl = `${normalizePopiBaseUrl(credential.baseURL)}/models`;
+        const resp = await net.fetch(modelsUrl, {
+          headers: { Authorization: `Bearer ${credential.apiKey}` },
+        });
+        if (resp.ok) {
+          const body = await resp.json() as { data?: Array<{ id?: string; name?: string }> };
+          const gatewayModels = (body.data ?? [])
+            .map(model => model.id?.trim())
+            .filter((id): id is string => !!id)
+            .map(id => ({
+              modelId: id,
+              modelName: id,
+              provider: 'popi-gateway',
+              apiFormat: 'openai',
+              supportsImage: true,
+            }));
+          if (gatewayModels.length > 0) {
+            models = gatewayModels;
+          }
+        }
+      } catch (error) {
+        console.debug('[Auth:getModels] gateway model list unavailable, using fallback model:', error);
       }
-      const data = await resp.json() as { code: number; data: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }> };
-      console.log('[Auth:getModels] Response data:', JSON.stringify(data).slice(0, 500));
-      if (data.code !== 0) return { success: false };
+
       // Cache server model metadata for use in OpenClaw config sync (supportsImage, etc.)
-      const serverModelsChanged = updateServerModelMetadata(data.data);
+      const serverModelsChanged = updateServerModelMetadata(models);
       // Re-sync so the gateway picks up the correct supportsImage values for server models.
       // This IPC can run after normal chat completion when the renderer refreshes quota/model
       // state, so server model updates must not force a hard gateway restart.
@@ -2543,7 +2763,7 @@ if (!gotTheLock) {
       } else {
         console.debug('[Auth:getModels] server model metadata unchanged, skipping config sync');
       }
-      return { success: true, models: data.data };
+      return { success: true, models };
     } catch (e) {
       console.error('[Auth:getModels] Error:', e);
       return { success: false };
@@ -3922,8 +4142,10 @@ if (!gotTheLock) {
     getCronJobService,
     getIMGatewayManager: () => ({
       getIMStore: () => ({
-        getSessionMapping: (conversationId: string, platform: string) =>
-          getIMGatewayManager().getIMStore().getSessionMapping(conversationId, platform as Platform),
+        getSessionMapping: (conversationId: string, platform: string) => {
+          const mapping = getIMGatewayManager().getIMStore().getSessionMapping(conversationId, platform as Platform);
+          return mapping ? { coworkSessionId: mapping.coworkSessionId } : undefined;
+        },
         listSessionMappings: (platform: string, agentId?: string) =>
           getIMGatewayManager().getIMStore().listSessionMappings(platform as Platform, agentId).map((mapping) => ({
             ...mapping,
@@ -5679,7 +5901,7 @@ end tell'`, { timeout: 5000 });
     });
 
     // 设置 macOS Dock 图标（开发模式下 Electron 默认图标不是应用 Logo）
-    if (isMac && isDev) {
+    if (isMac && isDev && app.dock) {
       const iconPath = path.join(__dirname, '../build/icons/png/512x512.png');
       if (fs.existsSync(iconPath)) {
         app.dock.setIcon(nativeImage.createFromPath(iconPath));
@@ -5741,7 +5963,7 @@ end tell'`, { timeout: 5000 });
     });
     mainWindow.webContents.on('did-finish-load', () => {
       emitWindowState();
-      if (openClawEngineManager && !mainWindow?.isDestroyed()) {
+      if (openClawEngineManager && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('openclaw:engine:onProgress', openClawEngineManager.getStatus());
       }
     });
@@ -6051,28 +6273,15 @@ end tell'`, { timeout: 5000 });
       pendingTokenRefresh = (async () => {
         try {
           const tokens = getAuthTokens();
-          if (!tokens?.refreshToken) return null;
-          const serverBaseUrl = getServerApiBaseUrl();
-          const resp = await net.fetch(`${serverBaseUrl}/api/auth/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+          if (!tokens?.accessToken) return null;
+          await refreshModelGatewayCredential();
+          console.log(`[Auth] refreshed model gateway credential (reason: ${reason})`);
+          resolvedToken = tokens.accessToken;
+          syncOpenClawConfig({ reason: `credential-refresh:${reason}`, restartGatewayIfRunning: false }).catch((err) => {
+            console.warn('[Auth] post-refresh OpenClaw config sync failed:', err);
           });
-          if (resp.ok) {
-            const body = await resp.json() as { code: number; data: { accessToken: string; refreshToken?: string } };
-            if (body.code === 0 && body.data) {
-              saveAuthTokens(body.data.accessToken, body.data.refreshToken || tokens.refreshToken);
-              console.log(`[Auth] token refresh succeeded (reason: ${reason})`);
-              resolvedToken = body.data.accessToken;
-              // Token proxy handles fresh tokens dynamically — no need
-              // to restart the gateway on token refresh.
-              syncOpenClawConfig({ reason: `token-refresh:${reason}`, restartGatewayIfRunning: false }).catch((err) => {
-                console.warn('[Auth] post-refresh OpenClaw config sync failed:', err);
-              });
-            }
-          }
         } catch (err) {
-          console.warn(`[Auth] token refresh failed (reason: ${reason}):`, err);
+          console.warn(`[Auth] credential refresh failed (reason: ${reason}):`, err);
         } finally {
           pendingTokenRefresh = null;
         }
@@ -6084,14 +6293,13 @@ end tell'`, { timeout: 5000 });
     setAuthTokensGetter(() => {
       const tokens = getAuthTokens();
       if (!tokens) return null;
-      // Check if accessToken is close to expiry and trigger background refresh
+      // Check if the Popi token is close to expiry and trigger background credential refresh.
       try {
-        const payload = JSON.parse(Buffer.from(tokens.accessToken.split('.')[1], 'base64').toString());
-        const expiresAt = payload.exp * 1000;
-        if (expiresAt - Date.now() < 5 * 60 * 1000) {
+        const meta = getStore().get<{ expiresAt?: number }>('auth_token_meta');
+        if (meta?.expiresAt && meta.expiresAt - Date.now() < 5 * 60 * 1000) {
           void refreshOnce('proactive'); // fire-and-forget
         }
-      } catch { /* unable to parse JWT, return token as-is */ }
+      } catch { /* unable to read token metadata, return token as-is */ }
       return tokens;
     });
     setServerBaseUrlGetter(() => getServerApiBaseUrl());
@@ -6111,25 +6319,12 @@ end tell'`, { timeout: 5000 });
     }
 
     registerProxyTokenRefresher('popiai-server', async () => {
-      const tokens = getAuthTokens();
-      if (!tokens?.refreshToken) return null;
-      const serverBaseUrl = getServerApiBaseUrl();
       try {
-        const resp = await net.fetch(`${serverBaseUrl}/api/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken: tokens.refreshToken }),
-        });
-        if (resp.ok) {
-          const body = await resp.json() as { code: number; data: { accessToken: string; refreshToken?: string } };
-          if (body.code === 0 && body.data) {
-            saveAuthTokens(body.data.accessToken, body.data.refreshToken || tokens.refreshToken);
-            console.log('[Auth] proxy token refresh succeeded');
-            return body.data.accessToken;
-          }
-        }
+        const credential = await refreshModelGatewayCredential();
+        console.log('[Auth] proxy credential refresh succeeded');
+        return credential.apiKey;
       } catch (err) {
-        console.warn('[Auth] proxy token refresh failed:', err);
+        console.warn('[Auth] proxy credential refresh failed:', err);
       }
       return null;
     });

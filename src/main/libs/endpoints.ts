@@ -26,9 +26,7 @@ const isTestMode = (): boolean => {
  * Used for auth exchange/refresh, models, proxy, etc.
  */
 export const getServerApiBaseUrl = (): string => {
-  return isTestMode()
-    ? 'https://popiai-server.inner.youdao.com'
-    : 'https://popiai-server.youdao.com';
+  return 'https://popi.yuanzoo.cn';
 };
 
 export const getUpdateCheckUrl = (): string => (
