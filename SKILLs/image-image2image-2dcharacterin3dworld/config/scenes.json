@@ -1,0 +1,109 @@
+﻿{
+  "scenes": [
+    {
+      "id": 1,
+      "name": "客厅",
+      "name_en": "Living Room",
+      "prompt": "modern cozy living room with soft natural lighting, comfortable sofa, coffee table, warm atmosphere, realistic interior design, high quality photography",
+      "default_action": "sitting on the sofa relaxing"
+    },
+    {
+      "id": 2,
+      "name": "卧室",
+      "name_en": "Bedroom",
+      "prompt": "modern bedroom with large window, soft morning light, comfortable bed, minimalist decor, peaceful atmosphere, realistic interior",
+      "default_action": "standing by the window"
+    },
+    {
+      "id": 3,
+      "name": "厨房",
+      "name_en": "Kitchen",
+      "prompt": "modern kitchen with marble countertops, natural lighting, clean and organized, cooking utensils, realistic interior design",
+      "default_action": "preparing food at the counter"
+    },
+    {
+      "id": 4,
+      "name": "城市公园",
+      "name_en": "City Park",
+      "prompt": "urban park with green trees, walking paths, benches, city skyline in background, sunny day, realistic outdoor scene",
+      "default_action": "walking along the path"
+    },
+    {
+      "id": 5,
+      "name": "社区街道",
+      "name_en": "Community Street",
+      "prompt": "residential street with houses, sidewalk, trees, parked cars, peaceful neighborhood, realistic urban scene",
+      "default_action": "walking down the street"
+    },
+    {
+      "id": 6,
+      "name": "购物中心",
+      "name_en": "Shopping Mall",
+      "prompt": "modern shopping mall interior, bright lighting, storefronts, escalators, people walking, realistic commercial space",
+      "default_action": "walking through the mall"
+    },
+    {
+      "id": 7,
+      "name": "咖啡馆",
+      "name_en": "Cafe",
+      "prompt": "cozy coffee shop with wooden tables, warm lighting, coffee bar, comfortable seating, realistic cafe interior",
+      "default_action": "sitting at a table with coffee"
+    },
+    {
+      "id": 8,
+      "name": "超市",
+      "name_en": "Supermarket",
+      "prompt": "modern supermarket with bright lighting, product shelves, shopping carts, clean aisles, realistic retail space",
+      "default_action": "shopping in the aisles"
+    },
+    {
+      "id": 9,
+      "name": "办公室",
+      "name_en": "Office",
+      "prompt": "modern office space with desks, computers, large windows, professional atmosphere, realistic workplace",
+      "default_action": "working at a desk"
+    },
+    {
+      "id": 10,
+      "name": "图书馆",
+      "name_en": "Library",
+      "prompt": "quiet library with bookshelves, reading tables, soft lighting, academic atmosphere, realistic interior",
+      "default_action": "reading a book at a table"
+    },
+    {
+      "id": 11,
+      "name": "地铁车厢",
+      "name_en": "Subway Car",
+      "prompt": "modern subway train interior with seats, handrails, windows showing tunnel, passengers, realistic public transit",
+      "default_action": "standing holding the rail"
+    },
+    {
+      "id": 12,
+      "name": "车内视角",
+      "name_en": "Car Interior",
+      "prompt": "car interior from passenger view, dashboard, steering wheel, road visible through windshield, realistic vehicle interior",
+      "default_action": "sitting in the passenger seat"
+    },
+    {
+      "id": 13,
+      "name": "医院候诊室",
+      "name_en": "Hospital Waiting Room",
+      "prompt": "hospital waiting area with chairs, reception desk, clean white walls, medical atmosphere, realistic healthcare facility",
+      "default_action": "waiting on a chair"
+    },
+    {
+      "id": 14,
+      "name": "健身房",
+      "name_en": "Gym",
+      "prompt": "modern gym with exercise equipment, mirrors, bright lighting, athletic atmosphere, realistic fitness center",
+      "default_action": "using exercise equipment"
+    },
+    {
+      "id": 15,
+      "name": "理发店",
+      "name_en": "Barbershop",
+      "prompt": "barbershop with chairs, mirrors, hair cutting tools, stylish decor, realistic salon interior",
+      "default_action": "sitting in the barber chair"
+    }
+  ]
+}

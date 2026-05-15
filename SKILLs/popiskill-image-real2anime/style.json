@@ -1,0 +1,70 @@
+{
+    "jojo漫画风格": {
+        "prompt": "将参考图中的角色转化为《JOJO的奇妙冒险》漫画风格。保持构图和核心特征",
+        "base_img": ""
+    },
+    "水彩风格": {
+        "prompt": "Transform the characters in the reference image into《Ghibli》style: soft watercolor edges, gentle pastel washes, clean white background, high contrast, muted palette with selective color pops, warm yet whimsical Studio-Ghibli vibe. Masterpiece quality, intricate hand-painted detail",
+        "base_img": ""
+    },
+    "迪士尼3D动画风格": {
+        "prompt": "将参考图中的角色转变为具有《迪士尼3d动画》质感的动画风格，背景变为白色背景",
+        "base_img": ""
+    },
+    "80年代复古漫画风格": {
+        "prompt": "将参考图中的角色转变为具有《80s Anime》质感的日本动画风格。背景变为白色背景",
+        "base_img": ""
+    },
+    "像素风格": {
+        "prompt": "将参考图中的角色转变为像素风格，背景变为白色背景",
+        "base_img": ""
+    },
+    "日系漫画风格": {
+        "prompt": "将参考图中的角色转变为动画风格，背景变为白色背景",
+        "base_img": ""
+    },
+    "扁平插画风格": {
+        "prompt": "将参考图中的角色转变为Flat Design（扁平设计）风格，背景变为白色背景",
+        "base_img": ""
+    },
+    "黑白漫画风格": {
+        "prompt": "将参考图中的角色转变为黑白漫画风格，背景变为白色背景",
+        "base_img": ""
+    },
+    "2.5D游戏风格": {
+        "prompt": "将参考图中的角色转变为具有《崩坏：星穹铁道》质感的 Stylized 3D 风格。",
+        "base_img": ""
+    },
+    "饥荒风格": {
+        "prompt": "Transform the characters in the reference image into gothic cartoon style, in the signature “Don't Starve” game aesthetic: shaky dark-ink outlines, textured paper background, The character's pupils constricted.high contrast, muted palette with selective color pops, whimsical yet macabre vibe. Masterpiece quality, intricate details.",
+        "base_img": ""
+    },
+    "水墨国风风格": {
+        "prompt": "Transform the characters in the reference image into Guofeng ink style: flowing xuan-paper brush lines, wet-on-wet ink gradations, blank-leave negative space, high contrast, muted palette with selective color pops, serene yet mysterious Eastern vibe. Masterpiece quality, intricate ink details.",
+        "base_img": ""
+    },
+    "彩铅风格": {
+        "prompt": "According to the reference image, transform this character into a colored pencil style: delicate paper fiber texture, soft overlapping colored pencil strokes, slightly rough edges of the blank spaces, high contrast, low-saturation main colors with partial contrasting colors, creating a warm yet slightly naive fairy-tale atmosphere.Masterpiece quality， intricate layering details.",
+        "base_img": ""
+    },
+    "毛绒娃娃风格": {
+        "prompt": "Convert the character in the reference image into《Plush Toy》style: soft velour seams, plush-fabric pile texture, matte stitch outlines, clean white background, high contrast, muted palette with selective color pops, cuddly yet whimsical stuffed-animal vibe. Masterpiece quality, intricate embroidery details. Adopt the above look for the character in the provided reference image.背景变为白色背景",
+        "base_img": ""
+    },
+    "卡通INS风格": {
+        "prompt": "A将参考图中的角色转变为具有Q版风格。保持参考图1的构图和核心特征，背景变为白色，风格参考图2（Q版风格）",
+        "base_img": "https://popitest-public-1313913486.cos.ap-guangzhou.myqcloud.com/media/2026/0209/2468.png"
+    },
+    "Q版萌趣风格": {
+        "prompt": "A将参考图中的角色转变为具有Q版风格。保持参考图1的构图和核心特征，背景变为白色，风格参考图2（Q版风格）",
+        "base_img": "https://popitest-public-1313913486.cos.ap-guangzhou.myqcloud.com/media/2026/0209/2469.png"
+    },
+    "恶搞之家风格": {
+        "prompt": "将参考图中的角色转变为具有《恶搞之家》动画风格。保持参考图1的构图和核心特征，背景变为白色，风格参考图2（《恶搞之家》动画风格）",
+        "base_img": "https://popitest-public-1313913486.cos.ap-guangzhou.myqcloud.com/media/2026/0209/2470.jpg"
+    },
+    "韩系漫画风格": {
+        "prompt": "将参考图中的角色转变为具有现代韩漫风格。保持参考图1的构图和核心特征，背景变为白色，风格参考图2（现代韩漫风格）",
+        "base_img": "https://popitest-public-1313913486.cos.ap-guangzhou.myqcloud.com/media/2026/0209/2478.jpg"
+    }
+}
