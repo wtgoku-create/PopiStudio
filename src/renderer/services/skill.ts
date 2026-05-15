@@ -1,4 +1,14 @@
-import { LocalizedText, LocalSkillInfo, MarketplaceSkill, MarketTag, Skill } from '../types/skill';
+import {
+  LocalizedText,
+  MarketplaceFetchResult,
+  MarketplaceQueryOptions,
+  MarketplaceSkill,
+  Skill,
+  SkillHubCategoryItem,
+  SkillHubPageInfo,
+  SkillHubSkillItem,
+  SkillMarketplaceData,
+} from '../types/skill';
 import { i18nService } from './i18n';
 
 export function resolveLocalizedText(text: string | LocalizedText): string {
@@ -33,13 +43,89 @@ type EmailConnectivityTestResult = {
   checks: EmailConnectivityCheck[];
 };
 
+const deriveMarketplaceSource = (skill: SkillHubSkillItem): MarketplaceSkill['source'] => {
+  const sourceUrl = skill.origin || skill.url || skill.path || '';
+  let from = 'SkillHub';
+  if (sourceUrl) {
+    try {
+      const host = new URL(sourceUrl).hostname.toLowerCase();
+      if (host.includes('clawhub.ai')) {
+        from = 'ClawHub';
+      } else if (host.includes('github.com')) {
+        from = 'GitHub';
+      }
+    } catch {
+      from = sourceUrl.includes('/') ? 'GitHub' : 'SkillHub';
+    }
+  }
+
+  return {
+    from,
+    url: sourceUrl,
+    author: skill.author,
+  };
+};
+
+/** True when the request should use Skill Hub list pagination (`fetchMarketplacePage`), not the legacy full-catalog IPC. */
+export function isSkillHubPagedOrFilteredRequest(options?: MarketplaceQueryOptions): boolean {
+  if (options == null) {
+    return false;
+  }
+  if (typeof options.page === 'number' || typeof options.pageSize === 'number') {
+    return true;
+  }
+  const keyword = options.keyword?.trim();
+  if (keyword) {
+    return true;
+  }
+  const categoryId = options.categoryId?.trim();
+  if (categoryId && categoryId !== 'all') {
+    return true;
+  }
+  return false;
+}
+
+export function mapSkillMarketplaceData(
+  marketplaceData: SkillMarketplaceData
+): MarketplaceFetchResult {
+  const categories = Array.isArray(marketplaceData.categories) ? marketplaceData.categories : [];
+  const skills = (Array.isArray(marketplaceData.skills) ? marketplaceData.skills : []).map((skill) => {
+    const categoryTag = skill.categoryId != null ? String(skill.categoryId) : undefined;
+    const installSource = skill.url || skill.origin || skill.path || '';
+    return {
+      id: String(skill.id),
+      name: skill.name,
+      description: skill.desp || skill.originDesp || skill.agentInstallDesp || '',
+      tags: categoryTag ? [categoryTag] : [],
+      url: installSource,
+      version: skill.version || '',
+      source: deriveMarketplaceSource(skill),
+    };
+  });
+
+  const tags = categories.map((category: SkillHubCategoryItem) => ({
+    id: String(category.id),
+    en: category.name,
+    zh: category.name,
+  }));
+
+  const pageInfo: SkillHubPageInfo = marketplaceData.pageInfo ?? {
+    page: 1,
+    pageSize: skills.length,
+    pageCount: skills.length > 0 ? 1 : 0,
+    total: skills.length,
+  };
+
+  return { skills, tags, pageInfo };
+}
+
 class SkillService {
   private skills: Skill[] = [];
   private initialized = false;
   private localSkillDescriptions: Map<string, string | LocalizedText> = new Map();
   private marketplaceSkillDescriptions: Map<string, string | LocalizedText> = new Map();
-  private marketplaceCache: { skills: MarketplaceSkill[]; tags: MarketTag[] } | null = null;
-  private marketplaceFetchPromise: Promise<{ skills: MarketplaceSkill[]; tags: MarketTag[] }> | null = null;
+  private marketplaceCache: MarketplaceFetchResult | null = null;
+  private marketplaceFetchPromise: Promise<MarketplaceFetchResult> | null = null;
 
   async init(): Promise<void> {
     if (this.initialized) return;
@@ -229,49 +315,65 @@ class SkillService {
     return this.localSkillDescriptions.size > 0 || this.marketplaceSkillDescriptions.size > 0;
   }
 
-  async fetchMarketplaceSkills(): Promise<{ skills: MarketplaceSkill[]; tags: MarketTag[] }> {
-    if (this.marketplaceCache) {
+  /** Clears the unscoped marketplace snapshot used by `fetchMarketplaceSkills()` with no query (e.g. after store pull-to-refresh). */
+  invalidateMarketplaceCache(): void {
+    this.marketplaceCache = null;
+    this.marketplaceFetchPromise = null;
+  }
+
+  async fetchMarketplaceSkills(options?: MarketplaceQueryOptions): Promise<MarketplaceFetchResult> {
+    const useDefaultCache = !isSkillHubPagedOrFilteredRequest(options);
+    if (useDefaultCache && this.marketplaceCache) {
       return this.marketplaceCache;
     }
-    if (this.marketplaceFetchPromise) {
+    if (useDefaultCache && this.marketplaceFetchPromise) {
       return this.marketplaceFetchPromise;
     }
 
-    this.marketplaceFetchPromise = this.loadMarketplaceSkills();
-    const result = await this.marketplaceFetchPromise;
-    this.marketplaceFetchPromise = null;
-    return result;
+    if (useDefaultCache) {
+      this.marketplaceFetchPromise = this.loadMarketplaceSkills();
+      const result = await this.marketplaceFetchPromise;
+      this.marketplaceFetchPromise = null;
+      return result;
+    }
+
+    return this.loadMarketplaceSkills(options);
   }
 
-  private async loadMarketplaceSkills(): Promise<{ skills: MarketplaceSkill[]; tags: MarketTag[] }> {
+  private async loadMarketplaceSkills(options?: MarketplaceQueryOptions): Promise<MarketplaceFetchResult> {
     try {
-      const result = await window.electron.skills.fetchMarketplace();
+      const result = options
+        ? await window.electron.skills.fetchMarketplacePage(options)
+        : await window.electron.skills.fetchMarketplace();
+        console.log('result', result);
       if (!result.success || !result.data) {
         throw new Error(result.error || 'Failed to fetch');
       }
-      const json = JSON.parse(result.data);
-      const value = json?.data?.value;
-      // Store local skill descriptions for i18n lookup
-      const localSkills: LocalSkillInfo[] = Array.isArray(value?.localSkill) ? value.localSkill : [];
-      this.localSkillDescriptions.clear();
-      for (const ls of localSkills) {
-        this.localSkillDescriptions.set(ls.name, ls.description);
-        this.localSkillDescriptions.set(ls.id, ls.description);
+      const mapped = mapSkillMarketplaceData(result.data);
+
+      for (const ms of mapped.skills) {
+        this.marketplaceSkillDescriptions.set(ms.id, ms.description);
+        this.marketplaceSkillDescriptions.set(ms.name, ms.description);
       }
-      const skills: MarketplaceSkill[] = Array.isArray(value?.marketplace) ? value.marketplace : [];
-      const tags: MarketTag[] = Array.isArray(value?.marketTags) ? value.marketTags : [];
-      // Also store marketplace skill descriptions for i18n lookup (keyed by id)
-      this.marketplaceSkillDescriptions.clear();
-      for (const ms of skills) {
-        if (typeof ms.description === 'object') {
-          this.marketplaceSkillDescriptions.set(ms.id, ms.description);
-        }
+
+      if (!isSkillHubPagedOrFilteredRequest(options)) {
+        this.localSkillDescriptions.clear();
+        this.marketplaceCache = mapped;
+        return this.marketplaceCache;
       }
-      this.marketplaceCache = { skills, tags };
-      return this.marketplaceCache;
+      return mapped;
     } catch (error) {
       console.error('Failed to fetch marketplace skills:', error);
-      return { skills: [], tags: [] };
+      return {
+        skills: [],
+        tags: [],
+        pageInfo: {
+          page: options?.page ?? 1,
+          pageSize: options?.pageSize ?? 20,
+          pageCount: 0,
+          total: 0,
+        },
+      };
     }
   }
 

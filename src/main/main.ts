@@ -52,7 +52,12 @@ import { saveCoworkApiConfig } from './libs/coworkConfigStore';
 import { getCoworkLogPath } from './libs/coworkLogger';
 import { registerProxyTokenRefresher, startCoworkOpenAICompatProxy, stopCoworkOpenAICompatProxy } from './libs/coworkOpenAICompatProxy';
 import { generateSessionTitle, probeCoworkModelReadiness } from './libs/coworkUtil';
-import { getServerApiBaseUrl, getSkillStoreUrl, refreshEndpointsTestMode } from './libs/endpoints';
+import {
+  getServerApiBaseUrl,
+  getSkillHubCategoryListUrl,
+  getSkillHubListUrl,
+  refreshEndpointsTestMode,
+} from './libs/endpoints';
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { exportLogsZip } from './libs/logExport';
 import { McpBridgeServer } from './libs/mcpBridgeServer';
@@ -2440,6 +2445,59 @@ if (!gotTheLock) {
     return resp;
   };
 
+  const fetchSkillMarketplacePage = async (options?: {
+    page?: number;
+    pageSize?: number;
+    categoryId?: string;
+    keyword?: string;
+  }) => {
+    const fetchSkillHubJson = async (url: string) => {
+      const response = getAuthTokens()
+        ? await fetchWithAuth(url, { method: 'GET' })
+        : await net.fetch(url, { method: 'GET' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.json();
+    };
+
+    const buildListUrl = () => {
+      const listUrl = new URL(getSkillHubListUrl());
+      const page = Math.max(1, options?.page ?? 1);
+      const pageSize = Math.max(1, options?.pageSize ?? 20);
+      listUrl.searchParams.set('page', String(page));
+      listUrl.searchParams.set('pageSize', String(pageSize));
+      if (options?.categoryId && options.categoryId !== 'all') {
+        listUrl.searchParams.set('categoryId', options.categoryId);
+      }
+      const keyword = options?.keyword?.trim();
+      if (keyword) {
+        listUrl.searchParams.set('keyword', keyword);
+      }
+      return listUrl.toString();
+    };
+
+    const listUrl = buildListUrl();
+    const categoryUrl = getSkillHubCategoryListUrl();
+
+    const [skillsBody, categoriesBody] = await Promise.all([
+      fetchSkillHubJson(listUrl),
+      fetchSkillHubJson(categoryUrl),
+    ]);
+
+    const skills = Array.isArray(skillsBody?.data?.list) ? skillsBody.data.list : [];
+    const categories = Array.isArray(categoriesBody?.data?.list) ? categoriesBody.data.list : [];
+    const pageInfo = typeof skillsBody?.data?.pageInfo === 'object' && skillsBody.data.pageInfo
+      ? skillsBody.data.pageInfo
+      : undefined;
+
+    return {
+      skills,
+      categories,
+      pageInfo,
+    };
+  };
+
   /**
    * Normalize quota data from various server response formats into a unified shape.
    */
@@ -2855,29 +2913,35 @@ if (!gotTheLock) {
   });
 
   ipcMain.handle('skills:fetchMarketplace', async () => {
-    const url = getSkillStoreUrl();
-    console.log(`[SkillMarketplace] fetching from: ${url}`);
     try {
-      const https = await import('https');
-      const data = await new Promise<string>((resolve, reject) => {
-        const req = https.get(url, { timeout: 10000 }, (res) => {
-          if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode}`));
-            res.resume();
-            return;
-          }
-          let body = '';
-          res.setEncoding('utf8');
-          res.on('data', (chunk: string) => { body += chunk; });
-          res.on('end', () => resolve(body));
-          res.on('error', reject);
-        });
-        req.on('error', reject);
-        req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
-      });
-      return { success: true, data };
+      const listUrl = getSkillHubListUrl();
+      const categoryUrl = getSkillHubCategoryListUrl();
+      console.log(`[SkillMarketplace] fetching skill hub data from ${listUrl} and ${categoryUrl}`);
+
+      const marketplace = await fetchSkillMarketplacePage();
+      return { success: true, data: marketplace };
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to fetch skill marketplace' };
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch skill marketplace',
+      };
+    }
+  });
+
+  ipcMain.handle('skills:fetchMarketplacePage', async (_event, options?: {
+    page?: number;
+    pageSize?: number;
+    categoryId?: string;
+    keyword?: string;
+  }) => {
+    try {
+      const marketplace = await fetchSkillMarketplacePage(options);
+      return { success: true, data: marketplace };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch skill marketplace',
+      };
     }
   });
 

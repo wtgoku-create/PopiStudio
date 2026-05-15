@@ -40,3 +40,60 @@ export interface MarketplaceSkill {
     author?: string;        // Author name
   };
 }
+
+export interface SkillHubSkillItem {
+  id: number;
+  name: string;
+  version: string;
+  categoryId?: number | null;
+  tagId?: number | null;
+  desp: string;
+  author?: string;
+  origin?: string;
+  originDesp?: string;
+  downloadNum?: number;
+  likeNum?: number;
+  installNum?: number;
+  url?: string;
+  path?: string;
+  agentInstallDesp?: string;
+  humanInstallDesp?: string;
+  createTime?: string;
+  updateTime?: string;
+  userLiked?: boolean;
+}
+
+export interface SkillHubCategoryItem {
+  id: number;
+  name: string;
+  icon?: string;
+  color?: string;
+  desp?: string;
+  sort?: number;
+}
+
+export interface SkillMarketplaceData {
+  skills: SkillHubSkillItem[];
+  categories: SkillHubCategoryItem[];
+  pageInfo?: SkillHubPageInfo;
+}
+
+export interface SkillHubPageInfo {
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  total: number;
+}
+
+export interface MarketplaceQueryOptions {
+  page?: number;
+  pageSize?: number;
+  categoryId?: string;
+  keyword?: string;
+}
+
+export interface MarketplaceFetchResult {
+  skills: MarketplaceSkill[];
+  tags: MarketTag[];
+  pageInfo: SkillHubPageInfo;
+}

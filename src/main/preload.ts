@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld('electron', {
     testEmailConnectivity: (skillId: string, config: Record<string, string>) =>
       ipcRenderer.invoke('skills:testEmailConnectivity', skillId, config),
     fetchMarketplace: () => ipcRenderer.invoke('skills:fetchMarketplace'),
+    fetchMarketplacePage: (options: {
+      page?: number;
+      pageSize?: number;
+      categoryId?: string;
+      keyword?: string;
+    }) => ipcRenderer.invoke('skills:fetchMarketplacePage', options),
     onChanged: (callback: () => void) => {
       const handler = () => callback();
       ipcRenderer.on('skills:changed', handler);
