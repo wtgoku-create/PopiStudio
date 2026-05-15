@@ -149,7 +149,7 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'application/json': '.json',
   'text/csv': '.csv',
 };
-const POPI_LLM_GATEWAY_BASE_URL = 'https://llmapitest.popi.art';
+const POPI_LLM_GATEWAY_BASE_URL = 'https://llmapi.popi.art';
 const POPI_DEFAULT_SERVER_MODELS = [
   { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: false },
 ] as const;
