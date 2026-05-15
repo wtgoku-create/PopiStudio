@@ -14,6 +14,7 @@ import { CoworkView } from './components/cowork';
 import CoworkPermissionModal from './components/cowork/CoworkPermissionModal';
 import CoworkQuestionWizard from './components/cowork/CoworkQuestionWizard';
 import EngineStartupOverlay from './components/cowork/EngineStartupOverlay';
+import LoginDialog from './components/LoginDialog';
 import { McpView } from './components/mcp';
 import PrivacyDialog from './components/PrivacyDialog';
 import { ScheduledTasksView } from './components/scheduledTasks';
@@ -66,6 +67,7 @@ const App: React.FC = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showLoginDialog, setShowLoginDialog] = useState(false);
   const [, forceLanguageRefresh] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [appUpdateState, setAppUpdateState] = useState<AppUpdateRuntimeState>({
@@ -398,8 +400,13 @@ const App: React.FC = () => {
   }, [showToast]);
 
   const handleShowLogin = useCallback(() => {
-    showToast(i18nService.t('featureInDevelopment'));
-  }, [showToast]);
+    setShowLoginDialog(true);
+  }, []);
+
+  useEffect(() => {
+    authService.setLoginDialogOpener(handleShowLogin);
+    return () => authService.setLoginDialogOpener(null);
+  }, [handleShowLogin]);
 
   const runUpdateCheck = useCallback(async () => {
     try {
@@ -496,7 +503,7 @@ const App: React.FC = () => {
   const handleWelcomeClose = useCallback(() => setShowWelcome(false), []);
   const handleWelcomeLogin = useCallback(async () => {
     setShowWelcome(false);
-    await authService.login();
+    setShowLoginDialog(true);
   }, []);
   const handleWelcomeCustomModel = useCallback(() => {
     setShowWelcome(false);
@@ -870,6 +877,12 @@ const App: React.FC = () => {
           onLogin={handleWelcomeLogin}
           onCustomModel={handleWelcomeCustomModel}
           onClose={handleWelcomeClose}
+        />
+      )}
+      {showLoginDialog && (
+        <LoginDialog
+          onClose={() => setShowLoginDialog(false)}
+          onSuccess={() => showToast(i18nService.t('loginSuccess'))}
         />
       )}
     </div>

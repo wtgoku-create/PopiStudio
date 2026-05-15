@@ -189,17 +189,16 @@ function shouldUseOpenAICodexOAuth(providerName: string, providerConfig: LocalPr
 }
 
 function tryPopiaiServerFallback(modelId?: string): MatchedProvider | null {
-  const tokens = authTokensGetter?.();
-  const serverBaseUrl = serverBaseUrlGetter?.();
-  if (!tokens?.accessToken || !serverBaseUrl) return null;
+  const credential = getStore()?.get<{ apiKey: string; baseURL: string }>('model_gateway_credential');
+  if (!credential?.apiKey || !credential.baseURL) return null;
   const effectiveModelId = modelId?.trim() || '';
   if (!effectiveModelId) return null;
-  const baseURL = `${serverBaseUrl}/api/proxy/v1`;
+  const baseURL = credential.baseURL;
   const cachedMeta = serverModelMetadataCache.get(effectiveModelId);
   console.log('[ClaudeSettings] popiai-server fallback activated:', { baseURL, modelId: effectiveModelId, supportsImage: cachedMeta?.supportsImage });
   return {
     providerName: ProviderName.PopiaiServer,
-    providerConfig: { enabled: true, apiKey: tokens.accessToken, baseUrl: baseURL, apiFormat: 'openai', models: buildServerFallbackModels(effectiveModelId) },
+    providerConfig: { enabled: true, apiKey: credential.apiKey, baseUrl: baseURL, apiFormat: 'openai', models: buildServerFallbackModels(effectiveModelId) },
     modelId: effectiveModelId,
     apiFormat: 'openai',
     baseURL,
@@ -514,11 +513,10 @@ export function resolveAllProviderApiKeys(): Record<string, string> {
   // popiai-server token is now managed by the token proxy
   // (openclawTokenProxy.ts) — no longer injected as an env var.
 
-    // popiai-server: uses auth accessToken
-    const tokens = authTokensGetter?.();
-    const serverBaseUrl = serverBaseUrlGetter?.();
-    if (tokens?.accessToken && serverBaseUrl) {
-      result.SERVER = tokens.accessToken;
+    // popiai-server: uses the model gateway API key issued after Popi login.
+    const credential = getStore()?.get<{ apiKey: string }>('model_gateway_credential');
+    if (credential?.apiKey) {
+      result.SERVER = credential.apiKey;
     }
 
     // All configured custom providers

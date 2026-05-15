@@ -1,13 +1,19 @@
 import { store } from '../store';
 import { setAuthLoading, setLoggedIn, setLoggedOut, updateQuota, setProfileSummary } from '../store/slices/authSlice';
-import { setServerModels, clearServerModels } from '../store/slices/modelSlice';
+import { setServerModels, clearServerModels, setDefaultSelectedModel } from '../store/slices/modelSlice';
 import type { Model } from '../store/slices/modelSlice';
+import { configService } from './config';
 
 class AuthService {
   private unsubCallback: (() => void) | null = null;
   private unsubQuotaChanged: (() => void) | null = null;
   private unsubWindowState: (() => void) | null = null;
   private lastRefreshTime = 0;
+  private loginDialogOpener: (() => void) | null = null;
+
+  setLoginDialogOpener(opener: (() => void) | null) {
+    this.loginDialogOpener = opener;
+  }
 
   /**
    * Initialize: try to restore login state from persisted token.
@@ -57,34 +63,37 @@ class AuthService {
    * Initiate login (opens system browser).
    */
   async login() {
-    const loginUrl = await this.fetchLoginUrl();
-    await window.electron.auth.login(loginUrl);
+    if (this.loginDialogOpener) {
+      this.loginDialogOpener();
+      return;
+    }
+    await window.electron.auth.login();
   }
 
-  /**
-   * Fetch login URL from overmind, fallback to Portal login page.
-   */
-  private async fetchLoginUrl(): Promise<string> {
-    const { getLoginOvermindUrl } = await import('./endpoints');
-    const url = getLoginOvermindUrl();
-    try {
-      const response = await window.electron.api.fetch({
-        url,
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-      });
-      if (response.ok && typeof response.data === 'object' && response.data !== null) {
-        const value = (response.data as any)?.data?.value;
-        if (typeof value === 'string' && value.trim()) {
-          return value.trim();
-        }
-      }
-    } catch (e) {
-      console.error('[Auth] Failed to fetch login URL from overmind:', e);
+  async requestCaptcha() {
+    return window.electron.auth.getCaptcha();
+  }
+
+  async sendSmsCode(payload: { phone: string; captchaId: number; captchaValue: string }) {
+    return window.electron.auth.sendSmsCode(payload);
+  }
+
+  async loginWithPassword(payload: { username: string; password: string; inviteCode?: string }) {
+    const result = await window.electron.auth.loginWithPassword(payload);
+    if (result.success && result.user && result.quota) {
+      store.dispatch(setLoggedIn({ user: result.user, quota: result.quota }));
+      await this.loadServerModels();
     }
-    // Fallback: use Portal login page directly
-    const { getPortalLoginUrl } = await import('./endpoints');
-    return getPortalLoginUrl();
+    return result;
+  }
+
+  async loginWithCode(payload: { phone: string; code: string; inviteCode?: string }) {
+    const result = await window.electron.auth.loginWithCode(payload);
+    if (result.success && result.user && result.quota) {
+      store.dispatch(setLoggedIn({ user: result.user, quota: result.quota }));
+      await this.loadServerModels();
+    }
+    return result;
   }
 
   /**
@@ -176,6 +185,17 @@ class AuthService {
           supportsImage: m.supportsImage ?? false,
         }));
         store.dispatch(setServerModels(serverModels));
+        if (serverModels.length > 0) {
+          store.dispatch(setDefaultSelectedModel(serverModels[0]));
+          const config = configService.getConfig();
+          await configService.updateConfig({
+            model: {
+              ...config.model,
+              defaultModel: serverModels[0].id,
+              defaultModelProvider: serverModels[0].providerKey,
+            },
+          });
+        }
       }
     } catch {
       // ignore — server models are optional

@@ -48,7 +48,6 @@ const gwDiagTs = (): string => {
   return `[GW-RESTART-DIAG] ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`;
 };
 import { findThirdPartyExtensionsDir, hasBundledOpenClawExtension, resolveOpenClawExtensionPluginId } from './openclawLocalExtensions';
-import { getOpenClawTokenProxyPort } from './openclawTokenProxy';
 import { isSystemProxyEnabled } from './systemProxy';
 
 export type McpBridgeConfig = {
@@ -570,14 +569,8 @@ const PROVIDER_REGISTRY: Record<string, ProviderDescriptor> = {
   [ProviderName.PopiaiServer]: {
     providerId: OpenClawProviderId.PopiaiServer,
     resolveApi: () => OpenClawApiConst.OpenAICompletions as OpenClawProviderApi,
-    normalizeBaseUrl: url => {
-      const proxyPort = getOpenClawTokenProxyPort();
-      return proxyPort ? `http://127.0.0.1:${proxyPort}/v1` : stripChatCompletionsSuffix(url);
-    },
-    resolveApiKey: () => {
-      const proxyPort = getOpenClawTokenProxyPort();
-      return proxyPort ? '${LOBSTER_PROXY_TOKEN}' : `\${${providerApiKeyEnvVar('server')}}`;
-    },
+    normalizeBaseUrl: stripChatCompletionsSuffix,
+    resolveApiKey: () => `\${${providerApiKeyEnvVar('server')}}`,
   },
 
   [ProviderName.Moonshot]: {
@@ -1125,23 +1118,22 @@ export class OpenClawConfigSync {
       } else {
         const existing = allProvidersMap[providerSelection.providerId];
         const alreadyHas = existing.models.some(
-          em => em.id === providerSelection.providerConfig.models[0]?.id,
+          em => em.id === providerSelection?.providerConfig.models[0]?.id,
         );
         if (!alreadyHas && providerSelection.providerConfig.models.length > 0) {
           existing.models.push(...providerSelection.providerConfig.models);
         }
       }
 
-      const proxyPort = getOpenClawTokenProxyPort();
-      if (proxyPort) {
+      if (apiResolution.providerMetadata?.providerName === ProviderName.PopiaiServer) {
         const serverModels = getAllServerModelMetadata();
         const providerId = OpenClawProviderId.PopiaiServer;
 
         if (serverModels.length > 0 || !allProvidersMap[providerId]) {
           const firstServerModelId = serverModels[0]?.modelId || modelId;
           const firstServerSel = buildProviderSelection({
-            apiKey: 'proxy-managed',
-            baseURL: `http://127.0.0.1:${proxyPort}/v1`,
+            apiKey,
+            baseURL,
             modelId: firstServerModelId,
             apiType: 'openai',
             providerName: ProviderName.PopiaiServer,
@@ -1159,8 +1151,8 @@ export class OpenClawConfigSync {
           } else {
             for (const sm of serverModels) {
               const serverSel = buildProviderSelection({
-                apiKey: 'proxy-managed',
-                baseURL: `http://127.0.0.1:${proxyPort}/v1`,
+                apiKey,
+                baseURL,
                 modelId: sm.modelId,
                 apiType: 'openai',
                 providerName: ProviderName.PopiaiServer,
@@ -2122,6 +2114,7 @@ export class OpenClawConfigSync {
       console.info(`[OpenClawConfigSync] set secret env var LOBSTER_APIKEY_${envSuffix} for provider ${envSuffix}`);
       env[`LOBSTER_APIKEY_${envSuffix}`] = apiKey;
     }
+    console.log('====>',JSON.stringify(env))
     // Legacy fallback: keep LOBSTER_PROVIDER_API_KEY set to a stable value so stale
     // openclaw.json files with the old placeholder don't crash the gateway.
     // Use the active provider's key if available, but ONLY for the first sync —

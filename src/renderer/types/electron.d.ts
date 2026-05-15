@@ -871,6 +871,10 @@ interface IElectronAPI {
   };
   auth: {
     login: (loginUrl?: string) => Promise<{ success: boolean; error?: string }>;
+    getCaptcha: () => Promise<{ success: boolean; captcha?: { id: number; data: string }; error?: string }>;
+    sendSmsCode: (payload: { phone: string; captchaId: number; captchaValue: string }) => Promise<{ success: boolean; error?: string }>;
+    loginWithPassword: (payload: { username: string; password: string; inviteCode?: string }) => Promise<{ success: boolean; user?: any; quota?: any; error?: string }>;
+    loginWithCode: (payload: { phone: string; code: string; inviteCode?: string }) => Promise<{ success: boolean; user?: any; quota?: any; error?: string }>;
     exchange: (
       code: string,
     ) => Promise<{ success: boolean; user?: any; quota?: any; error?: string }>;
@@ -881,7 +885,7 @@ interface IElectronAPI {
     getAccessToken: () => Promise<string | null>;
     getModels: () => Promise<{
       success: boolean;
-      models?: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string }>;
+      models?: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }>;
     }>;
     getProfileSummary: () => Promise<{ success: boolean; data?: ProfileSummaryData }>;
     onCallback: (callback: (data: { code: string }) => void) => () => void;
@@ -900,6 +904,39 @@ interface IElectronAPI {
   };
   auth: {
     login: (loginUrl?: string) => Promise<{ success: boolean; error?: string }>;
+    getCaptcha: () => Promise<{
+      success: boolean;
+      captcha?: { id: number; data: string };
+      error?: string;
+    }>;
+    sendSmsCode: (payload: { phone: string; captchaId: number; captchaValue: string }) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    loginWithPassword: (payload: { username: string; password: string; inviteCode?: string }) => Promise<{
+      success: boolean;
+      user?: import('../store/slices/authSlice').UserProfile;
+      quota?: {
+        planName: string;
+        subscriptionStatus: string;
+        creditsLimit: number;
+        creditsUsed: number;
+        creditsRemaining: number;
+      };
+      error?: string;
+    }>;
+    loginWithCode: (payload: { phone: string; code: string; inviteCode?: string }) => Promise<{
+      success: boolean;
+      user?: import('../store/slices/authSlice').UserProfile;
+      quota?: {
+        planName: string;
+        subscriptionStatus: string;
+        creditsLimit: number;
+        creditsUsed: number;
+        creditsRemaining: number;
+      };
+      error?: string;
+    }>;
     exchange: (
       code: string,
     ) => Promise<{

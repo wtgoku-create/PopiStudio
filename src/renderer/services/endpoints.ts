@@ -30,12 +30,12 @@ export const getSkillStoreUrl = () => isTestMode()
 
 // 登录地址
 export const getLoginOvermindUrl = () => isTestMode()
-  ? 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/test/login-url'
-  : 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/prod/login-url';
+  ? 'https://popi.yuanzoo.cn/login'
+  : 'https://popi.yuanzoo.cn/login';
 
 // Portal 页面
-const PORTAL_BASE_TEST = 'https://c.youdao.com/dict/hardware/cowork/popiai-portal.html#';
-const PORTAL_BASE_PROD = 'https://c.youdao.com/dict/hardware/octopus/popiai-portal.html#';
+const PORTAL_BASE_TEST = 'https://popi.yuanzoo.cn';
+const PORTAL_BASE_PROD = 'https://popi.yuanzoo.cn';
 
 const getPortalBase = () => isTestMode() ? PORTAL_BASE_TEST : PORTAL_BASE_PROD;
 

@@ -593,6 +593,13 @@ contextBridge.exposeInMainWorld('electron', {
   },
   auth: {
     login: (loginUrl?: string) => ipcRenderer.invoke('auth:login', { loginUrl }),
+    getCaptcha: () => ipcRenderer.invoke('auth:getCaptcha'),
+    sendSmsCode: (payload: { phone: string; captchaId: number; captchaValue: string }) =>
+      ipcRenderer.invoke('auth:sendSmsCode', payload),
+    loginWithPassword: (payload: { username: string; password: string; inviteCode?: string }) =>
+      ipcRenderer.invoke('auth:loginWithPassword', payload),
+    loginWithCode: (payload: { phone: string; code: string; inviteCode?: string }) =>
+      ipcRenderer.invoke('auth:loginWithCode', payload),
     exchange: (code: string) => ipcRenderer.invoke('auth:exchange', { code }),
     getUser: () => ipcRenderer.invoke('auth:getUser'),
     getQuota: () => ipcRenderer.invoke('auth:getQuota'),
