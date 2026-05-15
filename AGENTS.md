@@ -26,6 +26,7 @@ npm run compile:electron
 # Package for distribution (platform-specific)
 npm run dist:mac        # macOS (.dmg)
 npm run dist:win        # Windows (.exe)
+npm run dist:win:unsigned  # Windows local build without code signing (avoids winCodeSign symlink errors)
 npm run dist:linux      # Linux (.AppImage)
 
 # Build OpenClaw runtime manually

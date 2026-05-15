@@ -24,9 +24,9 @@ export const getFallbackDownloadUrl = () => isTestMode()
   : 'https://popiai.youdao.com/#/download-list';
 
 // Skill 商店
-export const getSkillStoreUrl = () => isTestMode()
-  ? 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/test/skill-store'
-  : 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/prod/skill-store';
+export const getSkillHubListUrl = () => `${getLoginOvermindUrl().replace(/\/login$/, '')}/api_client/skill/list?pageSize=99999`;
+
+export const getSkillHubCategoryListUrl = () => `${getLoginOvermindUrl().replace(/\/login$/, '')}/api_client/skill/category/list?pageSize=99999`;
 
 // 登录地址
 export const getLoginOvermindUrl = () => isTestMode()

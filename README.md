@@ -148,6 +148,19 @@ npm run dist:win
 npm run dist:linux
 ```
 
+### Windows packaging (`winCodeSign` / symbolic links)
+
+If `electron-builder` fails while extracting **winCodeSign** with errors like **Cannot create symbolic link** (or Chinese “客户端没有所需的特权”), the 7-Zip step cannot create symlinks in `%LOCALAPPDATA%\\electron-builder\\Cache\\winCodeSign` without symlink rights. Fix one of:
+
+1. Enable **Developer Mode** (Settings → Privacy & security → For developers → Developer Mode), or run the build terminal **as Administrator**.
+2. For **unsigned local installers**, skip the Windows signing toolchain:
+
+```bash
+npm run dist:win:unsigned
+```
+
+(`CSC_IDENTITY_AUTO_DISCOVERY=false` — CI release builds that set `WIN_CSC_LINK` / certificate secrets are unchanged.)
+
 Desktop packages bundle the prepared OpenClaw runtime under `Resources/cfmind`.
 Windows packages can also include a portable Python runtime under
 `resources/python-win`.

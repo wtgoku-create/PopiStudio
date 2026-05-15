@@ -32,13 +32,6 @@
         "version": "2.4.3"
       },
       {
-        "id": "moltbot-popo",
-        "npm": "moltbot-popo",
-        "version": "2.1.1",
-        "registry": "https://npm.nie.netease.com",
-        "optional": true
-      },
-      {
         "id": "openclaw-nim-channel",
         "npm": "git+https://github.com/netease-im/openclaw-nim-channel.git#1.1.1",
         "version": "1.1.1",
@@ -90,6 +83,7 @@
     "dist:mac:universal": "npm run build && npm run compile:electron && npm run build:skills && electron-builder --mac --universal",
     "predist:win": "npm run openclaw:runtime:win-x64",
     "dist:win": "npm run setup:python-runtime && npm run build && npm run compile:electron && npm run build:skills && electron-builder --win --x64",
+    "dist:win:unsigned": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:win",
     "predist:linux": "npm run openclaw:runtime:linux-x64",
     "dist:linux": "npm run build && npm run compile:electron && npm run build:skills && electron-builder --linux",
     "clean:release": "rimraf release",

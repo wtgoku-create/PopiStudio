@@ -47,8 +47,10 @@ export const getFallbackDownloadUrl = (): string => (
     : 'https://popiai.youdao.com/#/download-list'
 );
 
-export const getSkillStoreUrl = (): string => (
-  isTestMode()
-    ? 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/test/skill-store'
-    : 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/prod/skill-store'
+export const getSkillHubListUrl = (): string => (
+  `${getServerApiBaseUrl()}/api_client/skill/list?pageSize=99999`
+);
+
+export const getSkillHubCategoryListUrl = (): string => (
+  `${getServerApiBaseUrl()}/api_client/skill/category/list?pageSize=99999`
 );

@@ -308,7 +308,16 @@ interface IElectronAPI {
       skillId: string,
       config: Record<string, string>,
     ) => Promise<{ success: boolean; result?: EmailConnectivityTestResult; error?: string }>;
-    fetchMarketplace: () => Promise<{ success: boolean; data?: string; error?: string }>;
+    fetchMarketplace: () => Promise<{
+      success: boolean;
+      data?: SkillMarketplaceData;
+      error?: string;
+    }>;
+    fetchMarketplacePage: (options: MarketplaceQueryOptions) => Promise<{
+      success: boolean;
+      data?: SkillMarketplaceData;
+      error?: string;
+    }>;
     onChanged: (callback: () => void) => () => void;
   };
   mcp: {

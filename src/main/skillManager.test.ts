@@ -1,7 +1,35 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { test, expect } from 'vitest';
 import { __skillManagerTestUtils } from './skillManager';
 
-const { parseFrontmatter, isTruthy, extractDescription } = __skillManagerTestUtils;
+const { parseFrontmatter, isTruthy, extractDescription, resolveRemoteZipExtractRoot } = __skillManagerTestUtils;
+
+// ==================== resolveRemoteZipExtractRoot (remote / GitHub zip layout) ====================
+
+test('resolveRemoteZipExtractRoot: SKILL.md at extract root with one subdir stays at root', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-zip-flat-'));
+  fs.writeFileSync(path.join(root, 'SKILL.md'), '---\nname: x\n---\n');
+  fs.mkdirSync(path.join(root, 'scripts'));
+  expect(resolveRemoteZipExtractRoot(root)).toBe(root);
+});
+
+test('resolveRemoteZipExtractRoot: single wrapped folder with SKILL.md unwraps', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-zip-wrap-'));
+  const inner = path.join(root, 'my-skill');
+  fs.mkdirSync(inner);
+  fs.writeFileSync(path.join(inner, 'SKILL.md'), '---\nname: x\n---\n');
+  expect(resolveRemoteZipExtractRoot(root)).toBe(inner);
+});
+
+test('resolveRemoteZipExtractRoot: multiple top-level dirs keeps extract root', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-zip-multi-'));
+  fs.mkdirSync(path.join(root, 'a'));
+  fs.mkdirSync(path.join(root, 'b'));
+  fs.writeFileSync(path.join(root, 'a', 'SKILL.md'), '---\nname: x\n---\n');
+  expect(resolveRemoteZipExtractRoot(root)).toBe(root);
+});
 
 // ==================== parseFrontmatter ====================
 

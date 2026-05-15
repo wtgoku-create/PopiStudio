@@ -4,13 +4,19 @@ import {
   CheckCircleIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
 import type { SkillSecurityReport as SkillSecurityReportData } from '../../../main/libs/skillSecurity/skillSecurityTypes';
 import { i18nService } from '../../services/i18n';
-import { compareVersions,resolveLocalizedText, skillService } from '../../services/skill';
+import {
+  findInstalledSkillForMarketplace,
+  findMarketplaceSkillForInstalled,
+  marketplaceHasNewerVersionThanInstalled,
+  resolveLocalizedText,
+  skillService,
+} from '../../services/skill';
 import { RootState } from '../../store';
 import { setSkills } from '../../store/slices/skillSlice';
 import { MarketplaceSkill, MarketTag,Skill } from '../../types/skill';
@@ -30,6 +36,10 @@ import SkillSecurityReport from './SkillSecurityReport';
 type SkillTab = 'installed' | 'marketplace';
 type ImportSourceType = 'github' | 'clawhub';
 type DirectImportSource = 'zip' | 'folder' | 'remote';
+type MarketplaceRefreshMode = 'initial' | 'refresh' | 'loadMore';
+
+const MarketplacePageSize = 24;
+const MarketplacePullRefreshThreshold = 180;
 
 const importSourceTypes: ImportSourceType[] = ['github', 'clawhub'];
 
@@ -77,6 +87,11 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   const [marketTags, setMarketTags] = useState<MarketTag[]>([]);
   const [activeMarketTag, setActiveMarketTag] = useState('all');
   const [isLoadingMarketplace, setIsLoadingMarketplace] = useState(false);
+  const [isRefreshingMarketplace, setIsRefreshingMarketplace] = useState(false);
+  const [isLoadingMoreMarketplace, setIsLoadingMoreMarketplace] = useState(false);
+  const [hasMoreMarketplace, setHasMoreMarketplace] = useState(false);
+  const [marketplaceCurrentPage, setMarketplaceCurrentPage] = useState(1);
+  const [debouncedMarketplaceQuery, setDebouncedMarketplaceQuery] = useState('');
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null);
   const [selectedMarketplaceSkill, setSelectedMarketplaceSkill] = useState<MarketplaceSkill | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
@@ -98,10 +113,93 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   const addSkillMenuRef = useRef<HTMLDivElement>(null);
   const addSkillButtonRef = useRef<HTMLButtonElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const marketplaceScrollRef = useRef<HTMLDivElement>(null);
+  const marketplaceLoadMoreRef = useRef<HTMLDivElement>(null);
+  const marketplaceRequestIdRef = useRef(0);
+  const pullRefreshResetTimerRef = useRef<number | null>(null);
+  const pullRefreshTriggeredRef = useRef(false);
+  const marketplacePullDistanceRef = useRef(0);
 
   const showToast = (message: string) => {
     window.dispatchEvent(new CustomEvent('app:showToast', { detail: message }));
   };
+
+  const resetPullRefreshIndicator = () => {
+    if (pullRefreshResetTimerRef.current != null) {
+      window.clearTimeout(pullRefreshResetTimerRef.current);
+    }
+    pullRefreshResetTimerRef.current = window.setTimeout(() => {
+      marketplacePullDistanceRef.current = 0;
+      pullRefreshTriggeredRef.current = false;
+      pullRefreshResetTimerRef.current = null;
+    }, 180);
+  };
+
+  const loadMarketplacePage = useCallback(async (
+    mode: MarketplaceRefreshMode,
+    page: number
+  ) => {
+    const requestId = ++marketplaceRequestIdRef.current;
+    const keyword = debouncedMarketplaceQuery.trim();
+
+    if (mode === 'refresh') {
+      skillService.invalidateMarketplaceCache();
+    }
+
+    if (mode === 'loadMore') {
+      setIsLoadingMoreMarketplace(true);
+    } else if (mode === 'refresh') {
+      setIsRefreshingMarketplace(true);
+    } else {
+      setIsLoadingMarketplace(true);
+    }
+
+    try {
+      const data = await skillService.fetchMarketplaceSkills({
+        page,
+        pageSize: MarketplacePageSize,
+        categoryId: activeMarketTag === 'all' ? undefined : activeMarketTag,
+        keyword: keyword || undefined,
+      });
+
+      if (requestId !== marketplaceRequestIdRef.current) {
+        return;
+      }
+
+      setMarketTags(data.tags);
+      setMarketplaceCurrentPage(data.pageInfo.page);
+      setHasMoreMarketplace(data.pageInfo.page < data.pageInfo.pageCount);
+      setMarketplaceSkills((previous) => {
+        if (mode !== 'loadMore') {
+          return data.skills;
+        }
+        const merged = new Map(previous.map((skill) => [skill.id, skill]));
+        data.skills.forEach((skill) => merged.set(skill.id, skill));
+        return Array.from(merged.values());
+      });
+    } catch (error) {
+      if (requestId !== marketplaceRequestIdRef.current) {
+        return;
+      }
+      setSkillActionError(error instanceof Error ? error.message : i18nService.t('skillMarketplaceLoadFailed'));
+      if (mode !== 'loadMore') {
+        setMarketplaceSkills([]);
+        setHasMoreMarketplace(false);
+        setMarketplaceCurrentPage(1);
+      }
+    } finally {
+      if (requestId !== marketplaceRequestIdRef.current) {
+        return;
+      }
+      if (mode === 'loadMore') {
+        setIsLoadingMoreMarketplace(false);
+      } else if (mode === 'refresh') {
+        setIsRefreshingMarketplace(false);
+      } else {
+        setIsLoadingMarketplace(false);
+      }
+    }
+  }, [activeMarketTag, debouncedMarketplaceQuery]);
 
   useEffect(() => {
     let isActive = true;
@@ -125,15 +223,64 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   }, [dispatch]);
 
   useEffect(() => {
-    let isActive = true;
-    setIsLoadingMarketplace(true);
-    skillService.fetchMarketplaceSkills().then((data) => {
-      if (!isActive) return;
-      setMarketplaceSkills(data.skills);
-      setMarketTags(data.tags);
-      setIsLoadingMarketplace(false);
-    });
-    return () => { isActive = false; };
+    if (activeTab !== 'marketplace') {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedMarketplaceQuery(skillSearchQuery.trim());
+    }, 300);
+    return () => window.clearTimeout(timeoutId);
+  }, [activeTab, skillSearchQuery]);
+
+  useEffect(() => {
+    if (activeTab !== 'marketplace') {
+      return;
+    }
+    void loadMarketplacePage('initial', 1);
+  }, [activeTab, activeMarketTag, debouncedMarketplaceQuery, loadMarketplacePage]);
+
+  useEffect(() => {
+    if (activeTab !== 'marketplace' || !hasMoreMarketplace || isLoadingMarketplace || isLoadingMoreMarketplace) {
+      return;
+    }
+
+    const root = marketplaceScrollRef.current;
+    const target = marketplaceLoadMoreRef.current;
+    if (!root || !target) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) {
+          return;
+        }
+        void loadMarketplacePage('loadMore', marketplaceCurrentPage + 1);
+      },
+      {
+        root,
+        rootMargin: '0px 0px 160px 0px',
+      }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [
+    activeTab,
+    hasMoreMarketplace,
+    isLoadingMarketplace,
+    isLoadingMoreMarketplace,
+    marketplaceCurrentPage,
+    loadMarketplacePage,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (pullRefreshResetTimerRef.current != null) {
+        window.clearTimeout(pullRefreshResetTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -203,21 +350,6 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       return matchesSearch;
     });
   }, [skills, skillSearchQuery]);
-
-  const filteredMarketplaceSkills = useMemo(() => {
-    const query = skillSearchQuery.trim().replace(/\s+/g, ' ').toLowerCase();
-    let results = marketplaceSkills;
-    if (query) {
-      results = results.filter(skill => {
-        return skill.name.toLowerCase().includes(query)
-          || resolveLocalizedText(skill.description).toLowerCase().includes(query);
-      });
-    }
-    if (activeMarketTag !== 'all') {
-      results = results.filter(skill => skill.tags?.includes(activeMarketTag));
-    }
-    return results;
-  }, [marketplaceSkills, skillSearchQuery, activeMarketTag]);
 
   const formatSkillDate = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -381,30 +513,68 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
     await handleAddSkillFromSource(trimmed, 'remote');
   };
 
+  /** Pull-to-refresh and manual reload: first page via `skills:fetchMarketplacePage` (same as tab load / infinite scroll). */
+  const handleRefreshMarketplace = async () => {
+    if (isLoadingMarketplace || isRefreshingMarketplace || isLoadingMoreMarketplace) {
+      return;
+    }
+    await loadMarketplacePage('refresh', 1);
+  };
+
+  const handleMarketplaceWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const container = marketplaceScrollRef.current;
+    if (!container || activeTab !== 'marketplace' || isRefreshingMarketplace) {
+      return;
+    }
+    if (container.scrollTop > 0) {
+      marketplacePullDistanceRef.current = 0;
+      pullRefreshTriggeredRef.current = false;
+      return;
+    }
+    if (event.deltaY >= 0) {
+      resetPullRefreshIndicator();
+      return;
+    }
+
+    const nextDistance = Math.min(
+      MarketplacePullRefreshThreshold + 48,
+      marketplacePullDistanceRef.current + Math.abs(event.deltaY)
+    );
+    marketplacePullDistanceRef.current = nextDistance;
+    resetPullRefreshIndicator();
+
+    if (nextDistance >= MarketplacePullRefreshThreshold && !pullRefreshTriggeredRef.current) {
+      pullRefreshTriggeredRef.current = true;
+      void handleRefreshMarketplace();
+    }
+  };
+
   const getSkillInstallStatus = (marketplaceSkill: MarketplaceSkill): 'not_installed' | 'installed' | 'update_available' => {
-    const installed = skills.find(s => s.id === marketplaceSkill.id);
+    const installed = findInstalledSkillForMarketplace(marketplaceSkill, skills);
     if (!installed) return 'not_installed';
-    if (!marketplaceSkill.version) return 'installed';
-    const localVersion = installed.version || '0.0.0';
-    if (compareVersions(marketplaceSkill.version, localVersion) > 0) return 'update_available';
+    if (!marketplaceSkill.version?.trim()) return 'installed';
+    if (marketplaceHasNewerVersionThanInstalled(marketplaceSkill, installed)) return 'update_available';
     return 'installed';
   };
 
   const updatableSkills = useMemo(() => {
-    return marketplaceSkills.filter(ms => {
-      const installed = skills.find(s => s.id === ms.id);
-      if (!installed || !ms.version) return false;
-      const localVersion = installed.version || '0.0.0';
-      return compareVersions(ms.version, localVersion) > 0;
+    return marketplaceSkills.filter((ms) => {
+      const installed = findInstalledSkillForMarketplace(ms, skills);
+      return installed != null && marketplaceHasNewerVersionThanInstalled(ms, installed);
     });
   }, [skills, marketplaceSkills]);
 
-  const getInstalledVersion = (skillId: string): string | undefined => {
-    return skills.find(s => s.id === skillId)?.version;
+  const getInstalledVersionForMarketplace = (mp: MarketplaceSkill): string | undefined => {
+    return findInstalledSkillForMarketplace(mp, skills)?.version;
   };
 
   const handleUpgradeSkill = async (skill: MarketplaceSkill) => {
     if (upgradeState?.isActive || !skill.url) return;
+    const installed = findInstalledSkillForMarketplace(skill, skills);
+    if (!installed) {
+      setSkillActionError(i18nService.t('skillUpgradeFailed'));
+      return;
+    }
     setSkillActionError('');
     setUpgradeState({
       isActive: true,
@@ -414,7 +584,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       currentSkillVersion: skill.version,
     });
     try {
-      const result = await skillService.upgradeSkill(skill.id, skill.url);
+      const result = await skillService.upgradeSkill(installed.id, skill.url);
       if (!result.success) {
         setSkillActionError(result.error || i18nService.t('skillUpgradeFailed'));
         setUpgradeState(null);
@@ -463,7 +633,12 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       });
 
       try {
-        const result = await skillService.upgradeSkill(skill.id, skill.url);
+        const installed = findInstalledSkillForMarketplace(skill, skills);
+        if (!installed) {
+          setSkillActionError(i18nService.t('skillUpgradeFailed'));
+          continue;
+        }
+        const result = await skillService.upgradeSkill(installed.id, skill.url);
         if (!result.success) {
           console.warn('[SkillsManager] upgrade failed for', skill.id, result.error);
           continue;
@@ -541,22 +716,24 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   };
 
   return (
-    <div className="space-y-4">
-      <div>
+    <div className="flex flex-col flex-1 min-h-0 gap-4">
+      <div className="shrink-0">
         <p className="text-sm text-secondary">
           {i18nService.t('skillsDescription')}
         </p>
       </div>
 
       {skillActionError && !isRemoteImportOpen && (
-        <ErrorMessage
-          message={skillActionError}
-          onClose={() => setSkillActionError('')}
-        />
+        <div className="shrink-0">
+          <ErrorMessage
+            message={skillActionError}
+            onClose={() => setSkillActionError('')}
+          />
+        </div>
       )}
 
-      {/* Sticky toolbar: Description + Search + Tabs + Tag pills */}
-      <div className="sticky top-0 z-10 bg-claude-bg dark:bg-claude-darkBg pb-4 space-y-4 shadow-sm">
+      {/* Toolbar: search, tabs, tag pills — fixed height band above the scrollable list */}
+      <div className="shrink-0 z-10 bg-claude-bg dark:bg-claude-darkBg pb-4 space-y-4 shadow-sm">
         {/* Search + Add button */}
         <div className="flex items-center gap-3">
         <div className="relative flex-1">
@@ -687,38 +864,50 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
         </div>
 
         {/* Tag filter pills (Marketplace only) */}
-        {activeTab === 'marketplace' && !isLoadingMarketplace && marketTags.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setActiveMarketTag('all')}
-              className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${
-                activeMarketTag === 'all'
-                  ? 'bg-primary text-white'
-                  : 'bg-surface text-secondary hover:bg-surface-raised border border-border'
-              }`}
-            >
-              {i18nService.t('skillCategoryAll')}
-            </button>
-            {marketTags.map((tag) => (
+        {activeTab === 'marketplace' && (
+          marketTags.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
               <button
-                key={tag.id}
                 type="button"
-                onClick={() => setActiveMarketTag(tag.id)}
+                onClick={() => setActiveMarketTag('all')}
                 className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${
-                  activeMarketTag === tag.id
+                  activeMarketTag === 'all'
                     ? 'bg-primary text-white'
                     : 'bg-surface text-secondary hover:bg-surface-raised border border-border'
                 }`}
               >
-                {resolveLocalizedText(tag)}
+                {i18nService.t('skillCategoryAll')}
               </button>
-            ))}
-          </div>
+              {marketTags.map((tag) => (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => setActiveMarketTag(tag.id)}
+                  className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${
+                    activeMarketTag === tag.id
+                      ? 'bg-primary text-white'
+                      : 'bg-surface text-secondary hover:bg-surface-raised border border-border'
+                  }`}
+                >
+                  {resolveLocalizedText(tag)}
+                </button>
+              ))}
+            </div>
+          )
         )}
       </div>
 
-      <div>
+      <div
+        ref={marketplaceScrollRef}
+        onWheel={handleMarketplaceWheel}
+        onScroll={() => {
+          if (marketplaceScrollRef.current?.scrollTop && activeTab === 'marketplace') {
+            marketplacePullDistanceRef.current = 0;
+            pullRefreshTriggeredRef.current = false;
+          }
+        }}
+        className="flex-1 min-h-0 overflow-y-auto pr-1"
+      >
       {activeTab === 'installed' && (
       <>
       <div className="grid grid-cols-2 gap-3">
@@ -802,8 +991,8 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 <span>{formatSkillDate(skill.updatedAt)}</span>
                 </div>
                 {(() => {
-                  const mp = marketplaceSkills.find(m => m.id === skill.id);
-                  if (mp && mp.version && compareVersions(mp.version, skill.version || '0.0.0') > 0) {
+                  const mp = findMarketplaceSkillForInstalled(skill, marketplaceSkills);
+                  if (mp && marketplaceHasNewerVersionThanInstalled(mp, skill)) {
                     return (
                       <button
                         type="button"
@@ -827,19 +1016,19 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       )}
 
       {activeTab === 'marketplace' && (
-        isLoadingMarketplace ? (
-          <div className="text-center py-12 text-sm text-secondary">
-            {i18nService.t('downloadingSkill')}
-          </div>
-        ) : (
-          <>
-            {filteredMarketplaceSkills.length === 0 ? (
+        <div>
+          <div className="pb-4">
+            {isLoadingMarketplace ? (
+              <div className="text-center py-12 text-sm text-secondary">
+                {i18nService.t('downloadingSkill')}
+              </div>
+            ) : marketplaceSkills.length === 0 ? (
               <div className="text-center py-12 text-sm text-secondary">
                 {i18nService.t('skillMarketplaceEmpty')}
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
-                {filteredMarketplaceSkills.map((skill) => (
+                {marketplaceSkills.map((skill) => (
               <div
                 key={skill.id}
                 className="rounded-xl border border-border bg-surface p-3 transition-colors hover:border-primary cursor-pointer"
@@ -916,11 +1105,11 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                   {skill.version && (
                     <>
                       {(() => {
-                        const installedVer = getInstalledVersion(skill.id);
-                        if (installedVer && compareVersions(skill.version, installedVer) > 0) {
+                        const inst = findInstalledSkillForMarketplace(skill, skills);
+                        if (inst && marketplaceHasNewerVersionThanInstalled(skill, inst)) {
                           return (
                             <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
-                              v{installedVer} → v{skill.version}
+                              v{inst.version?.trim() || '—'} → v{skill.version}
                             </span>
                           );
                         }
@@ -937,8 +1126,17 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
             ))}
           </div>
             )}
-          </>
-        )
+            <div ref={marketplaceLoadMoreRef} className="pt-4 text-center text-xs text-secondary">
+              {isLoadingMoreMarketplace
+                ? i18nService.t('skillMarketplaceLoadMore')
+                : hasMoreMarketplace
+                  ? i18nService.t('skillMarketplaceLoadMore')
+                  : marketplaceSkills.length > 0
+                    ? i18nService.t('skillMarketplaceNoMore')
+                    : ''}
+            </div>
+          </div>
+        </div>
       )}
       </div>
 
@@ -1007,7 +1205,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
             {(() => {
               const status = getSkillInstallStatus(selectedMarketplaceSkill);
               if (status === 'update_available') {
-                const installedVer = getInstalledVersion(selectedMarketplaceSkill.id);
+                const installedVer = getInstalledVersionForMarketplace(selectedMarketplaceSkill);
                 return (
                   <button
                     type="button"
@@ -1071,7 +1269,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
 
             <div className="space-y-2 mb-5">
               {(() => {
-                const mp = marketplaceSkills.find(m => m.id === selectedSkill.id);
+                const mp = findMarketplaceSkillForInstalled(selectedSkill, marketplaceSkills);
                 return (
                   <>
                     {selectedSkill.isOfficial && (

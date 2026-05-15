@@ -788,6 +788,41 @@ const collectSkillDirsRecursively = (root: string): string[] => {
   return matchedDirs;
 };
 
+/**
+ * Remote zip layouts differ:
+ * - **Flat**: `SKILL.md` and other files live at the archive root (no wrapper folder).
+ * - **Wrapped**: everything sits under one root folder, e.g. `my-skill/SKILL.md`.
+ *
+ * We must not treat “exactly one top-level directory” as the skill root when that
+ * directory is only a helper (e.g. `scripts/`) while `SKILL.md` sits next to it at
+ * the extract root — that was the Gitea-style bug. Only unwrap the sole subdirectory
+ * when it actually contains `SKILL.md`; if the root already has `SKILL.md`, keep the root.
+ */
+const resolveRemoteZipExtractRoot = (extractRoot: string): string => {
+  if (fs.existsSync(path.join(extractRoot, SKILL_FILE_NAME))) {
+    return extractRoot;
+  }
+
+  const extractedDirs = fs.readdirSync(extractRoot)
+    .map(entry => path.join(extractRoot, entry))
+    .filter((entryPath) => {
+      try {
+        return fs.statSync(entryPath).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+
+  if (extractedDirs.length === 1) {
+    const only = extractedDirs[0];
+    if (only && fs.existsSync(path.join(only, SKILL_FILE_NAME))) {
+      return only;
+    }
+  }
+
+  return extractRoot;
+};
+
 const deriveRepoName = (source: string): string => {
   const cleaned = source.replace(/[#?].*$/, '');
   const base = cleaned.split('/').filter(Boolean).pop() || 'skill';
@@ -914,21 +949,7 @@ const downloadGithubArchive = async (
   fs.mkdirSync(extractRoot, { recursive: true });
   await extractZip(zipPath, { dir: extractRoot });
 
-  const extractedDirs = fs.readdirSync(extractRoot)
-    .map(entry => path.join(extractRoot, entry))
-    .filter(entryPath => {
-      try {
-        return fs.statSync(entryPath).isDirectory();
-      } catch {
-        return false;
-      }
-    });
-
-  if (extractedDirs.length === 1) {
-    return extractedDirs[0];
-  }
-
-  return extractRoot;
+  return resolveRemoteZipExtractRoot(extractRoot);
 };
 
 /**
@@ -1187,21 +1208,7 @@ const downloadZipUrl = async (zipUrl: string, tempRoot: string): Promise<string>
   fs.mkdirSync(extractRoot, { recursive: true });
   await extractZip(zipPath, { dir: extractRoot });
 
-  const extractedDirs = fs.readdirSync(extractRoot)
-    .map(entry => path.join(extractRoot, entry))
-    .filter(entryPath => {
-      try {
-        return fs.statSync(entryPath).isDirectory();
-      } catch {
-        return false;
-      }
-    });
-
-  if (extractedDirs.length === 1) {
-    return extractedDirs[0];
-  }
-
-  return extractRoot;
+  return resolveRemoteZipExtractRoot(extractRoot);
 };
 
 const normalizeGithubSubpath = (value: string): string | null => {
@@ -2856,4 +2863,5 @@ export const __skillManagerTestUtils = {
   extractDescription,
   parseClawhubUrl,
   isWindowsDeletePermissionError,
+  resolveRemoteZipExtractRoot,
 };
