@@ -10,7 +10,13 @@ import { useDispatch, useSelector } from 'react-redux';
 
 import type { SkillSecurityReport as SkillSecurityReportData } from '../../../main/libs/skillSecurity/skillSecurityTypes';
 import { i18nService } from '../../services/i18n';
-import { compareVersions,resolveLocalizedText, skillService } from '../../services/skill';
+import {
+  findInstalledSkillForMarketplace,
+  findMarketplaceSkillForInstalled,
+  marketplaceHasNewerVersionThanInstalled,
+  resolveLocalizedText,
+  skillService,
+} from '../../services/skill';
 import { RootState } from '../../store';
 import { setSkills } from '../../store/slices/skillSlice';
 import { MarketplaceSkill, MarketTag,Skill } from '../../types/skill';
@@ -544,29 +550,31 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   };
 
   const getSkillInstallStatus = (marketplaceSkill: MarketplaceSkill): 'not_installed' | 'installed' | 'update_available' => {
-    const installed = skills.find(s => s.id === marketplaceSkill.id);
+    const installed = findInstalledSkillForMarketplace(marketplaceSkill, skills);
     if (!installed) return 'not_installed';
-    if (!marketplaceSkill.version) return 'installed';
-    const localVersion = installed.version || '0.0.0';
-    if (compareVersions(marketplaceSkill.version, localVersion) > 0) return 'update_available';
+    if (!marketplaceSkill.version?.trim()) return 'installed';
+    if (marketplaceHasNewerVersionThanInstalled(marketplaceSkill, installed)) return 'update_available';
     return 'installed';
   };
 
   const updatableSkills = useMemo(() => {
-    return marketplaceSkills.filter(ms => {
-      const installed = skills.find(s => s.id === ms.id);
-      if (!installed || !ms.version) return false;
-      const localVersion = installed.version || '0.0.0';
-      return compareVersions(ms.version, localVersion) > 0;
+    return marketplaceSkills.filter((ms) => {
+      const installed = findInstalledSkillForMarketplace(ms, skills);
+      return installed != null && marketplaceHasNewerVersionThanInstalled(ms, installed);
     });
   }, [skills, marketplaceSkills]);
 
-  const getInstalledVersion = (skillId: string): string | undefined => {
-    return skills.find(s => s.id === skillId)?.version;
+  const getInstalledVersionForMarketplace = (mp: MarketplaceSkill): string | undefined => {
+    return findInstalledSkillForMarketplace(mp, skills)?.version;
   };
 
   const handleUpgradeSkill = async (skill: MarketplaceSkill) => {
     if (upgradeState?.isActive || !skill.url) return;
+    const installed = findInstalledSkillForMarketplace(skill, skills);
+    if (!installed) {
+      setSkillActionError(i18nService.t('skillUpgradeFailed'));
+      return;
+    }
     setSkillActionError('');
     setUpgradeState({
       isActive: true,
@@ -576,7 +584,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       currentSkillVersion: skill.version,
     });
     try {
-      const result = await skillService.upgradeSkill(skill.id, skill.url);
+      const result = await skillService.upgradeSkill(installed.id, skill.url);
       if (!result.success) {
         setSkillActionError(result.error || i18nService.t('skillUpgradeFailed'));
         setUpgradeState(null);
@@ -625,7 +633,12 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       });
 
       try {
-        const result = await skillService.upgradeSkill(skill.id, skill.url);
+        const installed = findInstalledSkillForMarketplace(skill, skills);
+        if (!installed) {
+          setSkillActionError(i18nService.t('skillUpgradeFailed'));
+          continue;
+        }
+        const result = await skillService.upgradeSkill(installed.id, skill.url);
         if (!result.success) {
           console.warn('[SkillsManager] upgrade failed for', skill.id, result.error);
           continue;
@@ -978,8 +991,8 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 <span>{formatSkillDate(skill.updatedAt)}</span>
                 </div>
                 {(() => {
-                  const mp = marketplaceSkills.find(m => m.id === skill.id);
-                  if (mp && mp.version && compareVersions(mp.version, skill.version || '0.0.0') > 0) {
+                  const mp = findMarketplaceSkillForInstalled(skill, marketplaceSkills);
+                  if (mp && marketplaceHasNewerVersionThanInstalled(mp, skill)) {
                     return (
                       <button
                         type="button"
@@ -1092,11 +1105,11 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                   {skill.version && (
                     <>
                       {(() => {
-                        const installedVer = getInstalledVersion(skill.id);
-                        if (installedVer && compareVersions(skill.version, installedVer) > 0) {
+                        const inst = findInstalledSkillForMarketplace(skill, skills);
+                        if (inst && marketplaceHasNewerVersionThanInstalled(skill, inst)) {
                           return (
                             <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
-                              v{installedVer} → v{skill.version}
+                              v{inst.version?.trim() || '—'} → v{skill.version}
                             </span>
                           );
                         }
@@ -1192,7 +1205,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
             {(() => {
               const status = getSkillInstallStatus(selectedMarketplaceSkill);
               if (status === 'update_available') {
-                const installedVer = getInstalledVersion(selectedMarketplaceSkill.id);
+                const installedVer = getInstalledVersionForMarketplace(selectedMarketplaceSkill);
                 return (
                   <button
                     type="button"
@@ -1256,7 +1269,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
 
             <div className="space-y-2 mb-5">
               {(() => {
-                const mp = marketplaceSkills.find(m => m.id === selectedSkill.id);
+                const mp = findMarketplaceSkillForInstalled(selectedSkill, marketplaceSkills);
                 return (
                   <>
                     {selectedSkill.isOfficial && (
