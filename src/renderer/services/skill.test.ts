@@ -1,6 +1,47 @@
 import { expect, test } from 'vitest';
 
-import { isSkillHubPagedOrFilteredRequest, mapSkillMarketplaceData } from './skill';
+import {
+  extractSkillZipUrlFromInstallInstruction,
+  isSkillHubPagedOrFilteredRequest,
+  mapSkillMarketplaceData,
+} from './skill';
+
+test('extractSkillZipUrlFromInstallInstruction: curl markdown with trailing quotes', () => {
+  const input =
+    '### 在终端中执行以下命令，即可下载该skill。\n\n> curl -fsSL https://gittea.dev/popiskill/skills/raw/branch/master/E-commerce_tools/color-palette-cn-2.3.7/color-palette-cn-2.3.7.zip""\n';
+  expect(extractSkillZipUrlFromInstallInstruction(input)).toBe(
+    'https://gittea.dev/popiskill/skills/raw/branch/master/E-commerce_tools/color-palette-cn-2.3.7/color-palette-cn-2.3.7.zip',
+  );
+});
+
+test('extractSkillZipUrlFromInstallInstruction: empty and non-zip', () => {
+  expect(extractSkillZipUrlFromInstallInstruction(undefined)).toBe('');
+  expect(extractSkillZipUrlFromInstallInstruction('')).toBe('');
+  expect(extractSkillZipUrlFromInstallInstruction('   ')).toBe('');
+  expect(extractSkillZipUrlFromInstallInstruction('no url here')).toBe('');
+});
+
+test('mapSkillMarketplaceData uses humanInstallDesp zip when url fields empty', () => {
+  const human =
+    '### 在终端中执行以下命令，即可下载该skill。\n\n> curl -fsSL https://example.com/a.zip""\n';
+  const result = mapSkillMarketplaceData({
+    skills: [
+      {
+        id: 99,
+        name: 'Zip Only',
+        version: '1.0.0',
+        desp: 'd',
+        url: '',
+        origin: '',
+        path: '',
+        humanInstallDesp: human,
+      },
+    ],
+    categories: [],
+  });
+  expect(result.skills[0].url).toBe('https://example.com/a.zip');
+  expect(result.skills[0].source.url).toBe('https://example.com/a.zip');
+});
 
 test('isSkillHubPagedOrFilteredRequest: page or pageSize forces paginated API', () => {
   expect(isSkillHubPagedOrFilteredRequest(undefined)).toBe(false);

@@ -43,25 +43,58 @@ type EmailConnectivityTestResult = {
   checks: EmailConnectivityCheck[];
 };
 
-const deriveMarketplaceSource = (skill: SkillHubSkillItem): MarketplaceSkill['source'] => {
-  const sourceUrl = skill.origin || skill.url || skill.path || '';
+/**
+ * Extracts a direct http(s) `.zip` download URL from Skill Hub install copy
+ * (markdown / `curl -fsSL …` lines, including stray trailing `"` characters).
+ */
+export function extractSkillZipUrlFromInstallInstruction(text: string | undefined | null): string {
+  if (text == null || typeof text !== 'string') {
+    return '';
+  }
+  const s = text.trim();
+  if (!s) {
+    return '';
+  }
+
+  const stripEdgeQuotes = (raw: string): string => raw.replace(/^["'`]+/, '').replace(/["'`]+$/, '');
+
+  const zipUrl = s.match(/https?:\/\/[^\s"'<>]+\.zip/i);
+  if (zipUrl?.[0]) {
+    return stripEdgeQuotes(zipUrl[0]);
+  }
+
+  const afterCurl = s.match(/curl(?:\s+-\S+)*\s+(https?:\/\/\S+)/i);
+  if (afterCurl?.[1]) {
+    return stripEdgeQuotes(afterCurl[1].replace(/\s+$/, ''));
+  }
+
+  const anyHttp = s.match(/https?:\/\/[^\s"'<>]+/i);
+  if (anyHttp?.[0]) {
+    return stripEdgeQuotes(anyHttp[0]);
+  }
+
+  return '';
+}
+
+const deriveMarketplaceSource = (skill: SkillHubSkillItem, installSource: string): MarketplaceSkill['source'] => {
+
   let from = 'SkillHub';
-  if (sourceUrl) {
+  if (installSource) {
     try {
-      const host = new URL(sourceUrl).hostname.toLowerCase();
+      const host = new URL(installSource).hostname.toLowerCase();
       if (host.includes('clawhub.ai')) {
         from = 'ClawHub';
       } else if (host.includes('github.com')) {
         from = 'GitHub';
       }
     } catch {
-      from = sourceUrl.includes('/') ? 'GitHub' : 'SkillHub';
+      from = installSource.includes('/') ? 'GitHub' : 'SkillHub';
     }
   }
 
   return {
     from,
-    url: sourceUrl,
+    url: installSource,
     author: skill.author,
   };
 };
@@ -91,7 +124,7 @@ export function mapSkillMarketplaceData(
   const categories = Array.isArray(marketplaceData.categories) ? marketplaceData.categories : [];
   const skills = (Array.isArray(marketplaceData.skills) ? marketplaceData.skills : []).map((skill) => {
     const categoryTag = skill.categoryId != null ? String(skill.categoryId) : undefined;
-    const installSource = skill.url || skill.origin || skill.path || '';
+    const installSource = extractSkillZipUrlFromInstallInstruction(skill.humanInstallDesp) || '';
     return {
       id: String(skill.id),
       name: skill.name,
@@ -99,7 +132,7 @@ export function mapSkillMarketplaceData(
       tags: categoryTag ? [categoryTag] : [],
       url: installSource,
       version: skill.version || '',
-      source: deriveMarketplaceSource(skill),
+      source: deriveMarketplaceSource(skill, installSource),
     };
   });
 

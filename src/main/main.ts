@@ -2788,30 +2788,30 @@ if (!gotTheLock) {
       const credential = getModelGatewayCredential() ?? await refreshModelGatewayCredential();
       let models: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }> = [...POPI_DEFAULT_SERVER_MODELS];
 
-      try {
-        const modelsUrl = `${normalizePopiBaseUrl(credential.baseURL)}/models`;
-        const resp = await net.fetch(modelsUrl, {
-          headers: { Authorization: `Bearer ${credential.apiKey}` },
-        });
-        if (resp.ok) {
-          const body = await resp.json() as { data?: Array<{ id?: string; name?: string }> };
-          const gatewayModels = (body.data ?? [])
-            .map(model => model.id?.trim())
-            .filter((id): id is string => !!id)
-            .map(id => ({
-              modelId: id,
-              modelName: id,
-              provider: ProviderName.PopiaiServer,
-              apiFormat: 'openai',
-              supportsImage: true,
-            }));
-          if (gatewayModels.length > 0) {
-            models = gatewayModels;
-          }
-        }
-      } catch (error) {
-        console.debug('[Auth:getModels] gateway model list unavailable, using fallback model:', error);
-      }
+      // try {
+      //   const modelsUrl = `${normalizePopiBaseUrl(credential.baseURL)}/models`;
+      //   const resp = await net.fetch(modelsUrl, {
+      //     headers: { Authorization: `Bearer ${credential.apiKey}` },
+      //   });
+      //   if (resp.ok) {
+      //     const body = await resp.json() as { data?: Array<{ id?: string; name?: string }> };
+      //     const gatewayModels = (body.data ?? [])
+      //       .map(model => model.id?.trim())
+      //       .filter((id): id is string => !!id)
+      //       .map(id => ({
+      //         modelId: id,
+      //         modelName: id,
+      //         provider: ProviderName.PopiaiServer,
+      //         apiFormat: 'openai',
+      //         supportsImage: true,
+      //       }));
+      //     if (gatewayModels.length > 0) {
+      //       models = gatewayModels;
+      //     }
+      //   }
+      // } catch (error) {
+      //   console.debug('[Auth:getModels] gateway model list unavailable, using fallback model:', error);
+      // }
 
       // Cache server model metadata for use in OpenClaw config sync (supportsImage, etc.)
       const serverModelsChanged = updateServerModelMetadata(models);
