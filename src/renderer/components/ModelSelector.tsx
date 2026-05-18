@@ -35,11 +35,6 @@ const DROPDOWN_MAX_HEIGHT = 344; // list max-h-72 plus the tab area
 const DROPDOWN_WIDTH = 240; // matches w-60
 const DROPDOWN_VIEWPORT_MARGIN = 8;
 const MODEL_ICON_CLASS_NAME = 'h-[18px] w-[18px]';
-const ModelSelectorGroup = {
-  Server: 'server',
-  User: 'user',
-} as const;
-type ModelSelectorGroup = typeof ModelSelectorGroup[keyof typeof ModelSelectorGroup];
 const MODEL_ICON_PROVIDER_HINTS: Array<{ pattern: RegExp; providerName: ProviderName | ProviderIconId }> = [
   { pattern: /doubao|豆包/i, providerName: ProviderIconId.Doubao },
   { pattern: /deepseek/i, providerName: ProviderName.DeepSeek },
@@ -67,7 +62,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const [isOpen, setIsOpen] = React.useState(false);
   const [resolvedDirection, setResolvedDirection] = React.useState<'up' | 'down'>('down');
   const [portalStyle, setPortalStyle] = React.useState<React.CSSProperties>({});
-  const [activeGroup, setActiveGroup] = React.useState<ModelSelectorGroup>(ModelSelectorGroup.Server);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
@@ -78,34 +72,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
   const selectedModel = controlled ? value ?? null : globalSelectedModel;
   const selectedModelKey = selectedModel ? getModelIdentityKey(selectedModel) : '';
-  const availableModels = useSelector((state: RootState) => state.model.availableModels);
-  const serverModels = availableModels.filter(m => m.isServerModel);
-  const userModels = availableModels.filter(m => !m.isServerModel);
-  const modelGroups = [
-    ...(serverModels.length > 0
-      ? [{ key: ModelSelectorGroup.Server, label: i18nService.t('modelGroupServer') }]
-      : []),
-    ...(userModels.length > 0
-      ? [{ key: ModelSelectorGroup.User, label: i18nService.t('modelGroupUser') }]
-      : []),
-  ];
-  const shouldShowGroupTabs = serverModels.length > 0;
-  const isGroupAvailable = (group: ModelSelectorGroup): boolean => (
-    group === ModelSelectorGroup.Server ? serverModels.length > 0 : userModels.length > 0
-  );
-  const getModelGroup = (model: Model | null): ModelSelectorGroup | null => {
-    if (!model) return null;
-    return model.isServerModel ? ModelSelectorGroup.Server : ModelSelectorGroup.User;
-  };
-  const getPreferredGroup = (): ModelSelectorGroup => {
-    const selectedGroup = getModelGroup(selectedModel);
-    if (selectedGroup && isGroupAvailable(selectedGroup)) return selectedGroup;
-    return serverModels.length > 0 ? ModelSelectorGroup.Server : ModelSelectorGroup.User;
-  };
-  const visibleGroup = isGroupAvailable(activeGroup) ? activeGroup : getPreferredGroup();
-  const visibleModels = shouldShowGroupTabs
-    ? (visibleGroup === ModelSelectorGroup.Server ? serverModels : userModels)
-    : availableModels;
+  const availableModels = useSelector((state: RootState) => state.model.availableModels)
+    .filter(model => model.isServerModel);
 
   // 点击外部区域关闭下拉框
   React.useEffect(() => {
@@ -188,7 +156,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     const targetScrollTop = selectedOffsetTop - ((scrollContainer.clientHeight - selectedItem.offsetHeight) / 2);
     const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
     scrollContainer.scrollTop = Math.min(Math.max(0, targetScrollTop), maxScrollTop);
-  }, [isOpen, selectedModelKey, visibleGroup, visibleModels.length]);
+  }, [isOpen, selectedModelKey, availableModels.length]);
 
   const toggleOpen = () => {
     if (disabled) return;
@@ -198,7 +166,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       if (portal) {
         updatePortalPosition(nextDirection);
       }
-      setActiveGroup(getPreferredGroup());
       setIsOpen(true);
     } else {
       setIsOpen(false);
@@ -290,36 +257,12 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     );
   };
 
-  const renderGroupTabs = () => (
-    <div className="border-b border-border/60 p-2">
-      <div className="flex rounded-lg bg-surface-raised p-0.5" role="tablist" aria-label={i18nService.t('model')}>
-        {modelGroups.map(group => (
-          <button
-            type="button"
-            key={group.key}
-            role="tab"
-            aria-selected={visibleGroup === group.key}
-            onClick={() => setActiveGroup(group.key)}
-            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-center text-[12px] font-medium leading-4 transition-colors ${
-              visibleGroup === group.key
-                ? 'bg-surface text-foreground shadow-sm'
-                : 'text-secondary hover:text-foreground'
-            }`}
-          >
-            <span className="truncate">{group.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
   const dropdown = isOpen ? (
     <div
       ref={dropdownRef}
       style={portal ? portalStyle : undefined}
       className={`${portal ? '' : `absolute ${dropdownPositionClass} ${dropdownAlignmentClass}`} w-60 bg-surface rounded-xl popover-enter shadow-popover z-50 border-border border overflow-hidden`}
     >
-      {shouldShowGroupTabs && renderGroupTabs()}
       <div ref={scrollContainerRef} className="model-selector-scroll max-h-72 overflow-y-auto py-1">
         {defaultLabel && (
           <button
@@ -333,7 +276,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             {!selectedModel && <CheckIcon className="h-4 w-4 shrink-0 text-emerald-500" />}
           </button>
         )}
-        {visibleModels.map(renderModelItem)}
+        {availableModels.map(renderModelItem)}
       </div>
     </div>
   ) : null;

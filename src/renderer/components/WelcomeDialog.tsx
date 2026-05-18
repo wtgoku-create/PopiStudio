@@ -3,11 +3,10 @@ import { i18nService } from '@/services/i18n';
 
 interface WelcomeDialogProps {
   onLogin: () => void;
-  onCustomModel: () => void;
   onClose: () => void;
 }
 
-const WelcomeDialog: React.FC<WelcomeDialogProps> = ({ onLogin, onCustomModel, onClose }) => {
+const WelcomeDialog: React.FC<WelcomeDialogProps> = ({ onLogin, onClose }) => {
   return (
     <div className="fixed inset-0 z-[60] bg-surface flex items-center justify-center">
       {/* gradient overlay */}
@@ -64,7 +63,7 @@ const WelcomeDialog: React.FC<WelcomeDialogProps> = ({ onLogin, onCustomModel, o
         </div>
 
         {/* buttons — hand image sits at bottom-left of this row, overlapping login button */}
-        <div className="flex gap-3 w-full relative overflow-visible">
+        <div className="flex w-full relative overflow-visible">
           <img
             src="hand.png"
             alt=""
@@ -77,17 +76,10 @@ const WelcomeDialog: React.FC<WelcomeDialogProps> = ({ onLogin, onCustomModel, o
           />
           <button
             onClick={onLogin}
-            className="w-[204px] h-10 rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90 active:opacity-80"
+            className="w-full h-10 rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90 active:opacity-80"
             style={{ backgroundColor: 'rgba(72, 133, 255, 1)' }}
           >
             {i18nService.t('welcomeLogin')}
-          </button>
-          <button
-            onClick={onCustomModel}
-            className="w-[204px] h-10 rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90 active:opacity-80"
-            style={{ backgroundColor: 'rgba(54, 57, 63, 1)' }}
-          >
-            {i18nService.t('welcomeCustomModel')}
           </button>
         </div>
       </div>

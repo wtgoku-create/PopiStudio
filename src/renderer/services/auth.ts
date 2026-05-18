@@ -118,6 +118,14 @@ class AuthService {
     await window.electron.auth.logout();
     store.dispatch(setLoggedOut());
     store.dispatch(clearServerModels());
+    const config = configService.getConfig();
+    await configService.updateConfig({
+      model: {
+        ...config.model,
+        defaultModel: '',
+        defaultModelProvider: 'popiai-server',
+      },
+    });
   }
 
   /**

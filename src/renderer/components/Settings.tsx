@@ -1,10 +1,10 @@
 import { EyeIcon, EyeSlashIcon, XCircleIcon as XCircleIconSolid } from '@heroicons/react/20/solid';
-import { ArrowTopRightOnSquareIcon, ChatBubbleLeftIcon, CheckCircleIcon, CpuChipIcon, CubeIcon, EnvelopeIcon, InformationCircleIcon, KeyIcon, ShieldCheckIcon, SignalIcon, SunIcon, UserCircleIcon, XCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { ArrowTopRightOnSquareIcon, ChatBubbleLeftIcon, CheckCircleIcon, CpuChipIcon, EnvelopeIcon, InformationCircleIcon, KeyIcon, ShieldCheckIcon, SignalIcon, SunIcon, UserCircleIcon, XCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useCallback,useEffect, useMemo, useRef, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector } from 'react-redux';
 
 import { type AppUpdateInfo,type AppUpdateRuntimeState,AppUpdateSource,AppUpdateStatus } from '../../shared/appUpdate/constants';
-import { OpenClawProviderId, ProviderName, ProviderRegistry, resolveCodingPlanBaseUrl } from '../../shared/providers';
+import { ProviderName, ProviderRegistry, resolveCodingPlanBaseUrl } from '../../shared/providers';
 import { type AppConfig, defaultConfig, getCustomProviderDefaultName, getProviderDisplayName, getVisibleProviders, isCustomProvider } from '../config';
 import { APP_ID, EXPORT_FORMAT_TYPE, EXPORT_PASSWORD } from '../constants/app';
 import { getProviderIcon } from '../providers/uiRegistry';
@@ -17,7 +17,6 @@ import { imService } from '../services/im';
 import { themeService } from '../services/theme';
 import type { RootState } from '../store';
 import { selectCoworkConfig } from '../store/selectors/coworkSelectors';
-import { setAvailableModels } from '../store/slices/modelSlice';
 import type {
   CoworkAgentEngine,
   CoworkMemoryStats,
@@ -102,16 +101,6 @@ const resolveModelSupportsImageForProvider = (
   providerName: string,
   model: { id: string; supportsImage?: boolean },
 ): boolean => ProviderRegistry.resolveModelSupportsImage(providerName, model.id, model.supportsImage);
-
-const getOpenClawProviderIdForConfig = (
-  providerName: string,
-  providerConfig: ProviderConfig,
-): string => {
-  if (providerName === ProviderName.OpenAI && providerConfig.authType === 'oauth') {
-    return OpenClawProviderId.OpenAICodex;
-  }
-  return ProviderRegistry.getOpenClawProviderId(providerName);
-};
 
 interface ProviderExportEntry {
   enabled: boolean;
@@ -572,9 +561,11 @@ const SendShortcutSelect: React.FC<{ value: string; onChange: (v: string) => voi
 };
 
 const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, noticeI18nKey, noticeExtra, onUpdateFound, enterpriseConfig }) => {
-  const dispatch = useDispatch();
   // 状态
-  const [activeTab, setActiveTab] = useState<TabType>(initialTab ?? 'general');
+  const resolveInitialTab = (tab?: TabType): TabType => (
+    tab === 'model' ? 'general' : (tab ?? 'general')
+  );
+  const [activeTab, setActiveTab] = useState<TabType>(resolveInitialTab(initialTab));
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
   const [themeId, setThemeId] = useState<string>(themeService.getThemeId());
   const [language, setLanguage] = useState<LanguageType>('zh');
@@ -1208,7 +1199,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
 
   useEffect(() => {
     if (initialTab) {
-      setActiveTab(initialTab);
+      setActiveTab(resolveInitialTab(initialTab));
     }
   }, [initialTab]);
 
@@ -1964,24 +1955,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
       });
 
       // 更新 Redux store 中的可用模型列表
-      const allModels: { id: string; name: string; provider?: string; providerKey?: string; openClawProviderId?: string; supportsImage?: boolean }[] = [];
-      Object.entries(normalizedProviders).forEach(([providerName, config]) => {
-        if (config.enabled && config.models) {
-          const openClawProviderId = getOpenClawProviderIdForConfig(providerName, config);
-          config.models.forEach(model => {
-            allModels.push({
-              id: model.id,
-              name: model.name,
-              provider: getProviderDisplayName(providerName, config),
-              providerKey: providerName,
-              openClawProviderId,
-              supportsImage: resolveModelSupportsImageForProvider(providerName, model),
-            });
-          });
-        }
-      });
-      dispatch(setAvailableModels(allModels));
-
       if (hasCoworkConfigChanges) {
         const updated = await coworkService.updateConfig({
           agentEngine: coworkAgentEngine,
@@ -2668,7 +2641,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
       { key: 'general' as TabType,        label: i18nService.t('general'),        icon: <SettingsSlidersIcon className="h-5 w-5" /> },
       { key: 'appearance' as TabType,     label: i18nService.t('appearance'),     icon: <SunIcon className="h-5 w-5" /> },
       { key: 'coworkAgentEngine' as TabType, label: i18nService.t('coworkAgentEngine'), icon: <CpuChipIcon className="h-5 w-5" /> },
-      { key: 'model' as TabType,          label: i18nService.t('model'),          icon: <CubeIcon className="h-5 w-5" /> },
       { key: 'im' as TabType,             label: i18nService.t('imBot'),          icon: <ChatBubbleLeftIcon className="h-5 w-5" /> },
       { key: 'email' as TabType,          label: i18nService.t('emailTab'),       icon: <EnvelopeIcon className="h-5 w-5" /> },
       { key: 'coworkMemory' as TabType,   label: i18nService.t('coworkMemoryTitle'), icon: <BrainIcon className="h-5 w-5" /> },
