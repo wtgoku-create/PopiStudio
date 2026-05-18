@@ -7,6 +7,7 @@ import DocumentRenderer from './renderers/DocumentRenderer';
 import HtmlRenderer from './renderers/HtmlRenderer';
 import ImageRenderer from './renderers/ImageRenderer';
 import MarkdownRenderer from './renderers/MarkdownRenderer';
+import MediaRenderer from './renderers/MediaRenderer';
 import MermaidRenderer from './renderers/MermaidRenderer';
 import SvgRenderer from './renderers/SvgRenderer';
 import TextRenderer from './renderers/TextRenderer';
@@ -24,6 +25,9 @@ const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ artifact }) => {
       return <SvgRenderer artifact={artifact} />;
     case 'image':
       return <ImageRenderer artifact={artifact} />;
+    case 'video':
+    case 'audio':
+      return <MediaRenderer artifact={artifact} />;
     case 'mermaid':
       return <MermaidRenderer artifact={artifact} />;
     case 'markdown':

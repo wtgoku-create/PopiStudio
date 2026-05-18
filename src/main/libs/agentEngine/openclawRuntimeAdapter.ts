@@ -56,6 +56,19 @@ const GATEWAY_READY_TIMEOUT_MS = 60_000;
 const FINAL_HISTORY_SYNC_LIMIT = 50;
 const CHANNEL_SESSION_DISCOVERY_LIMIT = 200;
 
+/**
+ * 正则表达式，用于检测 Bash 命令中是否包含 popiart 调用。
+ *
+ * 匹配模式：独立的 popiart 或 popiart.exe 命令词，
+ * 不匹配注释中的 popiart 或路径中的 popiart（如 /path/to/popiart）。
+ *
+ * 用于 exec approval 拦截：PopiArt 已内置 CLI，agent 可直接调用，
+ * 但 popiart auth 和 --key 除外（安全限制）。
+ */
+const POPIART_BASH_COMMAND_RE = /(^|[\s;&|()])(?:"[^"]*[\\/])?(?:'[^']*[\\/])?(?:[\w./\\-]*[\\/])?popiart(?:\.exe)?(?=$|[\s;&|()])/i;
+const POPIART_AUTH_RE = /(^|[\s;&|()])(?:"[^"]*[\\/])?(?:'[^']*[\\/])?(?:[\w./\\-]*[\\/])?popiart(?:\.exe)?(?:\s+.*)?$/i;
+const POPIART_DENYLIST_RE = /(^|[\s;&|()])(?:[\w./\\-]*[\\/])?popiart(?:\.exe)?[\s;&|)]/i;
+
 /** How we chose assistant text to persist at chat.final (for tests and logs). */
 export type PersistedSegmentPickReason =
   | 'both_empty'
@@ -92,6 +105,35 @@ export function pickPersistedAssistantSegment(
     return { content: fin, reason: 'stream_shorter_prefer_chat_final' };
   }
   return { content: fin, reason: 'chat_path_prefer_final' };
+}
+
+/**
+ * 检测给定命令字符串是否包含 popiart Bash 调用。
+ *
+ * 当检测到 popiart 命令时，exec approval 会：
+ * 1. 自动拒绝 auth/key 相关命令
+ * 2. 返回提示：不要运行 popiart auth 或传 --key
+ * 3. 向会话添加一条 system message 解释原因
+ *
+ * 允许 popiart 生成/查询/拉取命令，拦截登录/秘钥类命令。
+ */
+function isPopiArtBashCommand(command: string): boolean {
+  return POPIART_BASH_COMMAND_RE.test(command.trim());
+}
+
+function shouldDenyPopiArtBashCommand(command: string): boolean {
+  if (!isPopiArtBashCommand(command)) {
+    return false;
+  }
+  // Deny if command contains auth subcommand or --key/--api-key flag
+  const cmd = command.trim();
+  if (/popiart(?:\.exe)?[\s]+(?:auth|--version|help)/i.test(cmd)) {
+    return true;
+  }
+  if (/--key|--api-key/i.test(cmd)) {
+    return true;
+  }
+  return false;
 }
 
 type GatewayEventFrame = {
@@ -3911,6 +3953,22 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // beyond the 10s cooldown window until the next runTurn or session deletion).
     if (this.manuallyStoppedSessions.has(sessionId) && isManagedSessionKey(sessionKey)) {
       console.log('[OpenClawRuntime] suppressed approval for manually stopped desktop session, requestId:', requestId, 'sessionId:', sessionId);
+      return;
+    }
+
+    // PopiArt Bash 拦截：检测到 popiart auth 或 --key 命令时自动拒绝
+    // 生成/查询/拉取命令允许执行，登录/秘钥类命令拒绝。
+    if (shouldDenyPopiArtBashCommand(command)) {
+      this.pendingApprovals.set(requestId, { requestId, sessionId });
+      this.respondToPermission(requestId, {
+        behavior: 'deny',
+        message: 'Do not run `popiart auth` or pass `--key`/`--api-key`. Use `popiart image`, `popiart video`, `popiart jobs`, `popiart artifacts` for generation and retrieval.',
+      });
+      const msg = this.store.addMessage(sessionId, {
+        type: 'system',
+        content: 'PopiArt CLI is available directly. Use `popiart image`, `popiart video`, `popiart jobs get`, `popiart artifacts pull` for generation and retrieval. Do not run `popiart auth` or pass `--key`.',
+      });
+      this.emit('message', sessionId, msg);
       return;
     }
 

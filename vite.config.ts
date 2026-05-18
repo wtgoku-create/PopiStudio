@@ -81,6 +81,8 @@ export default defineConfig({
     },
     watch: {
       usePolling: false,
+      // 排除 openclaw-runtime vendor 目录，减少不必要的热更新开销
+      ignored: ['**/vendor/openclaw-runtime/**'],
     },
   },
   optimizeDeps: {

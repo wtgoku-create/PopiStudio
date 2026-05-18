@@ -1902,9 +1902,18 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             ? rawPath
             : (/^[A-Za-z]:/.test(rawPath) ? rawPath : `${cwd}/${rawPath}`);
           try {
+            if (artifact.type === 'video' || artifact.type === 'audio') {
+              loadedFileIdsRef.current.add(artifact.id);
+              dispatch(addArtifact({
+                sessionId,
+                artifact: { ...artifact, content: '', filePath: absPath },
+              }));
+              continue;
+            }
             const result = await window.electron.dialog.readFileAsDataUrl(absPath);
             if (result?.success && result.dataUrl) {
-              const isTextType = artifact.type !== 'image' && artifact.type !== 'document';
+              const isTextType = artifact.type !== 'image'
+                && artifact.type !== 'document';
               let content = result.dataUrl;
               if (isTextType) {
                 try {

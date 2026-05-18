@@ -5,6 +5,11 @@ const { existsSync, readdirSync, statSync, mkdirSync, readFileSync, rmSync, cpSy
 const { spawnSync } = require('child_process');
 const asar = require('@electron/asar');
 const { ensurePortablePythonRuntime, checkRuntimeHealth } = require('./setup-python-runtime.js');
+const {
+  ensurePopiArtCliTarget,
+  resolvePreparedTargetRoot,
+  resolveTargetConfig: resolvePopiArtCliTargetConfig,
+} = require('./ensure-popiart-cli.cjs');
 const { syncLocalOpenClawExtensions } = require('./sync-local-openclaw-extensions.cjs');
 const { packMultipleSources } = require('./pack-openclaw-tar.cjs');
 const { DIST_DIFFS_EXTENSION_DIR, DIST_EXTENSIONS_DIR, summarizeGatewayAsarEntries } = require('./openclaw-runtime-packaging.cjs');
@@ -41,6 +46,72 @@ function resolveOpenClawRuntimeTargetId(context) {
   }
 
   return null;
+}
+
+function resolvePopiArtCliTargetIds(context) {
+  const platform = context?.electronPlatformName;
+  if (platform === 'darwin' && context?.arch === 4) {
+    return ['mac-x64', 'mac-arm64'];
+  }
+  const arch = resolveTargetArch(context);
+
+  if (platform === 'darwin') {
+    if (arch === 'universal') {
+      return ['mac-x64', 'mac-arm64'];
+    }
+    return [arch === 'x64' ? 'mac-x64' : 'mac-arm64'];
+  }
+  if (platform === 'win32') {
+    return [arch === 'arm64' ? 'win-arm64' : 'win-x64'];
+  }
+  if (platform === 'linux') {
+    return [arch === 'arm64' ? 'linux-arm64' : 'linux-x64'];
+  }
+
+  return [];
+}
+
+async function ensureBundledPopiArtCli(context) {
+  const targetIds = resolvePopiArtCliTargetIds(context);
+  for (const targetId of targetIds) {
+    await ensurePopiArtCliTarget(targetId);
+  }
+  return targetIds;
+}
+
+function copyBundledPopiArtCli(appOutDir, context) {
+  const targetIds = resolvePopiArtCliTargetIds(context);
+  if (targetIds.length === 0) {
+    return;
+  }
+
+  const resourcesDir = isMacTarget(context)
+    ? path.join(appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
+    : path.join(appOutDir, 'resources');
+
+  const packagedRoot = path.join(resourcesDir, 'bin', 'popiart');
+  mkdirSync(packagedRoot, { recursive: true });
+
+  for (const targetId of targetIds) {
+    const targetConfig = resolvePopiArtCliTargetConfig(targetId);
+    const sourceRoot = resolvePreparedTargetRoot(targetId);
+    const sourceExe = path.join(sourceRoot, targetConfig.platformDir, targetConfig.archDir, targetConfig.executableName);
+    if (!existsSync(sourceExe)) {
+      throw new Error(
+        `[electron-builder-hooks] Bundled PopiArt CLI is missing for ${targetId}. `
+        + `Expected ${sourceExe}.`,
+      );
+    }
+
+    const destinationDir = path.join(packagedRoot, targetConfig.platformDir, targetConfig.archDir);
+    mkdirSync(destinationDir, { recursive: true });
+    cpSync(sourceExe, path.join(destinationDir, targetConfig.executableName), { force: true });
+  }
+
+  console.log(
+    '[electron-builder-hooks] Bundled PopiArt CLI targets: '
+    + targetIds.join(', '),
+  );
 }
 
 function readRuntimeBuildInfo(runtimeRoot) {
@@ -509,6 +580,7 @@ function installSkillDependencies() {
 
 async function beforePack(context) {
   ensureBundledOpenClawRuntime(context);
+  await ensureBundledPopiArtCli(context);
   // Install skill dependencies first (for all platforms)
   installSkillDependencies();
 
@@ -572,6 +644,8 @@ async function beforePack(context) {
 }
 
 async function afterPack(context) {
+  copyBundledPopiArtCli(context.appOutDir, context);
+
   if (isMacTarget(context)) {
     const appName = context.packager.appInfo.productFilename;
     const appPath = path.join(context.appOutDir, `${appName}.app`);

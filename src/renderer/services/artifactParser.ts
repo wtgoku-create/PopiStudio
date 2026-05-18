@@ -34,6 +34,12 @@ const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
   '.jpeg': 'image',
   '.gif': 'image',
   '.webp': 'image',
+  '.mp4': 'video',
+  '.mov': 'video',
+  '.webm': 'video',
+  '.mp3': 'audio',
+  '.wav': 'audio',
+  '.m4a': 'audio',
   '.mermaid': 'mermaid',
   '.mmd': 'mermaid',
   '.jsx': 'code',
@@ -53,6 +59,7 @@ const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 const BINARY_DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx', '.pdf']);
+const MEDIA_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.mp3', '.wav', '.m4a']);
 
 export function getArtifactTypeFromLanguage(lang: string): ArtifactType | null {
   return LANGUAGE_TO_ARTIFACT_TYPE[lang.toLowerCase()] ?? null;
@@ -68,6 +75,10 @@ export function isImageExtension(ext: string): boolean {
 
 export function isBinaryDocumentExtension(ext: string): boolean {
   return BINARY_DOCUMENT_EXTENSIONS.has(ext.toLowerCase());
+}
+
+export function isMediaExtension(ext: string): boolean {
+  return MEDIA_EXTENSIONS.has(ext.toLowerCase());
 }
 
 export function parseCodeBlockArtifacts(
@@ -121,7 +132,7 @@ export function stripFileLinksFromText(text: string): string {
   return text.replace(/\[([^\]]+)\]\(file:\/\/([^)]+)\)/g, '');
 }
 
-const BARE_FILE_PATH_RE = /(?:^|[\s"'`(])(\/?(?:[^\s"'`()\[\]]+\/)*[^\s"'`()\[\]]+\.(?:docx|xlsx|pptx|pdf|md|txt|log|csv))(?:[\s"'`)]|$)/gm;
+const BARE_FILE_PATH_RE = /(?:^|[\s"'`(])(\/?(?:[^\s"'`()\[\]]+\/)*[^\s"'`()\[\]]+\.(?:docx|xlsx|pptx|pdf|md|txt|log|csv|mp4|mov|webm|mp3|wav|m4a))(?:[\s"'`)]|$)/gmi;
 
 export function parseFilePathsFromText(
   messageContent: string,
@@ -238,6 +249,10 @@ function generateTitle(type: ArtifactType, language: string, content: string): s
       return 'Mermaid Diagram';
     case 'image':
       return 'Image';
+    case 'video':
+      return 'Video';
+    case 'audio':
+      return 'Audio';
     case 'markdown':
       return 'Markdown Document';
     case 'text':
@@ -303,7 +318,8 @@ export function parseToolArtifact(
   const fileName = getFileName(filePath);
   const isImage = isImageExtension(ext);
   const isBinaryDoc = isBinaryDocumentExtension(ext);
-  const content = (isImage || isBinaryDoc) ? '' : (typeof toolInput.content === 'string' ? toolInput.content : '');
+  const isMedia = isMediaExtension(ext);
+  const content = (isImage || isBinaryDoc || isMedia) ? '' : (typeof toolInput.content === 'string' ? toolInput.content : '');
 
   return {
     id: `artifact-tool-${toolUseMsg.id}`,

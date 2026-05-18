@@ -54,6 +54,130 @@ test('pickPersistedAssistantSegment: empty branches', () => {
   });
 });
 
+function createApprovalAdapter() {
+  const session = {
+    id: 'session-1',
+    title: 'Approval Session',
+    claudeSessionId: null,
+    status: 'running',
+    pinned: false,
+    cwd: '',
+    systemPrompt: '',
+    modelOverride: '',
+    executionMode: 'local',
+    activeSkillIds: [],
+    agentId: 'main',
+    messages: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const addedMessages: Array<Record<string, unknown>> = [];
+  const gatewayRequests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const store = {
+    getSession: (sessionId: string) => (sessionId === session.id ? session : null),
+    addMessage: (_sessionId: string, message: Record<string, unknown>) => {
+      addedMessages.push(message);
+      return message;
+    },
+  };
+  const engineManager = {};
+  const adapter = new OpenClawRuntimeAdapter(store as never, engineManager as never, {});
+  adapter.continueSession = vi.fn().mockResolvedValue(undefined);
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async (method: string, params?: unknown) => {
+      gatewayRequests.push({ method, params: (params ?? {}) as Record<string, unknown> });
+      return {};
+    },
+  };
+  const permissionRequests: Array<Record<string, unknown>> = [];
+  adapter.on('permissionRequest', (_sessionId, request) => {
+    permissionRequests.push(request as unknown as Record<string, unknown>);
+  });
+  return { adapter, addedMessages, gatewayRequests, permissionRequests };
+}
+
+test('handleApprovalRequested allows popiart image command', async () => {
+  const { adapter, gatewayRequests, permissionRequests } = createApprovalAdapter();
+
+  adapter['handleApprovalRequested']({
+    id: 'req-1',
+    request: {
+      sessionKey: 'agent:main:popiai:session-1',
+      command: 'popiart image generate --prompt "hello"',
+    },
+  });
+
+  await Promise.resolve();
+
+  // popiart image is allowed — auto-approved
+  expect(gatewayRequests).toEqual([
+    {
+      method: 'exec.approval.resolve',
+      params: {
+        id: 'req-1',
+        decision: 'allow-always',
+      },
+    },
+  ]);
+  expect(permissionRequests).toHaveLength(1);
+});
+
+test('handleApprovalRequested denies popiart auth login', async () => {
+  const { adapter, gatewayRequests, permissionRequests, addedMessages } = createApprovalAdapter();
+
+  adapter['handleApprovalRequested']({
+    id: 'req-2',
+    request: {
+      sessionKey: 'agent:main:popiai:session-1',
+      command: 'popiart auth login --key abc123',
+    },
+  });
+
+  await Promise.resolve();
+
+  expect(gatewayRequests).toEqual([
+    {
+      method: 'exec.approval.resolve',
+      params: {
+        id: 'req-2',
+        decision: 'deny',
+      },
+    },
+  ]);
+  expect(permissionRequests).toEqual([]);
+  expect(addedMessages).toHaveLength(1);
+  expect(addedMessages[0]?.content).toContain('popiart auth');
+});
+
+test('handleApprovalRequested denies popiart command with --key flag', async () => {
+  const { adapter, gatewayRequests, permissionRequests, addedMessages } = createApprovalAdapter();
+
+  adapter['handleApprovalRequested']({
+    id: 'req-3',
+    request: {
+      sessionKey: 'agent:main:popiai:session-1',
+      command: 'popiart image --key sk-xxx --prompt "hello"',
+    },
+  });
+
+  await Promise.resolve();
+
+  expect(gatewayRequests).toEqual([
+    {
+      method: 'exec.approval.resolve',
+      params: {
+        id: 'req-3',
+        decision: 'deny',
+      },
+    },
+  ]);
+  expect(permissionRequests).toEqual([]);
+  expect(addedMessages).toHaveLength(1);
+  expect(addedMessages[0]?.content).toContain('--key');
+});
+
 // ==================== Session patch tests ====================
 
 function createPatchAdapter(options?: {

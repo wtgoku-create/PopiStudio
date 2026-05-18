@@ -7,6 +7,10 @@
   },
   "license": "MIT",
   "version": "2026.5.12",
+  "popiartcli": {
+    "repo": "wtgoku-create/popiartcli",
+    "version": "latest"
+  },
   "openclaw": {
     "version": "v2026.4.14",
     "repo": "https://github.com/openclaw/openclaw.git",
@@ -90,6 +94,13 @@
     "generate:tray-icons": "node scripts/generate-tray-icons.js",
     "setup:mingit": "node scripts/setup-mingit.js",
     "setup:python-runtime": "node scripts/setup-python-runtime.js",
+    "popiart:cli:host": "node scripts/ensure-popiart-cli.cjs host",
+    "popiart:cli:mac-arm64": "node scripts/ensure-popiart-cli.cjs mac-arm64",
+    "popiart:cli:mac-x64": "node scripts/ensure-popiart-cli.cjs mac-x64",
+    "popiart:cli:win-x64": "node scripts/ensure-popiart-cli.cjs win-x64",
+    "popiart:cli:win-arm64": "node scripts/ensure-popiart-cli.cjs win-arm64",
+    "popiart:cli:linux-x64": "node scripts/ensure-popiart-cli.cjs linux-x64",
+    "popiart:cli:linux-arm64": "node scripts/ensure-popiart-cli.cjs linux-arm64",
     "openclaw:ensure": "node scripts/ensure-openclaw-version.cjs",
     "openclaw:patch": "node scripts/apply-openclaw-patches.cjs",
     "openclaw:plugins": "node scripts/ensure-openclaw-plugins.cjs",

@@ -28,9 +28,9 @@ const t = (key: string) => i18nService.t(key);
 
 const BROWSER_OPENABLE_TYPES = new Set<ArtifactType>(['html', 'svg', 'mermaid']);
 
-const SYSTEM_OPENABLE_TYPES = new Set<ArtifactType>(['document']);
+const SYSTEM_OPENABLE_TYPES = new Set<ArtifactType>(['document', 'video', 'audio']);
 
-const NON_CODE_TYPES = new Set<ArtifactType>(['document', 'image', 'text']);
+const NON_CODE_TYPES = new Set<ArtifactType>(['document', 'image', 'video', 'audio', 'text']);
 
 const COPYABLE_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg']);
 
@@ -41,6 +41,7 @@ function isCopyableArtifact(artifact: Artifact): boolean {
     const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
     return COPYABLE_IMAGE_EXTENSIONS.has(ext);
   }
+  if (artifact.type === 'video' || artifact.type === 'audio') return false;
   return true;
 }
 
@@ -79,6 +80,14 @@ function buildBrowserHtml(artifact: Artifact): string | null {
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function shouldLoadArtifactAsText(type: ArtifactType): boolean {
+  return !NON_CODE_TYPES.has(type);
+}
+
+function shouldReadArtifactContent(type: ArtifactType): boolean {
+  return type !== 'video' && type !== 'audio';
 }
 
 interface ArtifactPanelProps {
@@ -268,10 +277,17 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
 
   const handleRefresh = useCallback(async () => {
     if (!selectedArtifact?.filePath) return;
+    if (!shouldReadArtifactContent(selectedArtifact.type)) {
+      dispatch(addArtifact({
+        sessionId: selectedArtifact.sessionId,
+        artifact: { ...selectedArtifact, content: '' },
+      }));
+      return;
+    }
     try {
       const result = await window.electron.dialog.readFileAsDataUrl(selectedArtifact.filePath);
       if (result?.success && result.dataUrl) {
-        const isTextType = selectedArtifact.type !== 'image' && selectedArtifact.type !== 'document';
+        const isTextType = shouldLoadArtifactAsText(selectedArtifact.type);
         let content = result.dataUrl;
         if (isTextType) {
           try {

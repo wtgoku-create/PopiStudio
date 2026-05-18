@@ -32,6 +32,21 @@ const ImageIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const VideoIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="5" width="13" height="14" rx="2" />
+    <path d="m16 10 5-3v10l-5-3" />
+  </svg>
+);
+
+const AudioIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="11 5 6 9 3 9 3 15 6 15 11 19 11 5" />
+    <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+    <path d="M18.5 6a8.5 8.5 0 0 1 0 12" />
+  </svg>
+);
+
 const MermaidIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -71,6 +86,8 @@ const TYPE_ICON_MAP: Record<ArtifactType, React.FC<{ className?: string }>> = {
   html: GlobeIcon,
   svg: SvgIcon,
   image: ImageIcon,
+  video: VideoIcon,
+  audio: AudioIcon,
   mermaid: MermaidIcon,
   code: GlobeIcon,
   markdown: MarkdownIcon,
@@ -82,6 +99,8 @@ const TYPE_LABEL_KEY: Record<ArtifactType, string> = {
   html: 'artifactTypeHtml',
   svg: 'artifactTypeSvg',
   image: 'artifactTypeImage',
+  video: 'artifactTypeVideo',
+  audio: 'artifactTypeAudio',
   mermaid: 'artifactTypeMermaid',
   code: 'artifactTypeHtml',
   markdown: 'artifactTypeMarkdown',

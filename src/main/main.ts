@@ -12,6 +12,8 @@ import { AgentId, AgentIpcChannel } from '../shared/agent/constants';
 import { AppUpdateIpc } from '../shared/appUpdate/constants';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
 import { PlatformRegistry } from '../shared/platform';
+// PopiArt CLI 登录态同步与 IPC 处理
+import { PopiArtAuthStatus } from '../shared/popiart/constants';
 import { ProviderName } from '../shared/providers';
 import { AgentManager } from './agentManager';
 import { APP_NAME } from './appConstants';
@@ -101,6 +103,7 @@ import { McpStore } from './mcpStore';
 import { OpenClawSessionIpc } from './openclawSession/constants';
 import { OpenClawSessionPolicyIpc } from './openclawSessionPolicy/constants';
 import { loadOpenClawSessionPolicyConfig, saveOpenClawSessionPolicyConfig } from './openclawSessionPolicy/store';
+import { PopiArtService } from './popiart/popiartService';
 import { SkillManager } from './skillManager';
 import { getSkillServiceManager } from './skillServices';
 import { SqliteStore } from './sqliteStore';
@@ -796,6 +799,8 @@ let skillManager: SkillManager | null = null;
 let mcpStore: McpStore | null = null;
 let mcpServerManager: McpServerManager | null = null;
 let mcpBridgeServer: McpBridgeServer | null = null;
+// PopiArt 主进程服务实例（用于登录、登出和身份信息查询）
+let popiArtService: PopiArtService | null = null;
 // Generated eagerly so the secret is available before the first syncOpenClawConfig
 // call — the gateway process inherits it via LOBSTER_MCP_BRIDGE_SECRET env var at
 // spawn time, avoiding a restart just to pick up the correct secret.
@@ -1482,6 +1487,46 @@ const getMcpStore = () => {
 };
 
 /**
+ * 返回 PopiArtService 单例。
+ * 供应用登录态同步流程复用，统一管理 PopiArt CLI 登录态。
+ */
+// Mutable ref holding the fetchWithAuth function once it's defined in its scope
+let _fetchWithAuthRef: ((url: string, opts?: RequestInit) => Promise<Response>) | null = null;
+const getPopiArtService = (): PopiArtService => {
+  if (!popiArtService) {
+    popiArtService = new PopiArtService(getStore(), {
+      fetchWithAuth: (url, opts) => {
+        if (!_fetchWithAuthRef) throw new Error('fetchWithAuth not initialized');
+        return _fetchWithAuthRef(url, opts);
+      },
+      getServerBaseUrl: getServerApiBaseUrl,
+    });
+  }
+  return popiArtService;
+};
+
+const syncPopiArtAfterAppAuthChange = async (
+  mode: 'authenticated' | 'unauthenticated',
+  reason: 'portal-login' | 'deep-link-login' | 'session-restore' | 'app-logout',
+): Promise<void> => {
+  console.log(`[PopiArt] sync triggered: mode=${mode}, reason=${reason}`);
+  const service = getPopiArtService();
+  const status = mode === 'authenticated'
+    ? await service.ensureAuthenticatedFromGatewayKey()
+    : await service.ensureUnavailable();
+  console.log(`[PopiArt] sync result: authStatus=${status.authStatus}, lastError=${status.lastError}`);
+  const bridge = await refreshMcpBridge();
+
+  if (bridge.error) {
+    console.warn(`[PopiArt] bridge refresh after ${reason} finished with an error: ${bridge.error}`);
+  }
+
+  if (mode === 'authenticated' && status.authStatus !== PopiArtAuthStatus.Authenticated) {
+    console.warn(`[PopiArt] auth sync after ${reason} finished with status ${status.authStatus}.`);
+  }
+};
+
+/**
  * Start the MCP Bridge: server manager + HTTP callback.
  * Called during OpenClaw bootstrap before config sync.
  * Returns the bridge config to be written into openclaw.json.
@@ -1499,6 +1544,8 @@ const startMcpBridge = (): Promise<McpBridgeConfig | null> => {
     console.log('[McpBridge] startMcpBridge called');
 
     // Discover MCP tools (may be empty if no servers configured)
+    // PopiArt server-side tool registration was removed — the agent now calls the CLI directly.
+    // ensureBuiltInPopiArtMcpServer(getMcpStore());
     const enabledServers = getMcpStore().getEnabledServers();
     console.log(`[McpBridge] enabledServers: ${enabledServers.length} (${enabledServers.map(s => s.name).join(', ')})`);
 
@@ -2420,6 +2467,7 @@ if (!gotTheLock) {
     clearServerModelMetadata();
     updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
     syncOpenClawConfig({ reason: 'popi-login', restartGatewayIfRunning: false }).catch(() => {});
+    await syncPopiArtAfterAppAuthChange('authenticated', 'portal-login');
     return { success: true, user: normalizePopiUser(user), quota };
   };
 
@@ -2444,6 +2492,7 @@ if (!gotTheLock) {
 
     return resp;
   };
+  _fetchWithAuthRef = fetchWithAuth;
 
   const fetchSkillMarketplacePage = async (options?: {
     page?: number;
@@ -2662,6 +2711,7 @@ if (!gotTheLock) {
       }
       saveAuthTokens(body.data.accessToken, body.data.refreshToken);
       console.log('[Auth] exchange user data:', JSON.stringify(body.data.user));
+      await syncPopiArtAfterAppAuthChange('authenticated', 'deep-link-login');
       return { success: true, user: body.data.user, quota: normalizeQuota(body.data.quota) };
     } catch (error) {
       console.error('[Auth] exchange failed:', error);
@@ -2690,6 +2740,7 @@ if (!gotTheLock) {
         ...(points ?? {}),
       });
       updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
+      await syncPopiArtAfterAppAuthChange('authenticated', 'session-restore');
       console.log('[Auth] restored Popi user session');
       return { success: true, user: normalizePopiUser(profileData.user), quota };
     } catch {
@@ -2753,11 +2804,13 @@ if (!gotTheLock) {
       clearAuthTokens();
       clearModelGatewayCredential();
       clearServerModelMetadata();
+      await syncPopiArtAfterAppAuthChange('unauthenticated', 'app-logout');
       return { success: true };
     } catch {
       clearAuthTokens();
       clearModelGatewayCredential();
       clearServerModelMetadata();
+      await syncPopiArtAfterAppAuthChange('unauthenticated', 'app-logout');
       return { success: true };
     }
   });
@@ -2785,7 +2838,7 @@ if (!gotTheLock) {
         console.log('[Auth:getModels] No auth tokens available');
         return { success: false };
       }
-      const credential = getModelGatewayCredential() ?? await refreshModelGatewayCredential();
+      void (getModelGatewayCredential() ?? await refreshModelGatewayCredential());
       let models: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }> = [...POPI_DEFAULT_SERVER_MODELS];
 
       // try {
@@ -3144,7 +3197,6 @@ if (!gotTheLock) {
       return { success: false, tools: 0, error: error instanceof Error ? error.message : 'Failed to refresh MCP bridge' };
     }
   });
-
   // Cowork IPC handlers
   ipcMain.handle('cowork:session:start', async (_event, options: {
     prompt: string;

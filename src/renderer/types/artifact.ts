@@ -1,6 +1,6 @@
-export type ArtifactType = 'html' | 'svg' | 'image' | 'mermaid' | 'code' | 'markdown' | 'text' | 'document';
+export type ArtifactType = 'html' | 'svg' | 'image' | 'video' | 'audio' | 'mermaid' | 'code' | 'markdown' | 'text' | 'document';
 
-export const PREVIEWABLE_ARTIFACT_TYPES = new Set<ArtifactType>(['html', 'svg', 'mermaid', 'image', 'markdown', 'text', 'document']);
+export const PREVIEWABLE_ARTIFACT_TYPES = new Set<ArtifactType>(['html', 'svg', 'mermaid', 'image', 'video', 'audio', 'markdown', 'text', 'document']);
 
 export type ArtifactSource = 'codeblock' | 'tool';
 

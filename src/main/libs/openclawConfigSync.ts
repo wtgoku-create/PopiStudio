@@ -16,6 +16,7 @@ import type { DiscordInstanceConfig, IMSettings, TelegramInstanceConfig } from '
 import type { DingTalkInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NeteaseBeeChanConfig, NimInstanceConfig, PopoInstanceConfig, QQInstanceConfig, WecomInstanceConfig, WeixinOpenClawConfig } from '../im/types';
 import { OpenClawSessionKeepAlive } from '../openclawSessionPolicy/constants';
 import { buildOpenClawSessionConfig } from '../openclawSessionPolicy/store';
+import { resolvePopiArtCliDir, resolvePopiArtConfigDir } from '../popiart/popiartCliManager';
 import {
   getAllServerModelMetadata,
   resolveAllEnabledProviderConfigs,
@@ -2122,6 +2123,17 @@ export class OpenClawConfigSync {
     env.LOBSTER_PROVIDER_API_KEY = 'legacy-unused';
 
     env.LOBSTER_PROXY_TOKEN = getCoworkOpenAICompatProxyToken() || 'unconfigured';
+
+    // PopiArt CLI config dir — must be injected so agent Bash subprocess can find
+    // the token written by the main process after auto-login.
+    env.POPIART_CONFIG_DIR = resolvePopiArtConfigDir();
+    const popiArtCliDir = resolvePopiArtCliDir();
+    if (popiArtCliDir) {
+      const currentPath = env.PATH || process.env.PATH || '';
+      env.PATH = currentPath
+        ? `${popiArtCliDir}${path.delimiter}${currentPath}`
+        : popiArtCliDir;
+    }
 
     // MCP Bridge Secret — always set so stale openclaw.json with
     // ${LOBSTER_MCP_BRIDGE_SECRET} placeholder doesn't crash the gateway.

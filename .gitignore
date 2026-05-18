@@ -15,6 +15,7 @@ __pycache__/
 .idea/
 vendor/openclaw-runtime/
 vendor/openclaw-plugins/
+vendor/popiart-cli/
 
 # Tar archives generated during Windows packaging
 build-tar/
