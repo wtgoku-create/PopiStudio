@@ -86,7 +86,7 @@ import {
 } from './libs/openclawMemoryFile';
 import { startOpenClawTokenProxy, stopOpenClawTokenProxy } from './libs/openclawTokenProxy';
 import { migrateMainAgentWorkspace } from './libs/openclawWorkspaceMigration';
-import { logoutPopiartCli } from './libs/popiartCli';
+import { loginPopiartCli, logoutPopiartCli } from './libs/popiartCli';
 import { ensurePythonRuntimeReady } from './libs/pythonRuntime';
 import { serializeForLog } from './libs/sanitizeForLog';
 import { SqliteBackupManager } from './libs/sqliteBackup/sqliteBackupManager';
@@ -2399,6 +2399,10 @@ if (!gotTheLock) {
       baseURL: `${normalizePopiBaseUrl(POPI_LLM_GATEWAY_BASE_URL)}/v1`,
     };
     saveModelGatewayCredential(credential);
+    const loginResult = await loginPopiartCli(credential.apiKey);
+    if (!loginResult.ok) {
+      console.warn('[Auth] popiart CLI login did not succeed after gateway credential refresh');
+    }
     return credential;
   };
 
@@ -6269,7 +6273,6 @@ end tell'`, { timeout: 5000 });
   // 初始化应用
   const initApp = async () => {
     const profiler = new StartupProfiler();
-     await logoutPopiartCli()
 
     profiler.mark('app.whenReady');
     console.log('[Main] initApp: waiting for app.whenReady()');
@@ -6398,6 +6401,22 @@ end tell'`, { timeout: 5000 });
       }
       return null;
     });
+
+    if (getAuthTokens()?.accessToken) {
+      try {
+        const stored = getModelGatewayCredential();
+        if (stored?.apiKey) {
+          const loginResult = await loginPopiartCli(stored.apiKey);
+          if (!loginResult.ok) {
+            console.warn('[Main] popiart CLI login on startup did not succeed');
+          }
+        } else {
+          await refreshModelGatewayCredential();
+        }
+      } catch (err) {
+        console.warn('[Main] failed to restore popiart CLI session on startup:', err);
+      }
+    }
 
     registerProxyTokenRefresher('github-copilot', async () => {
       try {

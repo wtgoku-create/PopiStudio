@@ -549,17 +549,6 @@ export function resolveAllProviderApiKeys(): Record<string, string> {
     return result;
   }
 
-export function buildEnvForPopiArt() {
-  const result: Record<string, string> = {};
-  // popiai-server: uses the model gateway API key issued after Popi login.
-  const credential = getStore()?.get<{ apiKey: string }>('model_gateway_credential');
-  if (credential?.apiKey) {
-    result.POPIART_KEY = credential.apiKey;
-  }
-  return result;
-}
-  
-
 export function buildEnvForConfig(config: CoworkApiConfig): Record<string, string> {
   const baseEnv = { ...process.env } as Record<string, string>;
 

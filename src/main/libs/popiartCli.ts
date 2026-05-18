@@ -5,6 +5,11 @@ import { spawn } from 'child_process';
 
 const BUNDLE_DIR = 'popiart-cli';
 
+/** Default PopiArt creator API (see popiartcli README). */
+export const POPIART_SERVER_ENDPOINT = 'https://server.popi.art/v1';
+
+const LOGIN_TIMEOUT_MS = 120_000;
+
 function runtimeSubdir(): string {
   if (process.platform === 'win32') {
     return process.arch === 'arm64' ? 'win-arm64' : 'win-amd64';
@@ -64,6 +69,15 @@ export function getPopiartCliPath(): string | null {
   return null;
 }
 
+function ensurePopiartHomeEnv(env: Record<string, string | undefined>): void {
+  if (!env.HOME) {
+    env.HOME = app.getPath('home');
+  }
+  if (process.platform === 'win32' && !env.USERPROFILE) {
+    env.USERPROFILE = env.HOME;
+  }
+}
+
 /**
  * Prepends the directory containing the bundled `popiart` binary to PATH so
  * shells and tools can run `popiart` / `popiart.exe` without referencing POPIART_CLI.
@@ -93,7 +107,131 @@ export function appendPopiartCliToEnv(env: Record<string, string | undefined>): 
     env.POPIART_CLI = cli;
     prependPopiartBinDirToPath(env, cli);
   }
+  ensurePopiartHomeEnv(env);
   return env;
+}
+
+type PopiartCliJson = { ok?: boolean; error?: { message?: string; code?: string } };
+
+function parsePopiartJson(stdout: string): PopiartCliJson | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    return JSON.parse(trimmed) as PopiartCliJson;
+  } catch {
+    const lastLine = trimmed.split(/\r?\n/).filter(Boolean).pop();
+    if (!lastLine) {
+      return null;
+    }
+    try {
+      return JSON.parse(lastLine) as PopiartCliJson;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function runPopiartCli(
+  args: string[],
+  options: { timeoutMs?: number } = {},
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  const cli = getPopiartCliPath();
+  if (!cli) {
+    return Promise.resolve({ exitCode: null, stdout: '', stderr: 'Bundled popiart CLI not found' });
+  }
+
+  const env = appendPopiartCliToEnv({ ...process.env });
+  delete env.POPIART_KEY;
+  delete env.POPIART_TOKEN;
+
+  const timeoutMs = options.timeoutMs ?? LOGIN_TIMEOUT_MS;
+
+  return new Promise((resolve) => {
+    const child = spawn(cli, args, {
+      env: env as NodeJS.ProcessEnv,
+      windowsHide: true,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const finish = (exitCode: number | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve({ exitCode, stdout, stderr });
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // ignore
+      }
+      stderr = `${stderr}\n[PopiartCli] command timed out after ${timeoutMs}ms`.trim();
+      finish(null);
+    }, timeoutMs);
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    child.on('error', (error) => {
+      stderr = `${stderr}\n${error.message}`.trim();
+      finish(null);
+    });
+
+    child.on('close', (code) => {
+      finish(code);
+    });
+  });
+}
+
+/**
+ * Run `popiart auth login` with the PopiStudio gateway product key so ~/.popiart/config.json
+ * holds a sess_* bearer for server.popi.art (per popiartcli README).
+ */
+export async function loginPopiartCli(productKey: string): Promise<{ ok: boolean; error?: string }> {
+  const key = productKey.trim();
+  if (!key) {
+    return { ok: false, error: 'Empty product key' };
+  }
+
+  const args = [
+    '--endpoint',
+    POPIART_SERVER_ENDPOINT,
+    'auth',
+    'login',
+    '--key',
+    key,
+    '--output',
+    'json',
+    '--quiet',
+    '--non-interactive',
+  ];
+
+  const { exitCode, stdout, stderr } = await runPopiartCli(args);
+  const parsed = parsePopiartJson(stdout);
+
+  if (exitCode === 0 && parsed?.ok !== false) {
+    console.log('[PopiartCli] auth login succeeded');
+    return { ok: true };
+  }
+
+  const message = parsed?.error?.message
+    || stderr.trim()
+    || stdout.trim()
+    || `popiart auth login failed (exit ${exitCode ?? 'unknown'})`;
+  console.warn('[PopiartCli] auth login failed:', message);
+  return { ok: false, error: message };
 }
 
 export async function logoutPopiartCli(): Promise<void> {
@@ -102,28 +240,21 @@ export async function logoutPopiartCli(): Promise<void> {
     return;
   }
 
-  const env = appendPopiartCliToEnv({ ...process.env });
-  await new Promise<void>((resolve) => {
-    const child = spawn(
-      cli,
-      ['auth', 'logout', '--output', 'json', '--quiet', '--non-interactive'],
-      {
-        env: env as NodeJS.ProcessEnv,
-        stdio: 'ignore',
-        windowsHide: true,
-      },
-    );
+  const args = [
+    '--endpoint',
+    POPIART_SERVER_ENDPOINT,
+    'auth',
+    'logout',
+    '--output',
+    'json',
+    '--quiet',
+    '--non-interactive',
+  ];
 
-    child.on('error', (error) => {
-      console.warn('[PopiartCli] logout command failed to start:', error);
-      resolve();
-    });
-
-    child.on('close', (code) => {
-      if (code !== 0) {
-        console.warn(`[PopiartCli] logout command exited with code ${code ?? 'null'}`);
-      }
-      resolve();
-    });
-  });
+  const { exitCode, stderr } = await runPopiartCli(args, { timeoutMs: 30_000 });
+  if (exitCode !== 0) {
+    console.warn(`[PopiartCli] auth logout exited with code ${exitCode ?? 'null'}`, stderr || undefined);
+  } else {
+    console.log('[PopiartCli] auth logout succeeded');
+  }
 }

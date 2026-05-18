@@ -6,4 +6,14 @@ This directory holds the **popiart** Go CLI binaries per OS and CPU (for example
 - **Packaging:** `electron-builder` `beforePack` runs `scripts/ensure-popiart-cli.cjs`, which downloads the correct slice(s) for the build target.
 - **Version:** override with env `POPIART_CLI_VERSION` (default pinned in `scripts/ensure-popiart-cli.cjs`).
 
-At runtime the main process sets `POPIART_CLI` to the absolute path of the binary for the current `process.platform` / `process.arch`.
+At runtime the main process sets `POPIART_CLI` and prepends the binary directory to `PATH`.
+
+## Auth sync with PopiStudio
+
+When the user signs in to PopiStudio, the app fetches the account gateway product key and runs:
+
+`popiart --endpoint https://server.popi.art/v1 auth login --key <apikey>`
+
+Session state is stored in `~/.popiart/config.json` (see [popiartcli README](https://github.com/wtgoku-create/popiartcli/blob/main/README.md)). Cowork / OpenClaw subprocesses use that file; the app does **not** inject `POPIART_KEY` into the gateway environment.
+
+On sign-out, the app runs `popiart auth logout` (best-effort).
