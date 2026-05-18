@@ -177,7 +177,7 @@
   DetailPrint "[Installer] Preparing installation steps"
 
   ; ─── Extract combined resource archive (win-resources.tar) ───
-  ; All large resource directories (cfmind/, SKILLs/, python-win/) are packed
+  ; All large resource directories (cfmind/, SKILLs/, python-win/, popiart-cli/) are packed
   ; into a single tar file. NSIS 7z extracts one large file almost instantly;
   ; we then unpack the tar here using Electron's Node runtime.
 
@@ -187,6 +187,7 @@
   CreateDirectory "$INSTDIR\resources\cfmind"
   CreateDirectory "$INSTDIR\resources\python-win"
   CreateDirectory "$INSTDIR\resources\SKILLs"
+  CreateDirectory "$INSTDIR\resources\popiart-cli"
   DetailPrint "[Installer] Preparing resource directories"
   DetailPrint "[Installer] Adding Windows Defender exclusions before extraction"
   FileOpen $2 "$APPDATA\Popiai\install-timing.log" a
@@ -194,7 +195,7 @@
   FileWrite $2 "$8 phase=defender-exclusion-start$\r$\n"
   FileClose $2
   System::Call 'kernel32::GetTickCount()i .r7'
-  nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "try { Add-MpPreference -ExclusionPath $\"$INSTDIR\resources\cfmind$\",$\"$INSTDIR\resources\python-win$\",$\"$INSTDIR\resources\SKILLs$\",$\"$INSTDIR\resources\app.asar.unpacked$\" -ErrorAction Stop; Write-Output \"[Installer] Windows Defender exclusions added\" } catch { Write-Output (\"[Installer] Windows Defender exclusions skipped: \" + $$_.Exception.Message) }"'
+  nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "try { Add-MpPreference -ExclusionPath $\"$INSTDIR\resources\cfmind$\",$\"$INSTDIR\resources\python-win$\",$\"$INSTDIR\resources\SKILLs$\",$\"$INSTDIR\resources\popiart-cli$\",$\"$INSTDIR\resources\app.asar.unpacked$\" -ErrorAction Stop; Write-Output \"[Installer] Windows Defender exclusions added\" } catch { Write-Output (\"[Installer] Windows Defender exclusions skipped: \" + $$_.Exception.Message) }"'
   Pop $0
   System::Call 'kernel32::GetTickCount()i .r6'
   IntOp $5 $6 - $7
@@ -322,7 +323,7 @@
 !macro customUnInstall
   ; ─── Remove Windows Defender Exclusion on uninstall ───
   ; Clean up the exclusions we added during installation.
-  nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "try { Remove-MpPreference -ExclusionPath $\"$INSTDIR\resources\cfmind$\",$\"$INSTDIR\resources\python-win$\",$\"$INSTDIR\resources\SKILLs$\",$\"$INSTDIR\resources\app.asar.unpacked$\" -ErrorAction SilentlyContinue } catch {}"'
+  nsExec::ExecToStack 'powershell -NoProfile -NonInteractive -Command "try { Remove-MpPreference -ExclusionPath $\"$INSTDIR\resources\cfmind$\",$\"$INSTDIR\resources\python-win$\",$\"$INSTDIR\resources\SKILLs$\",$\"$INSTDIR\resources\popiart-cli$\",$\"$INSTDIR\resources\app.asar.unpacked$\" -ErrorAction SilentlyContinue } catch {}"'
   Pop $0
   Pop $1
 !macroend

@@ -26,7 +26,7 @@ const isTestMode = (): boolean => {
  * Used for auth exchange/refresh, models, proxy, etc.
  */
 export const getServerApiBaseUrl = (): string => {
-  return 'https://popi.yuanzoo.cn';
+  return 'https://popi.art';
 };
 
 export const getUpdateCheckUrl = (): string => (

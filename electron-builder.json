@@ -136,6 +136,11 @@
           "!**/test/**",
           "!**/__tests__/**"
         ]
+      },
+      {
+        "from": "resources/popiart-cli",
+        "to": "popiart-cli",
+        "filter": ["**/*"]
       }
     ]
   },
@@ -229,6 +234,11 @@
           "!**/test/**",
           "!**/__tests__/**"
         ]
+      },
+      {
+        "from": "resources/popiart-cli",
+        "to": "popiart-cli",
+        "filter": ["**/*"]
       }
     ],
     "desktop": {

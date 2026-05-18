@@ -9,6 +9,7 @@ import path from 'path';
 
 import { cpRecursiveSync } from './fsCompat';
 import { getElectronNodeRuntimePath } from './libs/coworkUtil';
+import { appendPopiartCliToEnv } from './libs/popiartCli';
 import { appendPythonRuntimeToEnv } from './libs/pythonRuntime';
 
 /**
@@ -70,6 +71,7 @@ function buildSkillServiceEnv(): Record<string, string | undefined> {
   // even when system Node.js is not installed.
   env.POPIAI_ELECTRON_PATH = electronNodeRuntimePath;
   appendPythonRuntimeToEnv(env);
+  appendPopiartCliToEnv(env);
 
   return env;
 }

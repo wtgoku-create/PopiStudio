@@ -30,12 +30,12 @@ export const getSkillHubCategoryListUrl = () => `${getLoginOvermindUrl().replace
 
 // 登录地址
 export const getLoginOvermindUrl = () => isTestMode()
-  ? 'https://popi.yuanzoo.cn/login'
-  : 'https://popi.yuanzoo.cn/login';
+  ? 'https://popi.art/login'
+  : 'https://popi.art/login';
 
 // Portal 页面
-const PORTAL_BASE_TEST = 'https://popi.yuanzoo.cn';
-const PORTAL_BASE_PROD = 'https://popi.yuanzoo.cn';
+const PORTAL_BASE_TEST = 'https://popi.art';
+const PORTAL_BASE_PROD = 'https://popi.art';
 
 const getPortalBase = () => isTestMode() ? PORTAL_BASE_TEST : PORTAL_BASE_PROD;
 

@@ -9,6 +9,7 @@ import path from 'path';
 import { cpRecursiveSync } from './fsCompat';
 import { t } from './i18n';
 import { getElectronNodeRuntimePath } from './libs/coworkUtil';
+import { appendPopiartCliToEnv } from './libs/popiartCli';
 import { appendPythonRuntimeToEnv } from './libs/pythonRuntime';
 import { mergeReports,scanMultipleSkillDirs } from './libs/skillSecurity/skillSecurityScanner';
 import type { SecurityReportAction,SkillSecurityReport } from './libs/skillSecurity/skillSecurityTypes';
@@ -280,6 +281,7 @@ function buildSkillEnv(): Record<string, string | undefined> {
   // even when system Node.js is not installed.
   env.POPIAI_ELECTRON_PATH = getElectronNodeRuntimePath();
   appendPythonRuntimeToEnv(env);
+  appendPopiartCliToEnv(env);
 
   // Re-normalize after appendPythonRuntimeToEnv may have added a PATH key
   normalizePathKey(env);

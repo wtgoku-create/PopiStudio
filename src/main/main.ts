@@ -86,6 +86,7 @@ import {
 } from './libs/openclawMemoryFile';
 import { startOpenClawTokenProxy, stopOpenClawTokenProxy } from './libs/openclawTokenProxy';
 import { migrateMainAgentWorkspace } from './libs/openclawWorkspaceMigration';
+import { logoutPopiartCli } from './libs/popiartCli';
 import { ensurePythonRuntimeReady } from './libs/pythonRuntime';
 import { serializeForLog } from './libs/sanitizeForLog';
 import { SqliteBackupManager } from './libs/sqliteBackup/sqliteBackupManager';
@@ -2750,11 +2751,13 @@ if (!gotTheLock) {
           headers: { Authorization: `Bearer ${tokens.accessToken}`, token: tokens.accessToken },
         }).catch(() => { /* best-effort */ });
       }
+      await logoutPopiartCli().catch(() => { /* best-effort */ });
       clearAuthTokens();
       clearModelGatewayCredential();
       clearServerModelMetadata();
       return { success: true };
     } catch {
+      await logoutPopiartCli().catch(() => { /* best-effort */ });
       clearAuthTokens();
       clearModelGatewayCredential();
       clearServerModelMetadata();
@@ -6266,6 +6269,7 @@ end tell'`, { timeout: 5000 });
   // 初始化应用
   const initApp = async () => {
     const profiler = new StartupProfiler();
+     await logoutPopiartCli()
 
     profiler.mark('app.whenReady');
     console.log('[Main] initApp: waiting for app.whenReady()');

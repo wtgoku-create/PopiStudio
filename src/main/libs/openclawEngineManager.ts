@@ -17,6 +17,7 @@ import {
 } from './gatewayLogRotation';
 import { getCodexHomeDir } from './openaiCodexAuth';
 import { cleanupStaleThirdPartyPluginsFromBundledDir, listLocalOpenClawExtensionIds,syncLocalOpenClawExtensionsIntoRuntime } from './openclawLocalExtensions';
+import { appendPopiartCliToEnv } from './popiartCli';
 import { appendPythonRuntimeToEnv } from './pythonRuntime';
 
 const gwDiagTs = (): string => {
@@ -538,6 +539,8 @@ export class OpenClawEngineManager extends EventEmitter {
     // Prepend bundled/user Python runtime paths so gateway exec commands
     // find the Popiai-managed Python instead of the Windows Store stub.
     appendPythonRuntimeToEnv(env as Record<string, string | undefined>);
+
+    appendPopiartCliToEnv(env as Record<string, string | undefined>);
 
     // Inject node/npm/npx shims so gateway exec commands can use them.
     // The shims wrap Electron as a Node.js runtime via ELECTRON_RUN_AS_NODE=1.

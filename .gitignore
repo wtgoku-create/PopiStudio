@@ -26,6 +26,11 @@ resources/PortableGit-*.7z.exe
 resources/python-win/
 resources/python-*.zip
 
+# Bundled popiart CLI (downloaded via scripts/ensure-popiart-cli.cjs)
+resources/popiart-cli/**
+!resources/popiart-cli/README.md
+build-cache/popiart-cli/
+
 # SKILLs runtime files
 SKILLs/**/.connection
 SKILLs/**/.server.log

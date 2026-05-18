@@ -17,6 +17,7 @@ import type { DingTalkInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceCo
 import { OpenClawSessionKeepAlive } from '../openclawSessionPolicy/constants';
 import { buildOpenClawSessionConfig } from '../openclawSessionPolicy/store';
 import {
+  buildEnvForPopiArt,
   getAllServerModelMetadata,
   resolveAllEnabledProviderConfigs,
   resolveAllProviderApiKeys,
@@ -2114,6 +2115,10 @@ export class OpenClawConfigSync {
       console.info(`[OpenClawConfigSync] set secret env var LOBSTER_APIKEY_${envSuffix} for provider ${envSuffix}`);
       env[`LOBSTER_APIKEY_${envSuffix}`] = apiKey;
     }
+    const popiArtEnv = buildEnvForPopiArt();
+    Object.assign(env, popiArtEnv);
+
+    env.LOBSTER_APIKEY_DEFAULT = allApiKeys.default || 'unconfigured';
     // Legacy fallback: keep LOBSTER_PROVIDER_API_KEY set to a stable value so stale
     // openclaw.json files with the old placeholder don't crash the gateway.
     // Use the active provider's key if available, but ONLY for the first sync —

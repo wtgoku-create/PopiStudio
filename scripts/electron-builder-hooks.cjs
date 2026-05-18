@@ -7,6 +7,7 @@ const asar = require('@electron/asar');
 const { ensurePortablePythonRuntime, checkRuntimeHealth } = require('./setup-python-runtime.js');
 const { syncLocalOpenClawExtensions } = require('./sync-local-openclaw-extensions.cjs');
 const { packMultipleSources } = require('./pack-openclaw-tar.cjs');
+const { ensurePopiartCli } = require('./ensure-popiart-cli.cjs');
 const { DIST_DIFFS_EXTENSION_DIR, DIST_EXTENSIONS_DIR, summarizeGatewayAsarEntries } = require('./openclaw-runtime-packaging.cjs');
 
 function isWindowsTarget(context) {
@@ -508,6 +509,7 @@ function installSkillDependencies() {
 }
 
 async function beforePack(context) {
+  await ensurePopiartCli(context);
   ensureBundledOpenClawRuntime(context);
   // Install skill dependencies first (for all platforms)
   installSkillDependencies();
@@ -536,6 +538,11 @@ async function beforePack(context) {
         label: 'Python runtime',
         dir: path.join(__dirname, '..', 'resources', 'python-win'),
         prefix: 'python-win',
+      },
+      {
+        label: 'Popiart CLI',
+        dir: path.join(__dirname, '..', 'resources', 'popiart-cli'),
+        prefix: 'popiart-cli',
       },
     ];
 

@@ -11,6 +11,7 @@
  *   - OpenClaw runtime (vendor/openclaw-runtime/current -> cfmind/)
  *   - SKILLs directory (SKILLs -> SKILLs/)
  *   - Python runtime (resources/python-win -> python-win/)
+ *   - Popiart CLI (resources/popiart-cli -> popiart-cli/)
  *
  * Usage:
  *   Single dir:      node scripts/pack-openclaw-tar.cjs [sourceDir] [outputTar]
@@ -222,6 +223,7 @@ function main() {
       { dir: path.join(projectRoot, 'vendor', 'openclaw-runtime', 'current'), prefix: 'cfmind' },
       { dir: path.join(projectRoot, 'SKILLs'), prefix: 'SKILLs' },
       { dir: path.join(projectRoot, 'resources', 'python-win'), prefix: 'python-win' },
+      { dir: path.join(projectRoot, 'resources', 'popiart-cli'), prefix: 'popiart-cli' },
     ];
 
     console.log(`[pack-openclaw-tar] Packing combined Windows tar: ${outputTar}`);
