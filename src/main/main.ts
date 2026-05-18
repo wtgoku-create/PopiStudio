@@ -53,6 +53,7 @@ import { getCoworkLogPath } from './libs/coworkLogger';
 import { registerProxyTokenRefresher, startCoworkOpenAICompatProxy, stopCoworkOpenAICompatProxy } from './libs/coworkOpenAICompatProxy';
 import { generateSessionTitle, probeCoworkModelReadiness } from './libs/coworkUtil';
 import {
+  getLlmGatewayBaseUrl,
   getServerApiBaseUrl,
   getSkillHubCategoryListUrl,
   getSkillHubListUrl,
@@ -154,7 +155,6 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'application/json': '.json',
   'text/csv': '.csv',
 };
-const POPI_LLM_GATEWAY_BASE_URL = 'https://llmapi.popi.art';
 const POPI_DEFAULT_SERVER_MODELS = [
   { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: false },
 ] as const;
@@ -2395,7 +2395,7 @@ if (!gotTheLock) {
 
     const credential = {
       apiKey: activeKey.apikey,
-      baseURL: `${normalizePopiBaseUrl(POPI_LLM_GATEWAY_BASE_URL)}/v1`,
+      baseURL: `${normalizePopiBaseUrl(getLlmGatewayBaseUrl())}/v1`,
     };
     saveModelGatewayCredential(credential);
     return credential;

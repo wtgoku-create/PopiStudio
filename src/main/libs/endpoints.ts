@@ -26,8 +26,22 @@ const isTestMode = (): boolean => {
  * Used for auth exchange/refresh, models, proxy, etc.
  */
 export const getServerApiBaseUrl = (): string => {
-  return 'https://popi.yuanzoo.cn';
+  return isTestMode()
+    ? 'https://wwwtest.popi.art'
+    : 'https://www.popi.art';
 };
+
+export const getPortalBaseUrl = (): string => (
+  isTestMode()
+    ? 'https://wwwtest.popi.art/index'
+    : 'https://www.popi.art/index'
+);
+
+export const getLlmGatewayBaseUrl = (): string => (
+  isTestMode()
+    ? 'https://llmapitest.popi.art'
+    : 'https://llmapi.popi.art'
+);
 
 export const getUpdateCheckUrl = (): string => (
   isTestMode()
@@ -43,8 +57,8 @@ export const getManualUpdateCheckUrl = (): string => (
 
 export const getFallbackDownloadUrl = (): string => (
   isTestMode()
-    ? 'https://popiai.inner.youdao.com/#/download-list'
-    : 'https://popiai.youdao.com/#/download-list'
+    ? getPortalBaseUrl()
+    : getPortalBaseUrl()
 );
 
 export const getSkillHubListUrl = (): string => (

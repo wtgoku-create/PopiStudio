@@ -4,6 +4,7 @@ import { useDispatch,useSelector } from 'react-redux';
 
 import { buildSessionTitleFromInput } from '../../../common/sessionTitle';
 import { agentService } from '../../services/agent';
+import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { quickActionService } from '../../services/quickAction';
@@ -37,7 +38,7 @@ export interface CoworkViewProps {
   updateBadge?: React.ReactNode;
 }
 
-const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSkills, isSidebarCollapsed, onToggleSidebar, onNewChat, updateBadge }) => {
+const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapsed, onToggleSidebar, onNewChat, updateBadge }) => {
   const dispatch = useDispatch();
   const isMac = window.electron.platform === 'darwin';
   const [isInitialized, setIsInitialized] = useState(false);
@@ -59,6 +60,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
   const currentSession = useSelector(selectCurrentSession);
   const isStreaming = useSelector(selectIsStreaming);
   const config = useSelector(selectCoworkConfig);
+  const isLoggedIn = useSelector((state: RootState) => state.auth.isLoggedIn);
+  const availableModels = useSelector((state: RootState) => state.model.availableModels);
 
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);
@@ -69,21 +72,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
   const currentAgent = agents.find((agent) => agent.id === currentAgentId);
   const currentAgentWorkingDirectory = currentAgent?.workingDirectory?.trim() || config.workingDirectory || '';
   const currentAgentSelectedModel = useAgentSelectedModel(currentAgentId, currentAgent?.model ?? '');
-
-  const buildApiConfigNotice = (error?: string): { noticeI18nKey: string; noticeExtra?: string } => {
-    const key = 'coworkModelSettingsRequired';
-    if (!error) {
-      return { noticeI18nKey: key };
-    }
-    const normalizedError = error.trim();
-    if (
-      normalizedError.startsWith('No enabled provider found for model:')
-      || normalizedError === 'No available model configured in enabled providers.'
-    ) {
-      return { noticeI18nKey: key };
-    }
-    return { noticeI18nKey: key, noticeExtra: error };
-  };
 
   const resolveEngineStatusText = (status: OpenClawEngineStatus): string => {
     switch (status.phase) {
@@ -138,10 +126,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
       try {
         const apiConfig = await coworkService.checkApiConfig();
         if (apiConfig && !apiConfig.hasConfig) {
-          onRequestAppSettings?.({
-            initialTab: 'model',
-            ...buildApiConfigNotice(apiConfig.error),
-          });
+          if (!isLoggedIn) {
+            await authService.login();
+          }
         }
       } catch (error) {
         console.error('Failed to check cowork API config:', error);
@@ -199,15 +186,18 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onRequestAppSettings, onShowSki
     };
 
     try {
+      if (!isLoggedIn || availableModels.length === 0) {
+        await authService.login();
+        isStartingRef.current = false;
+        return false;
+      }
+
       try {
         const apiConfig = await coworkService.checkApiConfig();
         if (apiConfig && !apiConfig.hasConfig) {
-          onRequestAppSettings?.({
-            initialTab: 'model',
-            ...buildApiConfigNotice(apiConfig.error),
-          });
+          await authService.login();
           isStartingRef.current = false;
-          return;
+          return false;
         }
       } catch (error) {
         console.error('Failed to check cowork API config:', error);

@@ -206,141 +206,32 @@ function tryPopiaiServerFallback(modelId?: string): MatchedProvider | null {
   };
 }
 
-function resolveMatchedProvider(appConfig: AppConfig): { matched: MatchedProvider | null; error?: string } {
-  const providers = appConfig.providers ?? {};
-
-  const resolveFallbackModel = (): {
-    providerName: string;
-    providerConfig: LocalProviderConfig;
-    modelId: string;
-  } | null => {
-    for (const [providerName, providerConfig] of Object.entries(providers)) {
-      if (!providerConfig?.enabled || !providerConfig.models || providerConfig.models.length === 0) {
-        continue;
-      }
-      const fallbackModel = providerConfig.models.find((model) => model.id?.trim());
-      if (!fallbackModel) {
-        continue;
-      }
-      return {
-        providerName,
-        providerConfig,
-        modelId: fallbackModel.id.trim(),
-      };
-    }
-    return null;
-  };
-
+function resolvePreferredPopiaiServerModelId(appConfig: AppConfig): string {
   const configuredModelId = appConfig.model?.defaultModel?.trim();
-  let modelId = configuredModelId || '';
-  if (!modelId) {
-    const fallback = resolveFallbackModel();
-    if (!fallback) {
-      const serverFallback = tryPopiaiServerFallback(configuredModelId);
-      if (serverFallback) return { matched: serverFallback };
-      return { matched: null, error: 'No available model configured in enabled providers.' };
-    }
-    modelId = fallback.modelId;
+  if (configuredModelId) {
+    return configuredModelId;
   }
 
-  let providerEntry: [string, LocalProviderConfig] | undefined;
-  const preferredProviderName = appConfig.model?.defaultModelProvider?.trim();
-
-  // Handle popiai-server provider: dynamically construct from auth tokens
-  if (preferredProviderName === ProviderName.PopiaiServer) {
-    const serverMatch = tryPopiaiServerFallback(modelId);
-    if (serverMatch) {
-      return { matched: serverMatch };
-    }
+  const firstCachedModel = getAllServerModelMetadata()[0]?.modelId?.trim();
+  if (firstCachedModel) {
+    return firstCachedModel;
   }
 
-  if (preferredProviderName) {
-    const preferredProvider = providers[preferredProviderName];
-    if (
-      preferredProvider?.enabled
-      && preferredProvider.models?.some((model) => model.id === modelId)
-    ) {
-      providerEntry = [preferredProviderName, preferredProvider];
-    }
+  return '';
+}
+
+function resolveMatchedProvider(appConfig: AppConfig): { matched: MatchedProvider | null; error?: string } {
+  const serverModelId = resolvePreferredPopiaiServerModelId(appConfig);
+  const serverMatch = tryPopiaiServerFallback(serverModelId);
+  if (serverMatch) {
+    return { matched: serverMatch };
   }
 
-  if (!providerEntry) {
-    providerEntry = Object.entries(providers).find(([, provider]) => {
-      if (!provider?.enabled || !provider.models) {
-        return false;
-      }
-      return provider.models.some((model) => model.id === modelId);
-    });
+  if (getStore()?.get('model_gateway_credential')) {
+    return { matched: null, error: 'No available PopiAi server model found for the current account.' };
   }
 
-  if (!providerEntry) {
-    const fallback = resolveFallbackModel();
-    if (fallback) {
-      modelId = fallback.modelId;
-      providerEntry = [fallback.providerName, fallback.providerConfig];
-    } else {
-      const serverFallback = tryPopiaiServerFallback(modelId);
-      if (serverFallback) return { matched: serverFallback };
-      return { matched: null, error: `No enabled provider found for model: ${modelId}` };
-    }
-  }
-
-  const [providerName, storedProviderConfig] = providerEntry;
-  const providerConfig = shouldUseOpenAICodexOAuth(providerName, storedProviderConfig)
-    ? { ...storedProviderConfig, authType: 'oauth' as const }
-    : storedProviderConfig;
-  const normalizedProviderModels = normalizeProviderModels(providerName, providerConfig.models);
-
-  // MiniMax OAuth mode guard: if OAuth is selected but login has not been completed
-  // (no access token), do not use the stale API key as an OAuth token.
-  if (providerName === ProviderName.Minimax && (providerConfig as any).authType === 'oauth' && !(providerConfig as any).oauthAccessToken) {
-    const serverFallback = tryPopiaiServerFallback(modelId);
-    if (serverFallback) return { matched: serverFallback };
-    return { matched: null, error: 'MiniMax OAuth mode selected but login not completed.' };
-  }
-
-  let apiFormat = getEffectiveProviderApiFormat(providerName, providerConfig.apiFormat);
-  let baseURL = providerConfig.baseUrl?.trim();
-
-  if (providerConfig.codingPlanEnabled) {
-    const resolved = resolveCodingPlanBaseUrl(providerName, true, apiFormat, baseURL ?? '');
-    baseURL = resolved.baseUrl;
-    apiFormat = resolved.effectiveFormat;
-  }
-
-  if (!baseURL) {
-    const serverFallback = tryPopiaiServerFallback(modelId);
-    if (serverFallback) return { matched: serverFallback };
-    return { matched: null, error: `Provider ${providerName} is missing base URL.` };
-  }
-
-   // Check for API key or OAuth credentials
-  const hasApiKey = providerConfig.apiKey?.trim();
-  const hasOAuthCreds =
-    (providerName === ProviderName.Minimax && (providerConfig as any).authType === 'oauth' && !!(providerConfig as any).oauthAccessToken?.trim())
-    || shouldUseOpenAICodexOAuth(providerName, providerConfig);
-  if (apiFormat === 'anthropic' && providerRequiresApiKey(providerName) && !providerConfig.apiKey?.trim() && !hasApiKey && !hasOAuthCreds) {
-    const serverFallback = tryPopiaiServerFallback(modelId);
-    if (serverFallback) return { matched: serverFallback };
-    return { matched: null, error: `Provider ${providerName} requires API key for Anthropic-compatible mode.` };
-  }
-
-  const matchedModel = normalizedProviderModels.find((m) => m.id === modelId);
-
-  return {
-    matched: {
-      providerName,
-      providerConfig: {
-        ...providerConfig,
-        models: normalizedProviderModels,
-      },
-      modelId,
-      apiFormat,
-      baseURL,
-      supportsImage: matchedModel?.supportsImage,
-      modelName: matchedModel?.name,
-    },
-  };
+  return { matched: null, error: 'Please log in to use PopiAi server models.' };
 }
 
 export function resolveCurrentApiConfig(target: OpenAICompatProxyTarget = 'local'): ApiConfigResolution {
