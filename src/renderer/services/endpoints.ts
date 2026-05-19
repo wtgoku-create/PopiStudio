@@ -34,11 +34,11 @@ export const getLoginOvermindUrl = () => isTestMode()
   : 'https://popi.yuanzoo.cn/login';
 
 // Portal 页面
-const PORTAL_BASE_TEST = 'https://popi.yuanzoo.cn';
-const PORTAL_BASE_PROD = 'https://popi.yuanzoo.cn';
+const PORTAL_BASE_TEST = 'https://wwwtest.popi.art';
+const PORTAL_BASE_PROD = 'https://www.popi.art';
 
 const getPortalBase = () => isTestMode() ? PORTAL_BASE_TEST : PORTAL_BASE_PROD;
 
 export const getPortalLoginUrl = () => `${getPortalBase()}/login`;
-export const getPortalPricingUrl = () => `${getPortalBase()}/pricing`;
-export const getPortalProfileUrl = () => `${getPortalBase()}/profile`;
+export const getPortalPricingUrl = () => `${getPortalBase()}`;
+export const getPortalProfileUrl = () => `${getPortalBase()}`;
