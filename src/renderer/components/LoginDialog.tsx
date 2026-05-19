@@ -29,7 +29,6 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
 
   const loadCaptcha = async () => {
     setIsLoadingCaptcha(true);
-    setError(null);
     try {
       const result = await authService.requestCaptcha();
       if (!result.success || !result.captcha) {
@@ -75,6 +74,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
         captchaId,
         captchaValue: captchaValue.trim(),
       });
+      console.log('result==>', result);
       if (!result.success) {
         setError(result.error || i18nService.t('loginSmsSendFailed'));
         void loadCaptcha();
@@ -95,15 +95,15 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
     try {
       const result = mode === 'sms'
         ? await authService.loginWithCode({
-            phone: phone.trim(),
-            code: code.trim(),
-            inviteCode: inviteCode.trim() || undefined,
-          })
+          phone: phone.trim(),
+          code: code.trim(),
+          inviteCode: inviteCode.trim() || undefined,
+        })
         : await authService.loginWithPassword({
-            username: username.trim(),
-            password,
-            inviteCode: inviteCode.trim() || undefined,
-          });
+          username: username.trim(),
+          password,
+          inviteCode: inviteCode.trim() || undefined,
+        });
 
       if (!result.success) {
         setError(result.error || i18nService.t('loginFailed'));
@@ -200,7 +200,10 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
                   />
                   <button
                     type="button"
-                    onClick={() => void loadCaptcha()}
+                    onClick={() => {
+                      setError(null);
+                      void loadCaptcha();
+                    }}
                     className="flex h-11 w-28 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-raised text-foreground transition hover:bg-surface"
                   >
                     {isLoadingCaptcha ? (
