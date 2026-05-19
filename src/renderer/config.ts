@@ -66,14 +66,12 @@ const buildDefaultProviders = (): AppConfig['providers'] => {
 export const defaultConfig: AppConfig = {
   api: {
     key: '',
-    baseUrl: 'https://api.deepseek.com/anthropic',
+    baseUrl: '',
   },
   model: {
-    availableModels: [
-      { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', supportsImage: false },
-    ],
-    defaultModel: 'deepseek-reasoner',
-    defaultModelProvider: 'deepseek',
+    availableModels: [],
+    defaultModel: '',
+    defaultModelProvider: '',
   },
   providers: buildDefaultProviders(),
   theme: 'system',

@@ -2414,7 +2414,6 @@ if (!gotTheLock) {
 
   const parsePopiResponse = async <T>(resp: Response): Promise<T> => {
     const body = await resp.json() as { status?: string; message?: string; data?: T };
-    console.log('body==>', body);
     if (body.status !== '0000') {
       throw new Error(body.message || 'Popi API request failed');
     }
