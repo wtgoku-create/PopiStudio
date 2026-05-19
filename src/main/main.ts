@@ -658,8 +658,8 @@ const checkCalendarPermission = async (): Promise<string> => {
         : '';
       // Check if it's a permission error
       if (stderr.includes('不能获取对象') ||
-          stderr.includes('not authorized') ||
-          stderr.includes('Permission denied')) {
+        stderr.includes('not authorized') ||
+        stderr.includes('Permission denied')) {
         console.log('[Permissions] macOS Calendar access: not-determined (needs permission)');
         return 'not-determined';
       }
@@ -981,7 +981,7 @@ const ensureOpenClawRunningForCowork = async () => {
     // the gateway for token changes. Just wait for any in-flight refresh.
     if (pendingTokenRefresh) {
       console.log('[OpenClaw] ensureRunning: awaiting pending token refresh before proceeding');
-      await pendingTokenRefresh.catch(() => {});
+      await pendingTokenRefresh.catch(() => { });
     }
     return manager.getStatus();
   }
@@ -993,7 +993,7 @@ const ensureOpenClawRunningForCowork = async () => {
   // a fresh token rather than the stale one that triggered the refresh.
   if (pendingTokenRefresh) {
     console.log('[OpenClaw] ensureRunning: awaiting pending token refresh before gateway start');
-    await pendingTokenRefresh.catch(() => {});
+    await pendingTokenRefresh.catch(() => { });
   }
 
   // Ensure MCP bridge is started and config is synced before launching the gateway,
@@ -1124,7 +1124,7 @@ const getOpenClawConfigSync = (): OpenClawConfigSync => {
       getPopoInstances: () => {
         try {
           return getIMGatewayManager().getIMStore().getPopoInstances();
-          } catch {
+        } catch {
           return [];
         }
       },
@@ -1540,85 +1540,85 @@ const startMcpBridge = (): Promise<McpBridgeConfig | null> => {
     return mcpBridgeStartPromise;
   }
   mcpBridgeStartPromise = (async (): Promise<McpBridgeConfig | null> => {
-  try {
-    console.log('[McpBridge] startMcpBridge called');
+    try {
+      console.log('[McpBridge] startMcpBridge called');
 
-    // Discover MCP tools (may be empty if no servers configured)
-    // PopiArt server-side tool registration was removed — the agent now calls the CLI directly.
-    // ensureBuiltInPopiArtMcpServer(getMcpStore());
-    const enabledServers = getMcpStore().getEnabledServers();
-    console.log(`[McpBridge] enabledServers: ${enabledServers.length} (${enabledServers.map(s => s.name).join(', ')})`);
+      // Discover MCP tools (may be empty if no servers configured)
+      // PopiArt server-side tool registration was removed — the agent now calls the CLI directly.
+      // ensureBuiltInPopiArtMcpServer(getMcpStore());
+      const enabledServers = getMcpStore().getEnabledServers();
+      console.log(`[McpBridge] enabledServers: ${enabledServers.length} (${enabledServers.map(s => s.name).join(', ')})`);
 
-    let tools: Awaited<ReturnType<McpServerManager['startServers']>> = [];
-    if (enabledServers.length > 0) {
+      let tools: Awaited<ReturnType<McpServerManager['startServers']>> = [];
+      if (enabledServers.length > 0) {
+        if (!mcpServerManager) {
+          mcpServerManager = new McpServerManager();
+        }
+        console.log('[McpBridge] starting MCP servers...');
+        tools = await mcpServerManager.startServers(enabledServers);
+        console.log(`[McpBridge] tools discovered: ${tools.length}`);
+      }
+
+      // Always start HTTP callback server (serves both MCP Bridge and AskUserQuestion)
       if (!mcpServerManager) {
         mcpServerManager = new McpServerManager();
       }
-      console.log('[McpBridge] starting MCP servers...');
-      tools = await mcpServerManager.startServers(enabledServers);
-      console.log(`[McpBridge] tools discovered: ${tools.length}`);
-    }
+      if (!mcpBridgeServer) {
+        mcpBridgeServer = new McpBridgeServer(mcpServerManager, mcpBridgeSecret);
+      }
+      if (!mcpBridgeServer.port) {
+        console.log('[McpBridge] starting HTTP callback server...');
+        await mcpBridgeServer.start();
+      }
 
-    // Always start HTTP callback server (serves both MCP Bridge and AskUserQuestion)
-    if (!mcpServerManager) {
-      mcpServerManager = new McpServerManager();
-    }
-    if (!mcpBridgeServer) {
-      mcpBridgeServer = new McpBridgeServer(mcpServerManager, mcpBridgeSecret);
-    }
-    if (!mcpBridgeServer.port) {
-      console.log('[McpBridge] starting HTTP callback server...');
-      await mcpBridgeServer.start();
-    }
-
-    // Register AskUserQuestion callback — shows a permission modal when the
-    // ask-user-question OpenClaw plugin sends a request via HTTP.
-    mcpBridgeServer.onAskUser((request) => {
-      const windows = BrowserWindow.getAllWindows();
-      windows.forEach((win) => {
-        if (win.isDestroyed()) return;
-        try {
-          win.webContents.send('cowork:stream:permission', {
-            sessionId: '__askuser__',
-            request: {
-              requestId: request.requestId,
-              toolName: 'AskUserQuestion',
-              toolInput: { questions: request.questions },
-            },
-          });
-        } catch (error) {
-          console.error('[AskUser] failed to send permission request to window:', error);
-        }
+      // Register AskUserQuestion callback — shows a permission modal when the
+      // ask-user-question OpenClaw plugin sends a request via HTTP.
+      mcpBridgeServer.onAskUser((request) => {
+        const windows = BrowserWindow.getAllWindows();
+        windows.forEach((win) => {
+          if (win.isDestroyed()) return;
+          try {
+            win.webContents.send('cowork:stream:permission', {
+              sessionId: '__askuser__',
+              request: {
+                requestId: request.requestId,
+                toolName: 'AskUserQuestion',
+                toolInput: { questions: request.questions },
+              },
+            });
+          } catch (error) {
+            console.error('[AskUser] failed to send permission request to window:', error);
+          }
+        });
       });
-    });
 
-    // Dismiss the AskUser modal when timeout or resolved from server side.
-    // Simulate a deny response to remove it from the renderer's pending queue.
-    mcpBridgeServer.onAskUserDismiss((requestId) => {
-      const windows = BrowserWindow.getAllWindows();
-      windows.forEach((win) => {
-        if (win.isDestroyed()) return;
-        try {
-          win.webContents.send('cowork:stream:permissionDismiss', { requestId });
-        } catch {
-          // ignore
-        }
+      // Dismiss the AskUser modal when timeout or resolved from server side.
+      // Simulate a deny response to remove it from the renderer's pending queue.
+      mcpBridgeServer.onAskUserDismiss((requestId) => {
+        const windows = BrowserWindow.getAllWindows();
+        windows.forEach((win) => {
+          if (win.isDestroyed()) return;
+          try {
+            win.webContents.send('cowork:stream:permissionDismiss', { requestId });
+          } catch {
+            // ignore
+          }
+        });
       });
-    });
 
-    const callbackUrl = mcpBridgeServer.callbackUrl;
-    const askUserCallbackUrl = mcpBridgeServer.askUserCallbackUrl;
-    if (!callbackUrl || !askUserCallbackUrl) {
-      console.error('[McpBridge] failed to get callback URL');
+      const callbackUrl = mcpBridgeServer.callbackUrl;
+      const askUserCallbackUrl = mcpBridgeServer.askUserCallbackUrl;
+      if (!callbackUrl || !askUserCallbackUrl) {
+        console.error('[McpBridge] failed to get callback URL');
+        return null;
+      }
+
+      console.log(`[McpBridge] started: ${tools.length} MCP tools, callback=${callbackUrl}`);
+      return { callbackUrl, askUserCallbackUrl, secret: mcpBridgeSecret, tools };
+    } catch (error) {
+      console.error('[McpBridge] startup error:', error instanceof Error ? error.stack || error.message : String(error));
       return null;
     }
-
-    console.log(`[McpBridge] started: ${tools.length} MCP tools, callback=${callbackUrl}`);
-    return { callbackUrl, askUserCallbackUrl, secret: mcpBridgeSecret, tools };
-  } catch (error) {
-    console.error('[McpBridge] startup error:', error instanceof Error ? error.stack || error.message : String(error));
-    return null;
-  }
   })().finally(() => {
     mcpBridgeStartPromise = null;
   });
@@ -2414,6 +2414,7 @@ if (!gotTheLock) {
 
   const parsePopiResponse = async <T>(resp: Response): Promise<T> => {
     const body = await resp.json() as { status?: string; message?: string; data?: T };
+    console.log('body==>', body);
     if (body.status !== '0000') {
       throw new Error(body.message || 'Popi API request failed');
     }
@@ -2431,7 +2432,7 @@ if (!gotTheLock) {
       list?: Array<{ apikey?: string; status?: number; deleted?: boolean }>;
     }>(resp);
     console.log('data==>',data);
-    
+
     const activeKey = data?.list?.find(item => item.apikey && item.deleted !== true && item.status === 1)
       ?? data?.list?.find(item => item.apikey && item.deleted !== true)
       ?? data?.list?.find(item => item.apikey);
@@ -2466,7 +2467,7 @@ if (!gotTheLock) {
     });
     clearServerModelMetadata();
     updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
-    syncOpenClawConfig({ reason: 'popi-login', restartGatewayIfRunning: false }).catch(() => {});
+    syncOpenClawConfig({ reason: 'popi-login', restartGatewayIfRunning: false }).catch(() => { });
     await syncPopiArtAfterAppAuthChange('authenticated', 'portal-login');
     return { success: true, user: normalizePopiUser(user), quota };
   };
@@ -2838,33 +2839,33 @@ if (!gotTheLock) {
         console.log('[Auth:getModels] No auth tokens available');
         return { success: false };
       }
-      void (getModelGatewayCredential() ?? await refreshModelGatewayCredential());
+      const credential = getModelGatewayCredential() ?? await refreshModelGatewayCredential();
       let models: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }> = [...POPI_DEFAULT_SERVER_MODELS];
 
-      // try {
-      //   const modelsUrl = `${normalizePopiBaseUrl(credential.baseURL)}/models`;
-      //   const resp = await net.fetch(modelsUrl, {
-      //     headers: { Authorization: `Bearer ${credential.apiKey}` },
-      //   });
-      //   if (resp.ok) {
-      //     const body = await resp.json() as { data?: Array<{ id?: string; name?: string }> };
-      //     const gatewayModels = (body.data ?? [])
-      //       .map(model => model.id?.trim())
-      //       .filter((id): id is string => !!id)
-      //       .map(id => ({
-      //         modelId: id,
-      //         modelName: id,
-      //         provider: ProviderName.PopiaiServer,
-      //         apiFormat: 'openai',
-      //         supportsImage: true,
-      //       }));
-      //     if (gatewayModels.length > 0) {
-      //       models = gatewayModels;
-      //     }
-      //   }
-      // } catch (error) {
-      //   console.debug('[Auth:getModels] gateway model list unavailable, using fallback model:', error);
-      // }
+      try {
+        const modelsUrl = `${normalizePopiBaseUrl(credential.baseURL)}/models?scene=chat`;
+        const resp = await net.fetch(modelsUrl, {
+          headers: { Authorization: `Bearer ${credential.apiKey}` },
+        });
+        if (resp.ok) {
+          const body = await resp.json() as { data?: Array<{ id?: string; object?: string, created?: number, owned_by?: string, scene?: string; supported_endpoint_types?: string[] }> };
+          const gatewayModels = (body.data ?? [])
+            .map(model => model.id?.trim())
+            .filter((id): id is string => !!id)
+            .map(id => ({
+              modelId: id,
+              modelName: id,
+              provider: ProviderName.PopiaiServer,
+              apiFormat: 'openai',
+              supportsImage: false,
+            }));
+          if (gatewayModels.length > 0) {
+            models = gatewayModels;
+          }
+        }
+      } catch (error) {
+        console.debug('[Auth:getModels] gateway model list unavailable, using fallback model:', error);
+      }
 
       // Cache server model metadata for use in OpenClaw config sync (supportsImage, etc.)
       const serverModelsChanged = updateServerModelMetadata(models);
@@ -2872,7 +2873,7 @@ if (!gotTheLock) {
       // This IPC can run after normal chat completion when the renderer refreshes quota/model
       // state, so server model updates must not force a hard gateway restart.
       if (serverModelsChanged) {
-        syncOpenClawConfig({ reason: 'server-models-updated', restartGatewayIfRunning: false }).catch(() => {});
+        syncOpenClawConfig({ reason: 'server-models-updated', restartGatewayIfRunning: false }).catch(() => { });
       } else {
         console.debug('[Auth:getModels] server model metadata unchanged, skipping config sync');
       }
@@ -4190,7 +4191,7 @@ if (!gotTheLock) {
             MIN_MEMORY_USER_MEMORIES_MAX_ITEMS,
             Math.min(MAX_MEMORY_USER_MEMORIES_MAX_ITEMS, Math.floor(config.memoryUserMemoriesMaxItems))
           )
-        : undefined;
+          : undefined;
       const normalizedSkipMissedJobs = typeof config.skipMissedJobs === 'boolean'
         ? config.skipMissedJobs
         : undefined;
@@ -4609,7 +4610,7 @@ if (!gotTheLock) {
 
       if (instance.transport === 'imap') {
         // Test IMAP connection using node-imap
-         
+
         let Imap: new (config: Record<string, unknown>) => any;
         try {
           Imap = require('imap');
@@ -5625,9 +5626,9 @@ end tell'`, { timeout: 5000 });
           const message = darwinError instanceof Error ? darwinError.message : String(darwinError);
           const lowerErrorText = `${stderr}\n${message}`.toLowerCase();
           if (lowerErrorText.includes('not allowed assistive access') ||
-              lowerErrorText.includes('assistive') ||
-              lowerErrorText.includes('not authorized') ||
-              lowerErrorText.includes('1002')) {
+            lowerErrorText.includes('assistive') ||
+            lowerErrorText.includes('not authorized') ||
+            lowerErrorText.includes('1002')) {
             return { success: false, error: 'permission_denied' };
           }
           console.warn('[Voice] macOS dictation shortcut failed:', darwinError);
@@ -5986,14 +5987,14 @@ end tell'`, { timeout: 5000 });
       icon: getAppIconPath(),
       ...(isMac
         ? {
-            titleBarStyle: 'hiddenInset' as const,
-            trafficLightPosition: { x: 12, y: 20 },
-          }
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 12, y: 20 },
+        }
         : isWindows
           ? {
-              frame: false,
-              titleBarStyle: 'hidden' as const,
-            }
+            frame: false,
+            titleBarStyle: 'hidden' as const,
+          }
           : {
             titleBarStyle: 'hidden' as const,
             titleBarOverlay: getTitleBarOverlayOptions(),
