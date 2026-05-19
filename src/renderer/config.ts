@@ -1,4 +1,4 @@
-import { type ProviderConfig,ProviderRegistry } from '@shared/providers';
+import { type ProviderConfig,ProviderName,ProviderRegistry } from '@shared/providers';
 
 // 配置类型定义
 export interface AppConfig {
@@ -71,7 +71,7 @@ export const defaultConfig: AppConfig = {
   model: {
     availableModels: [],
     defaultModel: '',
-    defaultModelProvider: '',
+    defaultModelProvider: ProviderName.PopiaiServer,
   },
   providers: buildDefaultProviders(),
   theme: 'system',

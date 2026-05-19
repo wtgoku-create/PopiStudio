@@ -2,6 +2,7 @@ import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 import { defaultConfig, getProviderDisplayName } from '../../config';
 import { resolveOpenClawModelRef } from '../../utils/openclawModelRef';
+import { ProviderName } from '@shared/providers';
 
 export interface Model {
   id: string;
@@ -56,7 +57,7 @@ const defaultModelProvider = defaultConfig.model.defaultModelProvider;
 const EMPTY_MODEL_PLACEHOLDER: Model = {
   id: '',
   name: '',
-  providerKey: 'popiai-server',
+  providerKey: ProviderName.PopiaiServer,
   isServerModel: true,
   supportsImage: false,
 };
@@ -98,20 +99,22 @@ function syncSelectedModelByAgent(
 }
 
 function syncDefaultSelectedModel(state: ModelState): void {
+  console.log('syncDefaultSelectedModel', state.availableModels.length);
   if (state.availableModels.length === 0) {
     state.defaultSelectedModel = EMPTY_MODEL_PLACEHOLDER;
     return;
   }
-
+  console.log('syncDefaultSelectedModel', state.defaultSelectedModel, state.availableModels);
   const matchedModel = state.availableModels.find(m => isSameModelIdentity(m, state.defaultSelectedModel));
   state.defaultSelectedModel = matchedModel ?? state.availableModels[0];
 }
-
-const initialState: ModelState = {
-  defaultSelectedModel: availableModels.find(
+const list =  availableModels.find(
     model => model.id === defaultConfig.model.defaultModel
       && (!defaultModelProvider || model.providerKey === defaultModelProvider)
-  ) || availableModels[0],
+  ) || availableModels[0]
+
+const initialState: ModelState = {
+  defaultSelectedModel: list || EMPTY_MODEL_PLACEHOLDER,
   selectedModelByAgent: {},
   availableModels,
 };
