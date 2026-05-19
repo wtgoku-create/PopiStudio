@@ -441,7 +441,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     modelGroupServer: '套餐模型',
     modelGroupUser: '自定义模型',
     modelSupportsImageInputBadge: '可读图',
-    modelSelectorNoModels: '请先在设置中配置模型',
+    modelSelectorNoModels: '请先登录以配置模型',
     coworkApiConfigTitle: 'API 配置',
     coworkApiConfigHint:
       '支持 Anthropic 兼容与 OpenAI 兼容协议（OpenAI 兼容通过本地转换服务接入）。',
@@ -2301,7 +2301,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     modelGroupServer: 'Plan Models',
     modelGroupUser: 'Custom Models',
     modelSupportsImageInputBadge: 'Reads images',
-    modelSelectorNoModels: 'Please configure models in settings first',
+    modelSelectorNoModels: 'Please log in first to configure models',
     coworkApiConfigTitle: 'API Configuration',
     coworkApiConfigHint:
       'Supports Anthropic-compatible and OpenAI-compatible APIs (OpenAI compatibility is bridged by a local adapter).',

@@ -363,13 +363,16 @@ const App: React.FC = () => {
   }, [showToast]);
 
   const handleShowLogin = useCallback(() => {
+    if (privacyAgreed !== true) {
+      return;
+    }
     setShowLoginDialog(true);
-  }, []);
+  }, [privacyAgreed]);
 
   useEffect(() => {
     authService.setLoginDialogOpener(handleShowLogin);
     return () => authService.setLoginDialogOpener(null);
-  }, [handleShowLogin]);
+  }, [handleShowLogin, privacyAgreed]);
 
   const runUpdateCheck = useCallback(async () => {
     try {
