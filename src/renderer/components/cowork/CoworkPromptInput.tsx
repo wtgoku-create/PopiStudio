@@ -1,5 +1,5 @@
 import { CheckIcon, ChevronDownIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
-import { ArrowUpIcon, FolderIcon, StopIcon } from '@heroicons/react/24/solid';
+import { FolderIcon, StopIcon } from '@heroicons/react/24/solid';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
@@ -25,6 +25,7 @@ import { Skill } from '../../types/skill';
 import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
+import sendIconUrl from '../../assets/agent-avatars/Send.png';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
@@ -139,6 +140,23 @@ const AgentContextAvatar: React.FC<{ agent: AgentSelectorOption; className?: str
     />
   );
 };
+
+const SendButtonIcon: React.FC<{ className: string }> = ({ className }) => (
+  <span
+    aria-hidden="true"
+    className={`inline-block shrink-0 bg-current ${className}`}
+    style={{
+      WebkitMaskImage: `url("${sendIconUrl}")`,
+      WebkitMaskPosition: 'center',
+      WebkitMaskRepeat: 'no-repeat',
+      WebkitMaskSize: 'contain',
+      maskImage: `url("${sendIconUrl}")`,
+      maskPosition: 'center',
+      maskRepeat: 'no-repeat',
+      maskSize: 'contain',
+    }}
+  />
+);
 
 export interface CoworkPromptInputRef {
   /** 设置输入框值 */
@@ -1068,7 +1086,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       aria-label={i18nService.t('sendMessage')}
       title={sendButtonTitle}
     >
-      <ArrowUpIcon className={largeSendIconSizeClass} />
+      <SendButtonIcon className={largeSendIconSizeClass} />
     </button>
   );
 
@@ -1397,7 +1415,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 aria-label={i18nService.t('sendMessage')}
                 title={sendButtonTitle}
               >
-                <ArrowUpIcon className="h-[17px] w-[17px]" />
+                <SendButtonIcon className="h-[17px] w-[17px]" />
               </button>
             )}
           </>

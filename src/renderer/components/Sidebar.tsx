@@ -14,13 +14,13 @@ import {
 import type { CoworkSessionSummary } from '../types/cowork';
 import { getAgentDisplayNameById } from '../utils/agentDisplay';
 import MyAgentSidebarTree from './agentSidebar/MyAgentSidebarTree';
+import scheduledTasksIconUrl from '../assets/agent-avatars/Cron_job.png';
+import skillsIconUrl from '../assets/agent-avatars/lightning.svg';
 import Modal from './common/Modal';
 import CoworkSearchModal from './cowork/CoworkSearchModal';
-import ClockIcon from './icons/ClockIcon';
 import Cog6ToothIcon from './icons/Cog6ToothIcon';
 import ComposeIcon from './icons/ComposeIcon';
 import ConnectorIcon from './icons/ConnectorIcon';
-import PuzzleIcon from './icons/PuzzleIcon';
 import SearchIcon from './icons/SearchIcon';
 import SidebarToggleIcon from './icons/SidebarToggleIcon';
 import TrashIcon from './icons/TrashIcon';
@@ -331,7 +331,20 @@ const Sidebar: React.FC<SidebarProps> = ({
             className={activeView === 'scheduledTasks' ? activeSidebarNavItemClassName : sidebarNavItemClassName}
             aria-current={activeView === 'scheduledTasks' ? 'page' : undefined}
           >
-            <ClockIcon className="h-4 w-4 shrink-0" />
+            <span
+              aria-hidden="true"
+              className="inline-block h-4 w-4 shrink-0 bg-current"
+              style={{
+                WebkitMaskImage: `url("${scheduledTasksIconUrl}")`,
+                WebkitMaskPosition: 'center',
+                WebkitMaskRepeat: 'no-repeat',
+                WebkitMaskSize: 'contain',
+                maskImage: `url("${scheduledTasksIconUrl}")`,
+                maskPosition: 'center',
+                maskRepeat: 'no-repeat',
+                maskSize: 'contain',
+              }}
+            />
             {i18nService.t('scheduledTasks')}
           </button>
           <button
@@ -343,7 +356,20 @@ const Sidebar: React.FC<SidebarProps> = ({
             className={activeView === 'skills' ? activeSidebarNavItemClassName : sidebarNavItemClassName}
             aria-current={activeView === 'skills' ? 'page' : undefined}
           >
-            <PuzzleIcon className="h-4 w-4 shrink-0" />
+            <span
+              aria-hidden="true"
+              className="inline-block h-4 w-4 shrink-0 bg-current"
+              style={{
+                WebkitMaskImage: `url("${skillsIconUrl}")`,
+                WebkitMaskPosition: 'center',
+                WebkitMaskRepeat: 'no-repeat',
+                WebkitMaskSize: 'contain',
+                maskImage: `url("${skillsIconUrl}")`,
+                maskPosition: 'center',
+                maskRepeat: 'no-repeat',
+                maskSize: 'contain',
+              }}
+            />
             {i18nService.t('skills')}
           </button>
           <button
