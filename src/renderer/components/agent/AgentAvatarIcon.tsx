@@ -23,7 +23,7 @@ import headphonesIconUrl from '../../assets/agent-avatars/headphones.svg';
 import heartIconUrl from '../../assets/agent-avatars/heart.svg';
 import inspirationIconUrl from '../../assets/agent-avatars/inspiration.svg';
 import lightningIconUrl from '../../assets/agent-avatars/lightning.svg';
-import lobsterIconUrl from '../../assets/agent-avatars/lobster.svg';
+import lobsterIconUrl from '../../assets/agent-avatars/popi.png';
 import meditationIconUrl from '../../assets/agent-avatars/meditation.svg';
 import musicIconUrl from '../../assets/agent-avatars/music.svg';
 import petIconUrl from '../../assets/agent-avatars/pet.svg';
@@ -110,6 +110,10 @@ export const getAgentAvatarSvgUrl = (svg: AgentAvatarSvg): string => {
   return AGENT_AVATAR_SVG_URLS[svg] ?? AGENT_AVATAR_SVG_URLS[DefaultAgentAvatar.svg];
 };
 
+const isBitmapIconUrl = (url: string): boolean => {
+  return /\.(png|jpe?g|webp|gif)(?:\?.*)?$/i.test(url);
+};
+
 interface AgentAvatarIconProps {
   value?: string | null;
   className?: string;
@@ -133,6 +137,19 @@ const AgentAvatarIcon: React.FC<AgentAvatarIconProps> = ({
 
   if (avatar) {
     const iconUrl = getAgentAvatarSvgUrl(avatar.svg);
+    if (isBitmapIconUrl(iconUrl)) {
+      return (
+        <span className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full ${className}`}>
+          <img
+            aria-hidden="true"
+            alt=""
+            src={iconUrl}
+            className={`${iconClassName} object-contain`}
+          />
+        </span>
+      );
+    }
+
     const maskStyle: React.CSSProperties = {
       WebkitMaskImage: `url("${iconUrl}")`,
       WebkitMaskPosition: 'center',
