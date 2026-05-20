@@ -74,7 +74,6 @@ interface SkillsManagerProps {
 const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat }) => {
   const dispatch = useDispatch();
   const skills = useSelector((state: RootState) => state.skill.skills);
-  console.log(skills);
   const [skillSearchQuery, setSkillSearchQuery] = useState('');
   const [skillDownloadSource, setSkillDownloadSource] = useState('');
   const [skillActionError, setSkillActionError] = useState('');
@@ -1190,13 +1189,13 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                         if (inst && marketplaceHasNewerVersionThanInstalled(skill, inst)) {
                           return (
                             <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
-                              v{inst.version?.trim() || '—'} → v{skill.version}
+                              v{inst.version?.trim() || '—'} → {skill.version}
                             </span>
                           );
                         }
                         return (
                           <span className="px-1.5 py-0.5 rounded bg-surface-raised font-medium">
-                            v{skill.version}
+                            {skill.version}
                           </span>
                         );
                       })()}
@@ -1252,7 +1251,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 <div className="flex items-center text-xs">
                   <span className="w-16 flex-shrink-0 text-secondary">{i18nService.t('skillDetailVersion')}</span>
                   <span className="px-1.5 py-0.5 rounded bg-surface-raised text-foreground font-medium">
-                    v{selectedMarketplaceSkill.version}
+                    {selectedMarketplaceSkill.version}
                   </span>
                 </div>
               )}
@@ -1295,7 +1294,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                     className="w-full py-2.5 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                   >
                     <ArrowPathIcon className="h-4 w-4" />
-                    {i18nService.t('skillUpgrade')} v{installedVer} → v{selectedMarketplaceSkill.version}
+                    {i18nService.t('skillUpgrade')} {installedVer} → {selectedMarketplaceSkill.version}
                   </button>
                 );
               }

@@ -337,6 +337,12 @@ type MarketplaceInstallMetadata = {
   category: string;
 };
 
+type UpgradeSkillOptions = {
+  skillId: string;
+  downloadUrl: string;
+  metadata?: MarketplaceInstallMetadata;
+};
+
 type SkillsConfig = {
   version: number;
   description?: string;
@@ -420,6 +426,26 @@ const normalizeFolderName = (name: string): string => {
 };
 
 const isZipFile = (filePath: string): boolean => path.extname(filePath).toLowerCase() === '.zip';
+
+const normalizeUpgradeSkillOptions = (
+  skillIdOrOptions: string | UpgradeSkillOptions,
+  downloadUrl?: string,
+  metadata?: MarketplaceInstallMetadata,
+): UpgradeSkillOptions => {
+  if (typeof skillIdOrOptions === 'string') {
+    return {
+      skillId: skillIdOrOptions,
+      downloadUrl: downloadUrl || '',
+      metadata,
+    };
+  }
+
+  return {
+    skillId: skillIdOrOptions.skillId,
+    downloadUrl: skillIdOrOptions.downloadUrl,
+    metadata: skillIdOrOptions.metadata,
+  };
+};
 
 /**
  * Compare two semver-like version strings (e.g. "1.0.0" vs "1.0.1").
@@ -1981,13 +2007,29 @@ export class SkillManager {
     }
   }
 
-  async upgradeSkill(skillId: string, downloadUrl: string, metadata?: MarketplaceInstallMetadata): Promise<{
+  async upgradeSkill(
+    skillIdOrOptions: string | UpgradeSkillOptions,
+    downloadUrl?: string,
+    metadata?: MarketplaceInstallMetadata,
+  ): Promise<{
     success: boolean;
     skills?: SkillRecord[];
     error?: string;
     auditReport?: SkillSecurityReport;
     pendingInstallId?: string;
   }> {
+    const normalized = normalizeUpgradeSkillOptions(skillIdOrOptions, downloadUrl, metadata);
+    const skillId = normalized.skillId?.trim();
+    const resolvedDownloadUrl = normalized.downloadUrl?.trim();
+    const resolvedMetadata = normalized.metadata;
+
+    if (!skillId) {
+      return { success: false, error: 'Skill ID is required' };
+    }
+    if (!resolvedDownloadUrl) {
+      return { success: false, error: `Download URL is required for skill "${skillId}"` };
+    }
+
     // Prevent concurrent upgrades of the same skill
     if (this.upgradingSkillIds.has(skillId)) {
       return { success: false, error: `Skill "${skillId}" is already being upgraded` };
@@ -2007,7 +2049,7 @@ export class SkillManager {
 
     this.upgradingSkillIds.add(skillId);
     try {
-      return await this.performUpgradeDownload(skillId, downloadUrl, existingSkillDir, metadata);
+      return await this.performUpgradeDownload(skillId, resolvedDownloadUrl, existingSkillDir, resolvedMetadata);
     } finally {
       this.upgradingSkillIds.delete(skillId);
     }
@@ -2209,6 +2251,7 @@ export class SkillManager {
     // Upgrade path: overwrite existing skill directory
     if (pending.isUpgrade && pending.existingSkillDir) {
       for (const skillDir of pending.skillDirs) {
+        writeSkillMarketplaceFrontmatter(skillDir, pending.metadata);
         this.performSkillUpgrade(skillDir, pending.existingSkillDir);
         installedIds.push(path.basename(pending.existingSkillDir));
       }
