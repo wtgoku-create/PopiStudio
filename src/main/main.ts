@@ -6062,6 +6062,22 @@ end tell'`, { timeout: 5000 });
     });
 
     // 设置窗口的最小尺寸
+    if (isDev) {
+      mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.type !== 'keyDown' || input.key !== 'F12') {
+          return;
+        }
+
+        event.preventDefault();
+        if (mainWindow?.webContents.isDevToolsOpened()) {
+          mainWindow.webContents.closeDevTools();
+          return;
+        }
+
+        mainWindow?.webContents.openDevTools();
+      });
+    }
+
     mainWindow.setMinimumSize(MIN_APP_WINDOW_WIDTH, MIN_APP_WINDOW_HEIGHT);
     if (shouldRestoreMaximized) {
       mainWindow.maximize();
@@ -6133,7 +6149,6 @@ end tell'`, { timeout: 5000 });
       tryLoadURL();
 
       // 打开开发者工具
-      mainWindow.webContents.openDevTools();
     } else {
       // 生产环境
       mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
