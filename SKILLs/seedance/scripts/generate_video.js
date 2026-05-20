@@ -2,565 +2,263 @@
 
 /**
  * Seedance 视频生成脚本
- * 支持文本生成视频（T2V）、图片生成视频（I2V）、音画同步视频生成
+ *
+ * 统一通过 popiart CLI 的 Seedance façade 执行：
+ * - 文生视频 / 图生视频 -> popiart video seedance
+ * - 生成音频 -> --generate-audio
+ * - 参考音频 -> --audio <path-or-url>
  */
 
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
-const http = require('http');
-const { URL } = require('url');
+const { spawnSync } = require('child_process');
 
-// ==================== 配置 ====================
-
-const API_KEY = process.env.ARK_API_KEY;
-const BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
-
-// 默认参数
-const DEFAULT_MODEL = 'doubao-seedance-1-5-pro-251215';
+const DEFAULT_OUTPUT = 'generated_video.mp4';
+const DEFAULT_RATIO = '16:9';
 const DEFAULT_DURATION = 5;
-const DEFAULT_RATIO = 'adaptive';
-const DEFAULT_POLL_INTERVAL = 5;
-const DEFAULT_TIMEOUT = 300;
-
-// ==================== 工具函数 ====================
 
 function printError(message) {
   console.error(`错误: ${message}`);
 }
 
-function printInfo(message, noNewline = false) {
-  if (noNewline) {
-    process.stderr.write(message);
-  } else {
-    console.error(message);
-  }
+function printInfo(message) {
+  console.error(message);
 }
 
-function validateConfig() {
-  if (!API_KEY) {
-    printError('未设置环境变量 ARK_API_KEY');
-    printInfo('');
-    printInfo('请通过环境变量配置 API Key：');
-    printInfo('');
-    printInfo('macOS/Linux:');
-    printInfo('  export ARK_API_KEY="你的API密钥"');
-    printInfo('  # 或添加到 ~/.zshrc 或 ~/.bashrc 以永久生效');
-    printInfo('  echo \'export ARK_API_KEY="你的API密钥"\' >> ~/.zshrc');
-    printInfo('  source ~/.zshrc');
-    printInfo('');
-    printInfo('Windows PowerShell:');
-    printInfo('  $env:ARK_API_KEY="你的API密钥"');
-    printInfo('  # 或设置系统环境变量以永久生效');
-    printInfo('');
-    printInfo('获取 API Key：');
-    printInfo('  访问 https://console.volcengine.com/ark/region:ark+cn-beijing/apikey');
-    return false;
-  }
-  return true;
-}
-
-function validateDuration(duration, model) {
-  if (model.includes('1-5-pro')) {
-    if (duration < 4 || duration > 12) {
-      printError(`模型 ${model} 的 duration 必须在 4-12 秒之间`);
-      return false;
-    }
-  } else {
-    if (duration < 2 || duration > 12) {
-      printError(`模型 ${model} 的 duration 必须在 2-12 秒之间`);
-      return false;
-    }
-  }
-  return true;
-}
-
-// ==================== API 调用函数 ====================
-
-function getMimeType(ext) {
-  const extToMime = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.bmp': 'image/bmp',
-    '.tiff': 'image/tiff',
-    '.tif': 'image/tiff',
-    '.heic': 'image/heic'
-  };
-  return extToMime[ext.toLowerCase()] || 'image/jpeg';
-}
-
-async function processImagePath(imagePath) {
-  // 如果是HTTP/HTTPS URL，直接返回
-  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-    return imagePath;
-  }
-
-  // 如果已经是data URL，直接返回
-  if (imagePath.startsWith('data:')) {
-    return imagePath;
-  }
-
-  // 处理file://协议
-  let filePath = imagePath;
-  if (filePath.startsWith('file://')) {
-    filePath = filePath.substring(7);
-  }
-
-  // 否则当作本地文件处理
-  const absPath = path.resolve(filePath);
-
-  // 检查文件是否存在
-  if (!fs.existsSync(absPath)) {
-    throw new Error(`图片文件不存在: ${absPath}`);
-  }
-
-  const stat = fs.statSync(absPath);
-  if (!stat.isFile()) {
-    throw new Error(`路径不是文件: ${absPath}`);
-  }
-
-  // 检查文件扩展名
-  const ext = path.extname(absPath);
-  const mimeType = getMimeType(ext);
-
-  // 读取文件并转换为Base64
-  const imageData = fs.readFileSync(absPath);
-  const base64Data = imageData.toString('base64');
-
-  return `data:${mimeType};base64,${base64Data}`;
-}
-
-async function makeRequest(method, urlStr, headers, body = null) {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(urlStr);
-    const isHttps = urlObj.protocol === 'https:';
-    const client = isHttps ? https : http;
-
-    const options = {
-      hostname: urlObj.hostname,
-      path: urlObj.pathname + urlObj.search,
-      method: method,
-      headers: {
-        'User-Agent': 'SeedanceVideoGenerator/1.0',
-        ...headers
-      },
-      timeout: 30000
-    };
-
-    const req = client.request(options, (res) => {
-      let data = '';
-
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-
-      res.on('end', () => {
-        try {
-          const result = JSON.parse(data);
-          resolve({
-            status: res.statusCode,
-            data: result,
-            headers: res.headers
-          });
-        } catch (e) {
-          resolve({
-            status: res.statusCode,
-            data: data,
-            headers: res.headers
-          });
-        }
-      });
-    });
-
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('请求超时'));
-    });
-
-    if (body) {
-      req.write(JSON.stringify(body));
-    }
-
-    req.end();
+function runPopiart(args, timeout = 900000) {
+  const command = ['popiart', ...args];
+  const result = spawnSync(command[0], command.slice(1), {
+    encoding: 'utf8',
+    timeout,
+    windowsHide: true,
   });
-}
 
-async function downloadFile(urlStr, outputPath) {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(urlStr);
-    const isHttps = urlObj.protocol === 'https:';
-    const client = isHttps ? https : http;
-
-    const options = {
-      hostname: urlObj.hostname,
-      path: urlObj.pathname + urlObj.search,
-      method: 'GET',
-      headers: {
-        'User-Agent': 'SeedanceVideoGenerator/1.0'
-      },
-      timeout: 120000
-    };
-
-    const req = client.request(options, (res) => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`下载失败 (HTTP ${res.statusCode})`));
-        return;
-      }
-
-      const totalSize = parseInt(res.headers['content-length'] || '0', 10);
-      let downloaded = 0;
-
-      const dir = path.dirname(outputPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      const file = fs.createWriteStream(outputPath);
-
-      res.on('data', (chunk) => {
-        downloaded += chunk.length;
-        if (totalSize > 0) {
-          const percent = Math.floor((downloaded * 100) / totalSize);
-          const mbDownloaded = (downloaded / (1024 * 1024)).toFixed(1);
-          const mbTotal = (totalSize / (1024 * 1024)).toFixed(1);
-          printInfo(`\r下载进度: ${percent}% (${mbDownloaded}/${mbTotal} MB)`, true);
-        }
-      });
-
-      res.pipe(file);
-
-      file.on('finish', () => {
-        file.close();
-        printInfo('');
-        resolve();
-      });
-
-      file.on('error', (err) => {
-        fs.unlink(outputPath, () => {});
-        reject(err);
-      });
-    });
-
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('下载超时'));
-    });
-
-    req.end();
-  });
-}
-
-async function createVideoTask(prompt, imagePaths = null, options = {}) {
-  const {
-    model = DEFAULT_MODEL,
-    duration = DEFAULT_DURATION,
-    ratio = DEFAULT_RATIO,
-    generateAudio = false,
-    watermark = true
-  } = options;
-
-  // 构建content数组
-  const content = [{ type: 'text', text: prompt }];
-
-  // 添加图片
-  if (imagePaths && imagePaths.length > 0) {
-    for (const imgPath of imagePaths) {
-      try {
-        const processedUrl = await processImagePath(imgPath);
-        content.push({
-          type: 'image_url',
-          image_url: { url: processedUrl }
-        });
-      } catch (e) {
-        throw new Error(`图片处理失败: ${e.message}`);
-      }
-    }
+  if (result.error) {
+    throw result.error;
   }
 
-  // 构建请求payload
-  const payload = {
-    model,
-    content,
-    duration,
-    ratio,
-    generate_audio: generateAudio,
-    watermark
-  };
+  const stdout = result.stdout || '';
+  const stderr = result.stderr || '';
+  const combined = `${stdout}\n${stderr}`.trim();
 
-  printInfo('正在提交任务...');
-  printInfo(`  模型: ${model}`);
-  printInfo(`  时长: ${duration}秒`);
-  printInfo(`  ���高比: ${ratio}`);
-  if (imagePaths && imagePaths.length > 0) {
-    printInfo(`  参考图片: ${imagePaths.length}张`);
-    imagePaths.forEach((img, i) => {
-      if (img.startsWith('file://')) {
-        printInfo(`    [${i + 1}] 本地文件: ${img.substring(7)}`);
-      } else {
-        printInfo(`    [${i + 1}] ${img}`);
-      }
-    });
-  }
-  if (generateAudio) {
-    printInfo('  音频: 启用');
+  if (result.status !== 0) {
+    throw new Error(combined || `popiart 命令执行失败: ${command.join(' ')}`);
   }
 
   try {
-    const response = await makeRequest(
-      'POST',
-      `${BASE_URL}/contents/generations/tasks`,
-      {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
-      },
-      payload
-    );
-
-    if (response.status !== 200) {
-      let errorMsg = `HTTP ${response.status}`;
-      if (typeof response.data === 'object' && response.data.error) {
-        const errorDetail = response.data.error;
-        errorMsg = typeof errorDetail === 'object'
-          ? errorDetail.message || errorMsg
-          : String(errorDetail);
-      }
-
-      if (response.status === 401) {
-        throw new Error('认证失败：API Key 无效或已过期\n请检查 ARK_API_KEY 配置');
-      } else if (response.status === 403) {
-        throw new Error('权限不足：请确认 API Key 有视频生成权限');
-      } else if (response.status === 429) {
-        throw new Error('请求过于频繁：已超过限流配额\n请等待1分钟后重试');
-      } else if (response.status === 400) {
-        throw new Error(`参数错误：${errorMsg}\n请检查提示词和参数设置`);
-      } else {
-        throw new Error(`任务创建失败：${errorMsg}`);
-      }
-    }
-
-    const taskId = response.data.id;
-    if (!taskId) {
-      throw new Error('API 返回格式错误：缺少任务ID');
-    }
-
-    return taskId;
-  } catch (e) {
-    if (e.message.includes('任务创建失败') || e.message.includes('认证失败')) {
-      throw e;
-    }
-    throw new Error(`任务创建失败：${e.message}`);
+    return JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`popiart 输出不是合法 JSON: ${stdout || combined}`);
   }
 }
 
-async function pollTaskStatus(taskId, pollInterval = DEFAULT_POLL_INTERVAL, timeout = DEFAULT_TIMEOUT) {
-  const startTime = Date.now();
-  let retryCount = 0;
-  const maxRetries = 3;
-
-  printInfo('');
-  printInfo('等待视频生成完成...');
-  printInfo(`任务ID: ${taskId}`);
-  printInfo('(通常需要 30-120 秒，请耐心等待)');
-
-  while (true) {
-    const elapsed = Math.floor((Date.now() - startTime) / 1000);
-
-    // 检查超时
-    if (elapsed > timeout) {
-      throw new Error(
-        `任务超时（${timeout}秒）\n任务ID: ${taskId}\n你可以稍后通过控制台查看任务结果`
-      );
-    }
-
-    try {
-      const response = await makeRequest(
-        'GET',
-        `${BASE_URL}/contents/generations/tasks/${taskId}`,
-        {
-          'Authorization': `Bearer ${API_KEY}`
-        }
-      );
-
-      if (response.status !== 200) {
-        retryCount++;
-        if (retryCount >= maxRetries) {
-          throw new Error(`状态查询失败 (HTTP ${response.status})`);
-        }
-        printInfo(`[${elapsed}s] 查询失败，重试中...`);
-        await new Promise(r => setTimeout(r, 2000));
-        continue;
-      }
-
-      retryCount = 0;
-      const result = response.data;
-      const status = result.status;
-
-      const statusZh = {
-        'queued': '排队中',
-        'running': '生成中',
-        'succeeded': '完成',
-        'failed': '失败'
-      }[status] || status;
-
-      printInfo(`\r[${elapsed}s] 状态: ${statusZh}...`, true);
-
-      if (status === 'succeeded') {
-        printInfo('');
-        return result;
-      } else if (status === 'failed') {
-        let errorMsg = '未知错误';
-        if (result.error) {
-          const errorDetail = result.error;
-          errorMsg = typeof errorDetail === 'object'
-            ? errorDetail.message || errorMsg
-            : String(errorDetail);
-        }
-        throw new Error(`任务失败：${errorMsg}`);
-      }
-
-      await new Promise(r => setTimeout(r, pollInterval * 1000));
-    } catch (e) {
-      if (e.message.includes('任务失败')) {
-        throw e;
-      }
-      if (retryCount >= maxRetries) {
-        throw e;
-      }
-      retryCount++;
-      printInfo(`[${elapsed}s] 错误: ${e.message}，重试中...`);
-      await new Promise(r => setTimeout(r, 2000));
-    }
-  }
+function ensureDirectory(dirPath) {
+  fs.mkdirSync(dirPath, { recursive: true });
 }
 
-// ==================== 主函数 ====================
+function resolveGenerationDir() {
+  const scriptDir = __dirname;
+  const skillDir = path.dirname(scriptDir);
+  return path.join(skillDir, 'generation');
+}
 
-async function main() {
-  const args = process.argv.slice(2);
+function buildOutputPath(outputArg, fallbackExt = '.mp4') {
+  const generationDir = resolveGenerationDir();
+  ensureDirectory(generationDir);
+
+  if (!outputArg) {
+    return path.join(generationDir, DEFAULT_OUTPUT);
+  }
+
+  const resolved = path.resolve(outputArg);
+  const ext = path.extname(resolved);
+  if (ext) {
+    ensureDirectory(path.dirname(resolved));
+    return resolved;
+  }
+
+  ensureDirectory(path.dirname(resolved));
+  return `${resolved}${fallbackExt}`;
+}
+
+function extractVideoResult(response) {
+  const data = response.data || response;
+  const artifactIds = Array.isArray(data.artifact_ids) ? [...data.artifact_ids] : [];
+  const outputs = Array.isArray(data.outputs) ? data.outputs : [];
+
+  for (const output of outputs) {
+    if (output && typeof output.artifact_id === 'string' && output.artifact_id.length > 0) {
+      artifactIds.push(output.artifact_id);
+    }
+  }
+
+  const firstArtifactId = artifactIds.find((value) => typeof value === 'string' && value.length > 0) || null;
+  const resultUrl = typeof data.result_url === 'string' ? data.result_url : null;
+  const lastFrameUrl = typeof data.last_frame_url === 'string'
+    ? data.last_frame_url
+    : (data.metadata && typeof data.metadata.last_frame_url === 'string' ? data.metadata.last_frame_url : null);
+
+  return {
+    artifactId: firstArtifactId,
+    resultUrl,
+    lastFrameUrl,
+  };
+}
+
+function guessArtifactExtension(artifactId) {
+  const response = runPopiart(['artifacts', 'get', artifactId, '--output', 'json', '--quiet', '--non-interactive']);
+  const data = response.data || response;
+  const filename = String(data.filename || '');
+  return path.extname(filename) || '.mp4';
+}
+
+function pullArtifact(artifactId, outputPath) {
+  runPopiart(['artifacts', 'pull', artifactId, '--out', outputPath, '--output', 'json', '--quiet', '--non-interactive'], 300000);
+}
+
+function parseArgs(argv) {
   const options = {
     prompt: null,
     image: [],
-    model: DEFAULT_MODEL,
+    video: [],
+    audio: [],
+    model: null,
     duration: DEFAULT_DURATION,
     ratio: DEFAULT_RATIO,
-    audio: false,
+    output: DEFAULT_OUTPUT,
+    'return-last-frame': false,
+    'generate-audio': false,
+    wait: true,
     'no-watermark': false,
-    output: 'generated_video.mp4',
-    'poll-interval': DEFAULT_POLL_INTERVAL,
-    timeout: DEFAULT_TIMEOUT
   };
 
-  // 解析命令行参数
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith('--')) {
-      const key = arg.substring(2);
-      if (key === 'audio' || key === 'no-watermark') {
-        options[key] = true;
-      } else if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
-        const value = args[++i];
-        if (key === 'image') {
-          options.image.push(value);
-        } else if (key === 'duration' || key === 'poll-interval' || key === 'timeout') {
-          options[key] = parseInt(value, 10);
-        } else {
-          options[key] = value;
-        }
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (!arg.startsWith('--')) continue;
+    const key = arg.slice(2);
+
+    if (key === 'return-last-frame' || key === 'generate-audio' || key === 'wait' || key === 'no-watermark') {
+      options[key] = true;
+      continue;
+    }
+
+    if (key === 'audio') {
+      const next = argv[i + 1];
+      if (next && !next.startsWith('--')) {
+        options.audio.push(next);
+        i += 1;
+      } else {
+        // 兼容旧 skill：`--audio` 曾被当作“生成音频”开关。
+        options['generate-audio'] = true;
       }
+      continue;
+    }
+
+    const next = argv[i + 1];
+    if (!next || next.startsWith('--')) continue;
+    i += 1;
+
+    if (key === 'image' || key === 'video') {
+      options[key].push(next);
+    } else if (key === 'duration') {
+      options.duration = Number.parseInt(next, 10);
+    } else {
+      options[key] = next;
     }
   }
 
-  // 验证必需参数
-  if (!options.prompt) {
-    printError('缺少必需参数: --prompt');
+  return options;
+}
+
+function buildCommand(options) {
+  const command = ['video', 'seedance'];
+
+  for (const imagePath of options.image) {
+    command.push('--image', imagePath);
+  }
+  for (const videoPath of options.video) {
+    command.push('--video', videoPath);
+  }
+  for (const audioPath of options.audio) {
+    command.push('--audio', audioPath);
+  }
+
+  if (options.prompt) {
+    command.push('--prompt', options.prompt);
+  }
+  if (options.model) {
+    command.push('--model', options.model);
+  }
+  if (options.duration) {
+    command.push('--duration', String(options.duration));
+  }
+  if (options.ratio) {
+    command.push('--ratio', options.ratio);
+  }
+  if (options['return-last-frame']) {
+    command.push('--return-last-frame');
+  }
+  if (options['generate-audio']) {
+    command.push('--generate-audio');
+  }
+  if (options['no-watermark']) {
+    printInfo('提示: `--no-watermark` 当前未在 popiart Seedance façade 文档中明确保证，已忽略。');
+  }
+  if (options.wait) {
+    command.push('--wait');
+  }
+
+  command.push('--output', 'json', '--quiet', '--non-interactive');
+  return command;
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+
+  const hasAnyInput = options.image.length > 0 || options.video.length > 0 || options.audio.length > 0;
+  if (!options.prompt && !hasAnyInput) {
+    printError('缺少必需参数: 至少提供 `--prompt`，或提供图片/视频/音频参考输入。');
     process.exit(1);
   }
 
-  // 验证配置
-  if (!validateConfig()) {
-    process.exit(1);
-  }
-
-  // 验证参数
-  if (!validateDuration(options.duration, options.model)) {
-    process.exit(1);
-  }
-
-  if (options['poll-interval'] < 1 || options['poll-interval'] > 10) {
-    printError('poll-interval 必须在 1-10 秒之间');
-    process.exit(1);
-  }
-
-  if (options.timeout < 60 || options.timeout > 600) {
-    printError('timeout 必须在 60-600 秒之间');
-    process.exit(1);
-  }
-
-  // 执行生成流程
   try {
     printInfo('='.repeat(50));
-    printInfo('Seedance 视频生成');
+    printInfo('Seedance 视频生成（通过 PopiArt CLI）');
     printInfo('='.repeat(50));
+    printInfo('');
 
-    // Step 1: 创建任务
-    const taskId = await createVideoTask(options.prompt, options.image.length > 0 ? options.image : null, {
-      model: options.model,
-      duration: options.duration,
-      ratio: options.ratio,
-      generateAudio: options.audio,
-      watermark: !options['no-watermark']
-    });
+    const command = buildCommand(options);
+    const response = runPopiart(command);
+    const { artifactId, resultUrl, lastFrameUrl } = extractVideoResult(response);
 
-    printInfo(`任务已创建: ${taskId}`);
-
-    // Step 2: 轮询状态
-    const result = await pollTaskStatus(taskId, options['poll-interval'], options.timeout);
-
-    // Step 3: 下载视频
-    const videoUrl = result.content?.video_url;
-    if (!videoUrl) {
-      throw new Error('API 返回格式错误：缺少 video_url');
+    if (!artifactId) {
+      throw new Error(`未从 popiart 返回结果中找到视频 artifact_id: ${JSON.stringify(response)}`);
     }
 
-    printInfo('');
-    printInfo('正在下载视频...');
-    await downloadFile(videoUrl, options.output);
+    const outputPath = buildOutputPath(options.output, guessArtifactExtension(artifactId));
+    pullArtifact(artifactId, outputPath);
 
-    // 输出成功信息到 stdout（供 Claude 读取）
     printInfo('');
     printInfo('='.repeat(50));
-    printInfo('生成成功！');
+    printInfo('✓ 生成成功！');
     printInfo('='.repeat(50));
 
     console.log('视频生成成功！');
-    console.log(`任务ID: ${taskId}`);
-    console.log(`文件路径: ${path.resolve(options.output)}`);
-    console.log(`分辨率: ${result.resolution || 'N/A'}`);
-    console.log(`宽高比: ${result.ratio || 'N/A'}`);
-    console.log(`时长: ${result.duration || 'N/A'}秒`);
-    console.log(`帧率: ${result.framespersecond || 'N/A'} fps`);
-
-    if (result.content?.has_audio) {
-      console.log('音频: 已包含');
+    console.log(`文件路径: ${outputPath}`);
+    console.log(`artifact_id: ${artifactId}`);
+    if (resultUrl) {
+      console.log(`result_url: ${resultUrl}`);
     }
-  } catch (e) {
+    if (lastFrameUrl) {
+      console.log(`last_frame_url: ${lastFrameUrl}`);
+    }
+  } catch (error) {
     printInfo('');
     printInfo('='.repeat(50));
-    printError(e.message);
+    printError(error instanceof Error ? error.message : String(error));
     printInfo('='.repeat(50));
     process.exit(1);
   }
 }
-
-// 捕获未处理的 Promise 拒绝
-process.on('unhandledRejection', (err) => {
-  printError(`未处理的错误: ${err.message}`);
-  process.exit(1);
-});
 
 main();
