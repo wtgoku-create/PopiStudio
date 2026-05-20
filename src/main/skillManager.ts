@@ -300,6 +300,13 @@ export type SkillRecord = {
   version?: string;
 };
 
+const getSkillRoutingSourceLabel = (skill: Pick<SkillRecord, 'isOfficial' | 'isBuiltIn'>): string => {
+  if (skill.isBuiltIn || skill.isOfficial) {
+    return 'official';
+  }
+  return 'marketplace';
+};
+
 type SkillStateMap = Record<string, { enabled: boolean }>;
 
 type EmailConnectivityCheckCode = 'imap_connection' | 'smtp_connection';
@@ -1600,14 +1607,19 @@ export class SkillManager {
     if (enabled.length === 0) return null;
 
     const skillEntries = enabled
-      .map(s => `  <skill><id>${s.id}</id><name>${s.name}</name><description>${s.description}</description><location>${s.skillPath}</location></skill>`)
+      .map((s) => {
+        const source = getSkillRoutingSourceLabel(s);
+        return `  <skill><id>${s.id}</id><name>${s.name}</name><source>${source}</source><description>${s.description}</description><location>${s.skillPath}</location></skill>`;
+      })
       .join('\n');
 
     return [
       '## Skills (mandatory)',
       'Before replying: scan <available_skills> <description> entries.',
+      '- Prefer skills with <source>official</source> first. These are the app\'s built-in official skills and should be your default choice whenever they can handle the task.',
+      '- Only consider a <source>marketplace</source> skill when no official skill can complete the task, or when the official skill is clearly not applicable.',
       '- If exactly one skill clearly applies: read its SKILL.md at <location> with the Read tool, then follow it.',
-      '- If multiple could apply: choose the most specific one, then read/follow it.',
+      '- If multiple could apply: first compare official skills, choose the most specific applicable official skill, and only fall back to marketplace skills if the official options cannot complete the task.',
       '- If none clearly apply: do not read any SKILL.md.',
       '- IMPORTANT: If a description contains "Do NOT use" constraints, strictly respect them. If the user\'s request falls into a "Do NOT" category, treat that skill as non-matching — do NOT read its SKILL.md.',
       '- For the selected skill, treat <location> as the canonical SKILL.md path.',
@@ -2861,6 +2873,7 @@ export const __skillManagerTestUtils = {
   parseFrontmatter,
   isTruthy,
   extractDescription,
+  getSkillRoutingSourceLabel,
   parseClawhubUrl,
   isWindowsDeletePermissionError,
   resolveRemoteZipExtractRoot,

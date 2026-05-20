@@ -4,7 +4,13 @@ import path from 'path';
 import { test, expect } from 'vitest';
 import { __skillManagerTestUtils } from './skillManager';
 
-const { parseFrontmatter, isTruthy, extractDescription, resolveRemoteZipExtractRoot } = __skillManagerTestUtils;
+const {
+  parseFrontmatter,
+  isTruthy,
+  extractDescription,
+  getSkillRoutingSourceLabel,
+  resolveRemoteZipExtractRoot,
+} = __skillManagerTestUtils;
 
 // ==================== resolveRemoteZipExtractRoot (remote / GitHub zip layout) ====================
 
@@ -154,6 +160,12 @@ test('isTruthy: undefined and null', () => {
 test('isTruthy: number and object', () => {
   expect(isTruthy(1)).toBe(false);
   expect(isTruthy({})).toBe(false);
+});
+
+test('getSkillRoutingSourceLabel: official and built-in skills are preferred over marketplace skills', () => {
+  expect(getSkillRoutingSourceLabel({ isOfficial: true, isBuiltIn: false })).toBe('official');
+  expect(getSkillRoutingSourceLabel({ isOfficial: false, isBuiltIn: true })).toBe('official');
+  expect(getSkillRoutingSourceLabel({ isOfficial: false, isBuiltIn: false })).toBe('marketplace');
 });
 
 // ==================== extractDescription ====================
