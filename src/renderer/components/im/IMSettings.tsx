@@ -81,7 +81,7 @@ const checkLevelColorClass: Record<IMConnectivityCheck['level'], string> = {
 };
 
 // Hidden in UI for now: keep this list centralized for quick restore later.
-const HIDDEN_IM_PLATFORMS: Platform[] = ['netease-bee', 'popo', 'email'];
+const HIDDEN_IM_PLATFORMS: Platform[] = ['nim', 'netease-bee', 'popo', 'email'];
 
 // Map of backend error messages to i18n keys
 const errorMessageI18nMap: Record<string, string> = {
