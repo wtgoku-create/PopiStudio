@@ -84,6 +84,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   const [importTab, setImportTab] = useState<ImportSourceType>('github');
   const [activeTab, setActiveTab] = useState<SkillTab>('installed');
   const [marketplaceSkills, setMarketplaceSkills] = useState<MarketplaceSkill[]>([]);
+  const [marketplaceCatalogSkills, setMarketplaceCatalogSkills] = useState<MarketplaceSkill[]>([]);
   const [marketTags, setMarketTags] = useState<MarketTag[]>([]);
   const [activeMarketTag, setActiveMarketTag] = useState('all');
   const [isLoadingMarketplace, setIsLoadingMarketplace] = useState(false);
@@ -223,6 +224,25 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   }, [dispatch]);
 
   useEffect(() => {
+    let isActive = true;
+
+    const loadMarketplaceCatalog = async () => {
+      const data = await skillService.fetchMarketplaceSkills();
+      if (!isActive) return;
+      setMarketplaceCatalogSkills(data.skills);
+      if (data.tags.length > 0) {
+        setMarketTags(data.tags);
+      }
+    };
+
+    void loadMarketplaceCatalog();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (activeTab !== 'marketplace') {
       return;
     }
@@ -350,6 +370,13 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       return matchesSearch;
     });
   }, [skills, skillSearchQuery]);
+
+  const marketplaceSkillCatalog = useMemo(() => {
+    const merged = new Map<string, MarketplaceSkill>();
+    marketplaceCatalogSkills.forEach((skill) => merged.set(skill.id, skill));
+    marketplaceSkills.forEach((skill) => merged.set(skill.id, skill));
+    return Array.from(merged.values());
+  }, [marketplaceCatalogSkills, marketplaceSkills]);
 
   const formatSkillDate = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -558,11 +585,11 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   };
 
   const updatableSkills = useMemo(() => {
-    return marketplaceSkills.filter((ms) => {
+    return marketplaceSkillCatalog.filter((ms) => {
       const installed = findInstalledSkillForMarketplace(ms, skills);
       return installed != null && marketplaceHasNewerVersionThanInstalled(ms, installed);
     });
-  }, [skills, marketplaceSkills]);
+  }, [skills, marketplaceSkillCatalog]);
 
   const getInstalledVersionForMarketplace = (mp: MarketplaceSkill): string | undefined => {
     return findInstalledSkillForMarketplace(mp, skills)?.version;
@@ -991,7 +1018,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 <span>{formatSkillDate(skill.updatedAt)}</span>
                 </div>
                 {(() => {
-                  const mp = findMarketplaceSkillForInstalled(skill, marketplaceSkills);
+                  const mp = findMarketplaceSkillForInstalled(skill, marketplaceSkillCatalog);
                   if (mp && marketplaceHasNewerVersionThanInstalled(mp, skill)) {
                     return (
                       <button
@@ -1094,14 +1121,10 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 </Tooltip>
 
                 <div className="flex items-center gap-2 text-[10px] text-secondary">
-                  {skill.source?.from && (
-                    <>
-                      <span className="px-1.5 py-0.5 rounded bg-surface-raised font-medium">
-                        {skill.source.from}
-                      </span>
-                      <span>·</span>
-                    </>
-                  )}
+                    <span className="px-1.5 py-0.5 rounded bg-primary-muted text-primary font-medium">
+                      {i18nService.t('official')}
+                    </span>
+                    <span>·</span>
                   {skill.version && (
                     <>
                       {(() => {
@@ -1131,7 +1154,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 ? i18nService.t('skillMarketplaceLoadMore')
                 : hasMoreMarketplace
                   ? i18nService.t('skillMarketplaceLoadMore')
-                  : marketplaceSkills.length > 0
+                  : marketplaceSkills.length > 0 && !isLoadingMarketplace
                     ? i18nService.t('skillMarketplaceNoMore')
                     : ''}
             </div>
@@ -1178,9 +1201,9 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
               {selectedMarketplaceSkill.source?.from && (
                 <div className="flex items-center text-xs">
                   <span className="w-16 flex-shrink-0 text-secondary">{i18nService.t('skillDetailSource')}</span>
-                  <span className="px-1.5 py-0.5 rounded bg-surface-raised text-foreground font-medium">
-                    {selectedMarketplaceSkill.source.from}
-                  </span>
+                <span className="px-1.5 py-0.5 rounded bg-primary-muted text-primary font-medium">
+                  {i18nService.t('official')}
+                </span>
                   {selectedMarketplaceSkill.source.author && (
                     <span className="ml-1.5 px-1.5 py-0.5 rounded bg-surface-raised text-foreground font-medium">
                       {selectedMarketplaceSkill.source.author}
@@ -1269,7 +1292,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
 
             <div className="space-y-2 mb-5">
               {(() => {
-                const mp = findMarketplaceSkillForInstalled(selectedSkill, marketplaceSkills);
+                const mp = findMarketplaceSkillForInstalled(selectedSkill, marketplaceSkillCatalog);
                 return (
                   <>
                     {selectedSkill.isOfficial && (

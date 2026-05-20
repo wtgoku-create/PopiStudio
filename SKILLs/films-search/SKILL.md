@@ -1,7 +1,7 @@
 ---
 name: films-search
 description: Search cloud drives for downloadable film and TV resources (movies, TV series, anime). Use this skill when the user wants to download a specific movie or TV show. Do NOT use for general movie information, schedules, reviews, or recommendations.
-official: false
+official: true
 version: 1.0.2
 ---
 
