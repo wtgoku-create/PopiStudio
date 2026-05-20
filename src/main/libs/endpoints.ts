@@ -43,17 +43,15 @@ export const getLlmGatewayBaseUrl = (): string => (
     : 'https://llmapi.popi.art'
 );
 
-export const getUpdateCheckUrl = (): string => (
-  isTestMode()
-    ? 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/test/update'
-    : 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/prod/update'
+export const getUpdateCheckUrl = (manual: boolean): string => (
+  `${getServerApiBaseUrl()}/api/app-update/prod/update`
 );
 
-export const getManualUpdateCheckUrl = (): string => (
-  isTestMode()
-    ? 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/test/update-manual'
-    : 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/prod/update-manual'
-);
+// export const getManualUpdateCheckUrl = (): string => (
+//   isTestMode()
+//     ? 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/test/update-manual'
+//     : 'https://api-overmind.youdao.com/openapi/get/luna/hardware/popiai/prod/update-manual'
+// );
 
 export const getFallbackDownloadUrl = (): string => (
   isTestMode()

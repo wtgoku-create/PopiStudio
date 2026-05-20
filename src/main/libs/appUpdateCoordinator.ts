@@ -13,7 +13,7 @@ import {
 } from '../../shared/appUpdate/constants';
 import type { SqliteStore } from '../sqliteStore';
 import { cancelActiveDownload, downloadUpdate, installUpdate } from './appUpdateInstaller';
-import { getFallbackDownloadUrl, getManualUpdateCheckUrl, getUpdateCheckUrl } from './endpoints';
+import { getFallbackDownloadUrl, getUpdateCheckUrl } from './endpoints';
 
 type ChangeLogLang = {
   title?: string;
@@ -440,7 +440,7 @@ export class AppUpdateCoordinator {
     manual: boolean,
     userId?: string | null,
   ): Promise<AppUpdateInfo | null> {
-    const baseUrl = manual ? getManualUpdateCheckUrl() : getUpdateCheckUrl();
+    const baseUrl = getUpdateCheckUrl(manual);
     const qs = this.getUpdateQueryString(userId, currentVersion);
     const url = qs ? `${baseUrl}?${qs}` : baseUrl;
     console.log(`[AppUpdate] checking update, currentVersion=${currentVersion}, url=${url}`);
