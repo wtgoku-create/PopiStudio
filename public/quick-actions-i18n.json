@@ -1,204 +1,154 @@
 {
   "zh": {
-    "pptx": {
-      "label": "制作幻灯片",
+    "image-generation": {
+      "label": "图片生成",
       "prompts": {
-        "pptx-work-report": {
-          "label": "工作汇报",
-          "description": "季度工作总结与下阶段规划汇报",
-          "prompt": "制作一份季度工作汇报 PPT,包含以下内容:\n\n1. 本季度核心工作成果回顾\n2. 关键项目进展与里程碑达成情况\n3. 重点数据指标完成度(用图表呈现)\n4. 遇到的问题与解决方案\n5. 团队协作亮点\n6. 下季度工作计划与目标\n7. 需要的资源支持\n\n风格要求:简洁商务风,逻辑清晰,数据可视化,适合向管理层汇报。"
+        "image-poster-product": {
+          "label": "产品海报",
+          "description": "生成适合电商和社媒传播的产品视觉海报",
+          "prompt": "请帮我生成一组产品海报视觉方案，主题是新品饮料上市。要求画面明亮高级，突出瓶身、气泡、冰块和夏日氛围，分别给出适合电商主图、社交媒体封面和线下宣传海报的三个方向。"
         },
-        "pptx-content-research": {
-          "label": "内容调研",
-          "description": "行业趋势与竞品分析调研报告",
-          "prompt": "制作一份行业调研分析报告 PPT,涵盖以下板块:\n\n1. 调研背景与目的说明\n2. 行业整体发展现状与市场规模\n3. 主要竞品对比分析(功能、定价、用户口碑)\n4. 目标用户画像与核心需求洞察\n5. 行业趋势与机会点总结\n6. 可落地的策略建议\n\n风格要求:数据驱动,图表丰富,观点有理有据,适合团队内部分享讨论。"
+        "image-anime-portrait": {
+          "label": "动漫头像",
+          "description": "把人物形象做成精致的二次元风格头像",
+          "prompt": "请生成一张高质量二次元头像，人物设定是短发女生，温柔气质，浅色背景，日系插画风，适合作为社交平台头像，整体干净精致。"
         },
-        "pptx-education": {
-          "label": "教育教学",
-          "description": "课堂教学课件与知识讲解",
-          "prompt": "制作一套关于「太阳系与行星探索」的科普教学课件,适合中学生课堂使用,包含:\n\n1. 太阳系全景概览\n2. 八大行星的基本特征对比(大小、距离、温度等)\n3. 地球的特殊性——为什么适合生命存在\n4. 人类探索太空的重要里程碑\n5. 课堂互动问答环节(设计 3-4 道思考题)\n6. 拓展阅读推荐\n\n风格要求:生动活泼,配色明快,内容由浅入深,激发学生好奇心与探索欲。"
+        "image-brand-kv": {
+          "label": "品牌主视觉",
+          "description": "生成品牌活动或新品发布的 KV 画面",
+          "prompt": "请为一个科技品牌新品发布会生成主视觉 KV，关键词是未来感、银蓝色光效、极简、高端、空间感。画面要适合发布会大屏和官网首屏。"
         },
-        "pptx-ai-intro": {
-          "label": "人工智能入门",
-          "description": "零基础了解 AI 的科普演示",
-          "prompt": "制作一份面向零基础观众的人工智能入门科普 PPT,内容包括:\n\n1. 什么是人工智能——用生活中的例子解释\n2. AI 的发展简史(从图灵测试到大语言模型)\n3. 常见的 AI 应用场景(语音助手、推荐系统、自动驾驶等)\n4. 机器学习的基本原理(用直观类比说明)\n5. 大模型与 ChatGPT 是怎么工作的\n6. AI 能做什么、不能做什么\n7. 普通人如何开始使用 AI 工具提升效率\n\n风格要求:通俗易懂,多用图示和类比,避免专业术语堆砌,让完全不懂技术的人也能看明白。"
+        "image-social-cover": {
+          "label": "社媒封面图",
+          "description": "生成适合公众号、小红书或视频封面的图片",
+          "prompt": "请生成一张适合小红书封面的生活方式图片，主题是居家收纳灵感。要求构图清爽、留有标题空间、色调统一，整体风格偏治愈和高级感。"
         }
       }
     },
-    "data-analysis": {
-      "label": "数据分析",
+    "video-generation": {
+      "label": "视频生成",
       "prompts": {
-        "excel-summary": {
-          "label": "Excel 汇总统计",
-          "description": "对 Excel 数据做分类汇总与统计",
-          "prompt": "请读取我的 Excel 文件,帮我完成以下工作:\n\n1. 按类别对数据进行分类汇总(求和、计数、平均值)\n2. 生成各类别的占比分析\n3. 标注异常值和关键数据\n4. 输出一份整理好的汇总统计 Excel 文件,包含图表"
+        "video-product-ad": {
+          "label": "产品广告片",
+          "description": "生成适合品牌宣传的短视频创意",
+          "prompt": "请生成一个产品广告短视频方案，主题是一款高端护肤精华。要求画面细腻、节奏流畅，突出水润、透亮、修护的感觉，适合 15 秒品牌投放视频。"
         },
-        "image-to-excel": {
-          "label": "图片/截图转表格",
-          "description": "识别图片中的表格数据并生成 Excel",
-          "prompt": "请识别我上传的图片中的表格内容,帮我:\n\n1. 提取图片中所有表格数据\n2. 整理为规范的行列格式\n3. 修正识别中可能出现的错误\n4. 生成一份格式清晰的 Excel 文件"
+        "video-travel-vlog": {
+          "label": "旅行 Vlog",
+          "description": "生成有氛围感的旅行短视频",
+          "prompt": "请生成一个旅行 Vlog 风格视频，场景是海边城市的一天，从清晨海岸、街头咖啡馆到傍晚日落，整体节奏轻松治愈，适合社交媒体短视频。"
         },
-        "word-report": {
-          "label": "数据生成报告",
-          "description": "基于数据文件生成 Word 分析报告",
-          "prompt": "请根据我提供的数据文件,帮我生成一份 Word 分析报告,要求:\n\n1. 包含数据概况说明\n2. 核心指标统计与趋势分析\n3. 重点发现与结论总结\n4. 排版专业、条理清晰,可直接用于汇报"
+        "video-character-scene": {
+          "label": "角色场景视频",
+          "description": "生成角色在场景中的叙事型视频",
+          "prompt": "请生成一个角色场景视频，主角是一位未来都市风格少女，穿梭在霓虹街区和高楼天台之间。镜头要有电影感和动势，适合做角色世界观展示。"
         },
-        "multi-excel-merge": {
-          "label": "多表合并整理",
-          "description": "合并多个 Excel 文件并统一格式",
-          "prompt": "我有多个 Excel 文件需要合并整理,请帮我:\n\n1. 将多个文件的数据合并到一张表中\n2. 统一列名和数据格式\n3. 去除重复数据\n4. 生成一份合并后的 Excel 文件,并添加数据来源标记"
+        "video-event-teaser": {
+          "label": "活动预告片",
+          "description": "生成适合发布会或活动预热的短片",
+          "prompt": "请生成一个活动预告短片，主题是年度创新大会。要求开场有强烈吸引力，节奏干练，体现科技感、舞台感和期待氛围，适合活动预热传播。"
         }
       }
     },
-    "education": {
-      "label": "教育学习",
+    "daily-trending": {
+      "label": "热点话题",
       "prompts": {
-        "edu-english-words": {
-          "label": "英语单词学习",
-          "description": "高效记忆英语单词",
-          "prompt": "我正在准备英语四级考试,请帮我整理一份高频核心词汇学习清单,要求:\n\n1. 挑选 20 个高频必考单词\n2. 每个单词给出音标、中文释义和一个简短例句\n3. 按主题分组(如校园生活、工作职场、科技等)\n4. 在最后给出一组小测验题,帮助我自测记忆效果"
+        "trend-today-summary": {
+          "label": "今日热点速览",
+          "description": "快速汇总今天最值得关注的热点内容",
+          "prompt": "请帮我整理今天最值得关注的热点话题，按平台和热度简要归纳，并总结出 5 条最值得持续关注的趋势。"
         },
-        "edu-math-explain": {
-          "label": "数学题讲解",
-          "description": "数学难题的详细解题过程",
-          "prompt": "请用简单易懂的方式讲解以下数学知识:\n\n题目:一元二次方程 2x² + 3x - 5 = 0 的求解\n\n要求:\n1. 先回顾一元二次方程的一般形式和求根公式\n2. 一步步展示完整的代入和计算过程\n3. 用判别式分析根的情况\n4. 最后验算答案是否正确\n5. 再出一道类似的练习题让我巩固"
+        "trend-weibo-zhihu": {
+          "label": "微博知乎热点",
+          "description": "重点查看微博和知乎的热榜内容",
+          "prompt": "请重点整理今天微博热搜和知乎热榜的热点内容，分别列出核心话题、讨论方向和可能的传播原因。"
         },
-        "edu-essay-writing": {
-          "label": "作文写作辅导",
-          "description": "提升写作能力与技巧",
-          "prompt": "请以「我最难忘的一次旅行」为题,帮我进行作文写作辅导:\n\n1. 先给出一个清晰的写作提纲(开头、正文、结尾的结构建议)\n2. 分享 3 个让文章更生动的写作技巧(如细节描写、感官描写、借景抒情)\n3. 写一段示范开头,展示如何吸引读者\n4. 列出 5 个可以用在这篇作文中的好词好句\n5. 提醒常见的写作问题和避坑要点"
+        "trend-content-angles": {
+          "label": "热点选题角度",
+          "description": "基于热点生成可写作或可运营的内容角度",
+          "prompt": "请根据今天的热点话题，帮我提炼几个适合公众号或内容账号创作的选题角度，要求有差异化，避免只做热点复述。"
         },
-        "edu-knowledge-explain": {
-          "label": "知识点科普",
-          "description": "用通俗语言解释复杂知识",
-          "prompt": "请用通俗易懂的语言给我科普「光合作用」这个知识点:\n\n1. 用一句话概括光合作用是什么\n2. 用生活中的类比来解释它的原理\n3. 画出光合作用的简要过程(文字版流程图)\n4. 说明光合作用对地球和人类的重要意义\n5. 提出 3 个思考题,帮助我加深理解"
-        }
-      }
-    },
-    "website": {
-      "label": "创建网站",
-      "prompts": {
-        "web-resume": {
-          "label": "个人简历",
-          "description": "在线简历与作品集页面",
-          "prompt": "帮我制作一个精美的在线个人简历页面。\n\n基本信息:\n- 姓名:张小明\n- 职位:产品经理(5年经验)\n- 联系方式:邮箱、手机、微信二维码占位区\n\n页面内容:\n- 个人简介:一段简短的自我介绍,突出核心优势\n- 工作经历:3段工作经历,含公司名、职位、时间、主要成果\n- 专业技能:以进度条形式展示产品设计、数据分析、项目管理等技能\n- 项目案例:展示3个代表项目的卡片,含项目名称和简短描述\n- 教育背景与证书\n\n设计风格:\n简洁专业、左右分栏布局、深色侧边栏搭配白色主内容区。适合直接分享给面试官或合作伙伴。"
-        },
-        "web-store": {
-          "label": "店铺主页",
-          "description": "小型商铺或工作室展示页",
-          "prompt": "帮我做一个烘焙工作室的展示网页,工作室名叫「麦田烘焙」。\n\n页面内容:\n- 首屏大图:工作室名称、一句口号「用心烘焙,温暖每一天」、\"查看菜单\"按钮\n- 招牌产品:展示6款人气产品卡片(含图片占位、名称、价格、简短描述)\n- 关于我们:工作室的故事,创始人理念,配一张店内环境图占位\n- 顾客好评:3条用户评价,带头像和星级评分\n- 联系与地址:营业时间、地址、电话,嵌入地图占位区域\n\n设计风格:\n温馨文艺、奶油色和棕色为主色调、圆角卡片、手写风格标题字体。整体氛围温暖亲切。"
-        },
-        "web-event": {
-          "label": "活动邀请函",
-          "description": "聚会、婚礼或活动的在线邀请页",
-          "prompt": "帮我制作一个生日派对的在线邀请函网页。\n\n活动信息:\n- 主题:「Leo的30岁生日派对」\n- 时间:2025年8月15日 周六 晚上7:00\n- 地点:星光花园餐厅 三楼露台\n\n页面内容:\n- 开场动画:标题渐入,彩色纸屑飘落效果\n- 邀请语:一段温馨的邀请文字\n- 活动安排:时间轴展示派对流程(签到、晚宴、游戏、蛋糕、自由交流)\n- 着装建议:休闲正装,配色参考图占位\n- 交通指引:地址信息和停车提示\n- RSVP确认:\"我会参加\"和\"很遗憾不能到\"两个按钮\n\n设计风格:\n浪漫活泼、深蓝色星空背景、金色点缀文字、充满庆祝氛围。页面要适合手机浏览。"
-        },
-        "web-survey": {
-          "label": "调查问卷",
-          "description": "在线表单与问卷收集页",
-          "prompt": "帮我做一个客户满意度调查问卷网页。\n\n问卷标题:「您的反馈对我们很重要」\n\n问卷内容:\n- 基本信息:姓名(选填)、联系方式(选填)\n- 单选题:整体满意度(非常满意/满意/一般/不满意/非常不满意)\n- 单选题:您是否愿意推荐给朋友(1-10分评分滑块)\n- 多选题:您最看重的方面(产品质量/服务态度/响应速度/性价比/售后保障)\n- 单选题:使用频率(每天/每周/每月/偶尔)\n- 文本题:您的建议或意见(大文本框)\n- 提交按钮,提交后显示感谢页面\n\n设计风格:\n清爽简洁、白色背景、蓝绿色主色调、每道题之间有足够间距、带进度条显示填写进度。适合手机端操作。"
+        "trend-industry-focus": {
+          "label": "行业热点关注",
+          "description": "聚焦某个行业的重点趋势和热门事件",
+          "prompt": "请帮我筛选今天和 AI、互联网、科技产品相关的热点事件，按重要程度排序，并总结每个事件对行业的潜在影响。"
         }
       }
     }
   },
   "en": {
-    "pptx": {
-      "label": "Create Slides",
+    "image-generation": {
+      "label": "Image Generation",
       "prompts": {
-        "pptx-work-report": {
-          "label": "Work Report",
-          "description": "Quarterly summary and next phase planning report",
-          "prompt": "Create a quarterly work report PPT with the following content:\n\n1. Review of core work achievements this quarter\n2. Key project progress and milestone completion\n3. Performance metrics completion (visualized with charts)\n4. Problems encountered and solutions\n5. Team collaboration highlights\n6. Next quarter work plans and objectives\n7. Resource support needed\n\nStyle requirements: Concise business style, clear logic, data visualization, suitable for management reporting."
+        "image-poster-product": {
+          "label": "Product Poster",
+          "description": "Generate product visuals for ecommerce and social media",
+          "prompt": "Create a set of product poster concepts for a new beverage launch. Use a bright, premium visual style and highlight the bottle, bubbles, ice, and summer mood. Provide three directions suitable for an ecommerce hero image, a social media cover, and an offline promo poster."
         },
-        "pptx-content-research": {
-          "label": "Industry Research",
-          "description": "Industry trends and competitor analysis report",
-          "prompt": "Create an industry research and analysis report PPT covering the following sections:\n\n1. Research background and objectives\n2. Overall industry development status and market size\n3. Main competitor comparison (features, pricing, user reputation)\n4. Target user persona and core needs insights\n5. Industry trends and opportunities summary\n6. Actionable strategy recommendations\n\nStyle requirements: Data-driven, rich in charts, well-reasoned viewpoints, suitable for internal team sharing and discussion."
+        "image-anime-portrait": {
+          "label": "Anime Portrait",
+          "description": "Create a polished anime-style profile image",
+          "prompt": "Generate a high-quality anime-style portrait of a short-haired young woman with a gentle expression, soft background, and clean Japanese illustration style, suitable for use as a social profile image."
         },
-        "pptx-education": {
-          "label": "Educational Presentation",
-          "description": "Classroom teaching slides and knowledge explanation",
-          "prompt": "Create a popular science teaching courseware about \"Solar System and Planetary Exploration\" suitable for middle school classroom use, including:\n\n1. Overview of the Solar System\n2. Comparison of basic characteristics of the eight planets (size, distance, temperature, etc.)\n3. Earth's uniqueness - why it is suitable for life\n4. Important milestones in human space exploration\n5. Classroom interactive Q&A session (design 3-4 thinking questions)\n6. Extended reading recommendations\n\nStyle requirements: Vivid and lively, bright colors, content from shallow to deep, stimulating students' curiosity and desire to explore."
+        "image-brand-kv": {
+          "label": "Brand Key Visual",
+          "description": "Generate a hero visual for a launch or campaign",
+          "prompt": "Create a key visual for a tech brand product launch. Use a futuristic aesthetic with silver-blue lighting, minimal composition, premium tone, and a strong sense of spatial depth. It should work for both a launch event screen and a website hero section."
         },
-        "pptx-ai-intro": {
-          "label": "Introduction to AI",
-          "description": "Popular science presentation for understanding AI basics",
-          "prompt": "Create a popular science PPT introducing artificial intelligence for beginners, including:\n\n1. What is artificial intelligence - explain with everyday examples\n2. Brief history of AI development (from Turing Test to large language models)\n3. Common AI application scenarios (voice assistants, recommendation systems, autonomous driving, etc.)\n4. Basic principles of machine learning (explained with intuitive analogies)\n5. How large models and ChatGPT work\n6. What AI can and cannot do\n7. How ordinary people can start using AI tools to improve efficiency\n\nStyle requirements: Easy to understand, use diagrams and analogies, avoid technical jargon, make it understandable even for those with no technical background."
+        "image-social-cover": {
+          "label": "Social Cover",
+          "description": "Generate an image for social post covers",
+          "prompt": "Generate a lifestyle cover image suitable for a social content platform, themed around home organization inspiration. Keep the composition clean, leave space for a title, and use a calm, refined, and comforting visual style."
         }
       }
     },
-    "data-analysis": {
-      "label": "Data Analysis",
+    "video-generation": {
+      "label": "Video Generation",
       "prompts": {
-        "excel-summary": {
-          "label": "Excel Summary",
-          "description": "Categorize and summarize Excel data",
-          "prompt": "Please read my Excel file and help me complete the following tasks:\n\n1. Categorize data by category (sum, count, average)\n2. Generate proportion analysis for each category\n3. Mark outliers and key data points\n4. Output a well-organized summary statistics Excel file with charts"
+        "video-product-ad": {
+          "label": "Product Ad",
+          "description": "Generate a short brand-style promo video",
+          "prompt": "Create a short product ad concept for a premium skincare serum. The visuals should feel smooth and elegant, emphasizing hydration, glow, and repair. Make it suitable for a 15-second branded promo."
         },
-        "image-to-excel": {
-          "label": "Image to Table",
-          "description": "Recognize table data in images and generate Excel",
-          "prompt": "Please recognize the table content in the image I uploaded and help me:\n\n1. Extract all table data from the image\n2. Organize into standard row and column format\n3. Correct possible recognition errors\n4. Generate a clearly formatted Excel file"
+        "video-travel-vlog": {
+          "label": "Travel Vlog",
+          "description": "Generate an atmospheric travel-style short video",
+          "prompt": "Create a travel vlog style short video showing a day in a coastal city, moving from morning seaside scenes to street cafes and sunset views. Keep the pacing light, warm, and cinematic for social media use."
         },
-        "word-report": {
-          "label": "Data Report",
-          "description": "Generate Word analysis report based on data files",
-          "prompt": "Please generate a Word analysis report based on the data file I provided, with the following requirements:\n\n1. Include data overview description\n2. Core metrics statistics and trend analysis\n3. Key findings and conclusion summary\n4. Professional layout, clear structure, ready for reporting"
+        "video-character-scene": {
+          "label": "Character Scene",
+          "description": "Generate a narrative video around a character in a setting",
+          "prompt": "Create a character scene video featuring a futuristic urban girl moving through neon-lit streets and rooftop spaces. The camera language should feel cinematic and dynamic, suitable for presenting a character world and mood."
         },
-        "multi-excel-merge": {
-          "label": "Merge Multiple Tables",
-          "description": "Merge multiple Excel files and standardize format",
-          "prompt": "I have multiple Excel files that need to be merged and organized. Please help me:\n\n1. Merge data from multiple files into one table\n2. Standardize column names and data formats\n3. Remove duplicate data\n4. Generate a merged Excel file with data source markers"
+        "video-event-teaser": {
+          "label": "Event Teaser",
+          "description": "Generate a short teaser for an event or launch",
+          "prompt": "Create a teaser video for an annual innovation conference. The opening should be attention-grabbing, the pacing sharp, and the visuals should communicate technology, stage energy, and anticipation."
         }
       }
     },
-    "education": {
-      "label": "Education & Learning",
+    "daily-trending": {
+      "label": "Trending Topics",
       "prompts": {
-        "edu-english-words": {
-          "label": "English Vocabulary",
-          "description": "Efficiently memorize English words",
-          "prompt": "I am preparing for the CET-4 exam. Please help me organize a high-frequency core vocabulary learning list with the following requirements:\n\n1. Select 20 high-frequency must-know words\n2. Provide phonetic symbols, Chinese definitions, and a short example sentence for each word\n3. Group by theme (such as campus life, work, technology, etc.)\n4. Provide a quiz at the end to help me test my memory"
+        "trend-today-summary": {
+          "label": "Today's Highlights",
+          "description": "Quickly summarize the most important trending topics today",
+          "prompt": "Summarize the most important trending topics today, grouped by platform and relative heat, and identify the five trends most worth continued attention."
         },
-        "edu-math-explain": {
-          "label": "Math Problem Explanation",
-          "description": "Detailed solution process for math problems",
-          "prompt": "Please explain the following mathematical knowledge in an easy-to-understand way:\n\nProblem: Solve the quadratic equation 2x² + 3x - 5 = 0\n\nRequirements:\n1. First review the general form of quadratic equations and the quadratic formula\n2. Show the complete substitution and calculation process step by step\n3. Analyze the nature of roots using the discriminant\n4. Finally verify if the answer is correct\n5. Provide a similar practice problem for me to consolidate"
+        "trend-weibo-zhihu": {
+          "label": "Weibo & Zhihu Trends",
+          "description": "Focus on top topics from Weibo and Zhihu",
+          "prompt": "Focus on today's trending topics from Weibo and Zhihu. For each platform, list the major topics, the main discussion angles, and why they may be spreading."
         },
-        "edu-essay-writing": {
-          "label": "Essay Writing Guidance",
-          "description": "Improve writing skills and techniques",
-          "prompt": "Please provide essay writing guidance on the topic \"My Most Unforgettable Trip\":\n\n1. First provide a clear writing outline (structural suggestions for introduction, body, and conclusion)\n2. Share 3 techniques to make the article more vivid (such as detailed description, sensory description, scene-based emotion)\n3. Write a sample opening paragraph to show how to attract readers\n4. List 5 good words and sentences that can be used in this essay\n5. Remind common writing problems and pitfalls to avoid"
+        "trend-content-angles": {
+          "label": "Content Angles",
+          "description": "Turn trending topics into content ideas",
+          "prompt": "Based on today's trending topics, propose several content angles suitable for a newsletter, social account, or public content channel. Make them differentiated rather than simple summaries of the trends."
         },
-        "edu-knowledge-explain": {
-          "label": "Knowledge Explanation",
-          "description": "Explain complex knowledge in simple language",
-          "prompt": "Please explain the concept of \"photosynthesis\" in easy-to-understand language:\n\n1. Summarize what photosynthesis is in one sentence\n2. Explain the principle with everyday life analogies\n3. Draw a simple process of photosynthesis (text-based flowchart)\n4. Explain the importance of photosynthesis for Earth and humanity\n5. Propose 3 thinking questions to help me deepen my understanding"
-        }
-      }
-    },
-    "website": {
-      "label": "Create Website",
-      "prompts": {
-        "web-resume": {
-          "label": "Personal Resume",
-          "description": "Online resume and portfolio page",
-          "prompt": "Help me create a beautiful online personal resume page.\n\nBasic information:\n- Name: John Smith\n- Position: Product Manager (5 years experience)\n- Contact: Email, phone, WeChat QR code placeholder\n\nPage content:\n- Personal introduction: A brief self-introduction highlighting core strengths\n- Work experience: 3 work experiences, including company name, position, time, main achievements\n- Professional skills: Display product design, data analysis, project management and other skills in progress bar format\n- Project cases: Display 3 representative project cards with project name and brief description\n- Educational background and certificates\n\nDesign style:\nClean and professional, left-right column layout, dark sidebar with white main content area. Suitable for sharing directly with interviewers or partners."
-        },
-        "web-store": {
-          "label": "Store Homepage",
-          "description": "Small shop or studio showcase page",
-          "prompt": "Help me create a showcase webpage for a bakery studio called \"Wheat Field Bakery\".\n\nPage content:\n- Hero image: Studio name, a slogan \"Baking with heart, warming every day\", \"View Menu\" button\n- Signature products: Display 6 popular product cards (including image placeholder, name, price, brief description)\n- About us: Studio story, founder philosophy, with a store environment image placeholder\n- Customer reviews: 3 user reviews with avatars and star ratings\n- Contact and address: Business hours, address, phone, embedded map placeholder area\n\nDesign style:\nWarm and artistic, cream and brown as main colors, rounded cards, handwritten style title fonts. Overall atmosphere warm and friendly."
-        },
-        "web-event": {
-          "label": "Event Invitation",
-          "description": "Online invitation page for parties, weddings or events",
-          "prompt": "Help me create an online invitation webpage for a birthday party.\n\nEvent information:\n- Theme: \"Leo's 30th Birthday Party\"\n- Time: Saturday, August 15, 2025, 7:00 PM\n- Location: Starlight Garden Restaurant, 3rd Floor Terrace\n\nPage content:\n- Opening animation: Title fade-in, colorful confetti falling effect\n- Invitation message: A warm invitation text\n- Event schedule: Timeline showing party flow (check-in, dinner, games, cake, free socializing)\n- Dress code: Business casual, color reference image placeholder\n- Transportation guide: Address information and parking tips\n- RSVP confirmation: \"I will attend\" and \"Regrettably cannot attend\" two buttons\n\nDesign style:\nRomantic and lively, dark blue starry background, gold accent text, full of celebration atmosphere. Page should be mobile-friendly."
-        },
-        "web-survey": {
-          "label": "Survey Questionnaire",
-          "description": "Online form and questionnaire collection page",
-          "prompt": "Help me create a customer satisfaction survey questionnaire webpage.\n\nQuestionnaire title: \"Your Feedback is Important to Us\"\n\nQuestionnaire content:\n- Basic information: Name (optional), Contact (optional)\n- Single choice: Overall satisfaction (Very satisfied/Satisfied/Neutral/Dissatisfied/Very dissatisfied)\n- Single choice: Would you recommend to friends (1-10 rating slider)\n- Multiple choice: What aspects do you value most (Product quality/Service attitude/Response speed/Value for money/After-sales support)\n- Single choice: Usage frequency (Daily/Weekly/Monthly/Occasionally)\n- Text question: Your suggestions or opinions (large text box)\n- Submit button, show thank you page after submission\n\nDesign style:\nFresh and simple, white background, blue-green main color, sufficient spacing between questions, with progress bar showing completion. Suitable for mobile operation."
+        "trend-industry-focus": {
+          "label": "Industry Focus",
+          "description": "Track trends in a specific industry area",
+          "prompt": "Filter today's trends to focus on AI, internet, and consumer tech topics. Rank them by importance and summarize the potential impact of each event on the industry."
         }
       }
     }

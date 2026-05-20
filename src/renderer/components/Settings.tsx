@@ -4571,7 +4571,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
                   )}
                 </div>
               </div>
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              {/* <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-sm text-foreground">{i18nService.t('aboutContactEmail')}</span>
                 <div className="flex items-center gap-2">
                   <button
@@ -4591,8 +4591,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
                     </span>
                   )}
                 </div>
-              </div>
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              </div> */}
+              {/* <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-sm text-foreground">{i18nService.t('aboutUserManual')}</span>
                 <button
                   type="button"
@@ -4604,8 +4604,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
                 >
                   {ABOUT_USER_MANUAL_URL}
                 </button>
-              </div>
-              <div className={`flex items-center justify-between px-4 py-3${testModeUnlocked ? ' border-b border-border' : ''}`}>
+              </div> */}
+              {/* <div className={`flex items-center justify-between px-4 py-3${testModeUnlocked ? ' border-b border-border' : ''}`}>
                 <span className="text-sm text-foreground">{i18nService.t('aboutUserCommunity')}</span>
                 <button
                   type="button"
@@ -4617,7 +4617,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
                 >
                   {ABOUT_USER_COMMUNITY_URL}
                 </button>
-              </div>
+              </div> */}
               {testModeUnlocked && (
                 <div className="flex items-center justify-between px-4 py-3">
                   <span className="text-sm text-foreground">{i18nService.t('testMode')}</span>
@@ -4641,7 +4641,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
             </div>
 
             {/* Footer */}
-            <div className="mt-auto w-full pt-14 pb-2 flex flex-col items-center">
+            {/* <div className="mt-auto w-full pt-14 pb-2 flex flex-col items-center">
               <div className="flex items-center justify-center text-sm text-secondary">
                 <button
                   type="button"
@@ -4673,7 +4673,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
               <p className="mt-1 text-xs text-secondary">
                 Copyright &copy; {new Date().getFullYear()} NetEase Youdao. All Rights Reserved.
               </p>
-            </div>
+            </div> */}
           </div>
         );
 

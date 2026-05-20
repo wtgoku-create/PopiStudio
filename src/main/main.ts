@@ -2847,7 +2847,7 @@ if (!gotTheLock) {
           headers: { Authorization: `Bearer ${credential.apiKey}` },
         });
         if (resp.ok) {
-          const body = await resp.json() as { data?: Array<{ id?: string; object?: string, created?: number, owned_by?: string, scene?: string; supported_endpoint_types?: string[] }> };
+          const body = await resp.json() as { data?: Array<{ id?: string; object?: string, created?: number, owned_by?: string, scenes?: string[]; supported_endpoint_types?: string[] }> };
           const gatewayModels = (body.data ?? [])
             .map(model => model.id?.trim())
             .filter((id): id is string => !!id)

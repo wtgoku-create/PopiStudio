@@ -2,82 +2,62 @@
   "version": 1,
   "actions": [
     {
-      "id": "pptx",
+      "id": "image-generation",
+      "icon": "DevicePhoneMobileIcon",
+      "color": "#F97316",
+      "skillMapping": "popiart",
+      "prompts": [
+        {
+          "id": "image-poster-product"
+        },
+        {
+          "id": "image-anime-portrait"
+        },
+        {
+          "id": "image-brand-kv"
+        },
+        {
+          "id": "image-social-cover"
+        }
+      ]
+    },
+    {
+      "id": "video-generation",
       "icon": "PresentationChartBarIcon",
-      "color": "#F59E0B",
-      "skillMapping": "pptx",
+      "color": "#6366F1",
+      "skillMapping": "popiart",
       "prompts": [
         {
-          "id": "pptx-work-report"
+          "id": "video-product-ad"
         },
         {
-          "id": "pptx-content-research"
+          "id": "video-travel-vlog"
         },
         {
-          "id": "pptx-education"
+          "id": "video-character-scene"
         },
         {
-          "id": "pptx-ai-intro"
+          "id": "video-event-teaser"
         }
       ]
     },
     {
-      "id": "data-analysis",
+      "id": "daily-trending",
       "icon": "ChartBarIcon",
-      "color": "#8B5CF6",
-      "skillMapping": "xlsx",
-      "prompts": [
-        {
-          "id": "excel-summary"
-        },
-        {
-          "id": "image-to-excel"
-        },
-        {
-          "id": "word-report"
-        },
-        {
-          "id": "multi-excel-merge"
-        }
-      ]
-    },
-    {
-      "id": "education",
-      "icon": "AcademicCapIcon",
       "color": "#10B981",
-      "skillMapping": "frontend-design",
+      "skillMapping": "daily-trending",
       "prompts": [
         {
-          "id": "edu-english-words"
+          "id": "trend-today-summary"
         },
         {
-          "id": "edu-math-explain"
+          "id": "trend-weibo-zhihu"
         },
         {
-          "id": "edu-essay-writing"
+          "id": "trend-content-angles"
         },
         {
-          "id": "edu-knowledge-explain"
-        }
-      ]
-    },
-    {
-      "id": "website",
-      "icon": "GlobeAltIcon",
-      "color": "#3B82F6",
-      "skillMapping": "frontend-design",
-      "prompts": [
-        {
-          "id": "web-resume"
-        },
-        {
-          "id": "web-store"
-        },
-        {
-          "id": "web-event"
-        },
-        {
-          "id": "web-survey"
+          "id": "trend-industry-focus"
         }
       ]
     }
