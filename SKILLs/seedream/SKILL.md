@@ -2,6 +2,7 @@
 name: seedream
 description: Generate AI images through the built-in PopiArt CLI Seedream-facing workflow. Supports text-to-image and image-to-image generation. Use this skill when the user wants to create or edit images.
 official: true
+category: "图像制作"
 version: 2.0.0
 ---
 

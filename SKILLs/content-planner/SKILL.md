@@ -5,6 +5,7 @@ description: |
   generates differentiated topic recommendations and outputs structured content calendars. Activated when users mention
   "topic", "planning", "content calendar", "trending", or "what to write next week".
 official: true
+category: "社媒运营"
 ---
 
 # Topic Planning + Content Calendar

@@ -5,6 +5,7 @@ description: 真人照片转动漫风格，支持同时选择多种动漫风格�
 homepage: https://llmapi.popi.art
 user-invocable: true
 official: true
+category: "漫剧制作"
 metadata:
   {
     "openclaw":
