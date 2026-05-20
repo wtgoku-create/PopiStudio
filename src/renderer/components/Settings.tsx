@@ -9,6 +9,7 @@ import { type AppConfig, defaultConfig, getCustomProviderDefaultName, getProvide
 import { APP_ID, EXPORT_FORMAT_TYPE, EXPORT_PASSWORD } from '../constants/app';
 import { getProviderIcon } from '../providers/uiRegistry';
 import { apiService } from '../services/api';
+import { authService } from '../services/auth';
 import { configService } from '../services/config';
 import { coworkService } from '../services/cowork';
 import { decryptSecret, decryptWithPassword, EncryptedPayload, encryptWithPassword, PasswordEncryptedPayload } from '../services/encryption';
@@ -1896,6 +1897,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     setError(null);
 
     try {
+      const previousTestMode = configService.getConfig().app?.testMode === true;
       const normalizedProviders = Object.fromEntries(
         Object.entries(providers).map(([providerKey, providerConfig]) => {
           const apiFormat = getEffectiveApiFormat(providerKey, providerConfig.apiFormat);
@@ -1937,6 +1939,10 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
           testMode,
         },
       });
+
+      if (previousTestMode !== testMode) {
+        await authService.logout();
+      }
 
       // 应用主题
       themeService.setTheme(theme);

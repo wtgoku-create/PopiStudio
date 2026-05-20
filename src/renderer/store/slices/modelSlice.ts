@@ -99,12 +99,10 @@ function syncSelectedModelByAgent(
 }
 
 function syncDefaultSelectedModel(state: ModelState): void {
-  console.log('syncDefaultSelectedModel', state.availableModels.length);
   if (state.availableModels.length === 0) {
     state.defaultSelectedModel = EMPTY_MODEL_PLACEHOLDER;
     return;
   }
-  console.log('syncDefaultSelectedModel', state.defaultSelectedModel, state.availableModels);
   const matchedModel = state.availableModels.find(m => isSameModelIdentity(m, state.defaultSelectedModel));
   state.defaultSelectedModel = matchedModel ?? state.availableModels[0];
 }
