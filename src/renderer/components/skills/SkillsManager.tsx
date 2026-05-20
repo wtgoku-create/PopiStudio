@@ -74,7 +74,7 @@ interface SkillsManagerProps {
 const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat }) => {
   const dispatch = useDispatch();
   const skills = useSelector((state: RootState) => state.skill.skills);
-
+  console.log(skills);
   const [skillSearchQuery, setSkillSearchQuery] = useState('');
   const [skillDownloadSource, setSkillDownloadSource] = useState('');
   const [skillActionError, setSkillActionError] = useState('');
@@ -1047,7 +1047,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
               <Tooltip
                 content={skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)}
                 position={TooltipPosition.Bottom}
-                maxWidth="360px"
+                minWidth='360px'
                 className="block w-full"
               >
                 <p className="text-xs text-secondary line-clamp-2 mb-2">
@@ -1170,7 +1170,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 <Tooltip
                   content={resolveLocalizedText(skill.description)}
                   position={TooltipPosition.Bottom}
-                  maxWidth="360px"
+                  minWidth='300px'
                   className="block w-full"
                 >
                   <p className="text-xs text-secondary line-clamp-2 mb-2">

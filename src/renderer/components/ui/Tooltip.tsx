@@ -20,6 +20,7 @@ interface TooltipProps {
   position?: TooltipPosition;
   align?: TooltipAlign;
   delay?: number;
+  minWidth?: string;
   maxWidth?: string;
   disabled?: boolean;
 }
@@ -31,6 +32,7 @@ const Tooltip: React.FC<TooltipProps> = ({
   position = TooltipPosition.Bottom,
   align = TooltipAlign.Center,
   delay = 400,
+  minWidth = '16rem',
   maxWidth = '18rem',
   disabled = false,
 }) => {
@@ -71,10 +73,13 @@ const Tooltip: React.FC<TooltipProps> = ({
       {isVisible && content && (
         <div
           role="tooltip"
-          style={{ maxWidth }}
+          style={{
+            minWidth: `min(${minWidth}, calc(100vw - 2rem))`,
+            maxWidth: `min(${maxWidth}, calc(100vw - 2rem))`,
+          }}
           className={`absolute z-[100] pointer-events-none rounded-md border border-border
             bg-surface-overlay px-2 py-1 text-[11px] leading-4 text-foreground shadow-lg
-            whitespace-nowrap backdrop-blur-sm ${positionClassName} ${alignClassName}`}
+            whitespace-normal break-words overflow-wrap-anywhere backdrop-blur-sm ${positionClassName} ${alignClassName}`}
         >
           {content}
         </div>
