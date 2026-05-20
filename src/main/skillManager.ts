@@ -291,6 +291,7 @@ export type SkillRecord = {
   id: string;
   name: string;
   description: string;
+  category?: string;
   enabled: boolean;
   isOfficial: boolean;
   isBuiltIn: boolean;
@@ -2334,6 +2335,7 @@ export class SkillManager {
       const { frontmatter, content } = parseFrontmatter(raw);
       const name = (String(frontmatter.name || '') || path.basename(dir)).trim() || path.basename(dir);
       const description = (String(frontmatter.description || '') || extractDescription(content) || name).trim();
+      const category = typeof frontmatter.category === 'string' ? frontmatter.category.trim() : '';
       const isOfficial = isTruthy(frontmatter.official) || isTruthy(frontmatter.isOfficial);
       const meta = frontmatter.metadata as Record<string, unknown> | undefined;
       const v = frontmatter.version ?? meta?.version;
@@ -2343,7 +2345,19 @@ export class SkillManager {
       const prompt = content.trim();
       const defaultEnabled = defaults[id]?.enabled ?? true;
       const enabled = state[id]?.enabled ?? defaultEnabled;
-      return { id, name, description, enabled, isOfficial, isBuiltIn, updatedAt, prompt, skillPath: skillFile, version };
+      return {
+        id,
+        name,
+        description,
+        category: category || undefined,
+        enabled,
+        isOfficial,
+        isBuiltIn,
+        updatedAt,
+        prompt,
+        skillPath: skillFile,
+        version,
+      };
     } catch (error) {
       console.warn('[skills] Failed to parse skill:', dir, error);
       return null;

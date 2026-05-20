@@ -87,6 +87,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   const [marketplaceCatalogSkills, setMarketplaceCatalogSkills] = useState<MarketplaceSkill[]>([]);
   const [marketTags, setMarketTags] = useState<MarketTag[]>([]);
   const [activeMarketTag, setActiveMarketTag] = useState('all');
+  const [activeInstalledTag, setActiveInstalledTag] = useState('all');
   const [isLoadingMarketplace, setIsLoadingMarketplace] = useState(false);
   const [isRefreshingMarketplace, setIsRefreshingMarketplace] = useState(false);
   const [isLoadingMoreMarketplace, setIsLoadingMoreMarketplace] = useState(false);
@@ -370,6 +371,41 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       return matchesSearch;
     });
   }, [skills, skillSearchQuery]);
+
+  const installedTags = useMemo<MarketTag[]>(() => {
+    const seen = new Set<string>();
+    const tags: MarketTag[] = [];
+    const otherCategoryLabel = i18nService.t('coworkQuestionWizardOther');
+
+    skills.forEach((skill) => {
+      const category = skill.category?.trim() || otherCategoryLabel;
+      if (seen.has(category)) {
+        return;
+      }
+      seen.add(category);
+      tags.push({ id: category, zh: category, en: category });
+    });
+
+    return tags;
+  }, [skills]);
+
+  const filteredInstalledSkills = useMemo(() => {
+    const otherCategoryLabel = i18nService.t('coworkQuestionWizardOther');
+    if (activeInstalledTag === 'all') {
+      return filteredSkills;
+    }
+    return filteredSkills.filter((skill) => (skill.category?.trim() || otherCategoryLabel) === activeInstalledTag);
+  }, [activeInstalledTag, filteredSkills]);
+
+  useEffect(() => {
+    if (activeTab !== 'installed') {
+      return;
+    }
+
+    if (activeInstalledTag !== 'all' && !installedTags.some((tag) => tag.id === activeInstalledTag)) {
+      setActiveInstalledTag('all');
+    }
+  }, [activeInstalledTag, activeTab, installedTags]);
 
   const marketplaceSkillCatalog = useMemo(() => {
     const merged = new Map<string, MarketplaceSkill>();
@@ -890,28 +926,39 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
           )}
         </div>
 
-        {/* Tag filter pills (Marketplace only) */}
-        {activeTab === 'marketplace' && (
-          marketTags.length > 0 && (
+        {/* Tag filter pills */}
+        {((activeTab === 'installed' && installedTags.length > 0) || (activeTab === 'marketplace' && marketTags.length > 0)) && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <button
                 type="button"
-                onClick={() => setActiveMarketTag('all')}
+                onClick={() => {
+                  if (activeTab === 'installed') {
+                    setActiveInstalledTag('all');
+                    return;
+                  }
+                  setActiveMarketTag('all');
+                }}
                 className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${
-                  activeMarketTag === 'all'
+                  (activeTab === 'installed' ? activeInstalledTag === 'all' : activeMarketTag === 'all')
                     ? 'bg-primary text-white'
                     : 'bg-surface text-secondary hover:bg-surface-raised border border-border'
                 }`}
               >
                 {i18nService.t('skillCategoryAll')}
               </button>
-              {marketTags.map((tag) => (
+              {(activeTab === 'installed' ? installedTags : marketTags).map((tag) => (
                 <button
                   key={tag.id}
                   type="button"
-                  onClick={() => setActiveMarketTag(tag.id)}
+                  onClick={() => {
+                    if (activeTab === 'installed') {
+                      setActiveInstalledTag(tag.id);
+                      return;
+                    }
+                    setActiveMarketTag(tag.id);
+                  }}
                   className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${
-                    activeMarketTag === tag.id
+                    (activeTab === 'installed' ? activeInstalledTag === tag.id : activeMarketTag === tag.id)
                       ? 'bg-primary text-white'
                       : 'bg-surface text-secondary hover:bg-surface-raised border border-border'
                   }`}
@@ -920,7 +967,6 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 </button>
               ))}
             </div>
-          )
         )}
       </div>
 
@@ -938,12 +984,12 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       {activeTab === 'installed' && (
       <>
       <div className="grid grid-cols-2 gap-3">
-        {filteredSkills.length === 0 ? (
+        {filteredInstalledSkills.length === 0 ? (
           <div className="col-span-2 text-center py-8 text-sm text-secondary">
             {i18nService.t('noSkillsAvailable')}
           </div>
         ) : (
-          filteredSkills.map((skill) => (
+          filteredInstalledSkills.map((skill) => (
             <div
               key={skill.id}
               className="rounded-xl border border-border bg-surface p-3 transition-colors hover:border-primary cursor-pointer"

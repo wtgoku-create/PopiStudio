@@ -158,12 +158,14 @@ interface Skill {
   id: string;
   name: string;
   description: string;
+  category?: string;
   enabled: boolean;
   isOfficial: boolean;
   isBuiltIn: boolean;
   updatedAt: number;
   prompt: string;
   skillPath: string;
+  version?: string;
 }
 
 type EmailConnectivityCheckCode = 'imap_connection' | 'smtp_connection';
