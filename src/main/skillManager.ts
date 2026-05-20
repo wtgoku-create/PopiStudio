@@ -332,6 +332,11 @@ type SkillDefaultConfig = {
   enabled?: boolean;
 };
 
+type MarketplaceInstallMetadata = {
+  official: true;
+  category: string;
+};
+
 type SkillsConfig = {
   version: number;
   description?: string;
@@ -365,6 +370,30 @@ const parseFrontmatter = (raw: string): { frontmatter: Record<string, unknown>; 
 
   const content = normalized.slice(match[0].length);
   return { frontmatter, content };
+};
+
+const writeSkillMarketplaceFrontmatter = (skillDir: string, metadata?: MarketplaceInstallMetadata): void => {
+  if (!metadata?.category?.trim()) {
+    return;
+  }
+
+  const skillFile = path.join(skillDir, SKILL_FILE_NAME);
+  if (!fs.existsSync(skillFile)) {
+    return;
+  }
+
+  const raw = fs.readFileSync(skillFile, 'utf8');
+  const { frontmatter, content } = parseFrontmatter(raw);
+  if (Object.prototype.hasOwnProperty.call(frontmatter, 'official')) {
+    delete frontmatter.official;
+  }
+  if (Object.prototype.hasOwnProperty.call(frontmatter, 'category')) {
+    delete frontmatter.category;
+  }
+  frontmatter.official = true;
+  frontmatter.category = metadata.category.trim();
+  const nextRaw = `---\n${yaml.dump(frontmatter, { lineWidth: -1 }).trimEnd()}\n---\n\n${content.replace(/^\r?\n*/, '')}`;
+  fs.writeFileSync(skillFile, nextRaw, 'utf8');
 };
 
 const isTruthy = (value?: unknown): boolean => {
@@ -1335,6 +1364,7 @@ export class SkillManager {
     root: string;
     skillDirs: string[];
     timer: NodeJS.Timeout;
+    metadata?: MarketplaceInstallMetadata;
     isUpgrade?: boolean;
     existingSkillDir?: string;
   }>();
@@ -1744,7 +1774,7 @@ export class SkillManager {
     }
   }
 
-  async downloadSkill(source: string): Promise<{
+  async downloadSkill(source: string, metadata?: MarketplaceInstallMetadata): Promise<{
     success: boolean;
     skills?: SkillRecord[];
     error?: string;
@@ -1909,6 +1939,7 @@ export class SkillManager {
           root,
           skillDirs,
           timer,
+          metadata,
         });
 
         return {
@@ -1921,6 +1952,7 @@ export class SkillManager {
       // Safe or scan failed — install directly
       console.log(`[SkillManager] Skill is safe (or scan failed), installing directly`);
       for (const skillDir of skillDirs) {
+        writeSkillMarketplaceFrontmatter(skillDir, metadata);
         const folderName = normalizeFolderName(path.basename(skillDir));
         let targetDir = resolveWithin(root, folderName);
         let suffix = 1;
@@ -1949,7 +1981,7 @@ export class SkillManager {
     }
   }
 
-  async upgradeSkill(skillId: string, downloadUrl: string): Promise<{
+  async upgradeSkill(skillId: string, downloadUrl: string, metadata?: MarketplaceInstallMetadata): Promise<{
     success: boolean;
     skills?: SkillRecord[];
     error?: string;
@@ -1975,13 +2007,18 @@ export class SkillManager {
 
     this.upgradingSkillIds.add(skillId);
     try {
-      return await this.performUpgradeDownload(skillId, downloadUrl, existingSkillDir);
+      return await this.performUpgradeDownload(skillId, downloadUrl, existingSkillDir, metadata);
     } finally {
       this.upgradingSkillIds.delete(skillId);
     }
   }
 
-  private async performUpgradeDownload(skillId: string, downloadUrl: string, existingSkillDir: string): Promise<{
+  private async performUpgradeDownload(
+    skillId: string,
+    downloadUrl: string,
+    existingSkillDir: string,
+    metadata?: MarketplaceInstallMetadata,
+  ): Promise<{
     success: boolean;
     skills?: SkillRecord[];
     error?: string;
@@ -2078,6 +2115,7 @@ export class SkillManager {
           root,
           skillDirs: [matchingSkillDir],
           timer,
+          metadata,
           isUpgrade: true,
           existingSkillDir,
         });
@@ -2088,6 +2126,7 @@ export class SkillManager {
       }
 
       // Safe — perform upgrade
+      writeSkillMarketplaceFrontmatter(matchingSkillDir, metadata);
       this.performSkillUpgrade(matchingSkillDir, existingSkillDir);
 
       cleanupPathSafely(cleanupPath);
@@ -2176,6 +2215,7 @@ export class SkillManager {
     } else {
       // Fresh install path: find unique directory name
       for (const skillDir of pending.skillDirs) {
+        writeSkillMarketplaceFrontmatter(skillDir, pending.metadata);
         const folderName = normalizeFolderName(path.basename(skillDir));
         let targetDir = resolveWithin(pending.root, folderName);
         let suffix = 1;

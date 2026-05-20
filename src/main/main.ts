@@ -2912,12 +2912,21 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('skills:download', async (_event, source: string) => {
-    return getSkillManager().downloadSkill(source);
+  ipcMain.handle('skills:download', async (
+    _event,
+    source: string,
+    metadata?: { official: true; category: string },
+  ) => {
+    return getSkillManager().downloadSkill(source, metadata);
   });
 
-  ipcMain.handle('skills:upgrade', async (_event, skillId: string, downloadUrl: string) => {
-    return getSkillManager().upgradeSkill(skillId, downloadUrl);
+  ipcMain.handle('skills:upgrade', async (
+    _event,
+    skillId: string,
+    downloadUrl: string,
+    metadata?: { official: true; category: string },
+  ) => {
+    return getSkillManager().upgradeSkill(skillId, downloadUrl, metadata);
   });
 
   ipcMain.handle('skills:confirmInstall', async (_event, pendingId: string, action: string) => {

@@ -399,7 +399,7 @@ class SkillService {
     }
   }
 
-  async downloadSkill(source: string): Promise<{
+  async downloadSkill(source: string, metadata?: { official: true; category: string }): Promise<{
     success: boolean;
     skills?: Skill[];
     error?: string;
@@ -407,7 +407,7 @@ class SkillService {
     pendingInstallId?: string;
   }> {
     try {
-      const result = await window.electron.skills.download(source);
+      const result = await window.electron.skills.download(source, metadata);
       if (result.success && result.skills) {
         this.skills = result.skills;
       }
@@ -436,7 +436,11 @@ class SkillService {
     }
   }
 
-  async upgradeSkill(skillId: string, downloadUrl: string): Promise<{
+  async upgradeSkill(
+    skillId: string,
+    downloadUrl: string,
+    metadata?: { official: true; category: string },
+  ): Promise<{
     success: boolean;
     skills?: Skill[];
     error?: string;
@@ -444,7 +448,7 @@ class SkillService {
     pendingInstallId?: string;
   }> {
     try {
-      const result = await window.electron.skills.upgrade(skillId, downloadUrl);
+      const result = await window.electron.skills.upgrade(skillId, downloadUrl, metadata);
       if (result.success && result.skills) {
         this.skills = result.skills;
       }

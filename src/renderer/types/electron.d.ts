@@ -276,7 +276,13 @@ interface IElectronAPI {
       enabled: boolean;
     }) => Promise<{ success: boolean; skills?: Skill[]; error?: string }>;
     delete: (id: string) => Promise<{ success: boolean; skills?: Skill[]; error?: string }>;
-    download: (source: string) => Promise<{
+    download: (
+      source: string,
+      metadata?: {
+        official: true;
+        category: string;
+      },
+    ) => Promise<{
       success: boolean;
       skills?: Skill[];
       error?: string;
@@ -286,6 +292,10 @@ interface IElectronAPI {
     upgrade: (
       skillId: string,
       downloadUrl: string,
+      metadata?: {
+        official: true;
+        category: string;
+      },
     ) => Promise<{
       success: boolean;
       skills?: Skill[];

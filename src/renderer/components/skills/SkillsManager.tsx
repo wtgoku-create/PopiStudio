@@ -631,6 +631,15 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
     return findInstalledSkillForMarketplace(mp, skills)?.version;
   };
 
+  const getMarketplaceSkillInstallMetadata = (skill: MarketplaceSkill): { official: true; category: string } | undefined => {
+    const category = resolveLocalizedText(skill.tags?.[0]
+      ? marketTags.find((tag) => tag.id === skill.tags?.[0]) || ''
+      : '');
+    return category
+      ? { official: true, category }
+      : undefined;
+  };
+
   const handleUpgradeSkill = async (skill: MarketplaceSkill) => {
     if (upgradeState?.isActive || !skill.url) return;
     const installed = findInstalledSkillForMarketplace(skill, skills);
@@ -647,7 +656,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       currentSkillVersion: skill.version,
     });
     try {
-      const result = await skillService.upgradeSkill(installed.id, skill.url);
+      const result = await skillService.upgradeSkill(installed.id, skill.url, getMarketplaceSkillInstallMetadata(skill));
       if (!result.success) {
         setSkillActionError(result.error || i18nService.t('skillUpgradeFailed'));
         setUpgradeState(null);
@@ -701,7 +710,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
           setSkillActionError(i18nService.t('skillUpgradeFailed'));
           continue;
         }
-        const result = await skillService.upgradeSkill(installed.id, skill.url);
+        const result = await skillService.upgradeSkill(installed.id, skill.url, getMarketplaceSkillInstallMetadata(skill));
         if (!result.success) {
           console.warn('[SkillsManager] upgrade failed for', skill.id, result.error);
           continue;
@@ -728,7 +737,10 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
     setInstallingSkillId(skill.id);
     setSkillActionError('');
     try {
-      const result = await skillService.downloadSkill(skill.url);
+      const result = await skillService.downloadSkill(
+        skill.url,
+        getMarketplaceSkillInstallMetadata(skill),
+      );
       if (!result.success) {
         setSkillActionError(result.error || i18nService.t('skillInstallFailed'));
         return;
