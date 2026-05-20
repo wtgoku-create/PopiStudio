@@ -80,6 +80,9 @@ const checkLevelColorClass: Record<IMConnectivityCheck['level'], string> = {
   fail: 'text-red-600 dark:text-red-400',
 };
 
+// Hidden in UI for now: keep this list centralized for quick restore later.
+const HIDDEN_IM_PLATFORMS: Platform[] = ['netease-bee', 'popo', 'email'];
+
 // Map of backend error messages to i18n keys
 const errorMessageI18nMap: Record<string, string> = {
   '账号已在其它地方登录': 'kickedByOtherClient',
@@ -668,7 +671,9 @@ const IMSettings: React.FC = () => {
 
   // Compute visible platforms based on language
   const platforms = useMemo<Platform[]>(() => {
-    return getVisibleIMPlatforms(language) as Platform[];
+    // Original implementation kept here for quick restore:
+    // return getVisibleIMPlatforms(language) as Platform[];
+    return (getVisibleIMPlatforms(language) as Platform[]).filter(platform => !HIDDEN_IM_PLATFORMS.includes(platform));
   }, [language]);
 
   // Ensure activePlatform is always in visible platforms when language changes

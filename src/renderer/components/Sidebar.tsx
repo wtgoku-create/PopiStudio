@@ -20,8 +20,9 @@ import Modal from './common/Modal';
 import CoworkSearchModal from './cowork/CoworkSearchModal';
 import Cog6ToothIcon from './icons/Cog6ToothIcon';
 import ComposeIcon from './icons/ComposeIcon';
-import ConnectorIcon from './icons/ConnectorIcon';
-import SearchIcon from './icons/SearchIcon';
+// Hidden in UI for now: keep these imports commented for quick restore later.
+// import ConnectorIcon from './icons/ConnectorIcon';
+// import SearchIcon from './icons/SearchIcon';
 import SidebarToggleIcon from './icons/SidebarToggleIcon';
 import TrashIcon from './icons/TrashIcon';
 import LoginButton from './LoginButton';
@@ -311,6 +312,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <ComposeIcon className={sidebarCreateIconClassName} />
             {i18nService.t('newChat')}
           </button>
+          {/* Hidden in UI for now: keep search entry for quick restore later.
           <button
             type="button"
             onClick={() => {
@@ -322,6 +324,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <SearchIcon className="h-4 w-4 shrink-0" />
             {i18nService.t('search')}
           </button>
+          */}
           <button
             type="button"
             onClick={() => {
@@ -372,6 +375,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             />
             {i18nService.t('skills')}
           </button>
+          {/* Hidden in UI for now: keep MCP entry for quick restore later.
           <button
             type="button"
             onClick={() => {
@@ -384,6 +388,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <ConnectorIcon className="h-4 w-4 shrink-0" />
             {i18nService.t('mcpServers')}
           </button>
+          */}
         </div>
       </div>
       <div className="relative min-h-0 flex-1">

@@ -2646,7 +2646,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     const allTabs = [
       { key: 'general' as TabType,        label: i18nService.t('general'),        icon: <SettingsSlidersIcon className="h-5 w-5" /> },
       { key: 'appearance' as TabType,     label: i18nService.t('appearance'),     icon: <SunIcon className="h-5 w-5" /> },
-      { key: 'coworkAgentEngine' as TabType, label: i18nService.t('coworkAgentEngine'), icon: <CpuChipIcon className="h-5 w-5" /> },
+      // Hidden in UI for now: keep the agent engine tab config for quick restore later.
+      // { key: 'coworkAgentEngine' as TabType, label: i18nService.t('coworkAgentEngine'), icon: <CpuChipIcon className="h-5 w-5" /> },
       { key: 'im' as TabType,             label: i18nService.t('imBot'),          icon: <ChatBubbleLeftIcon className="h-5 w-5" /> },
       { key: 'email' as TabType,          label: i18nService.t('emailTab'),       icon: <EnvelopeIcon className="h-5 w-5" /> },
       { key: 'coworkMemory' as TabType,   label: i18nService.t('coworkMemoryTitle'), icon: <BrainIcon className="h-5 w-5" /> },
@@ -2664,8 +2665,18 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     return allTabs;
   })();
 
+  useEffect(() => {
+    if (sidebarTabs.length === 0) {
+      return;
+    }
+
+    if (!sidebarTabs.some(tab => tab.key === activeTab)) {
+      setActiveTab(sidebarTabs[0].key);
+    }
+  }, [activeTab, sidebarTabs]);
+
   const activeTabLabel = useMemo(() => {
-    return sidebarTabs.find(t => t.key === activeTab)?.label ?? '';
+    return sidebarTabs.find(t => t.key === activeTab)?.label ?? sidebarTabs[0]?.label ?? '';
   }, [activeTab, sidebarTabs]);
 
   const renderAppearanceSettings = () => (
