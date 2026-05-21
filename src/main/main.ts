@@ -2908,23 +2908,26 @@ if (!gotTheLock) {
       return { success: true, skills };
     } catch (error) {
       console.error('[skills] Failed to delete skill:', id, error);
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to delete skill' };
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to delete skill',
+      };
     }
   });
 
-  ipcMain.handle('skills:download', async (
-    _event,
-    source: string,
-    metadata?: { official: true; category: string },
-  ) => {
-    return getSkillManager().downloadSkill(source, metadata);
-  });
+  ipcMain.handle(
+    'skills:download',
+    async (
+      _event,
+      { source, metadata }: { source: string; metadata?: { official: true; category: string } },
+    ) => {
+      return getSkillManager().downloadSkill(source, metadata);
+    },
+  );
 
   ipcMain.handle('skills:upgrade', async (
     _event,
-    skillId: string,
-    downloadUrl: string,
-    metadata?: { official: true; category: string },
+    { skillId, downloadUrl, metadata }: { skillId: string; downloadUrl: string; metadata?: { official: true; category: string } },
   ) => {
     return getSkillManager().upgradeSkill(skillId, downloadUrl, metadata);
   });

@@ -127,35 +127,6 @@ export function marketplaceZipStemBases(marketplaceSkill: MarketplaceSkill): str
   return [...stems].filter((s) => s && s !== 'skill');
 }
 
-function resolveSkillHubInstallUrl(skill: SkillHubSkillItem): string {
-  const fromHuman = extractSkillZipUrlFromInstallInstruction(skill.humanInstallDesp);
-  if (fromHuman) return fromHuman;
-
-  const fromAgent = extractSkillZipUrlFromInstallInstruction(skill.agentInstallDesp);
-  if (fromAgent) return fromAgent;
-
-  const rawUrl = (skill.url || '').trim();
-  if (/\.zip(\?|$)/i.test(rawUrl)) return rawUrl;
-
-  const fromDesp =
-    extractSkillZipUrlFromInstallInstruction(skill.desp)
-    || extractSkillZipUrlFromInstallInstruction(skill.originDesp);
-  if (fromDesp) return fromDesp;
-
-  const fromOrigin = extractSkillZipUrlFromInstallInstruction(skill.origin || '');
-  if (fromOrigin) return fromOrigin;
-
-  const fromPath = extractSkillZipUrlFromInstallInstruction(skill.path || '');
-  if (fromPath) return fromPath;
-
-  if (rawUrl) return rawUrl;
-
-  const originFallback = (skill.origin || '').trim();
-  if (originFallback) return originFallback;
-
-  return (skill.path || '').trim();
-}
-
 /**
  * Folder ids that might match a locally installed skill after marketplace download.
  * Hub catalog `id` is often numeric and differs from install folder name (zip stem).
@@ -313,7 +284,7 @@ export function mapSkillMarketplaceData(
   const categories = Array.isArray(marketplaceData.categories) ? marketplaceData.categories : [];
   const skills = (Array.isArray(marketplaceData.skills) ? marketplaceData.skills : []).map((skill) => {
     const categoryTag = skill.categoryId != null ? String(skill.categoryId) : undefined;
-    const installSource = resolveSkillHubInstallUrl(skill);
+    const installSource = skill.humanInstallDesp;
     return {
       id: String(skill.id),
       name: skill.name,

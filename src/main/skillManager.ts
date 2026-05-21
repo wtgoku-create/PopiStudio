@@ -1,6 +1,6 @@
 import { execSync, spawn, spawnSync } from 'child_process';
 import crypto from 'crypto';
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, net, session } from 'electron';
 import extractZip from 'extract-zip';
 import fs from 'fs';
 import yaml from 'js-yaml';
@@ -1254,17 +1254,38 @@ const isRemoteZipUrl = (source: string): boolean => {
   }
 };
 
-const downloadZipUrl = async (zipUrl: string, tempRoot: string): Promise<string> => {
-  const response = await session.defaultSession.fetch(zipUrl, {
+const downloadBinaryUrl = (url: string): Promise<Buffer> => new Promise((resolve, reject) => {
+  const request = net.request({
     method: 'GET',
-    headers: { 'User-Agent': 'Popiai Skill Downloader' },
+    url,
+    redirect: 'follow',
   });
 
-  if (!response.ok) {
-    throw new Error(`Download failed (${response.status} ${response.statusText})`);
-  }
+  request.setHeader('User-Agent', 'Popiai Skill Downloader');
 
-  const buffer = Buffer.from(await response.arrayBuffer());
+  request.on('response', (response) => {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      response.on('data', () => { /* drain error response */ });
+      reject(new Error(`Download failed (${response.statusCode})`));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    response.on('data', (chunk: Buffer) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    response.on('end', () => {
+      resolve(Buffer.concat(chunks));
+    });
+    response.on('error', reject);
+  });
+
+  request.on('error', reject);
+  request.end();
+});
+
+const downloadZipUrl = async (zipUrl: string, tempRoot: string): Promise<string> => {
+  const buffer = await downloadBinaryUrl(zipUrl);
   const zipPath = path.join(tempRoot, 'remote-skill.zip');
   const extractRoot = path.join(tempRoot, 'remote-skill');
   fs.writeFileSync(zipPath, buffer);
@@ -1808,6 +1829,7 @@ export class SkillManager {
     pendingInstallId?: string;
   }> {
     let cleanupPath: string | null = null;
+    console.log('source',source)
     try {
       const trimmed = source.trim();
       if (!trimmed) {
@@ -2169,7 +2191,7 @@ export class SkillManager {
 
       // Safe — perform upgrade
       writeSkillMarketplaceFrontmatter(matchingSkillDir, metadata);
-      this.performSkillUpgrade(matchingSkillDir, existingSkillDir);
+      await this.performSkillUpgrade(matchingSkillDir, existingSkillDir);
 
       cleanupPathSafely(cleanupPath);
       cleanupPath = null;
@@ -2183,7 +2205,7 @@ export class SkillManager {
     }
   }
 
-  private performSkillUpgrade(newSkillDir: string, existingSkillDir: string): void {
+  private async performSkillUpgrade(newSkillDir: string, existingSkillDir: string): Promise<void> {
     const upgradingDir = existingSkillDir + '.upgrading';
 
     // Back up .env and _meta.json
@@ -2196,6 +2218,12 @@ export class SkillManager {
     }
     if (fs.existsSync(metaPath)) {
       metaBackup = fs.readFileSync(metaPath);
+    }
+
+    // Release fs.watch handles before swapping directories.
+    this.stopWatching();
+    if (process.platform === 'win32') {
+      await new Promise<void>(resolve => setTimeout(resolve, 100));
     }
 
     // Atomic rename old dir to .upgrading backup
@@ -2224,12 +2252,13 @@ export class SkillManager {
 
     // Remove backup
     fs.rmSync(upgradingDir, { recursive: true, force: true });
+    this.startWatching();
   }
 
-  confirmPendingInstall(
+  async confirmPendingInstall(
     pendingId: string,
     action: SecurityReportAction
-  ): { success: boolean; skills?: SkillRecord[]; error?: string } {
+  ): Promise<{ success: boolean; skills?: SkillRecord[]; error?: string }> {
     console.log(`[SkillManager] confirmPendingInstall: id=${pendingId}, action=${action}`);
     const pending = this.pendingInstalls.get(pendingId);
     if (!pending) {
@@ -2252,7 +2281,7 @@ export class SkillManager {
     if (pending.isUpgrade && pending.existingSkillDir) {
       for (const skillDir of pending.skillDirs) {
         writeSkillMarketplaceFrontmatter(skillDir, pending.metadata);
-        this.performSkillUpgrade(skillDir, pending.existingSkillDir);
+        await this.performSkillUpgrade(skillDir, pending.existingSkillDir);
         installedIds.push(path.basename(pending.existingSkillDir));
       }
     } else {

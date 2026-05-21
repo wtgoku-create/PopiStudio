@@ -58,7 +58,7 @@ export interface SkillHubSkillItem {
   url?: string;
   path?: string;
   agentInstallDesp?: string;
-  humanInstallDesp?: string;
+  humanInstallDesp: string;
   createTime?: string;
   updateTime?: string;
   userLiked?: boolean;
