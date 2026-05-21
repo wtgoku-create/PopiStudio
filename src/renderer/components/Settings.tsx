@@ -229,23 +229,23 @@ const copyTextFallback = (text: string): boolean => {
   return copied;
 };
 
-const copyTextToClipboard = async (text: string): Promise<boolean> => {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch (clipboardError) {
-      console.warn('Navigator clipboard write failed, trying fallback:', clipboardError);
-    }
-  }
+// const copyTextToClipboard = async (text: string): Promise<boolean> => {
+//   if (navigator.clipboard?.writeText) {
+//     try {
+//       await navigator.clipboard.writeText(text);
+//       return true;
+//     } catch (clipboardError) {
+//       console.warn('Navigator clipboard write failed, trying fallback:', clipboardError);
+//     }
+//   }
 
-  try {
-    return copyTextFallback(text);
-  } catch (fallbackError) {
-    console.error('Fallback clipboard copy failed:', fallbackError);
-    return false;
-  }
-};
+//   try {
+//     return copyTextFallback(text);
+//   } catch (fallbackError) {
+//     console.error('Fallback clipboard copy failed:', fallbackError);
+//     return false;
+//   }
+// };
 
 const getFixedApiFormatForProvider = (provider: string): 'anthropic' | 'openai' | 'gemini' | null => {
   if (provider === 'openai' || provider === 'stepfun') {

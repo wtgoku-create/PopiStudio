@@ -59,7 +59,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onShowSkills,
   onShowCowork,
   onShowScheduledTasks,
-  onShowMcp,
+  // onShowMcp,
   onNewChat,
   isCollapsed,
   onToggleCollapse,
