@@ -16,6 +16,7 @@ import {
   marketplaceHasNewerVersionThanInstalled,
   resolveLocalizedText,
   skillService,
+  sortSkillCategoryTags,
 } from '../../services/skill';
 import { RootState } from '../../store';
 import { setSkills } from '../../store/slices/skillSlice';
@@ -388,7 +389,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       tags.push({ id: category, zh: category, en: category });
     });
 
-    return tags;
+    return sortSkillCategoryTags(tags);
   }, [skills]);
 
   const filteredInstalledSkills = useMemo(() => {

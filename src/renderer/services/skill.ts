@@ -18,6 +18,26 @@ export function resolveLocalizedText(text: string | LocalizedText): string {
   return text[lang] || text.en || '';
 }
 
+function isOtherSkillCategoryLabel(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized === '其他' || normalized === 'other';
+}
+
+export function sortSkillCategoryTags<T extends { id: string }>(tags: T[]): T[] {
+  const regularTags: T[] = [];
+  const otherTags: T[] = [];
+
+  tags.forEach((tag) => {
+    if (isOtherSkillCategoryLabel(tag.id)) {
+      otherTags.push(tag);
+      return;
+    }
+    regularTags.push(tag);
+  });
+
+  return [...regularTags, ...otherTags];
+}
+
 /**
  * Trim, strip leading `v`, drop build metadata / parenthetical tails Hub sometimes appends.
  */
@@ -296,11 +316,11 @@ export function mapSkillMarketplaceData(
     };
   });
 
-  const tags = categories.map((category: SkillHubCategoryItem) => ({
+  const tags = sortSkillCategoryTags(categories.map((category: SkillHubCategoryItem) => ({
     id: String(category.id),
     en: category.name,
     zh: category.name,
-  }));
+  })));
 
   const pageInfo: SkillHubPageInfo = marketplaceData.pageInfo ?? {
     page: 1,
