@@ -59,6 +59,25 @@ const TARGET_CONFIG = {
   },
 };
 
+function resolveGitHubToken() {
+  const token = process.env.POPIARTCLI_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+  return typeof token === 'string' && token.trim() ? token.trim() : '';
+}
+
+function createGitHubHeaders(accept) {
+  const token = resolveGitHubToken();
+  const headers = {
+    'Accept': accept,
+    'User-Agent': 'LobsterAI-PopiArtCLI-Packager',
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+}
+
 function readPackageConfig() {
   let pkg = {};
   try {
@@ -168,8 +187,8 @@ async function fetchRelease(repo, version) {
 
   const response = await fetch(endpoint, {
     headers: {
-      'Accept': 'application/vnd.github+json',
-      'User-Agent': 'LobsterAI-PopiArtCLI-Packager',
+      ...createGitHubHeaders('application/vnd.github+json'),
+      'X-GitHub-Api-Version': '2022-11-28',
     },
   });
 
@@ -208,10 +227,7 @@ function pickBestAsset(release, targetId) {
 
 async function downloadFile(url, outPath) {
   const response = await fetch(url, {
-    headers: {
-      'Accept': 'application/octet-stream',
-      'User-Agent': 'LobsterAI-PopiArtCLI-Packager',
-    },
+    headers: createGitHubHeaders('application/octet-stream'),
   });
 
   if (!response.ok || !response.body) {
