@@ -59,24 +59,11 @@ const TARGET_CONFIG = {
   },
 };
 
-function resolveGitHubToken() {
-  const token = process.env.POPIARTCLI_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
-  return typeof token === 'string' && token.trim() ? token.trim() : '';
-}
-
-function createGitHubHeaders(accept) {
-  const token = resolveGitHubToken();
-  const headers = {
-    'Accept': accept,
-    'User-Agent': 'LobsterAI-PopiArtCLI-Packager',
-  };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  return headers;
-}
+const PLATFORM_TOKEN_GROUPS = {
+  win32: ['windows', 'win32', 'win'],
+  darwin: ['darwin', 'macos', 'mac'],
+  linux: ['linux'],
+};
 
 function readPackageConfig() {
   let pkg = {};
@@ -143,6 +130,15 @@ function normalizeName(name) {
   return name.trim().toLowerCase();
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasNameToken(name, token) {
+  const lower = normalizeName(name);
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(token.toLowerCase())}([^a-z0-9]|$)`).test(lower);
+}
+
 function isRejectedAssetName(name) {
   const lower = normalizeName(name);
   return lower.includes('checksums')
@@ -151,7 +147,11 @@ function isRejectedAssetName(name) {
     || lower.endsWith('.sig')
     || lower.endsWith('.pem')
     || lower.endsWith('.sbom')
-    || lower.startsWith('source code');
+    || lower.startsWith('source code')
+    || lower.includes('source code')
+    || lower.includes('src')
+    || lower.includes('source')
+    || lower.includes('sources');
 }
 
 function scoreAsset(name, targetConfig) {
@@ -161,16 +161,38 @@ function scoreAsset(name, targetConfig) {
 
   let score = 0;
 
-  if (targetConfig.assetPlatformTokens.some((token) => lower.includes(token))) {
+  const hasTargetPlatformToken = targetConfig.assetPlatformTokens.some((token) => hasNameToken(lower, token));
+  const hasTargetArchToken = targetConfig.assetArchTokens.some((token) => hasNameToken(lower, token));
+
+  if (hasTargetPlatformToken) {
     score += 40;
   }
-  if (targetConfig.assetArchTokens.some((token) => lower.includes(token))) {
+  if (hasTargetArchToken) {
     score += 40;
+  }
+  if (!hasTargetPlatformToken) {
+    score -= 30;
+  }
+  if (!hasTargetArchToken) {
+    score -= 30;
+  }
+
+  const otherPlatformTokens = Object.values(PLATFORM_TOKEN_GROUPS)
+    .flat()
+    .filter((token) => !targetConfig.assetPlatformTokens.includes(token));
+  if (otherPlatformTokens.some((token) => hasNameToken(lower, token))) {
+    score -= 160;
   }
   if (lower.endsWith('.zip') || lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
     score += 15;
   }
+  if (lower.endsWith('.msi') || lower.endsWith('.pkg') || lower.endsWith('.deb') || lower.endsWith('.rpm')) {
+    score -= 120;
+  }
   if (lower.endsWith(`/${targetConfig.executableName}`) || lower.endsWith(targetConfig.executableName)) {
+    score += 20;
+  }
+  if (lower.includes('portable') || lower.includes('standalone')) {
     score += 20;
   }
   if (lower.includes('universal')) {
@@ -202,19 +224,17 @@ async function fetchRelease(repo, version) {
 function pickBestAsset(release, targetId) {
   const targetConfig = resolveTargetConfig(targetId);
   const assets = Array.isArray(release.assets) ? release.assets : [];
-  let best = null;
-  let bestScore = Number.NEGATIVE_INFINITY;
+  const scoredAssets = assets
+    .filter((asset) => asset && typeof asset === 'object' && typeof asset.name === 'string')
+    .map((asset) => ({
+      asset,
+      score: scoreAsset(asset.name, targetConfig),
+    }))
+    .sort((a, b) => b.score - a.score);
 
-  for (const asset of assets) {
-    if (!asset || typeof asset !== 'object' || typeof asset.name !== 'string') continue;
-    const score = scoreAsset(asset.name, targetConfig);
-    if (score > bestScore) {
-      best = asset;
-      bestScore = score;
-    }
-  }
+  const best = scoredAssets[0];
 
-  if (!best || bestScore < 40) {
+  if (!best || best.score < 40) {
     const names = assets
       .map((asset) => typeof asset?.name === 'string' ? asset.name : null)
       .filter(Boolean)
@@ -222,7 +242,12 @@ function pickBestAsset(release, targetId) {
     throw new Error(`Could not find a matching PopiArt CLI asset for ${targetId}. Available assets: ${names || 'none'}`);
   }
 
-  return best;
+  console.log(
+    `[ensure-popiart-cli] Selected asset for ${targetId}: ${best.asset.name} `
+    + `(score=${best.score})`,
+  );
+
+  return best.asset;
 }
 
 async function downloadFile(url, outPath) {
@@ -256,6 +281,58 @@ function walkFiles(rootDir) {
   return files;
 }
 
+function isExecutableCandidate(candidate, targetConfig) {
+  const base = path.basename(candidate).toLowerCase();
+  if (targetConfig.executableName.toLowerCase().endsWith('.exe')) {
+    return base.endsWith('.exe');
+  }
+  return !base.endsWith('.dll')
+    && !base.endsWith('.so')
+    && !base.endsWith('.dylib')
+    && !base.endsWith('.txt')
+    && !base.endsWith('.md');
+}
+
+function scoreExtractedBinaryCandidate(candidate, extractDir, targetConfig) {
+  const relative = path.relative(extractDir, candidate).replace(/\\/g, '/');
+  const lowerRelative = relative.toLowerCase();
+  const lowerBase = path.basename(candidate).toLowerCase();
+  const expected = targetConfig.executableName.toLowerCase();
+
+  let score = 0;
+
+  if (lowerBase === expected) {
+    score += 1000;
+  }
+  if (lowerRelative.endsWith(`/${expected}`) || lowerRelative === expected) {
+    score += 200;
+  }
+  if (lowerBase.includes('popiart')) {
+    score += 160;
+  }
+  if (lowerRelative.includes('/bin/')) {
+    score += 80;
+  }
+  if (lowerRelative.includes('/dist/')) {
+    score += 40;
+  }
+  if (targetConfig.assetPlatformTokens.some((token) => lowerRelative.includes(token))) {
+    score += 30;
+  }
+  if (targetConfig.assetArchTokens.some((token) => lowerRelative.includes(token))) {
+    score += 30;
+  }
+  if (lowerBase.includes('cli')) {
+    score += 20;
+  }
+  if (lowerBase.includes('setup') || lowerBase.includes('install') || lowerBase.includes('uninstall')) {
+    score -= 200;
+  }
+
+  score -= relative.length;
+  return score;
+}
+
 async function extractAsset(assetPath, extractDir) {
   const lower = assetPath.toLowerCase();
   fs.mkdirSync(extractDir, { recursive: true });
@@ -278,14 +355,38 @@ async function extractAsset(assetPath, extractDir) {
 function pickExtractedBinary(extractDir, targetId) {
   const targetConfig = resolveTargetConfig(targetId);
   const candidates = walkFiles(extractDir)
-    .filter((candidate) => path.basename(candidate).toLowerCase() === targetConfig.executableName.toLowerCase())
-    .sort((a, b) => a.length - b.length);
+    .filter((candidate) => isExecutableCandidate(candidate, targetConfig))
+    .map((candidate) => ({
+      path: candidate,
+      score: scoreExtractedBinaryCandidate(candidate, extractDir, targetConfig),
+    }))
+    .sort((a, b) => b.score - a.score || a.path.length - b.path.length);
 
-  if (candidates.length === 0) {
-    throw new Error(`Could not find ${targetConfig.executableName} inside extracted PopiArt CLI asset for ${targetId}.`);
+  const best = candidates[0];
+  if (!best || best.score < 100) {
+    const candidateSummary = candidates.length > 0
+      ? candidates
+        .slice(0, 8)
+        .map((candidate) => `${path.relative(extractDir, candidate.path)} (score=${candidate.score})`)
+        .join(', ')
+      : 'none';
+    throw new Error(
+      `Could not find ${targetConfig.executableName} inside extracted PopiArt CLI asset for ${targetId}. `
+      + `Executable candidates: ${candidateSummary}`,
+    );
   }
 
-  return candidates[0];
+  return best.path;
+}
+
+function summarizeExtractedTopLevelEntries(extractDir) {
+  if (!fs.existsSync(extractDir)) {
+    return 'none';
+  }
+  const entries = fs.readdirSync(extractDir, { withFileTypes: true })
+    .map((entry) => `${entry.name}${entry.isDirectory() ? '/' : ''}`)
+    .slice(0, 20);
+  return entries.length > 0 ? entries.join(', ') : 'none';
 }
 
 async function ensurePopiArtCliTarget(targetId) {
@@ -344,6 +445,10 @@ async function ensurePopiArtCliTarget(targetId) {
     if (lower.endsWith('.zip') || lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
       const extractDir = path.join(tempRoot, 'extract');
       await extractAsset(assetPath, extractDir);
+      console.log(
+        `[ensure-popiart-cli] Extracted ${asset.name} top-level entries: `
+        + summarizeExtractedTopLevelEntries(extractDir),
+      );
       resolvedBinary = pickExtractedBinary(extractDir, targetId);
     }
 
