@@ -110,8 +110,9 @@ export const getAgentAvatarSvgUrl = (svg: AgentAvatarSvg): string => {
   return AGENT_AVATAR_SVG_URLS[svg] ?? AGENT_AVATAR_SVG_URLS[DefaultAgentAvatar.svg];
 };
 
-const isBitmapIconUrl = (url: string): boolean => {
-  return /\.(png|jpe?g|webp|gif)(?:\?.*)?$/i.test(url);
+export const isBitmapIconUrl = (url: string): boolean => {
+  return /^data:image\/(?:png|jpeg|jpg|webp|gif)(?:;|,)/i.test(url)
+    || /\.(png|jpe?g|webp|gif)(?:\?.*)?$/i.test(url);
 };
 
 interface AgentAvatarIconProps {
