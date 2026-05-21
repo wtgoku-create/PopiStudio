@@ -63,6 +63,7 @@
       "dmg"
     ],
     "icon": "build/icons/mac/icon.icns",
+    "notarize": false,
     "category": "public.app-category.productivity",
     "hardenedRuntime": true,
     "gatekeeperAssess": false,
