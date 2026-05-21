@@ -227,7 +227,10 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
     let isActive = true;
 
     const loadMarketplaceCatalog = async () => {
-      const data = await skillService.fetchMarketplaceSkills();
+      const data = await skillService.fetchMarketplaceSkills({
+        page: 1,
+        pageSize: 99999,
+      });
       if (!isActive) return;
       setMarketplaceCatalogSkills(data.skills);
       if (data.tags.length > 0) {
