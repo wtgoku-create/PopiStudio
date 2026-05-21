@@ -1246,7 +1246,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
               </button>
             </div>
 
-            <p className="text-sm text-secondary mb-4">
+            <p className="text-sm text-secondary mb-4 max-h-40 overflow-y-auto whitespace-pre-wrap pr-1">
               {resolveLocalizedText(selectedMarketplaceSkill.description)}
             </p>
 
@@ -1347,7 +1347,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
               </button>
             </div>
 
-            <p className="text-sm text-secondary mb-4">
+            <p className="text-sm text-secondary mb-4 max-h-40 overflow-y-auto whitespace-pre-wrap pr-1">
               {skillService.getLocalizedSkillDescription(selectedSkill.id, selectedSkill.name, selectedSkill.description)}
             </p>
 
