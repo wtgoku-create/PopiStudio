@@ -283,10 +283,6 @@ const App: React.FC = () => {
     setMainView('scheduledTasks');
   }, []);
 
-  const handleShowMcp = useCallback(() => {
-    setMainView('mcp');
-  }, []);
-
   const handleToggleSidebar = useCallback(() => {
     setIsSidebarCollapsed((prev) => !prev);
   }, []);
@@ -735,7 +731,6 @@ const App: React.FC = () => {
           onShowSkills={handleShowSkills}
           onShowCowork={handleShowCowork}
           onShowScheduledTasks={handleShowScheduledTasks}
-          onShowMcp={handleShowMcp}
           onNewChat={handleNewChat}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleSidebar}

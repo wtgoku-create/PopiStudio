@@ -30,6 +30,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.x'
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Activate pnpm
+        run: corepack prepare pnpm@10.12.1 --activate
       - uses: actions/cache@v4
         with:
           path: ~/.npm
@@ -91,6 +95,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.x'
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Activate pnpm
+        run: corepack prepare pnpm@10.12.1 --activate
       - uses: actions/cache@v4
         with:
           path: ~\AppData\Local\npm-cache

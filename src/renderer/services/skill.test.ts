@@ -143,6 +143,7 @@ test('mapSkillMarketplaceData maps skill hub payload to marketplace cards', () =
         origin: 'https://clawhub.ai/gpyAngyoujun/multi-search-engine',
         url: '',
         path: '',
+        humanInstallDesp: '',
       },
     ],
     categories: [
@@ -201,6 +202,7 @@ test('mapSkillMarketplaceData falls back to url when origin is missing', () => {
         humanInstallDesp: '',
         desp: 'Install from GitHub.',
         url: 'https://github.com/example/repo',
+        humanInstallDesp: '',
       },
     ],
     categories: [],
