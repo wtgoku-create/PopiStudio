@@ -65,6 +65,25 @@ const PLATFORM_TOKEN_GROUPS = {
   linux: ['linux'],
 };
 
+function resolveGitHubToken() {
+  const token = process.env.POPIARTCLI_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+  return typeof token === 'string' && token.trim() ? token.trim() : '';
+}
+
+function createGitHubHeaders(accept) {
+  const token = resolveGitHubToken();
+  const headers = {
+    Accept: accept,
+    'User-Agent': 'LobsterAI-PopiArtCLI-Packager',
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+}
+
 function readPackageConfig() {
   let pkg = {};
   try {
