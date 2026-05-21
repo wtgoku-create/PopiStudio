@@ -1,5 +1,5 @@
 import { EyeIcon, EyeSlashIcon, XCircleIcon as XCircleIconSolid } from '@heroicons/react/20/solid';
-import { ArrowTopRightOnSquareIcon, ChatBubbleLeftIcon, CheckCircleIcon, CpuChipIcon, EnvelopeIcon, InformationCircleIcon, KeyIcon, ShieldCheckIcon, SignalIcon, SunIcon, UserCircleIcon, XCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { ArrowTopRightOnSquareIcon, ChatBubbleLeftIcon, CheckCircleIcon, EnvelopeIcon, InformationCircleIcon, KeyIcon, ShieldCheckIcon, SignalIcon, SunIcon, UserCircleIcon, XCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useCallback,useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
@@ -173,10 +173,10 @@ const normalizeBaseUrl = (baseUrl: string): string => baseUrl.trim().replace(/\/
 const normalizeApiFormat = (value: unknown): 'anthropic' | 'openai' => (
   value === 'openai' ? 'openai' : 'anthropic'
 );
-const ABOUT_CONTACT_EMAIL = 'popiai.project@rd.netease.com';
-const ABOUT_USER_MANUAL_URL = 'https://popiai.youdao.com/#/docs/popiai_user_manual';
-const ABOUT_USER_COMMUNITY_URL = 'https://popiai.youdao.com/#/about';
-const ABOUT_SERVICE_TERMS_URL = 'https://c.youdao.com/dict/hardware/popiai/popiai_service.html';
+// const ABOUT_CONTACT_EMAIL = 'popiai.project@rd.netease.com';
+// const ABOUT_USER_MANUAL_URL = 'https://popiai.youdao.com/#/docs/popiai_user_manual';
+// const ABOUT_USER_COMMUNITY_URL = 'https://popiai.youdao.com/#/about';
+// const ABOUT_SERVICE_TERMS_URL = 'https://c.youdao.com/dict/hardware/popiai/popiai_service.html';
 
 // MiniMax Portal OAuth constants
 const MINIMAX_OAUTH_CLIENT_ID = '78257093-7e40-4613-99e0-527b14b39113';
@@ -662,8 +662,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
 
   // About tab
   const [appVersion, setAppVersion] = useState('');
-  const [emailCopied, setEmailCopied] = useState(false);
-  const [isExportingLogs, setIsExportingLogs] = useState(false);
+  // const [emailCopied, setEmailCopied] = useState(false);
+  // const [isExportingLogs, setIsExportingLogs] = useState(false);
   const [testMode, setTestMode] = useState(false);
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [testModeUnlocked, setTestModeUnlocked] = useState(false);
@@ -715,19 +715,19 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     };
   }, []);
 
-  const handleCopyContactEmail = useCallback(async () => {
-    const copied = await copyTextToClipboard(ABOUT_CONTACT_EMAIL);
-    if (copied) {
-      setEmailCopied(true);
-      if (emailCopiedTimerRef.current != null) {
-        window.clearTimeout(emailCopiedTimerRef.current);
-      }
-      emailCopiedTimerRef.current = window.setTimeout(() => {
-        setEmailCopied(false);
-        emailCopiedTimerRef.current = null;
-      }, 1200);
-    }
-  }, []);
+  // const handleCopyContactEmail = useCallback(async () => {
+  //   const copied = await copyTextToClipboard(ABOUT_CONTACT_EMAIL);
+  //   if (copied) {
+  //     setEmailCopied(true);
+  //     if (emailCopiedTimerRef.current != null) {
+  //       window.clearTimeout(emailCopiedTimerRef.current);
+  //     }
+  //     emailCopiedTimerRef.current = window.setTimeout(() => {
+  //       setEmailCopied(false);
+  //       emailCopiedTimerRef.current = null;
+  //     }, 1200);
+  //   }
+  // }, []);
 
   const authUser = useSelector((state: RootState) => state.auth.user);
 
@@ -791,52 +791,52 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     return i18nService.t('checkForUpdate');
   }, [appUpdateState?.progress?.percent, updateCheckStatus]);
 
-  const handleOpenUserManual = useCallback(() => {
-    void window.electron.shell.openExternal(ABOUT_USER_MANUAL_URL);
-  }, []);
+  // const handleOpenUserManual = useCallback(() => {
+  //   void window.electron.shell.openExternal(ABOUT_USER_MANUAL_URL);
+  // }, []);
 
-  const handleOpenUserCommunity = useCallback(() => {
-    void window.electron.shell.openExternal(ABOUT_USER_COMMUNITY_URL);
-  }, []);
+  // const handleOpenUserCommunity = useCallback(() => {
+  //   void window.electron.shell.openExternal(ABOUT_USER_COMMUNITY_URL);
+  // }, []);
 
-  const handleOpenServiceTerms = useCallback(() => {
-    void window.electron.shell.openExternal(ABOUT_SERVICE_TERMS_URL);
-  }, []);
+  // const handleOpenServiceTerms = useCallback(() => {
+  //   void window.electron.shell.openExternal(ABOUT_SERVICE_TERMS_URL);
+  // }, []);
 
-  const handleExportLogs = useCallback(async () => {
-    if (isExportingLogs) {
-      return;
-    }
+  // const handleExportLogs = useCallback(async () => {
+  //   if (isExportingLogs) {
+  //     return;
+  //   }
 
-    setError(null);
-    setNoticeMessage(null);
-    setIsExportingLogs(true);
-    try {
-      const result = await window.electron.log.exportZip();
-      if (!result.success) {
-        setError(result.error || i18nService.t('aboutExportLogsFailed'));
-        return;
-      }
-      if (result.canceled) {
-        return;
-      }
+  //   setError(null);
+  //   setNoticeMessage(null);
+  //   setIsExportingLogs(true);
+  //   try {
+  //     const result = await window.electron.log.exportZip();
+  //     if (!result.success) {
+  //       setError(result.error || i18nService.t('aboutExportLogsFailed'));
+  //       return;
+  //     }
+  //     if (result.canceled) {
+  //       return;
+  //     }
 
-      if (result.path) {
-        await window.electron.shell.showItemInFolder(result.path);
-      }
+  //     if (result.path) {
+  //       await window.electron.shell.showItemInFolder(result.path);
+  //     }
 
-      if ((result.missingEntries?.length ?? 0) > 0) {
-        const missingList = result.missingEntries?.join(', ') || '';
-        setNoticeMessage(`${i18nService.t('aboutExportLogsPartial')}: ${missingList}`);
-      } else {
-        setNoticeMessage(i18nService.t('aboutExportLogsSuccess'));
-      }
-    } catch (exportError) {
-      setError(exportError instanceof Error ? exportError.message : i18nService.t('aboutExportLogsFailed'));
-    } finally {
-      setIsExportingLogs(false);
-    }
-  }, [isExportingLogs]);
+  //     if ((result.missingEntries?.length ?? 0) > 0) {
+  //       const missingList = result.missingEntries?.join(', ') || '';
+  //       setNoticeMessage(`${i18nService.t('aboutExportLogsPartial')}: ${missingList}`);
+  //     } else {
+  //       setNoticeMessage(i18nService.t('aboutExportLogsSuccess'));
+  //     }
+  //   } catch (exportError) {
+  //     setError(exportError instanceof Error ? exportError.message : i18nService.t('aboutExportLogsFailed'));
+  //   } finally {
+  //     setIsExportingLogs(false);
+  //   }
+  // }, [isExportingLogs]);
 
   const coworkConfig = useSelector(selectCoworkConfig);
 
