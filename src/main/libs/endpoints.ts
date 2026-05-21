@@ -1,5 +1,6 @@
 import { app } from 'electron';
 
+import { APP_UPDATE_CHANNEL } from './appUpdateConfig';
 import type { SqliteStore } from '../sqliteStore';
 
 let cachedTestMode: boolean | null = null;
@@ -43,8 +44,8 @@ export const getLlmGatewayBaseUrl = (): string => (
     : 'https://llmapi.popi.art'
 );
 
-export const getUpdateCheckUrl = (manual: boolean): string => (
-  `${getServerApiBaseUrl()}/api/app-update/prod/update`
+export const getUpdateCheckUrl = (_manual: boolean): string => (
+  `${getServerApiBaseUrl()}/api_client/app/latest?channel=${encodeURIComponent(APP_UPDATE_CHANNEL)}`
 );
 
 // export const getManualUpdateCheckUrl = (): string => (

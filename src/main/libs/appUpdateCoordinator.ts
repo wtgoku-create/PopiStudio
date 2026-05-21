@@ -12,6 +12,7 @@ import {
   AppUpdateStatus,
 } from '../../shared/appUpdate/constants';
 import type { SqliteStore } from '../sqliteStore';
+import { getAppUpdateReadAuthorization } from './appUpdateConfig';
 import { cancelActiveDownload, downloadUpdate, installUpdate } from './appUpdateInstaller';
 import { getFallbackDownloadUrl, getUpdateCheckUrl } from './endpoints';
 
@@ -25,19 +26,21 @@ type PlatformDownload = {
 };
 
 type UpdateApiResponse = {
-  code?: number;
+  status?: string;
+  message?: string;
   data?: {
-    value?: {
-      version?: string;
-      date?: string;
-      changeLog?: {
-        ch?: ChangeLogLang;
-        en?: ChangeLogLang;
-      };
-      macIntel?: PlatformDownload;
-      macArm?: PlatformDownload;
-      windowsX64?: PlatformDownload;
+    id?: number;
+    product?: string;
+    channel?: string;
+    version?: string;
+    date?: string;
+    changeLog?: {
+      ch?: ChangeLogLang;
+      en?: ChangeLogLang;
     };
+    macIntel?: PlatformDownload | null;
+    macArm?: PlatformDownload | null;
+    windowsX64?: PlatformDownload | null;
   };
 };
 
@@ -449,6 +452,7 @@ export class AppUpdateCoordinator {
       method: 'GET',
       headers: {
         Accept: 'application/json',
+        Authorization: getAppUpdateReadAuthorization(),
       },
     });
 
@@ -457,12 +461,12 @@ export class AppUpdateCoordinator {
     }
 
     const payload = (await response.json()) as UpdateApiResponse;
-    if (payload.code !== 0) {
-      throw new Error(`Update check failed with code ${payload.code ?? 'unknown'}`);
+    if (payload.status !== '0000') {
+      throw new Error(payload.message || `Update check failed with status ${payload.status ?? 'unknown'}`);
     }
 
-    const value = payload.data?.value;
-    const latestVersion = value?.version?.trim();
+    const data = payload.data;
+    const latestVersion = data?.version?.trim();
     if (!latestVersion || !this.isNewerVersion(latestVersion, currentVersion)) {
       console.log(
         `[AppUpdate] no update available, latestVersion=${latestVersion || 'N/A'}, currentVersion=${currentVersion}`,
@@ -477,12 +481,12 @@ export class AppUpdateCoordinator {
 
     const result: AppUpdateInfo = {
       latestVersion,
-      date: value?.date?.trim() || '',
+      date: data?.date?.trim() || '',
       changeLog: {
-        zh: toEntry(value?.changeLog?.ch),
-        en: toEntry(value?.changeLog?.en),
+        zh: toEntry(data?.changeLog?.ch),
+        en: toEntry(data?.changeLog?.en),
       },
-      url: this.getPlatformDownloadUrl(value),
+      url: this.getPlatformDownloadUrl(data),
     };
     console.log(
       `[AppUpdate] update available: ${currentVersion} -> ${latestVersion}, downloadUrl=${result.url}`,
@@ -491,15 +495,15 @@ export class AppUpdateCoordinator {
   }
 
   private getPlatformDownloadUrl(
-    value: NonNullable<NonNullable<UpdateApiResponse['data']>['value']> | undefined,
+    data: UpdateApiResponse['data'] | undefined,
   ): string {
     if (process.platform === 'darwin') {
-      const download = process.arch === 'arm64' ? value?.macArm : value?.macIntel;
+      const download = process.arch === 'arm64' ? data?.macArm : data?.macIntel;
       return download?.url?.trim() || getFallbackDownloadUrl();
     }
 
     if (process.platform === 'win32') {
-      return value?.windowsX64?.url?.trim() || getFallbackDownloadUrl();
+      return data?.windowsX64?.url?.trim() || getFallbackDownloadUrl();
     }
 
     return getFallbackDownloadUrl();

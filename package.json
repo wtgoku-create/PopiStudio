@@ -94,6 +94,7 @@
     "generate:tray-icons": "node scripts/generate-tray-icons.js",
     "setup:mingit": "node scripts/setup-mingit.js",
     "setup:python-runtime": "node scripts/setup-python-runtime.js",
+    "publish:app-update": "node scripts/publish-app-update.cjs",
     "popiart:cli:host": "node scripts/ensure-popiart-cli.cjs host",
     "popiart:cli:mac-arm64": "node scripts/ensure-popiart-cli.cjs mac-arm64",
     "popiart:cli:mac-x64": "node scripts/ensure-popiart-cli.cjs mac-x64",

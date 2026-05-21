@@ -13,11 +13,6 @@ on:
         required: true
         default: true
         type: boolean
-      build_linux:
-        description: 'Build Linux'
-        required: true
-        default: true
-        type: boolean
   push:
     tags:
       - 'v*'
@@ -53,7 +48,9 @@ jobs:
           fi
       
       - name: Build macOS
-        run: npm run dist:mac
+        run: |
+          npm run clean:release
+          npm run dist:mac:x64
         env:
           # 签名环境变量 (如果有证书)
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -64,7 +61,24 @@ jobs:
       
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-build
+          name: macos-build-x64
+          path: release/*.dmg
+          retention-days: 7
+
+      - name: Build macOS arm64
+        run: |
+          npm run clean:release
+          npm run dist:mac:arm64
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-arm64
           path: release/*.dmg
           retention-days: 7
 
@@ -103,42 +117,9 @@ jobs:
           path: release/*.exe
           retention-days: 7
 
-  # ========== Linux 构建 ==========
-  build-linux:
-    if: ${{ github.event_name == 'push' || inputs.build_linux }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.x'
-      - uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package.json') }}
-          restore-keys: npm-${{ runner.os }}-
-      
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 xdg-utils libatspi2.0-0 libuuid1 libsecret-1-0
-      
-      - run: npm install
-      
-      - name: Build Linux
-        run: npm run dist:linux
-      
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-build
-          path: |
-            release/*.AppImage
-            release/*.deb
-          retention-days: 7
-
   # ========== 创建 Release ==========
   create-release:
-    needs: [build-macos, build-windows, build-linux]
+    needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -153,11 +134,82 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/macos-build/*.dmg
+            artifacts/macos-build-x64/*.dmg
+            artifacts/macos-build-arm64/*.dmg
             artifacts/windows-build/*.exe
-            artifacts/linux-build/*
           draft: true
           prerelease: ${{ contains(github.ref, '-beta') || contains(github.ref, '-alpha') || contains(github.ref, '-rc') }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-macos-installers:
+    needs: [build-macos, create-release]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Download macOS x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build-x64
+          path: artifacts/macos-build-x64
+
+      - name: Download macOS arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build-arm64
+          path: artifacts/macos-build-arm64
+
+      - name: Upload macOS x64 installer to app update service
+        env:
+          APP_UPDATE_API_TOKEN: ${{ secrets.APP_UPDATE_API_TOKEN }}
+        run: |
+          X64_DMG="$(find artifacts/macos-build-x64 -name '*.dmg' | head -n 1)"
+          if [ -z "$X64_DMG" ]; then
+            echo "macOS x64 DMG not found"
+            exit 1
+          fi
+          node scripts/publish-app-update.cjs upload \
+            --file "$X64_DMG" \
+            --platform mac-x64 \
+            --tag "${GITHUB_REF_NAME}" \
+            --signed true
+
+      - name: Upload macOS arm64 installer to app update service
+        env:
+          APP_UPDATE_API_TOKEN: ${{ secrets.APP_UPDATE_API_TOKEN }}
+        run: |
+          ARM64_DMG="$(find artifacts/macos-build-arm64 -name '*.dmg' | head -n 1)"
+          if [ -z "$ARM64_DMG" ]; then
+            echo "macOS arm64 DMG not found"
+            exit 1
+          fi
+          node scripts/publish-app-update.cjs upload \
+            --file "$ARM64_DMG" \
+            --platform mac-arm64 \
+            --tag "${GITHUB_REF_NAME}" \
+            --signed true
+
+  publish-macos-metadata:
+    needs: publish-macos-installers
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Publish macOS update metadata
+        env:
+          APP_UPDATE_API_TOKEN: ${{ secrets.APP_UPDATE_API_TOKEN }}
+        run: |
+          node scripts/publish-app-update.cjs update \
+            --tag "${GITHUB_REF_NAME}"
