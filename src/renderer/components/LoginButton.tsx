@@ -123,7 +123,7 @@ const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   const phoneSuffix = user?.phone ? user.phone.slice(-4) : '';
 
-  const totalCredits = profileSummary?.totalCreditsRemaining ?? 0;
+  // const totalCredits = profileSummary?.totalCreditsRemaining ?? 0;
   const creditItems = profileSummary?.creditItems ?? [];
   const hasCredits = creditItems.length > 0;
 
@@ -152,9 +152,9 @@ const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             {i18nService.t('authCreditsRemaining')}
           </span>
           <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-foreground">
+            {/* <span className="text-xs font-medium text-foreground">
               {formatCredits(totalCredits)}{i18nService.t('authCreditsUnit')}
-            </span>
+            </span> */}
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="12"
