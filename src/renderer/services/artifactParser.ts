@@ -37,6 +37,11 @@ const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
   '.mp4': 'video',
   '.mov': 'video',
   '.webm': 'video',
+  '.m4v': 'video',
+  '.avi': 'video',
+  '.mkv': 'video',
+  '.wmv': 'video',
+  '.flv': 'video',
   '.mp3': 'audio',
   '.wav': 'audio',
   '.m4a': 'audio',
@@ -59,7 +64,19 @@ const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 const BINARY_DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx', '.pdf']);
-const MEDIA_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.mp3', '.wav', '.m4a']);
+const MEDIA_EXTENSIONS = new Set([
+  '.mp4',
+  '.mov',
+  '.webm',
+  '.m4v',
+  '.avi',
+  '.mkv',
+  '.wmv',
+  '.flv',
+  '.mp3',
+  '.wav',
+  '.m4a',
+]);
 
 export function getArtifactTypeFromLanguage(lang: string): ArtifactType | null {
   return LANGUAGE_TO_ARTIFACT_TYPE[lang.toLowerCase()] ?? null;
@@ -132,7 +149,7 @@ export function stripFileLinksFromText(text: string): string {
   return text.replace(/\[([^\]]+)\]\(file:\/\/([^)]+)\)/g, '');
 }
 
-const BARE_FILE_PATH_RE = /(?:^|[\s"'`(])(\/?(?:[^\s"'`()\[\]]+\/)*[^\s"'`()\[\]]+\.(?:docx|xlsx|pptx|pdf|md|txt|log|csv|mp4|mov|webm|mp3|wav|m4a))(?:[\s"'`)]|$)/gmi;
+const BARE_FILE_PATH_RE = /(?:^|[\s"'`(])(\/?(?:[^\s"'`()\[\]]+\/)*[^\s"'`()\[\]]+\.(?:docx|xlsx|pptx|pdf|md|txt|log|csv|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|m4a))(?:[\s"'`)]|$)/gmi;
 
 export function parseFilePathsFromText(
   messageContent: string,
