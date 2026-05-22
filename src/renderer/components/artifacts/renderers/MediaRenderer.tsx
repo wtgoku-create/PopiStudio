@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { i18nService } from '@/services/i18n';
 import type { Artifact } from '@/types/artifact';
 
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm']);
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv', '.wmv', '.flv']);
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a']);
 
 function getArtifactSource(artifact: Artifact): string | null {
@@ -46,10 +46,29 @@ const MediaRenderer: React.FC<MediaRendererProps> = ({ artifact }) => {
   const isVideo = artifact.type === 'video' || VIDEO_EXTENSIONS.has(ext);
   const isAudio = artifact.type === 'audio' || AUDIO_EXTENSIONS.has(ext);
 
+  const handleOpenWithApp = () => {
+    if (!artifact.filePath) return;
+    window.electron?.shell?.openPath(artifact.filePath);
+  };
+
   if (!source || error) {
     return (
-      <div className="flex items-center justify-center h-full text-muted text-sm">
-        {i18nService.t('artifactNoPreview')}
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+        <div className="text-sm font-medium text-foreground">
+          {artifact.fileName || artifact.title}
+        </div>
+        <div className="text-xs text-muted">
+          {i18nService.t('artifactNoPreview')}
+        </div>
+        {artifact.filePath && (
+          <button
+            type="button"
+            onClick={handleOpenWithApp}
+            className="rounded bg-primary px-3 py-1.5 text-xs text-white transition-colors hover:bg-primary/90"
+          >
+            {i18nService.t('artifactOpenWithApp')}
+          </button>
+        )}
       </div>
     );
   }

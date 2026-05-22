@@ -2589,7 +2589,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         </div>
       );
     }
-
+    console.log('turns',turns)
     return turns.map((turn, index) => {
       const isLastTurn = index === turns.length - 1;
       const showTypingIndicator = isStreaming && isLastTurn && !hasRenderableAssistantContent(turn);
@@ -2621,7 +2621,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       const turnArtifacts = sessionArtifacts.filter(
         a => turnMessageIds.has(a.messageId) && PREVIEWABLE_ARTIFACT_TYPES.has(a.type)
       );
-
       return (
         <LazyRenderTurn key={turn.id} turnId={turn.id} alwaysRender={alwaysRender} data-turn-index={index}>
           {turn.userMessage && (

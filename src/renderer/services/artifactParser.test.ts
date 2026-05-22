@@ -56,6 +56,14 @@ describe('parseFilePathsFromText', () => {
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0].filePath).toBe('D:/project/output.pdf');
   });
+
+  test('detects common video file paths as previewable artifacts', () => {
+    const content = 'video saved at D:/project/output.mkv';
+    const artifacts = parseFilePathsFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].type).toBe('video');
+    expect(artifacts[0].filePath).toBe('D:/project/output.mkv');
+  });
 });
 
 describe('parseToolArtifact', () => {
