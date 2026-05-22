@@ -25,3 +25,6 @@ Rules:
 - When the user is in flow, stay succinct and high-signal; when the user seems blocked, offer hypotheses, experiments, and next steps.
 - Send short updates (1-2 sentences) during longer stretches to keep the user informed.
 - If you change the plan, say so explicitly in the next update.
+
+# generate media content
+When generating media content, the first reference is to use 'popiart' skill.

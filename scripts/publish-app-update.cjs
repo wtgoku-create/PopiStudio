@@ -8,6 +8,7 @@ const DEFAULT_BASE_URL = 'https://wwwtest.popi.art';
 const DEFAULT_PRODUCT = 'popiai';
 const DEFAULT_CHANNEL = 'prod';
 const SUCCESS_STATUS = '0000';
+const DEFAULT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
 function printHelp() {
   console.log(`Usage:
@@ -83,6 +84,20 @@ function getBaseUrl() {
   return (process.env.APP_UPDATE_API_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, '');
 }
 
+function getRequestTimeoutMs() {
+  const rawValue = (process.env.APP_UPDATE_API_TIMEOUT_MS || '').trim();
+  if (!rawValue) {
+    return DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
+  const timeoutMs = Number(rawValue);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`APP_UPDATE_API_TIMEOUT_MS must be a positive number, received: ${rawValue}`);
+  }
+
+  return timeoutMs;
+}
+
 function getAuthHeaders(contentType) {
   const token = (process.env.APP_UPDATE_API_TOKEN || '').trim();
   if (!token) {
@@ -113,6 +128,31 @@ function resolveVersion(options) {
 function resolveDate(options) {
   if (options.date) return options.date.trim();
   return new Date().toISOString().slice(0, 10);
+}
+
+function formatDurationMs(durationMs) {
+  if (durationMs < 1000) {
+    return `${durationMs}ms`;
+  }
+
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return 'unknown size';
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 function normalizeBullet(line) {
@@ -209,6 +249,46 @@ async function ensureOkResponse(response, action) {
   return payload;
 }
 
+async function performRequest(url, init, context) {
+  const timeoutMs = getRequestTimeoutMs();
+  const startedAt = Date.now();
+  const signal = AbortSignal.timeout(timeoutMs);
+
+  console.log(
+    `[AppUpdatePublish] starting ${context.action}: ${context.method} ${url} `
+    + `(timeout ${formatDurationMs(timeoutMs)})`,
+  );
+
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal,
+    });
+    const durationMs = Date.now() - startedAt;
+
+    console.log(
+      `[AppUpdatePublish] received response for ${context.action}: `
+      + `HTTP ${response.status} in ${formatDurationMs(durationMs)}`,
+    );
+
+    return response;
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      throw new Error(
+        `${context.action} timed out after ${formatDurationMs(durationMs)} `
+        + `while calling ${url}`,
+      );
+    }
+
+    throw new Error(
+      `${context.action} request failed after ${formatDurationMs(durationMs)} `
+      + `while calling ${url}: ${error.message}`,
+    );
+  }
+}
+
 async function uploadInstaller(options) {
   const filePath = path.resolve(requireOption(options, 'file', 'upload'));
   const platform = requireOption(options, 'platform', 'upload').trim();
@@ -216,8 +296,10 @@ async function uploadInstaller(options) {
   const channel = (options.channel || DEFAULT_CHANNEL).trim();
   const version = resolveVersion(options);
   const signed = coerceBoolean(options.signed, true);
+  const uploadUrl = `${getBaseUrl()}/api_client/app/create`;
 
   await fs.promises.access(filePath, fs.constants.R_OK);
+  const fileStat = await fs.promises.stat(filePath);
 
   const fileBlob = await fs.openAsBlob(filePath);
   const form = new FormData();
@@ -228,12 +310,22 @@ async function uploadInstaller(options) {
   form.append('channel', channel);
   form.append('signed', String(signed));
 
-  console.log(`[AppUpdatePublish] uploading installer: ${path.basename(filePath)} (${platform}, ${version})`);
+  console.log(
+    `[AppUpdatePublish] uploading installer: ${path.basename(filePath)} `
+    + `(${formatBytes(fileStat.size)}, ${platform}, ${version})`,
+  );
+  console.log(
+    `[AppUpdatePublish] upload details: product=${product}, channel=${channel}, `
+    + `signed=${String(signed)}, url=${uploadUrl}`,
+  );
 
-  const response = await fetch(`${getBaseUrl()}/api_client/app/create`, {
+  const response = await performRequest(uploadUrl, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: form,
+  }, {
+    action: `installer upload for ${platform}`,
+    method: 'POST',
   });
 
   const payload = await ensureOkResponse(response, 'Installer upload');
@@ -249,10 +341,14 @@ async function updateMetadata(options) {
   const date = resolveDate(options);
   const annotation = readTagAnnotation(tag);
   const changeLog = parseTagAnnotation(annotation, version);
+  const updateUrl = `${getBaseUrl()}/api_client/app/update`;
 
-  console.log(`[AppUpdatePublish] publishing metadata for ${version} on channel ${channel}`);
+  console.log(
+    `[AppUpdatePublish] publishing metadata for ${version} on channel ${channel} `
+    + `(product=${product}, date=${date}, url=${updateUrl})`,
+  );
 
-  const response = await fetch(`${getBaseUrl()}/api_client/app/update`, {
+  const response = await performRequest(updateUrl, {
     method: 'POST',
     headers: getAuthHeaders('application/json'),
     body: JSON.stringify({
@@ -262,6 +358,9 @@ async function updateMetadata(options) {
       date,
       changeLog,
     }),
+  }, {
+    action: `metadata publish for ${version}`,
+    method: 'POST',
   });
 
   const payload = await ensureOkResponse(response, 'Metadata publish');
