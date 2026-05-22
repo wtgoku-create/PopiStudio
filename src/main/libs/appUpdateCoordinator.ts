@@ -444,8 +444,10 @@ export class AppUpdateCoordinator {
     userId?: string | null,
   ): Promise<AppUpdateInfo | null> {
     const baseUrl = getUpdateCheckUrl(manual);
-    const qs = this.getUpdateQueryString(userId, currentVersion);
-    const url = qs ? `${baseUrl}?${qs}` : baseUrl;
+    // const qs = this.getUpdateQueryString(userId, currentVersion);
+    // const url = qs ? `${baseUrl}?${qs}` : baseUrl;
+    void userId;
+    const url = baseUrl;
     console.log(`[AppUpdate] checking update, currentVersion=${currentVersion}, url=${url}`);
 
     const response = await session.defaultSession.fetch(url, {
@@ -547,20 +549,20 @@ export class AppUpdateCoordinator {
     return app.getVersion();
   }
 
-  private getUpdateQueryString(userId?: string | null, version?: string): string {
-    const params = new URLSearchParams();
-    const installationId = this.getOrCreateInstallationId();
-    if (installationId) {
-      params.append('uuid', installationId);
-    }
-    if (userId) {
-      params.append('userId', userId);
-    }
-    if (version) {
-      params.append('version', version);
-    }
-    return params.toString();
-  }
+  // private getUpdateQueryString(userId?: string | null, version?: string): string {
+  //   const params = new URLSearchParams();
+  //   const installationId = this.getOrCreateInstallationId();
+  //   if (installationId) {
+  //     params.append('uuid', installationId);
+  //   }
+  //   if (userId) {
+  //     params.append('userId', userId);
+  //   }
+  //   if (version) {
+  //     params.append('version', version);
+  //   }
+  //   return params.toString();
+  // }
 
   private getOrCreateInstallationId(): string | null {
     try {
