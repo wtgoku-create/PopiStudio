@@ -49,7 +49,7 @@ const WelcomeDialog: React.FC<WelcomeDialogProps> = ({ onLogin, onClose }) => {
         </p>
 
         {/* promo badge — left-aligned to match buttons */}
-        <div className="flex items-center gap-1.5 w-full" style={{ paddingLeft: 11, marginBottom: 10 }}>
+        {/* <div className="flex items-center gap-1.5 w-full" style={{ paddingLeft: 11, marginBottom: 10 }}>
           <img
             src="love.png"
             alt=""
@@ -59,8 +59,8 @@ const WelcomeDialog: React.FC<WelcomeDialogProps> = ({ onLogin, onClose }) => {
             draggable={false}
             aria-hidden="true"
           />
-          {/* <span className="text-sm text-secondary">{i18nService.t('welcomePromo')}</span> */}
-        </div>
+          <span className="text-sm text-secondary">{i18nService.t('welcomePromo')}</span>
+        </div> */}
 
         {/* buttons — hand image sits at bottom-left of this row, overlapping login button */}
         <div className="flex w-full relative overflow-visible">
