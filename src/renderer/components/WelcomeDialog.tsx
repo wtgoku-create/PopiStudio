@@ -59,12 +59,12 @@ const WelcomeDialog: React.FC<WelcomeDialogProps> = ({ onLogin, onClose }) => {
             draggable={false}
             aria-hidden="true"
           />
-          <span className="text-sm text-secondary">{i18nService.t('welcomePromo')}</span>
+          {/* <span className="text-sm text-secondary">{i18nService.t('welcomePromo')}</span> */}
         </div>
 
         {/* buttons — hand image sits at bottom-left of this row, overlapping login button */}
         <div className="flex w-full relative overflow-visible">
-          <img
+          {/* <img
             src="hand.png"
             alt=""
             width={41}
@@ -73,7 +73,7 @@ const WelcomeDialog: React.FC<WelcomeDialogProps> = ({ onLogin, onClose }) => {
             style={{ bottom: 0, left: -8 }}
             draggable={false}
             aria-hidden="true"
-          />
+          /> */}
           <button
             onClick={onLogin}
             className="w-full h-10 rounded-xl text-sm font-medium text-white transition-opacity hover:opacity-90 active:opacity-80"
