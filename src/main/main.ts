@@ -2847,17 +2847,25 @@ if (!gotTheLock) {
           headers: { Authorization: `Bearer ${credential.apiKey}` },
         });
         if (resp.ok) {
-          const body = await resp.json() as { data?: Array<{ id?: string; object?: string, created?: number, owned_by?: string, scenes?: string[]; supported_endpoint_types?: string[] }> };
-          const gatewayModels = (body.data ?? [])
-            .map(model => model.id?.trim())
-            .filter((id): id is string => !!id)
-            .map(id => ({
-              modelId: id,
-              modelName: id,
-              provider: ProviderName.PopiaiServer,
-              apiFormat: 'openai',
-              supportsImage: false,
-            }));
+          const body = (await resp.json()) as {
+            data?: Array<{
+              id?: string;
+              object?: string;
+              created?: number;
+              owned_by?: string;
+              scenes?: string[];
+              is_multimodal?: boolean;
+              supported_endpoint_types?: string[];
+            }>;
+          };
+          // console.log('[Auth:getModels] fetched model list from gateway:', body.data);
+          const gatewayModels = (body.data ?? []).map(mode => ({
+            modelId: mode.id || '',
+            modelName: mode.id || '',
+            provider: ProviderName.PopiaiServer,
+            apiFormat: 'openai',
+            supportsImage: mode.is_multimodal,
+          }));
           if (gatewayModels.length > 0) {
             models = gatewayModels;
           }
