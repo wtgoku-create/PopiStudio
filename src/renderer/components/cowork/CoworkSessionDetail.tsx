@@ -2589,7 +2589,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         </div>
       );
     }
-    console.log('turns',turns)
     return turns.map((turn, index) => {
       const isLastTurn = index === turns.length - 1;
       const showTypingIndicator = isStreaming && isLastTurn && !hasRenderableAssistantContent(turn);
