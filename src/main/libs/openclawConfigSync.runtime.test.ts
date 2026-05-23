@@ -306,7 +306,7 @@ describe('OpenClawConfigSync runtime config output', () => {
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     const provider = config.models.providers['popiai-server'];
-    expect(provider.baseUrl).toBe('http://127.0.0.1:56646/v1');
+    expect(provider.baseUrl).toBe('https://popiai-server.youdao.com/api/proxy/v1');
     expect(provider.models).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'qwen3.5-plus-YoudaoInner',

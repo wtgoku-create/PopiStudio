@@ -114,8 +114,8 @@ test('mapSkillMarketplaceData uses humanInstallDesp zip when url fields empty', 
     ],
     categories: [],
   });
-  expect(result.skills[0].url).toBe('https://example.com/a.zip');
-  expect(result.skills[0].source.url).toBe('https://example.com/a.zip');
+  expect(result.skills[0].url).toBe(human);
+  expect(result.skills[0].source.url).toBe(human);
 });
 
 test('isSkillHubPagedOrFilteredRequest: page or pageSize forces paginated API', () => {
@@ -173,11 +173,11 @@ test('mapSkillMarketplaceData maps skill hub payload to marketplace cards', () =
       name: 'Multi Search Engine',
       description: 'Search across multiple engines.',
       tags: ['9'],
-      url: 'https://clawhub.ai/gpyAngyoujun/multi-search-engine',
+      url: '',
       version: '1.0.0',
       source: {
-        from: 'ClawHub',
-        url: 'https://clawhub.ai/gpyAngyoujun/multi-search-engine',
+        from: 'SkillHub',
+        url: '',
         author: 'admin',
       },
     },
@@ -209,10 +209,10 @@ test('mapSkillMarketplaceData falls back to url when origin is missing', () => {
   expect(result.skills[0]).toMatchObject({
     id: '2',
     tags: [],
-    url: 'https://github.com/example/repo',
+    url: '',
     source: {
-      from: 'GitHub',
-      url: 'https://github.com/example/repo',
+      from: 'SkillHub',
+      url: '',
     },
   });
 });
