@@ -163,11 +163,45 @@ jobs:
     needs: [build-macos, create-release]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    env:
+      TENCENT_COS_BUCKET: ${{ vars.TENCENT_COS_BUCKET }}
+      TENCENT_COS_REGION: ${{ vars.TENCENT_COS_REGION }}
+      TENCENT_COS_ENDPOINT: ${{ vars.TENCENT_COS_ENDPOINT }}
+      TENCENT_COS_PUBLIC_BASE_URL: ${{ vars.TENCENT_COS_PUBLIC_BASE_URL }}
+      TENCENT_COS_PREFIX: ${{ vars.TENCENT_COS_PREFIX }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24.x'
+
+      - name: Install COSCMD
+        run: |
+          python3 -m pip install --user coscmd
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Tencent COS
+        env:
+          TENCENT_COS_SECRET_ID: ${{ secrets.TENCENT_COS_SECRET_ID }}
+          TENCENT_COS_SECRET_KEY: ${{ secrets.TENCENT_COS_SECRET_KEY }}
+        run: |
+          for name in TENCENT_COS_SECRET_ID TENCENT_COS_SECRET_KEY TENCENT_COS_BUCKET TENCENT_COS_REGION TENCENT_COS_PUBLIC_BASE_URL; do
+            if [ -z "${!name}" ]; then
+              echo "$name is required"
+              exit 1
+            fi
+          done
+          COSCMD_CONFIG_ARGS=(
+            -a "$TENCENT_COS_SECRET_ID"
+            -s "$TENCENT_COS_SECRET_KEY"
+            -b "$TENCENT_COS_BUCKET"
+            -r "$TENCENT_COS_REGION"
+            -m 30
+          )
+          if [ -n "$TENCENT_COS_ENDPOINT" ]; then
+            COSCMD_CONFIG_ARGS+=(-e "$TENCENT_COS_ENDPOINT")
+          fi
+          coscmd config "${COSCMD_CONFIG_ARGS[@]}"
 
       - name: Download macOS x64 artifact
         uses: actions/download-artifact@v4
@@ -181,7 +215,7 @@ jobs:
           name: macos-build-arm64
           path: artifacts/macos-build-arm64
 
-      - name: Upload macOS x64 installer to app update service
+      - name: Upload macOS x64 installer to Tencent COS
         env:
           APP_UPDATE_API_TOKEN: ${{ secrets.APP_UPDATE_API_TOKEN }}
         run: |
@@ -190,13 +224,19 @@ jobs:
             echo "macOS x64 DMG not found"
             exit 1
           fi
-          node scripts/publish-app-update.cjs upload \
-            --file "$X64_DMG" \
+          COS_PREFIX="${TENCENT_COS_PREFIX:-popiai/releases}"
+          COS_PREFIX="${COS_PREFIX#/}"
+          COS_PREFIX="${COS_PREFIX%/}"
+          COS_KEY="${COS_PREFIX}/${GITHUB_REF_NAME}/mac-x64/$(basename "$X64_DMG")"
+          coscmd upload "$X64_DMG" "$COS_KEY"
+          INSTALLER_URL="${TENCENT_COS_PUBLIC_BASE_URL%/}/${COS_KEY}"
+          node scripts/publish-app-update.cjs upload-url \
+            --url "$INSTALLER_URL" \
             --platform mac-x64 \
             --tag "${GITHUB_REF_NAME}" \
             --signed true
 
-      - name: Upload macOS arm64 installer to app update service
+      - name: Upload macOS arm64 installer to Tencent COS
         env:
           APP_UPDATE_API_TOKEN: ${{ secrets.APP_UPDATE_API_TOKEN }}
         run: |
@@ -205,8 +245,14 @@ jobs:
             echo "macOS arm64 DMG not found"
             exit 1
           fi
-          node scripts/publish-app-update.cjs upload \
-            --file "$ARM64_DMG" \
+          COS_PREFIX="${TENCENT_COS_PREFIX:-popiai/releases}"
+          COS_PREFIX="${COS_PREFIX#/}"
+          COS_PREFIX="${COS_PREFIX%/}"
+          COS_KEY="${COS_PREFIX}/${GITHUB_REF_NAME}/mac-arm64/$(basename "$ARM64_DMG")"
+          coscmd upload "$ARM64_DMG" "$COS_KEY"
+          INSTALLER_URL="${TENCENT_COS_PUBLIC_BASE_URL%/}/${COS_KEY}"
+          node scripts/publish-app-update.cjs upload-url \
+            --url "$INSTALLER_URL" \
             --platform mac-arm64 \
             --tag "${GITHUB_REF_NAME}" \
             --signed true

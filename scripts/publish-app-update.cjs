@@ -13,8 +13,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 function printHelp() {
   console.log(`Usage:
   node scripts/publish-app-update.cjs upload --file <path> --platform <platform> [--version <version>] [--channel <channel>] [--product <product>] [--signed <true|false>]
+  node scripts/publish-app-update.cjs upload-url --url <installer-url> --platform <platform> [--version <version>] [--channel <channel>] [--product <product>] [--signed <true|false>]
   node scripts/publish-app-update.cjs update --tag <tag> [--version <version>] [--date <yyyy-mm-dd>] [--channel <channel>] [--product <product>]
-  node scripts/publish-app-update.cjs upload-and-update --file <path> --platform <platform> --tag <tag> [--version <version>] [--date <yyyy-mm-dd>] [--channel <channel>] [--product <product>] [--signed <true|false>]
 
 Environment:
   APP_UPDATE_API_TOKEN      Required bearer token for write APIs.
@@ -289,47 +289,90 @@ async function performRequest(url, init, context) {
   }
 }
 
-async function uploadInstaller(options) {
-  const filePath = path.resolve(requireOption(options, 'file', 'upload'));
-  const platform = requireOption(options, 'platform', 'upload').trim();
+// async function uploadInstaller(options) {
+//   const filePath = path.resolve(requireOption(options, 'file', 'upload'));
+//   const platform = requireOption(options, 'platform', 'upload').trim();
+//   const product = (options.product || DEFAULT_PRODUCT).trim();
+//   const channel = (options.channel || DEFAULT_CHANNEL).trim();
+//   const version = resolveVersion(options);
+//   const signed = coerceBoolean(options.signed, true);
+//   const uploadUrl = `${getBaseUrl()}/api_client/app/create`;
+
+//   await fs.promises.access(filePath, fs.constants.R_OK);
+//   const fileStat = await fs.promises.stat(filePath);
+
+//   const fileBlob = await fs.openAsBlob(filePath);
+//   const form = new FormData();
+//   form.append('file', fileBlob, path.basename(filePath));
+//   form.append('product', product);
+//   form.append('version', version);
+//   form.append('platform', platform);
+//   form.append('channel', channel);
+//   form.append('signed', String(signed));
+
+//   console.log(
+//     `[AppUpdatePublish] uploading installer: ${path.basename(filePath)} `
+//     + `(${formatBytes(fileStat.size)}, ${platform}, ${version})`,
+//   );
+//   console.log(
+//     `[AppUpdatePublish] upload details: product=${product}, channel=${channel}, `
+//     + `signed=${String(signed)}, url=${uploadUrl}`,
+//   );
+
+//   const response = await performRequest(uploadUrl, {
+//     method: 'POST',
+//     headers: getAuthHeaders(),
+//     body: form,
+//   }, {
+//     action: `installer upload for ${platform}`,
+//     method: 'POST',
+//   });
+
+//   const payload = await ensureOkResponse(response, 'Installer upload');
+//   console.log(`[AppUpdatePublish] installer upload succeeded for ${platform}`);
+//   return payload;
+// }
+
+async function registerInstallerUrl(options) {
+  const installerUrl = requireOption(options, 'url', 'upload-url').trim();
+  const platform = requireOption(options, 'platform', 'upload-url').trim();
   const product = (options.product || DEFAULT_PRODUCT).trim();
   const channel = (options.channel || DEFAULT_CHANNEL).trim();
   const version = resolveVersion(options);
   const signed = coerceBoolean(options.signed, true);
   const uploadUrl = `${getBaseUrl()}/api_client/app/create`;
 
-  await fs.promises.access(filePath, fs.constants.R_OK);
-  const fileStat = await fs.promises.stat(filePath);
-
-  const fileBlob = await fs.openAsBlob(filePath);
-  const form = new FormData();
-  form.append('file', fileBlob, path.basename(filePath));
-  form.append('product', product);
-  form.append('version', version);
-  form.append('platform', platform);
-  form.append('channel', channel);
-  form.append('signed', String(signed));
+  if (!/^https?:\/\//i.test(installerUrl)) {
+    throw new Error(`Installer URL must be an HTTP(S) URL, received: ${installerUrl}`);
+  }
 
   console.log(
-    `[AppUpdatePublish] uploading installer: ${path.basename(filePath)} `
-    + `(${formatBytes(fileStat.size)}, ${platform}, ${version})`,
+    `[AppUpdatePublish] registering installer URL for ${platform}: ${installerUrl} `
+    + `(${version})`,
   );
   console.log(
-    `[AppUpdatePublish] upload details: product=${product}, channel=${channel}, `
+    `[AppUpdatePublish] registration details: product=${product}, channel=${channel}, `
     + `signed=${String(signed)}, url=${uploadUrl}`,
   );
 
   const response = await performRequest(uploadUrl, {
     method: 'POST',
-    headers: getAuthHeaders(),
-    body: form,
+    headers: getAuthHeaders('application/json'),
+    body: JSON.stringify({
+      product,
+      version,
+      platform,
+      channel,
+      signed,
+      url: installerUrl,
+    }),
   }, {
-    action: `installer upload for ${platform}`,
+    action: `installer URL registration for ${platform}`,
     method: 'POST',
   });
 
-  const payload = await ensureOkResponse(response, 'Installer upload');
-  console.log(`[AppUpdatePublish] installer upload succeeded for ${platform}`);
+  const payload = await ensureOkResponse(response, 'Installer URL registration');
+  console.log(`[AppUpdatePublish] installer URL registration succeeded for ${platform}`);
   return payload;
 }
 
@@ -376,8 +419,13 @@ async function main() {
     return;
   }
 
-  if (command === 'upload') {
-    await uploadInstaller(options);
+  // if (command === 'upload') {
+  //   await uploadInstaller(options);
+  //   return;
+  // }
+
+  if (command === 'upload-url') {
+    await registerInstallerUrl(options);
     return;
   }
 
@@ -386,11 +434,11 @@ async function main() {
     return;
   }
 
-  if (command === 'upload-and-update') {
-    await uploadInstaller(options);
-    await updateMetadata(options);
-    return;
-  }
+  // if (command === 'upload-and-update') {
+  //   await uploadInstaller(options);
+  //   await updateMetadata(options);
+  //   return;
+  // }
 
   throw new Error(`Unsupported command: ${command}`);
 }
