@@ -120,7 +120,7 @@ async function main() {
       console.log(`[CosUploadTest] test object URL: ${publicBaseUrl.replace(/\/+$/, '')}/${objectKey}`);
     }
 
-    // runCommand('deleting uploaded object', 'coscmd', ['delete', '-f', objectKey]);
+    runCommand('deleting uploaded object', 'coscmd', ['delete', '-f', objectKey]);
     uploaded = false;
 
     console.log('[CosUploadTest] local COS upload test completed successfully');
