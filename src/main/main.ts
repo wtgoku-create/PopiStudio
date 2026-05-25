@@ -110,7 +110,12 @@ import { collectReferencedEnvVarNames, pickReferencedSecretEnvVars } from './lib
 import { startOpenClawTokenProxy, stopOpenClawTokenProxy } from './libs/openclawTokenProxy';
 import { migrateMainAgentWorkspace } from './libs/openclawWorkspaceMigration';
 import { executePopiTVMcpTool, getPopiTVMcpToolManifest } from './libs/popiTVMcpBridgeTools';
-import { registerPopiTVRendererBridgeIpc, requestPopiTVCanvasFromRenderer } from './libs/popiTVRendererBridge';
+import {
+  getCachedPopiTVCanvasSnapshot,
+  registerPopiTVRendererBridgeIpc,
+  requestPopiTVCanvasFromRenderer,
+} from './libs/popiTVRendererBridge';
+import { PopiTVToolBridgeServer } from './libs/popiTVToolBridgeServer';
 import { ensurePythonRuntimeReady } from './libs/pythonRuntime';
 import { resolveStdioCommand } from './libs/resolveStdioCommand';
 import { serializeForLog } from './libs/sanitizeForLog';
@@ -884,6 +889,7 @@ let coworkEngineRouter: CoworkEngineRouter | null = null;
 let skillManager: SkillManager | null = null;
 let mcpStore: McpStore | null = null;
 let mcpBridgeServer: McpBridgeServer | null = null;
+let popiTVToolBridgeServer: PopiTVToolBridgeServer | null = null;
 // PopiArt 主进程服务实例（用于登录、登出和身份信息查询）
 let popiArtService: PopiArtService | null = null;
 // Generated eagerly so the secret is available before the first syncOpenClawConfig
@@ -906,6 +912,7 @@ let preventSleepBlockerId: number | null = null;
 let appUpdateCoordinator: AppUpdateCoordinator | null = null;
 
 const AUTH_USER_STORE_KEY = 'auth_user';
+const POPITV_MCP_SERVER_NAME = 'popitv';
 const getLocalMcpBridgeToolManifest = () => [
   ...getPopiTVMcpToolManifest(),
 ];
@@ -1015,6 +1022,9 @@ const bootstrapOpenClawEngine = async (options: { forceReinstall?: boolean; reas
         console.error(`[OpenClaw] bootstrap: AskUser server startup failed (non-fatal):`, err);
       });
       console.log(`[OpenClaw] bootstrap: AskUser server setup done (${elapsed()}), askUserUrl=${mcpBridgeServer?.askUserCallbackUrl || 'null'}`);
+      await startPopiTVToolBridgeServer().catch((err: unknown) => {
+        console.error('[OpenClaw] bootstrap: PopiTV bridge startup failed (non-fatal):', err);
+      });
 
       // Ensure IDENTITY.md has default content in the main agent workspace
       try {
@@ -1090,6 +1100,9 @@ const ensureOpenClawRunningForCowork = async () => {
   // so that mcp.servers config is available in openclaw.json when the gateway loads.
   await startAskUserServer().catch((err: unknown) => {
     console.error('[OpenClaw] ensureRunning: AskUser server startup failed (non-fatal):', err);
+  });
+  await startPopiTVToolBridgeServer().catch((err: unknown) => {
+    console.error('[OpenClaw] ensureRunning: PopiTV bridge startup failed (non-fatal):', err);
   });
   const syncResult = await syncOpenClawConfig({
     reason: 'ensureRunning:mcpConfig',
@@ -1643,12 +1656,6 @@ const startAskUserServer = async (): Promise<void> => {
     mcpBridgeServer = new McpBridgeServer(mcpBridgeSecret);
   }
 
-  mcpBridgeServer.setLocalToolHandler((server, tool, args, options) => (
-    executePopiTVMcpTool(server, tool, args, (request) => (
-      requestPopiTVCanvasFromRenderer(request, { signal: options.signal })
-    ))
-  ));
-
   if (mcpBridgeServer.port) return; // already running
 
   console.log('[AskUser] starting HTTP callback server...');
@@ -1688,7 +1695,24 @@ const startAskUserServer = async (): Promise<void> => {
     });
   });
 
-  console.log(`[AskUser] started: askUserUrl=${mcpBridgeServer.askUserCallbackUrl}, localTools=${getLocalMcpBridgeToolManifest().length}`);
+  console.log(`[AskUser] started: askUserUrl=${mcpBridgeServer.askUserCallbackUrl}`);
+};
+
+const startPopiTVToolBridgeServer = async (): Promise<void> => {
+  if (!popiTVToolBridgeServer) {
+    popiTVToolBridgeServer = new PopiTVToolBridgeServer(mcpBridgeSecret);
+  }
+
+  popiTVToolBridgeServer.setLocalToolHandler((server, tool, args, options) => (
+    executePopiTVMcpTool(server, tool, args, (request) => (
+      requestPopiTVCanvasFromRenderer(request, { signal: options.signal })
+    ), getCachedPopiTVCanvasSnapshot)
+  ));
+
+  if (popiTVToolBridgeServer.port) return;
+
+  await popiTVToolBridgeServer.start();
+  console.log(`[PopiTVMcpHttp] started: url=${popiTVToolBridgeServer.mcpUrl}, tools=${getLocalMcpBridgeToolManifest().length}`);
 };
 
 /**
@@ -1706,7 +1730,6 @@ const getResolvedMcpServers = async (): Promise<ResolvedMcpServer[]> => {
   const npmBinDir = app.isPackaged
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'npm', 'bin')
     : '';
-
   for (const server of enabledServers) {
     if (server.transportType === 'stdio') {
       const r = await resolveStdioCommand(server);
@@ -1733,6 +1756,20 @@ const getResolvedMcpServers = async (): Promise<ResolvedMcpServer[]> => {
       });
     }
   }
+
+  const popiTvBridgeUrl = popiTVToolBridgeServer?.mcpUrl;
+  const hasUserConfiguredPopiTV = resolved.some(server => server.name === POPITV_MCP_SERVER_NAME);
+  if (popiTvBridgeUrl && !hasUserConfiguredPopiTV) {
+    resolved.push({
+      name: POPITV_MCP_SERVER_NAME,
+      transportType: 'http',
+      url: popiTvBridgeUrl,
+      headers: {
+        'x-mcp-bridge-secret': '${LOBSTER_MCP_BRIDGE_SECRET}',
+      },
+    });
+  }
+
   return resolved;
 };
 
@@ -6824,7 +6861,12 @@ end tell'`, { timeout: 5000 });
       }
 
       const devPort = process.env.ELECTRON_START_URL?.match(/:(\d+)/)?.[1] || '5175';
-      const frameSources = isDev ? "'self' file: http://127.0.0.1:* http://localhost:*" : "'self' file:";
+      const frameSources = [
+        "'self'",
+        'file:',
+        'https://canvas.popi.art',
+        ...(isDev ? ['http://127.0.0.1:*', 'http://localhost:*'] : []),
+      ].join(' ');
       const cspDirectives = [
         "default-src 'self'",
         isDev ? `script-src 'self' 'unsafe-inline' http://localhost:${devPort} ws://localhost:${devPort}` : "script-src 'self'",

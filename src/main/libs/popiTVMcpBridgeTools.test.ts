@@ -45,6 +45,64 @@ describe('PopiTV MCP bridge tools', () => {
     expect(result?.content[0].text).toContain('"workflowName": "Storyboard"');
   });
 
+  test('reads canvas snapshots from cache when refresh is not requested', async () => {
+    const requestCanvas = vi.fn(async () => ({
+      workflowName: 'Fresh',
+      nodeCount: 1,
+      edgeCount: 0,
+    }));
+    const readCachedCanvas = vi.fn(() => ({
+      workflowName: 'Cached',
+      nodeCount: 2,
+      edgeCount: 1,
+    }));
+
+    const result = await executePopiTVMcpTool(
+      POPITV_MCP_SERVER_NAME,
+      'read_canvas',
+      { sessionId: 'session-1' },
+      requestCanvas,
+      readCachedCanvas,
+    );
+
+    expect(readCachedCanvas).toHaveBeenCalledWith('session-1');
+    expect(requestCanvas).not.toHaveBeenCalled();
+    expect(result?.details).toEqual({
+      server: POPITV_MCP_SERVER_NAME,
+      tool: 'read_canvas',
+      cached: true,
+    });
+    expect(result?.content[0].text).toContain('"workflowName": "Cached"');
+  });
+
+  test('bypasses cached snapshots when read_canvas refresh is requested', async () => {
+    const requestCanvas = vi.fn(async () => ({
+      workflowName: 'Fresh',
+      nodeCount: 1,
+      edgeCount: 0,
+    }));
+    const readCachedCanvas = vi.fn(() => ({
+      workflowName: 'Cached',
+      nodeCount: 2,
+      edgeCount: 1,
+    }));
+
+    const result = await executePopiTVMcpTool(
+      POPITV_MCP_SERVER_NAME,
+      'read_canvas',
+      { sessionId: 'session-1', refresh: true },
+      requestCanvas,
+      readCachedCanvas,
+    );
+
+    expect(readCachedCanvas).not.toHaveBeenCalled();
+    expect(requestCanvas).toHaveBeenCalledWith({
+      bridgeType: 'popitv:get-snapshot',
+      sessionId: 'session-1',
+    });
+    expect(result?.content[0].text).toContain('"workflowName": "Fresh"');
+  });
+
   test('maps edit_canvas operations to the renderer edit bridge', async () => {
     const operations = [{ type: 'updateNode', nodeId: 'prompt-1', data: { prompt: 'new' } }];
     const requestCanvas = vi.fn(async () => ({ operationResult: { applied: 1, skipped: [] } }));

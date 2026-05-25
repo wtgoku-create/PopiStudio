@@ -28,6 +28,7 @@ export type PopiTVBridgeToolResult = {
 };
 
 type RequestPopiTVCanvas = (request: PopiTVCanvasBridgeRequest) => Promise<unknown>;
+type ReadCachedPopiTVCanvas = (sessionId?: string) => unknown | null;
 
 type CanvasEditOperation = Record<string, unknown>;
 
@@ -62,6 +63,11 @@ export function getPopiTVMcpToolManifest(): McpToolManifestEntry[] {
         'Read the current PopiTV canvas snapshot, including nodes, edges, run state, and workflow metadata.',
       inputSchema: objectSchema({
         sessionId: optionalSessionIdSchema,
+        refresh: {
+          type: 'boolean',
+          description:
+            'When true, bypass the cached snapshot and request a fresh snapshot from the active canvas.',
+        },
       }),
     },
     {
@@ -326,6 +332,7 @@ export async function executePopiTVMcpTool(
   toolName: string,
   args: Record<string, unknown>,
   requestCanvas: RequestPopiTVCanvas,
+  readCachedCanvas?: ReadCachedPopiTVCanvas,
 ): Promise<PopiTVBridgeToolResult | null> {
   if (serverName !== POPITV_MCP_SERVER_NAME) {
     return null;
@@ -333,10 +340,17 @@ export async function executePopiTVMcpTool(
 
   const safeArgs = isRecord(args) ? args : {};
   const sessionId = getOptionalString(safeArgs, 'sessionId');
+  const shouldRefresh = safeArgs.refresh === true;
   const details = { server: POPITV_MCP_SERVER_NAME, tool: toolName };
 
   try {
     if (toolName === 'read_canvas') {
+      if (!shouldRefresh) {
+        const cachedPayload = readCachedCanvas?.(sessionId);
+        if (cachedPayload) {
+          return toToolResult(cachedPayload, { ...details, cached: true });
+        }
+      }
       const payload = await requestCanvas({
         bridgeType: 'popitv:get-snapshot',
         ...(sessionId ? { sessionId } : {}),

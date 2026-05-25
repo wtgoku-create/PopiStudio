@@ -7,6 +7,7 @@ type PendingRequest = {
   resolve: (payload: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  request: PopiTVCanvasBridgeRequest;
   abortCleanup?: () => void;
 };
 
@@ -19,13 +20,45 @@ type RendererResponse = {
 
 const REQUEST_CHANNEL = 'popitv:tool-request';
 const RESPONSE_CHANNEL = 'popitv:tool-response';
+const REGISTER_SESSION_CHANNEL = 'popitv:register-session';
+const UNREGISTER_SESSION_CHANNEL = 'popitv:unregister-session';
+const UPDATE_SNAPSHOT_CHANNEL = 'popitv:update-snapshot';
+const CLEAR_SNAPSHOT_CHANNEL = 'popitv:clear-snapshot';
 const DEFAULT_TIMEOUT_MS = 90_000;
 
 const pendingRequests = new Map<string, PendingRequest>();
+const sessionTargets = new Map<string, number>();
+const snapshotsBySessionId = new Map<string, { snapshot: unknown; receivedAt: number }>();
 let isRegistered = false;
 
 const isRendererResponse = (value: unknown): value is RendererResponse => {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+};
+
+const getSnapshotSessionId = (sessionId: unknown, snapshot: unknown): string | null => {
+  if (typeof sessionId === 'string' && sessionId.trim()) {
+    return sessionId.trim();
+  }
+  if (isRecord(snapshot) && typeof snapshot.sessionId === 'string' && snapshot.sessionId.trim()) {
+    return snapshot.sessionId.trim();
+  }
+  return null;
+};
+
+const storeCanvasSnapshot = (sessionId: unknown, snapshot: unknown): boolean => {
+  if (!isRecord(snapshot)) return false;
+  const normalizedSessionId = getSnapshotSessionId(sessionId, snapshot);
+  if (!normalizedSessionId) return false;
+
+  snapshotsBySessionId.set(normalizedSessionId, {
+    snapshot,
+    receivedAt: Date.now(),
+  });
+  return true;
 };
 
 export function registerPopiTVRendererBridgeIpc(): void {
@@ -43,6 +76,7 @@ export function registerPopiTVRendererBridgeIpc(): void {
     pendingRequests.delete(response.requestId);
 
     if (response.ok === true) {
+      storeCanvasSnapshot(pending.request.sessionId, response.payload);
       pending.resolve(response.payload);
       return;
     }
@@ -53,7 +87,48 @@ export function registerPopiTVRendererBridgeIpc(): void {
         : 'PopiTV canvas request failed';
     pending.reject(new Error(message));
   });
+  ipcMain.handle(REGISTER_SESSION_CHANNEL, (event, sessionId: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId.trim()) return false;
+    sessionTargets.set(sessionId, event.sender.id);
+    event.sender.once('destroyed', () => {
+      if (sessionTargets.get(sessionId) === event.sender.id) {
+        sessionTargets.delete(sessionId);
+        snapshotsBySessionId.delete(sessionId);
+      }
+    });
+    return true;
+  });
+  ipcMain.handle(UNREGISTER_SESSION_CHANNEL, (event, sessionId: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId.trim()) return false;
+    if (sessionTargets.get(sessionId) === event.sender.id) {
+      sessionTargets.delete(sessionId);
+      snapshotsBySessionId.delete(sessionId);
+    }
+    return true;
+  });
+  ipcMain.handle(UPDATE_SNAPSHOT_CHANNEL, (_event, sessionId: unknown, snapshot: unknown) => {
+    return storeCanvasSnapshot(sessionId, snapshot);
+  });
+  ipcMain.handle(CLEAR_SNAPSHOT_CHANNEL, (_event, sessionId: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId.trim()) return false;
+    snapshotsBySessionId.delete(sessionId);
+    return true;
+  });
   isRegistered = true;
+}
+
+export function getCachedPopiTVCanvasSnapshot(sessionId?: string): unknown | null {
+  if (sessionId) {
+    return snapshotsBySessionId.get(sessionId)?.snapshot ?? null;
+  }
+
+  let latest: { snapshot: unknown; receivedAt: number } | null = null;
+  for (const stored of snapshotsBySessionId.values()) {
+    if (!latest || stored.receivedAt > latest.receivedAt) {
+      latest = stored;
+    }
+  }
+  return latest?.snapshot ?? null;
 }
 
 export function requestPopiTVCanvasFromRenderer(
@@ -62,7 +137,13 @@ export function requestPopiTVCanvasFromRenderer(
 ): Promise<unknown> {
   registerPopiTVRendererBridgeIpc();
 
-  const windows = BrowserWindow.getAllWindows().filter(win => !win.isDestroyed());
+  const allWindows = BrowserWindow.getAllWindows().filter(win => !win.isDestroyed());
+  const targetWebContentsId = request.sessionId
+    ? sessionTargets.get(request.sessionId)
+    : undefined;
+  const windows = targetWebContentsId
+    ? allWindows.filter(win => win.webContents.id === targetWebContentsId)
+    : allWindows;
   if (windows.length === 0) {
     return Promise.reject(
       new Error('No Popiai renderer window is available for PopiTV canvas tools.'),
@@ -105,6 +186,7 @@ export function requestPopiTVCanvasFromRenderer(
       resolve,
       reject,
       timer,
+      request,
       abortCleanup,
     });
 

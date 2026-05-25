@@ -69,6 +69,11 @@ contextBridge.exposeInMainWorld('electron', {
     fetchMarketplace: () => ipcRenderer.invoke('mcp:fetchMarketplace'),
   },
   popitv: {
+    registerSession: (sessionId: string) => ipcRenderer.invoke('popitv:register-session', sessionId),
+    unregisterSession: (sessionId: string) => ipcRenderer.invoke('popitv:unregister-session', sessionId),
+    updateSnapshot: (sessionId: string, snapshot: unknown) =>
+      ipcRenderer.invoke('popitv:update-snapshot', sessionId, snapshot),
+    clearSnapshot: (sessionId: string) => ipcRenderer.invoke('popitv:clear-snapshot', sessionId),
     onToolRequest: (callback: (data: any) => void) => {
       const handler = (_event: any, data: any) => callback(data);
       ipcRenderer.on('popitv:tool-request', handler);

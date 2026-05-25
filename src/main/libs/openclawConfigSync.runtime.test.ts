@@ -1324,4 +1324,64 @@ describe('OpenClawConfigSync runtime config output', () => {
     });
     expect(config.tools.web.fetch.useEnvProxy).toBeUndefined();
   });
+
+  test('writes built-in popitv stdio MCP server into mcp.servers', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getPopoInstances: () => [],
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+      getResolvedMcpServers: () => [
+        {
+          name: 'popitv',
+          transportType: 'stdio',
+          command: '/usr/bin/node',
+          args: ['/app/dist-electron/main/libs/popiTVMcpStdioServer.js'],
+          env: {
+            ELECTRON_RUN_AS_NODE: '1',
+            POPIAI_POPITV_BRIDGE_URL: 'http://127.0.0.1:43123/execute',
+            POPIAI_MCP_BRIDGE_SECRET: '${LOBSTER_MCP_BRIDGE_SECRET}',
+          },
+        },
+      ],
+      getMcpBridgeSecret: () => 'test-bridge-secret',
+    } as never);
+
+    const result = sync.sync('popitv-mcp-bridge');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.mcp.servers.popitv).toEqual({
+      command: '/usr/bin/node',
+      args: ['/app/dist-electron/main/libs/popiTVMcpStdioServer.js'],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1',
+        POPIAI_POPITV_BRIDGE_URL: 'http://127.0.0.1:43123/execute',
+        POPIAI_MCP_BRIDGE_SECRET: '${LOBSTER_MCP_BRIDGE_SECRET}',
+      },
+    });
+  });
 });

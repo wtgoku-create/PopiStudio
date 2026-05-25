@@ -397,6 +397,10 @@ interface IElectronAPI {
     }>;
   };
   popitv: {
+    registerSession: (sessionId: string) => Promise<boolean>;
+    unregisterSession: (sessionId: string) => Promise<boolean>;
+    updateSnapshot: (sessionId: string, snapshot: unknown) => Promise<boolean>;
+    clearSnapshot: (sessionId: string) => Promise<boolean>;
     onToolRequest: (callback: (data: PopiTVToolRequestIPC) => void) => () => void;
     respondToolRequest: (data: PopiTVToolResponseIPC) => void;
   };

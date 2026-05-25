@@ -6,7 +6,7 @@ import {
   Squares2X2Icon,
   StopIcon,
 } from '@heroicons/react/24/outline';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   clearPopiTVCanvasSnapshot,
@@ -24,7 +24,7 @@ interface PopiTVCanvasWorkspaceProps {
   sessionTitle: string;
 }
 
-const POPITV_CANVAS_ORIGIN = 'http://localhost:3000';
+const POPITV_CANVAS_ORIGIN = 'https://canvas.popi.art';
 const POPIAI_BRIDGE_SOURCE = 'popiai';
 const POPITV_BRIDGE_SOURCE = 'popitv';
 const CANVAS_REQUEST_TIMEOUT_MS = 45_000;
@@ -61,13 +61,18 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
   const [isLoaded, setIsLoaded] = useState(false);
   const [snapshot, setSnapshot] = useState<PopiTVCanvasSnapshot | null>(null);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
+  const [canvasUrl, setCanvasUrl] = useState<string>('');
 
-  const canvasUrl = useMemo(() => {
-    const url = new URL(POPITV_CANVAS_ORIGIN);
-    url.searchParams.set('embed', 'popiai');
-    url.searchParams.set('sessionId', sessionId);
-    url.searchParams.set('parentOrigin', window.location.origin);
-    return url.toString();
+  useEffect(() => {
+    window.electron.store.get('auth_tokens').then((authTokens: any) => {
+      const url = new URL(POPITV_CANVAS_ORIGIN);
+      url.searchParams.set('token', authTokens?.accessToken || '');
+      url.searchParams.set('t', new Date().getTime().toString()); // prevent caching
+      url.searchParams.set('embed', 'popiai');
+      url.searchParams.set('sessionId', sessionId);
+      url.searchParams.set('parentOrigin', window.location.origin);
+      setCanvasUrl(url.toString());
+    });
   }, [sessionId]);
 
   const postCanvasMessage = useCallback(
@@ -197,6 +202,7 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
         setBridgeError(null);
         setSnapshot(nextSnapshot);
         setPopiTVCanvasSnapshot(sessionId, nextSnapshot);
+        void window.electron.popitv.updateSnapshot(sessionId, nextSnapshot).catch(() => false);
       }
     };
 
@@ -212,16 +218,22 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
     setSnapshot(null);
     setBridgeError(null);
     clearPopiTVCanvasSnapshot(sessionId);
+    void window.electron.popitv.clearSnapshot(sessionId).catch(() => false);
   }, [canvasUrl, rejectBridgeReadyWaiters, rejectPendingCanvasRequests, sessionId]);
 
   useEffect(() => {
+    void window.electron.popitv.registerSession(sessionId).catch(() => false);
     const handleCanvasToolRequest = (request: PopiTVCanvasToolRequest) =>
       sendCanvasRequest(request.bridgeType, {
         ...(request.nodeIds ? { nodeIds: request.nodeIds } : {}),
         ...(request.operations ? { operations: request.operations } : {}),
       });
 
-    return registerPopiTVCanvasToolHandler(sessionId, handleCanvasToolRequest);
+    const unregisterHandler = registerPopiTVCanvasToolHandler(sessionId, handleCanvasToolRequest);
+    return () => {
+      unregisterHandler();
+      void window.electron.popitv.unregisterSession(sessionId).catch(() => false);
+    };
   }, [sendCanvasRequest, sessionId]);
 
   useEffect(() => {
@@ -239,6 +251,7 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
     setSnapshot(null);
     setBridgeError(null);
     clearPopiTVCanvasSnapshot(sessionId);
+    void window.electron.popitv.clearSnapshot(sessionId).catch(() => false);
     setFrameKey(key => key + 1);
   };
 
@@ -260,7 +273,7 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
             title="Run workflow"
             disabled={snapshot?.isRunning}
             onClick={() => {
-            void sendCanvasRequest(PopiTVCanvasBridgeType.RunWorkflow).catch((error: unknown) => {
+              void sendCanvasRequest(PopiTVCanvasBridgeType.RunWorkflow).catch((error: unknown) => {
                 setBridgeError(error instanceof Error ? error.message : String(error));
               });
             }}
@@ -273,9 +286,11 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
             title="Stop workflow"
             disabled={!snapshot?.isRunning}
             onClick={() => {
-              void sendCanvasRequest(PopiTVCanvasBridgeType.StopWorkflow).catch((error: unknown) => {
-                setBridgeError(error instanceof Error ? error.message : String(error));
-              });
+              void sendCanvasRequest(PopiTVCanvasBridgeType.StopWorkflow).catch(
+                (error: unknown) => {
+                  setBridgeError(error instanceof Error ? error.message : String(error));
+                },
+              );
             }}
           >
             <StopIcon className="h-4 w-4" />
@@ -310,7 +325,7 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
           className="absolute inset-0 h-full w-full border-0 bg-white"
           onLoad={() => {
             setIsLoaded(true);
-              void sendCanvasRequest(PopiTVCanvasBridgeType.GetSnapshot).catch(() => {
+            void sendCanvasRequest(PopiTVCanvasBridgeType.GetSnapshot).catch(() => {
               // The bridge posts a ready snapshot on mount; avoid surfacing a duplicate load-time error.
             });
           }}

@@ -40,25 +40,11 @@ type PendingAskUser = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-export type McpBridgeToolResult = {
-  content: Array<{ type: string; text?: string }>;
-  isError: boolean;
-  details?: unknown;
-};
-
-export type McpBridgeLocalToolHandler = (
-  serverName: string,
-  toolName: string,
-  args: Record<string, unknown>,
-  options: { signal?: AbortSignal },
-) => Promise<McpBridgeToolResult | null>;
-
 export class McpBridgeServer {
   private server: http.Server | null = null;
   private _port: number | null = null;
   private readonly secret: string;
   private readonly pendingAskUser = new Map<string, PendingAskUser>();
-  private localToolHandler: McpBridgeLocalToolHandler | null = null;
   private onAskUserCallback: ((request: AskUserRequest) => void) | null = null;
   private onAskUserDismissCallback: ((requestId: string) => void) | null = null;
 
@@ -75,10 +61,6 @@ export class McpBridgeServer {
     return this._port ? `http://127.0.0.1:${this._port}/askuser` : null;
   }
 
-  get callbackUrl(): string | null {
-    return this._port ? `http://127.0.0.1:${this._port}/execute` : null;
-  }
-
   /**
    * Register a callback that fires when an AskUserQuestion request arrives.
    * The callback should show a modal and eventually call resolveAskUser().
@@ -93,10 +75,6 @@ export class McpBridgeServer {
    */
   onAskUserDismiss(callback: (requestId: string) => void): void {
     this.onAskUserDismissCallback = callback;
-  }
-
-  setLocalToolHandler(handler: McpBridgeLocalToolHandler | null): void {
-    this.localToolHandler = handler;
   }
 
   /**
@@ -188,11 +166,6 @@ export class McpBridgeServer {
       return;
     }
 
-    if (req.url?.startsWith('/execute')) {
-      await this.handleMcpExecute(req, res);
-      return;
-    }
-
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
   }
@@ -247,75 +220,6 @@ export class McpBridgeServer {
       log('ERROR', `AskUser request error: ${errMsg}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ behavior: 'deny' }));
-    }
-  }
-
-  private async handleMcpExecute(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    // Abort in-flight MCP tool calls when the gateway drops the HTTP connection
-    // (e.g. after chat.abort).  This prevents zombie 60-second MCP timeouts from
-    // keeping the gateway run active and blocking new user messages.
-    //
-    // Listen on `res` (ServerResponse), NOT `req` (IncomingMessage).
-    // `req` is a Readable stream that emits `close` after the body is consumed
-    // (auto-destroy via nextTick, which runs before the Promise microtask from
-    // readBody), causing the signal to be aborted before callTool even starts.
-    // `res.close` fires when the underlying socket disconnects; we only abort
-    // if the response hasn't been fully sent yet (i.e. a premature disconnect).
-    const abortController = new AbortController();
-    const onClose = () => {
-      if (!res.writableFinished) {
-        abortController.abort();
-      }
-    };
-    res.on('close', onClose);
-
-    try {
-      const body = await this.readBody(req);
-      const { server, tool, args } = JSON.parse(body) as {
-        server: string;
-        tool: string;
-        args: Record<string, unknown>;
-      };
-
-      log('INFO', `Execute request received for server="${server}" tool="${tool}"`);
-
-      if (!server || !tool) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing "server" or "tool" field' }));
-        return;
-      }
-
-      const safeArgs = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
-      const t0 = Date.now();
-      const result = await this.localToolHandler?.(server, tool, safeArgs, { signal: abortController.signal });
-
-      if (!result) {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          content: [{ type: 'text', text: `No local MCP bridge handler for ${server}.${tool}` }],
-          isError: true,
-        }));
-        return;
-      }
-
-      log('INFO', `Execute completed for server="${server}" tool="${tool}" in ${Date.now() - t0}ms with isError=${result.isError}`);
-
-      if (!res.writableEnded) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      log('ERROR', `Request handling error: ${errMsg}`);
-      if (!res.writableEnded) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          content: [{ type: 'text', text: `Bridge error: ${errMsg}` }],
-          isError: true,
-        }));
-      }
-    } finally {
-      res.removeListener('close', onClose);
     }
   }
 
