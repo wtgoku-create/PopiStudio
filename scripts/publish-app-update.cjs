@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const DEFAULT_BASE_URL = 'https://wwwtest.popi.art';
+const DEFAULT_BASE_URL = 'https://www.popi.art';
 const DEFAULT_PRODUCT = 'popiai';
 const DEFAULT_CHANNEL = 'prod';
 const SUCCESS_STATUS = '0000';
@@ -18,7 +18,7 @@ function printHelp() {
 
 Environment:
   APP_UPDATE_API_TOKEN      Required bearer token for write APIs.
-  APP_UPDATE_API_BASE_URL   Optional base URL. Defaults to https://wwwtest.popi.art
+  APP_UPDATE_API_BASE_URL   Optional base URL. Defaults to https://www.popi.art
 
 Tag annotation format:
   First non-empty line is treated as the default title.
