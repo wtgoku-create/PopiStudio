@@ -388,6 +388,19 @@ export const hasRenderableAssistantContent = (turn: ConversationTurn): boolean =
   getVisibleAssistantItems(turn.assistantItems).length > 0
 );
 
+const isThinkingAssistantItem = (item: AssistantTurnItem): boolean => (
+  item.type === 'assistant' && Boolean(item.message.metadata?.isThinking)
+);
+
+const orderAssistantItemsForDisplay = (items: AssistantTurnItem[]): AssistantTurnItem[] => {
+  const thinkingItems = items.filter(isThinkingAssistantItem);
+  if (thinkingItems.length === 0) return items;
+  return [
+    ...thinkingItems,
+    ...items.filter(item => !isThinkingAssistantItem(item)),
+  ];
+};
+
 // ── Build pipeline ───────────────────────────────────────────────────────────
 
 export const buildDisplayItems = (messages: CoworkMessage[]): DisplayItem[] => {
@@ -509,7 +522,10 @@ export const buildConversationTurns = (items: DisplayItem[]): ConversationTurn[]
     }
   }
 
-  return turns;
+  return turns.map(turn => ({
+    ...turn,
+    assistantItems: orderAssistantItemsForDisplay(turn.assistantItems),
+  }));
 };
 
 // ── Metadata helpers ─────────────────────────────────────────────────────────
