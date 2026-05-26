@@ -358,7 +358,7 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(mainEntry.cwd).toBe(path.resolve(mainAgentWorkingDirectory));
   });
 
-  test('merges all server models into existing lobsterai provider and updates image input', async () => {
+  test('merges all server models into existing popiai provider and updates image input', async () => {
     mockRuntimeState.proxyPort = 56646;
     mockRuntimeState.serverModels = [
       { modelId: 'qwen3.5-plus-YoudaoInner', supportsImage: true },
@@ -422,7 +422,7 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(result.ok).toBe(true);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const provider = config.models.providers['lobsterai-server'];
+    const provider = config.models.providers['popiai-server'];
     expect(provider.baseUrl).toBe('http://127.0.0.1:56646/v1');
     expect(provider.apiKey).toBe('${LOBSTER_PROXY_TOKEN}');
     expect(JSON.stringify(config)).not.toContain('LOBSTER_APIKEY_SERVER');
@@ -506,14 +506,14 @@ describe('OpenClawConfigSync runtime config output', () => {
         },
       },
       'deepseek/deepseek-v4-pro': {},
-      'lobsterai-server/MiniMax-M2.7-YoudaoInner': {},
-      'lobsterai-server/kimi-k2.6-inhouse-ZhiYun': {},
+      'popiai-server/MiniMax-M2.7-YoudaoInner': {},
+      'popiai-server/kimi-k2.6-inhouse-ZhiYun': {},
     }));
     expect(Object.keys(modelDefaults)).toEqual(expect.arrayContaining([
       'deepseek/deepseek-v4-flash',
       'deepseek/deepseek-v4-pro',
-      'lobsterai-server/MiniMax-M2.7-YoudaoInner',
-      'lobsterai-server/kimi-k2.6-inhouse-ZhiYun',
+      'popiai-server/MiniMax-M2.7-YoudaoInner',
+      'popiai-server/kimi-k2.6-inhouse-ZhiYun',
     ]));
   });
 
@@ -522,7 +522,7 @@ describe('OpenClawConfigSync runtime config output', () => {
       agents: {
         defaults: {
           models: {
-            'lobsterai-server/MiniMax-M2.7-YoudaoInner': {},
+            'popiai-server/MiniMax-M2.7-YoudaoInner': {},
           },
         },
       },
@@ -1164,7 +1164,7 @@ describe('OpenClawConfigSync runtime config output', () => {
 
     const agentsMdPath = path.join(stateDir, 'workspace-main', 'AGENTS.md');
     const agentsMd = fs.readFileSync(agentsMdPath, 'utf8');
-    expect(agentsMd).toContain('LobsterAI does not support sandbox browser execution in this version.');
+    expect(agentsMd).toContain('popiai does not support sandbox browser execution in this version.');
     expect(agentsMd).toContain('For every `browser` tool call, set `target="host"` explicitly.');
   });
 
@@ -1219,7 +1219,7 @@ describe('OpenClawConfigSync runtime config output', () => {
           timeoutSeconds: 25,
           maxRedirects: 4,
           maxChars: 12000,
-          userAgent: 'LobsterAI Test',
+          userAgent: 'popiai Test',
           readability: false,
           allowRfc2544BenchmarkRange: true,
         },
@@ -1273,7 +1273,7 @@ describe('OpenClawConfigSync runtime config output', () => {
       timeoutSeconds: 25,
       maxRedirects: 4,
       maxChars: 12000,
-      userAgent: 'LobsterAI Test',
+      userAgent: 'popiai Test',
       ssrfPolicy: { allowRfc2544BenchmarkRange: true },
     });
     expect(config.tools.web.fetch.useEnvProxy).toBeUndefined();

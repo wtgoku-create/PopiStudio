@@ -63,7 +63,7 @@ test('context usage ignores non-checkpoint compactionCount', () => {
   const usage = (adapter as unknown as {
     buildContextUsageFromSessionRow: (sessionId: string, row: Record<string, unknown>) => Record<string, unknown>;
   }).buildContextUsageFromSessionRow('session-1', {
-    key: 'agent:main:lobsterai:session-1',
+    key: 'agent:main:popiai:session-1',
     tokenCount: 53_250,
     contextTokens: 60_000,
     compactionCount: 1,
@@ -78,7 +78,7 @@ test('context usage uses checkpoint compaction count', () => {
   const usage = (adapter as unknown as {
     buildContextUsageFromSessionRow: (sessionId: string, row: Record<string, unknown>) => Record<string, unknown>;
   }).buildContextUsageFromSessionRow('session-1', {
-    key: 'agent:main:lobsterai:session-1',
+    key: 'agent:main:popiai:session-1',
     tokenCount: 20_000,
     contextTokens: 60_000,
     compactionCount: 9,
@@ -111,7 +111,7 @@ test('context usage resolves historical sessions with targeted lookup', async ()
     createdAt: 1,
     updatedAt: 1,
   };
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
   const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
   const adapter = new OpenClawRuntimeAdapter({
     getSession: (sessionId: string) => (sessionId === session.id ? session : null),
@@ -165,7 +165,7 @@ test('usage metadata falls back to latest assistant when preferred id was replac
     ) => Promise<void>;
   }).applyUsageMetadataFromFinal(
     session.id,
-    `agent:main:lobsterai:${session.id}`,
+    `agent:main:popiai:${session.id}`,
     'stale-message-id',
     80_262,
     391,
@@ -858,7 +858,7 @@ test('lifecycle fallback backfills missing tool result for the current turn', as
     { id: 'msg-2', type: 'tool_use', content: 'Using tool: read', timestamp: 2, metadata: { toolUseId: 'call-read' } },
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
 
   adapter.gatewayClient = {
     start: () => {},
@@ -909,7 +909,7 @@ test('lifecycle fallback waits when history sync returns a short assistant segme
       { id: 'msg-3', type: 'tool_result', content: 'partial log output', timestamp: 3, metadata: { toolUseId: 'call-grep' } },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
     const maintenanceSpy = vi.fn();
 
@@ -1010,7 +1010,7 @@ test('chat final backfills only current-turn tool results from history', async (
       { id: 'msg-3', type: 'assistant', content: 'working', timestamp: 3, metadata: { isStreaming: true } },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const historyMessages = [
       { role: 'user', content: 'old question' },
       {
@@ -1076,7 +1076,7 @@ test('chat final repairs managed session assistant text from history', async () 
     ]);
 
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     adapter.gatewayClient = {
       start: () => {},
       stop: () => {},
@@ -1130,7 +1130,7 @@ test('chat final repairs last segment with corrupted committed text from tool ca
     ]);
 
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     adapter.gatewayClient = {
       start: () => {},
       stop: () => {},
@@ -1238,7 +1238,7 @@ test('retryable closed run reopens on same-run lifecycle start', () => {
     { id: 'msg-2', type: 'assistant', content: 'interim', timestamp: 2, metadata: { isStreaming: false, isFinal: true } },
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
 
   adapter.rememberSessionKey(session.id, sessionKey);
   adapter.ensureActiveTurn(session.id, sessionKey, 'retry-run');
@@ -1289,7 +1289,7 @@ test('chat final completes after the retry grace window', async () => {
       { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     session.status = 'running';
@@ -1325,7 +1325,7 @@ test('chat final completion is postponed when the same run continues streaming',
       { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     session.status = 'running';
@@ -1371,7 +1371,7 @@ test('lifecycle end completes a pending chat final immediately', async () => {
       { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     session.status = 'running';
@@ -1409,7 +1409,7 @@ test('chat final completion is canceled when tool work continues after final', a
       { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     session.status = 'running';
@@ -1450,7 +1450,7 @@ test('tool-use chat final keeps the session running until tool work arrives', as
       { id: 'msg-1', type: 'user', content: 'read a file', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     session.status = 'running';
@@ -1500,7 +1500,7 @@ test('tool-use chat final inserts later tools after the preceding assistant segm
       { id: 'msg-1', type: 'user', content: 'verify the file', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const messageUpdateSpy = vi.fn();
 
     session.status = 'running';
@@ -1585,7 +1585,7 @@ test('tool-use lifecycle end waits for OpenClaw compaction retry', async () => {
       { id: 'msg-1', type: 'user', content: 'read a file', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     session.status = 'running';
@@ -1642,7 +1642,7 @@ test('compaction stream shows context maintenance state while keeping the sessio
     { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
   const messageSpy = vi.fn();
   const messageUpdateSpy = vi.fn();
   const maintenanceSpy = vi.fn();
@@ -1705,7 +1705,7 @@ test('compaction stream reuses active structured message for duplicate start eve
     { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
 
   session.status = 'running';
   adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-compaction'));
@@ -1733,7 +1733,7 @@ test('compaction end without a structured start message does not append a late m
     { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
 
   session.status = 'running';
   adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-compaction'));
@@ -1759,7 +1759,7 @@ test('empty tool final waits for compaction retry and accepts same-run continuat
       { id: 'msg-3', type: 'tool_result', content: 'OK', timestamp: 3, metadata: { toolUseId: 'call-1' } },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
     const maintenanceSpy = vi.fn();
 
@@ -1859,7 +1859,7 @@ test('empty final with local tool messages waits when history only has interim a
       { id: 'msg-3', type: 'tool_result', content: '80 lines of output', timestamp: 3, metadata: { toolUseId: 'call-1' } },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
     const maintenanceSpy = vi.fn();
     let historyAnswer = interimAnswer;
@@ -1972,7 +1972,7 @@ test('visible short tool final waits under large tool results and accepts same-r
       { id: 'msg-3', type: 'tool_result', content: 'partial', timestamp: 3, metadata: { toolUseId: 'call-1' } },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
     const maintenanceSpy = vi.fn();
 
@@ -2074,7 +2074,7 @@ test('visible short tool final completes with existing text when no continuation
       { id: 'msg-3', type: 'tool_result', content: 'partial', timestamp: 3, metadata: { toolUseId: 'call-1' } },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     adapter.gatewayClient = {
@@ -2159,7 +2159,7 @@ test('empty tool final shows thinking-only hint only after the follow-up grace w
       { id: 'msg-3', type: 'tool_result', content: 'OK', timestamp: 3, metadata: { toolUseId: 'call-1' } },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     adapter.gatewayClient = {
@@ -2227,7 +2227,7 @@ test('memory maintenance NO_REPLY stays running while waiting for a follow-up ru
       { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
     const maintenanceSpy = vi.fn();
 
@@ -2296,7 +2296,7 @@ test('memory maintenance fallback does not block a delayed queued run', async ()
       { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     session.status = 'running';
@@ -2362,7 +2362,7 @@ test('empty final with memory flush history waits for the original run to resume
       { id: 'msg-1', type: 'user', content: 'create a Japanese version', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
     const maintenanceSpy = vi.fn();
 
@@ -2452,7 +2452,7 @@ test('pre-compaction NO_REPLY without memory tools still waits for follow-up wor
       { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
     const maintenanceSpy = vi.fn();
 
@@ -2524,7 +2524,7 @@ test('silent token prefixes do not create visible assistant messages', () => {
     { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
 
   session.status = 'running';
   adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-memory'));
@@ -2564,7 +2564,7 @@ test('usage metadata sync ignores silent latest assistant history entries', asyn
 
   await (adapter as unknown as {
     syncUsageMetadata: (sessionId: string, sessionKey: string, assistantMessageId: string) => Promise<void>;
-  }).syncUsageMetadata(session.id, `agent:main:lobsterai:${session.id}`, 'missing-message-id');
+  }).syncUsageMetadata(session.id, `agent:main:popiai:${session.id}`, 'missing-message-id');
 
   expect(session.messages[1].metadata).toEqual({});
   expect(session.messages[2].metadata).toEqual({});
@@ -2577,7 +2577,7 @@ test('memory maintenance wait is canceled when a follow-up run starts', async ()
       { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
     const maintenanceSpy = vi.fn();
 
@@ -2632,7 +2632,7 @@ test('memory maintenance lifecycle end does not close a follow-up run', async ()
       { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const completeSpy = vi.fn();
 
     session.status = 'running';
@@ -2694,7 +2694,7 @@ test('ordinary write tool does not trigger memory maintenance handling', async (
     { id: 'msg-1', type: 'user', content: 'write a file', timestamp: 1, metadata: {} },
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const sessionKey = `agent:main:popiai:${session.id}`;
   const maintenanceSpy = vi.fn();
 
   adapter.on('contextMaintenance', maintenanceSpy);
@@ -2723,7 +2723,7 @@ test('lifecycle error fallback waits before aborting a gateway run', async () =>
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
     const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
     const turn = createActiveTurn(session.id, sessionKey, 'run-error');
 
     adapter.on('error', () => {});
@@ -2763,7 +2763,7 @@ test('lifecycle error fallback ignores a later run for the same session', async 
     ]);
     const adapter = new OpenClawRuntimeAdapter(store, {});
     const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
-    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const sessionKey = `agent:main:popiai:${session.id}`;
 
     adapter.gatewayClient = {
       start: () => {},

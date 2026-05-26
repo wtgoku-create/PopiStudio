@@ -1,11 +1,11 @@
 /**
  * popiartStore.ts
  *
- * 在 LobsterAI SQLite 中管理 PopiArt 的非敏感状态。
+ * 在 popiai SQLite 中管理 PopiArt 的非敏感状态。
  *
  * 设计原则：
- * - Key/token 不单独复制到 LobsterAI SQLite；登录后由 popiartcli 自己写入
- *   POPIART_CONFIG_DIR/config.json，LobsterAI 只保存非敏感状态。
+ * - Key/token 不单独复制到 popiai SQLite；登录后由 popiartcli 自己写入
+ *   POPIART_CONFIG_DIR/config.json，popiai 只保存非敏感状态。
  * - 状态包括：endpoint、auth status、user summary、project、cli version、
  *   lastVerifiedAt、lastError。
  */

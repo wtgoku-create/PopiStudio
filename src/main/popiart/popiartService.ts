@@ -30,7 +30,7 @@ import type { PopiArtLoginInput, PopiArtStatus } from './types';
 type FetchWithAuth = (url: string, options?: RequestInit) => Promise<Response>;
 
 interface PopiArtServiceOptions {
-  /** 使用当前 LobsterAI 登录态发起鉴权请求。 */
+  /** 使用当前 popiai 登录态发起鉴权请求。 */
   fetchWithAuth: FetchWithAuth;
   /** 获取当前服务器基础地址。 */
   getServerBaseUrl: () => string;
@@ -139,10 +139,10 @@ export class PopiArtService {
   }
 
   /**
-   * 使用当前 LobsterAI 登录 token，从网关接口拉取 PopiArt 专用 API key。
+   * 使用当前 popiai 登录 token，从网关接口拉取 PopiArt 专用 API key。
    *
    * 该 key 与用户登录态绑定，只在主进程中短暂使用，
-   * 不会被长期存入 LobsterAI 自己的 SQLite。
+   * 不会被长期存入 popiai 自己的 SQLite。
    */
   async fetchGatewayPopiArtKey(): Promise<string | null> {
     const serverBaseUrl = this.options.getServerBaseUrl().replace(/\/+$/, '');
@@ -156,7 +156,7 @@ export class PopiArtService {
   }
 
   /**
-   * 根据当前 LobsterAI 登录态，自动同步 PopiArt 登录状态。
+   * 根据当前 popiai 登录态，自动同步 PopiArt 登录状态。
    *
    * 流程：
    * 1. 调网关接口获取 PopiArt key

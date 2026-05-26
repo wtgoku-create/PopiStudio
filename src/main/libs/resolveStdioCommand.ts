@@ -153,8 +153,8 @@ export async function resolveStdioCommand(server: McpServerRecord): Promise<Reso
 
   // Resolve node/npx/npm commands on Windows (both dev and packaged mode).
   // The MCP SDK's StdioClientTransport only inherits a limited set of env vars
-  // (PATH, APPDATA, TEMP, etc.) — our node shims in PATH need LOBSTERAI_ELECTRON_PATH
-  // and LOBSTERAI_NPM_BIN_DIR which won't be inherited. Pre-resolving to absolute
+  // (PATH, APPDATA, TEMP, etc.) — our node shims in PATH need popiai_ELECTRON_PATH
+  // and popiai_NPM_BIN_DIR which won't be inherited. Pre-resolving to absolute
   // paths avoids depending on shims entirely.
   if (process.platform === 'win32' && effectiveCommand) {
     const normalized = effectiveCommand.trim().toLowerCase();
@@ -168,7 +168,7 @@ export async function resolveStdioCommand(server: McpServerRecord): Promise<Reso
           log('INFO', `"${server.name}": using system Node.js "${systemNode}" (preferred over Electron runtime)`);
         } else {
           const enhancedEnv = await getEnhancedEnv();
-          let npmBinDir = enhancedEnv.LOBSTERAI_NPM_BIN_DIR;
+          let npmBinDir = enhancedEnv.popiai_NPM_BIN_DIR;
           // In dev mode, the packaged npmBinDir may not exist.
           // Fall back to the npm bin dir relative to system Node.js.
           if (!npmBinDir || !fs.existsSync(npmBinDir)) {
@@ -199,14 +199,14 @@ export async function resolveStdioCommand(server: McpServerRecord): Promise<Reso
         }
       } else if (app.isPackaged) {
         const enhancedEnv = await getEnhancedEnv();
-        const npmBinDir = enhancedEnv.LOBSTERAI_NPM_BIN_DIR;
+        const npmBinDir = enhancedEnv.popiai_NPM_BIN_DIR;
         const npxCliJs = npmBinDir ? path.join(npmBinDir, 'npx-cli.js') : '';
         const npmCliJs = npmBinDir ? path.join(npmBinDir, 'npm-cli.js') : '';
 
         const withElectronNodeEnv = (base: Record<string, string> | undefined): Record<string, string> => ({
           ...(base || {}),
           ELECTRON_RUN_AS_NODE: '1',
-          LOBSTERAI_ELECTRON_PATH: electronNodeRuntimePath,
+          popiai_ELECTRON_PATH: electronNodeRuntimePath,
         });
 
         if (nodeCommandType === 'node') {
@@ -247,7 +247,7 @@ export async function resolveStdioCommand(server: McpServerRecord): Promise<Reso
       stdioEnv = {
         ...(stdioEnv || {}),
         ELECTRON_RUN_AS_NODE: '1',
-        LOBSTERAI_ELECTRON_PATH: electronNodeRuntimePath,
+        popiai_ELECTRON_PATH: electronNodeRuntimePath,
       };
       log('INFO', `"${server.name}": rewrote macOS command → Electron helper`);
     }

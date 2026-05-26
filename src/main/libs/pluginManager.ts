@@ -306,7 +306,7 @@ export class PluginManager {
       // to the actual extensions dir. This avoids:
       // 1. EPERM from gateway locking the target directory
       // 2. Path mismatch (openclaw creates extensions/ subdir under STATE_DIR)
-      const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lobsterai-plugin-stage-'));
+      const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-plugin-stage-'));
       onLog?.(`Installing plugin from ${installSpec}...\n`);
       const installEnv: NodeJS.ProcessEnv = {
         ...process.env,
@@ -435,7 +435,7 @@ export class PluginManager {
   }
 
   private async packNpmPlugin(params: PluginInstallParams, onLog?: PluginInstallLogCallback): Promise<string> {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lobsterai-plugin-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-plugin-'));
     const spec = params.version ? `${params.spec}@${params.version}` : params.spec;
     const npm = resolveNpmCommand();
     const args = [...npm.baseArgs, 'pack', spec, '--pack-destination', tmpDir];
@@ -468,7 +468,7 @@ export class PluginManager {
   }
 
   private async packGitPlugin(params: PluginInstallParams, onLog?: PluginInstallLogCallback): Promise<string> {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lobsterai-plugin-git-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-plugin-git-'));
     const sourceDir = path.join(tmpDir, 'source');
 
     const gitUrl = params.spec;

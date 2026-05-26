@@ -211,10 +211,10 @@ const MANAGED_SKILL_ENTRY_OVERRIDES: Record<string, { enabled: boolean }> = {
   'feishu-cron-reminder': {
     enabled: false,
   },
-  // LobsterAI configures MCP servers via openclaw.json mcp.servers field.
+  // popiai configures MCP servers via openclaw.json mcp.servers field.
   // The bundled mcporter skill tries to discover MCP servers via its own CLI,
   // finds none, and produces confusing "no MCP servers" output. Disable it so
-  // users are routed through LobsterAI's MCP layer instead.
+  // users are routed through popiai's MCP layer instead.
   'mcporter': {
     enabled: false,
   },
@@ -243,7 +243,7 @@ const MANAGED_WEB_SEARCH_POLICY_PROMPT = [
   '- Do not use `web_fetch` to fetch Google/Bing search result pages as a search substitute; use `browser` or an available search skill instead.',
   '- If you need search discovery, dynamic pages, or interactive browsing, use the built-in `browser` tool.',
   '- For login-required, JavaScript-heavy, or anti-automation pages, use `browser` instead of `web_fetch`.',
-  '- Only use the LobsterAI `web-search` skill when local command execution is available. Native channel sessions may deny `exec`, so prefer `browser` or `web_fetch` there.',
+  '- Only use the popiai `web-search` skill when local command execution is available. Native channel sessions may deny `exec`, so prefer `browser` or `web_fetch` there.',
   '- Exception: the `imap-smtp-email` skill must always use `exec` to run its scripts, even in native channel sessions. Do not skip it because of exec restrictions.',
   '',
   'Do not claim you searched the web unless you actually used `browser`, `web_fetch`, or the Popiai `web-search` skill.',
@@ -252,9 +252,9 @@ const MANAGED_WEB_SEARCH_POLICY_PROMPT = [
 const MANAGED_BROWSER_POLICY_PROMPT = [
   '## Browser Policy',
   '',
-  'LobsterAI does not support sandbox browser execution in this version.',
+  'popiai does not support sandbox browser execution in this version.',
   '- For every `browser` tool call, set `target="host"` explicitly.',
-  '- Do not use `target="sandbox"` or `target="node"` unless a future LobsterAI version explicitly enables it.',
+  '- Do not use `target="sandbox"` or `target="node"` unless a future popiai version explicitly enables it.',
   '- If a browser call fails because the sandbox browser is unavailable, retry the same action with `target="host"`.',
 ].join('\n');
 
@@ -1606,7 +1606,7 @@ export class OpenClawConfigSync {
               ...(p.config && Object.keys(p.config).length > 0 ? { config: p.config } : {}),
             }]),
           ),
-          // Disable acpx (ACP agent runtime) — LobsterAI does not use ACP and
+          // Disable acpx (ACP agent runtime) — popiai does not use ACP and
           // the embedded probe adds ~11s to gateway startup while it waits for
           // a process that always fails.  See openclaw/openclaw#62588.
           'acpx': { enabled: false },

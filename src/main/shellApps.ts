@@ -458,7 +458,7 @@ async function extractIcon(appInfo: AppInfo): Promise<string | null> {
 }
 
 async function icnsToPng(icnsPath: string): Promise<string | null> {
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'lobsterai-app-icon-'));
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'popiai-app-icon-'));
   const pngPath = path.join(tmpDir, 'icon.png');
   try {
     await execFileAsync('/usr/bin/sips', ['-s', 'format', 'png', icnsPath, '--out', pngPath], 5000);

@@ -15,7 +15,7 @@ version: 2.0.0
 - **文生图**：走 `popiart image generate`
 - **图生图**：走 `popiart image img2img`
 - **认证来源**：使用应用 Settings / 主进程已同步好的 PopiArt 登录态
-- **输出形式**：脚本会把最终图片拉到本地 `generation/` 目录，方便 LobsterAI 预览
+- **输出形式**：脚本会把最终图片拉到本地 `generation/` 目录，方便 popiai 预览
 
 ## 核心约束
 

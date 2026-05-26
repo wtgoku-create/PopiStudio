@@ -807,7 +807,7 @@ function ${patchMarker}(name) {
     }
 
     // --- Post-install patch: dingtalk-connector account wildcard bindings ---
-    // LobsterAI writes platform-level agent bindings as accountId:"*" so one
+    // popiai writes platform-level agent bindings as accountId:"*" so one
     // IM platform can route to a non-main Agent regardless of the concrete
     // DingTalk account.  The plugin's custom binding matcher treated accountId
     // as an exact string only, bypassing OpenClaw core wildcard semantics and

@@ -74,7 +74,7 @@ function createGitHubHeaders(accept) {
   const token = resolveGitHubToken();
   const headers = {
     Accept: accept,
-    'User-Agent': 'LobsterAI-PopiArtCLI-Packager',
+    'User-Agent': 'popiai-PopiArtCLI-Packager',
   };
 
   if (token) {

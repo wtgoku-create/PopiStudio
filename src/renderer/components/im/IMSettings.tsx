@@ -35,7 +35,8 @@ import type { UiHint } from './SchemaForm';
 import TelegramInstanceSettings from './TelegramInstanceSettings';
 import WecomInstanceSettings from './WecomInstanceSettings';
 
-
+// Hidden in UI for now: keep this list centralized for quick restore later.
+const HIDDEN_IM_PLATFORMS: Platform[] = ['netease-bee', 'popo', 'email'];
 
 // Reusable guide card component for platform setup instructions
 const PlatformGuide: React.FC<{

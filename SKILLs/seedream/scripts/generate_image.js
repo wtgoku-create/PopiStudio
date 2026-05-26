@@ -7,7 +7,7 @@
  * - 文生图 -> popiart image generate
  * - 图生图 -> popiart image img2img
  *
- * 输出会被下载到 skill 目录下的 generation/ 中，便于 LobsterAI 预览。
+ * 输出会被下载到 skill 目录下的 generation/ 中，便于 popiai 预览。
  */
 
 const fs = require('fs');

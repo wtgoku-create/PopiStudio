@@ -67,7 +67,7 @@ import { saveCoworkApiConfig } from './libs/coworkConfigStore';
 import { getCoworkLogPath } from './libs/coworkLogger';
 import { registerProxyTokenRefresher, startCoworkOpenAICompatProxy, stopCoworkOpenAICompatProxy } from './libs/coworkOpenAICompatProxy';
 import { generateSessionTitle, getElectronNodeRuntimePath, probeCoworkModelReadiness } from './libs/coworkUtil';
-import { getServerApiBaseUrl, getSkillStoreUrl, refreshEndpointsTestMode } from './libs/endpoints';
+import { getLlmGatewayBaseUrl, getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession, isPreviewServerUrl, stopHtmlPreviewServer } from './libs/htmlPreviewServer';
 import { getKeyfromAttribution, initializeKeyfromAttribution } from './libs/keyfromAttribution';
@@ -1628,45 +1628,6 @@ const getMcpStore = () => {
   return mcpStore;
 };
 
-/**
- * 返回 PopiArtService 单例。
- * 供应用登录态同步流程复用，统一管理 PopiArt CLI 登录态。
- */
-// Mutable ref holding the fetchWithAuth function once it's defined in its scope
-let _fetchWithAuthRef: ((url: string, opts?: RequestInit) => Promise<Response>) | null = null;
-const getPopiArtService = (): PopiArtService => {
-  if (!popiArtService) {
-    popiArtService = new PopiArtService(getStore(), {
-      fetchWithAuth: (url, opts) => {
-        if (!_fetchWithAuthRef) throw new Error('fetchWithAuth not initialized');
-        return _fetchWithAuthRef(url, opts);
-      },
-      getServerBaseUrl: getServerApiBaseUrl,
-    });
-  }
-  return popiArtService;
-};
-
-const syncPopiArtAfterAppAuthChange = async (
-  mode: 'authenticated' | 'unauthenticated',
-  reason: 'portal-login' | 'deep-link-login' | 'session-restore' | 'app-logout',
-): Promise<void> => {
-  console.log(`[PopiArt] sync triggered: mode=${mode}, reason=${reason}`);
-  const service = getPopiArtService();
-  const status = mode === 'authenticated'
-    ? await service.ensureAuthenticatedFromGatewayKey()
-    : await service.ensureUnavailable();
-  console.log(`[PopiArt] sync result: authStatus=${status.authStatus}, lastError=${status.lastError}`);
-  const bridge = await refreshMcpBridge();
-
-  if (bridge.error) {
-    console.warn(`[PopiArt] bridge refresh after ${reason} finished with an error: ${bridge.error}`);
-  }
-
-  if (mode === 'authenticated' && status.authStatus !== PopiArtAuthStatus.Authenticated) {
-    console.warn(`[PopiArt] auth sync after ${reason} finished with status ${status.authStatus}.`);
-  }
-};
 
 /**
  * Start the MCP Bridge: server manager + HTTP callback.
@@ -1747,10 +1708,10 @@ const getResolvedMcpServers = async (): Promise<ResolvedMcpServer[]> => {
       const r = await resolveStdioCommand(server);
       // Merge gateway env vars needed by shims as fallback
       const shimEnv: Record<string, string> = {
-        LOBSTERAI_ELECTRON_PATH: electronPath,
+        popiai_ELECTRON_PATH: electronPath,
       };
       if (npmBinDir) {
-        shimEnv.LOBSTERAI_NPM_BIN_DIR = npmBinDir;
+        shimEnv.popiai_NPM_BIN_DIR = npmBinDir;
       }
       resolved.push({
         name: server.name,
@@ -2566,7 +2527,6 @@ if (!gotTheLock) {
     clearServerModelMetadata();
     updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
     syncOpenClawConfig({ reason: 'popi-login', restartGatewayIfRunning: false }).catch(() => { });
-    await syncPopiArtAfterAppAuthChange('authenticated', 'portal-login');
     return { success: true, user: normalizePopiUser(user), quota };
   };
 
@@ -2715,7 +2675,6 @@ if (!gotTheLock) {
 
     return resp;
   };
-  _fetchWithAuthRef = fetchWithAuth;
 
   const fetchSkillMarketplacePage = async (options?: {
     page?: number;
@@ -2937,7 +2896,6 @@ if (!gotTheLock) {
       saveAuthTokens(body.data.accessToken, body.data.refreshToken);
       saveAuthUser(body.data.user);
       console.log('[Auth] exchange user data:', JSON.stringify(body.data.user));
-      await syncPopiArtAfterAppAuthChange('authenticated', 'deep-link-login');
       return { success: true, user: body.data.user, quota: normalizeQuota(body.data.quota) };
     } catch (error) {
       console.error('[Auth] exchange failed:', error);
@@ -2966,7 +2924,6 @@ if (!gotTheLock) {
         ...(points ?? {}),
       });
       updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
-      await syncPopiArtAfterAppAuthChange('authenticated', 'session-restore');
       console.log('[Auth] restored Popi user session');
       return { success: true, user: normalizePopiUser(profileData.user), quota };
     } catch {
@@ -3028,16 +2985,15 @@ if (!gotTheLock) {
         }).catch(() => { /* best-effort */ });
       }
       clearAuthTokens();
+      clearAuthUser();
       clearModelGatewayCredential();
       clearServerModelMetadata();
-      await syncPopiArtAfterAppAuthChange('unauthenticated', 'app-logout');
       return { success: true };
     } catch {
       clearAuthTokens();
       clearModelGatewayCredential();
       clearAuthUser();
       clearServerModelMetadata();
-      await syncPopiArtAfterAppAuthChange('unauthenticated', 'app-logout');
       return { success: true };
     }
   });

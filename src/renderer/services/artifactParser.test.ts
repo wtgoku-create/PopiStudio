@@ -112,10 +112,10 @@ describe('parseMediaTokensFromText', () => {
   });
 
   test('parses macOS path with spaces (Application Support)', () => {
-    const content = 'MEDIA: /Users/test/Library/Application Support/com.lobsterai/images/output.png';
+    const content = 'MEDIA: /Users/test/Library/Application Support/com.popiai/images/output.png';
     const artifacts = parseMediaTokensFromText(content, 'msg1', 'sess1');
     expect(artifacts).toHaveLength(1);
-    expect(artifacts[0].filePath).toBe('/Users/test/Library/Application Support/com.lobsterai/images/output.png');
+    expect(artifacts[0].filePath).toBe('/Users/test/Library/Application Support/com.popiai/images/output.png');
     expect(artifacts[0].type).toBe('image');
   });
 

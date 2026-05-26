@@ -169,10 +169,10 @@ interface ProvidersImportPayload {
   providers?: Record<string, ProvidersImportEntry>;
 }
 
-const ABOUT_CONTACT_EMAIL = 'lobsterai.project@rd.netease.com';
-const ABOUT_USER_MANUAL_URL = 'https://lobsterai.youdao.com/#/docs/lobsterai_user_manual';
-const ABOUT_USER_COMMUNITY_URL = 'https://lobsterai.youdao.com/#/about';
-const ABOUT_SERVICE_TERMS_URL = 'https://c.youdao.com/dict/hardware/lobsterai/lobsterai_service.html';
+const ABOUT_CONTACT_EMAIL = 'popiai.project@rd.netease.com';
+const ABOUT_USER_MANUAL_URL = 'https://popiai.youdao.com/#/docs/popiai_user_manual';
+const ABOUT_USER_COMMUNITY_URL = 'https://popiai.youdao.com/#/about';
+const ABOUT_SERVICE_TERMS_URL = 'https://c.youdao.com/dict/hardware/popiai/popiai_service.html';
 
 // MiniMax Portal OAuth constants
 const MINIMAX_OAUTH_CLIENT_ID = '78257093-7e40-4613-99e0-527b14b39113';

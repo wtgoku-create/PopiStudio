@@ -75,12 +75,12 @@ delete config.extraResources;
 
 config.dmg = {
   ...(config.dmg || {}),
-  artifactName: `LobsterAI-darwin-\${arch}-\${version}-${keyfrom}.\${ext}`,
+  artifactName: `popiai-darwin-\${arch}-\${version}-${keyfrom}.\${ext}`,
 };
 
 config.nsis = {
   ...(config.nsis || {}),
-  artifactName: `LobsterAI-Setup-\${arch}-\${version}-${keyfrom}.\${ext}`,
+  artifactName: `popiai-Setup-\${arch}-\${version}-${keyfrom}.\${ext}`,
 };
 
 console.log(`[Keyfrom] configured artifact keyfrom as ${keyfrom}`);

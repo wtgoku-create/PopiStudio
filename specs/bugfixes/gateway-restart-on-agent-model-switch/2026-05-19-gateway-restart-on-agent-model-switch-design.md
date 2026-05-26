@@ -4,7 +4,7 @@
 
 ### 1.1 问题
 
-用户只是在 Cowork 输入框里切换了一下模型，OpenClaw gateway 就被 LobsterAI 主进程主动重启。
+用户只是在 Cowork 输入框里切换了一下模型，OpenClaw gateway 就被 popiai 主进程主动重启。
 
 日志中的关键时间线：
 
@@ -40,7 +40,7 @@
 
 2. **未实际使用的 `LOBSTER_APIKEY_SERVER` 仍参与 secret env diff**
 
-   `lobsterai-server` 当前已经通过 token proxy 供 OpenClaw 访问。`openclaw.json` 中该 provider 的配置在 token proxy 可用时使用：
+   `popiai-server` 当前已经通过 token proxy 供 OpenClaw 访问。`openclaw.json` 中该 provider 的配置在 token proxy 可用时使用：
 
    ```text
    baseUrl: http://127.0.0.1:<token-proxy-port>/v1
@@ -84,9 +84,9 @@
 **And** 不触发 `agents.update`  
 **And** 不触发 gateway hard restart
 
-### 场景 C: lobsterai-server accessToken 刷新
+### 场景 C: popiai-server accessToken 刷新
 
-**Given** `lobsterai-server` 通过 token proxy 访问真实服务端  
+**Given** `popiai-server` 通过 token proxy 访问真实服务端  
 **When** 登录 accessToken 因主动刷新或 401 被动刷新发生变化  
 **Then** token proxy 使用最新 token 转发请求  
 **And** 不因为 `LOBSTER_APIKEY_SERVER` 变化重启 gateway
@@ -101,13 +101,13 @@
 
 ### FR-1: token proxy 可用时不注入动态 `LOBSTER_APIKEY_SERVER`
 
-当 `getOpenClawTokenProxyPort()` 可用时，`lobsterai-server` provider 的 OpenClaw 配置使用 `${LOBSTER_PROXY_TOKEN}`，不再引用 `${LOBSTER_APIKEY_SERVER}`。
+当 `getOpenClawTokenProxyPort()` 可用时，`popiai-server` provider 的 OpenClaw 配置使用 `${LOBSTER_PROXY_TOKEN}`，不再引用 `${LOBSTER_APIKEY_SERVER}`。
 
 此时 `collectSecretEnvVars()` 不应收集当前登录 accessToken 到 `LOBSTER_APIKEY_SERVER`，避免 rolling token 成为 gateway 重启条件。
 
 ### FR-2: 保留 token proxy 不可用时的兼容路径
 
-如果 token proxy 未启动或不可用，`lobsterai-server` 仍可回退到旧路径：
+如果 token proxy 未启动或不可用，`popiai-server` 仍可回退到旧路径：
 
 ```text
 apiKey: ${LOBSTER_APIKEY_SERVER}
@@ -172,7 +172,7 @@ if (shouldInjectServerApiKey && tokens?.accessToken && serverBaseUrl) {
 }
 ```
 
-注意 `claudeSettings.ts` 当前已经有注释说明 `lobsterai-server token is now managed by the token proxy`，但实现仍返回 `SERVER`。修复时应让代码与注释一致。
+注意 `claudeSettings.ts` 当前已经有注释说明 `popiai-server token is now managed by the token proxy`，但实现仍返回 `SERVER`。修复时应让代码与注释一致。
 
 ### 4.2 只比较实际引用的 secret env
 
@@ -241,7 +241,7 @@ agents/model changed
 3. gateway 日志仍应出现配置 hot reload，例如 `config hot reload applied (agents.list)`。
 4. accessToken 被动刷新或主动刷新后，再切换 Agent 模型，不因 `LOBSTER_APIKEY_SERVER` 变化触发重启。
 5. 修改真实自定义 provider API key 时，仍能触发 hard restart，并且重启后请求使用新 key。
-6. token proxy 不可用的回退场景下，`lobsterai-server` 仍能通过 `${LOBSTER_APIKEY_SERVER}` 工作。
+6. token proxy 不可用的回退场景下，`popiai-server` 仍能通过 `${LOBSTER_APIKEY_SERVER}` 工作。
 7. 单测覆盖：
    - token proxy 模式不收集 `LOBSTER_APIKEY_SERVER`
    - 未引用 env 变化不触发 hard restart
@@ -256,7 +256,7 @@ agents/model changed
 | `src/renderer/components/cowork/usePersistAgentModelSelection.ts` | 无 session 时持久化 Agent 模型的 hook |
 | `src/main/main.ts` | `agents.update` IPC、`syncOpenClawConfig()`、token refresh 入口 |
 | `src/main/libs/claudeSettings.ts` | `resolveAllProviderApiKeys()` 当前仍返回 `SERVER` accessToken |
-| `src/main/libs/openclawConfigSync.ts` | `lobsterai-server` provider 已使用 token proxy 与 `${LOBSTER_PROXY_TOKEN}` |
+| `src/main/libs/openclawConfigSync.ts` | `popiai-server` provider 已使用 token proxy 与 `${LOBSTER_PROXY_TOKEN}` |
 | `src/main/libs/openclawTokenProxy.ts` | token proxy 动态获取最新登录 token |
 | `src/main/libs/openclawConfigSync.test.ts` | 建议新增 env 收集和 hard restart 判定相关测试 |
 
