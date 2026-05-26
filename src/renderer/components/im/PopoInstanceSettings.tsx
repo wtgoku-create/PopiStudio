@@ -11,7 +11,78 @@ import React, { useEffect,useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
 import type { IMConnectivityTestResult,PopoInstanceConfig, PopoInstanceStatus, PopoOpenClawConfig } from '../../types/im';
-import TrashIcon from '../icons/TrashIcon';
+
+const PairingSection: React.FC<{
+  platform: string;
+}> = ({ platform }) => {
+  const [pairingCodeInput, setPairingCodeInput] = useState('');
+  const [pairingStatus, setPairingStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleApprovePairing = async (code: string) => {
+    setPairingStatus(null);
+    try {
+      const result = await window.electron.im.approvePairingCode(platform, code);
+      if (result.success) {
+        setPairingStatus({ type: 'success', message: i18nService.t('imPairingCodeApproved').replace('{code}', code) });
+      } else {
+        setPairingStatus({ type: 'error', message: result.error || i18nService.t('imPairingCodeInvalid') });
+      }
+    } catch {
+      setPairingStatus({ type: 'error', message: i18nService.t('imPairingCodeInvalid') });
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-medium text-secondary">
+        {i18nService.t('imPairingApproval')}
+      </label>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={pairingCodeInput}
+          onChange={(e) => {
+            setPairingCodeInput(e.target.value.toUpperCase());
+            if (pairingStatus) setPairingStatus(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              const code = pairingCodeInput.trim();
+              if (code) {
+                void handleApprovePairing(code).then(() => {
+                  setPairingCodeInput('');
+                });
+              }
+            }
+          }}
+          className="block flex-1 rounded-lg bg-surface border-border-subtle border focus:border-primary focus:ring-1 focus:ring-primary/30 text-foreground px-3 py-2 text-sm font-mono uppercase tracking-widest transition-colors"
+          placeholder={i18nService.t('imPairingCodePlaceholder')}
+          maxLength={8}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            const code = pairingCodeInput.trim();
+            if (code) {
+              void handleApprovePairing(code).then(() => {
+                setPairingCodeInput('');
+              });
+            }
+          }}
+          className="px-3 py-2 rounded-lg text-xs font-medium bg-green-500/15 text-green-600 dark:text-green-400 hover:bg-green-500/25 transition-colors"
+        >
+          {i18nService.t('imPairingApprove')}
+        </button>
+      </div>
+      {pairingStatus && (
+        <p className={`text-xs ${pairingStatus.type === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+          {pairingStatus.type === 'success' ? '✓' : '✗'} {pairingStatus.message}
+        </p>
+      )}
+    </div>
+  );
+};
 
 interface PopoInstanceSettingsProps {
   instance: PopoInstanceConfig;
@@ -19,12 +90,11 @@ interface PopoInstanceSettingsProps {
   onConfigChange: (update: Partial<PopoOpenClawConfig>) => void;
   onSave: (override?: Partial<PopoOpenClawConfig>) => Promise<void>;
   onRename: (newName: string) => void;
-  onDelete: () => void;
-  onToggleEnabled: () => void;
   onTestConnectivity: () => void;
   testingPlatform: string | null;
   connectivityResults: Record<string, IMConnectivityTestResult>;
   language: 'zh' | 'en';
+  headerLeading?: React.ReactNode;
 }
 
 const PopoInstanceSettings: React.FC<PopoInstanceSettingsProps> = ({
@@ -33,12 +103,11 @@ const PopoInstanceSettings: React.FC<PopoInstanceSettingsProps> = ({
   onConfigChange,
   onSave,
   onRename,
-  onDelete,
-  onToggleEnabled,
   onTestConnectivity,
   testingPlatform,
   connectivityResults,
   language,
+  headerLeading,
 }) => {
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [allowedUserIdInput, setAllowedUserIdInput] = useState('');
@@ -109,20 +178,15 @@ const PopoInstanceSettings: React.FC<PopoInstanceSettingsProps> = ({
   const effectiveConnectionMode = instance.connectionMode || (instance.token ? 'webhook' : 'websocket');
   const isWebhookMode = effectiveConnectionMode === 'webhook';
   const hasCredentials = !!(instance.appKey && instance.appSecret && instance.aesKey);
+  const shouldShowQrPanel = !hasCredentials || (qrStatus !== 'idle' && qrStatus !== 'success');
   const connectivityResult = connectivityResults['popo'];
 
   return (
     <div className="space-y-3">
-      {/* Instance Header: Name, Status, Enable Toggle, Delete */}
+      {/* Instance Header: Name and Status */}
       <div className="flex items-center gap-3 pb-3 border-b border-border-subtle">
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-surface border border-border-subtle p-1">
-            <img
-              src={PlatformRegistry.logo('popo')}
-              alt="POPO"
-              className="w-4 h-4 object-contain rounded"
-            />
-          </div>
+          {headerLeading}
           {editingName ? (
             <input
               type="text"
@@ -157,41 +221,10 @@ const PopoInstanceSettings: React.FC<PopoInstanceSettingsProps> = ({
             ? i18nService.t('connected')
             : i18nService.t('disconnected')}
         </div>
-
-        {/* Enable toggle */}
-        <button
-          type="button"
-          onClick={onToggleEnabled}
-          disabled={!instance.enabled && !hasCredentials}
-          className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-            instance.enabled
-              ? (instanceStatus?.connected ? 'bg-green-500' : 'bg-yellow-500')
-              : 'bg-gray-400 dark:bg-gray-600'
-          } ${!instance.enabled && !hasCredentials ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-          title={instance.enabled
-            ? (language === 'zh' ? '禁用此实例' : 'Disable this instance')
-            : (!hasCredentials
-              ? i18nService.t('imInstanceFillCredentials')
-              : (language === 'zh' ? '启用此实例' : 'Enable this instance'))}
-        >
-          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-            instance.enabled ? 'translate-x-4' : 'translate-x-0'
-          }`} />
-        </button>
-
-        {/* Delete button */}
-        <button
-          type="button"
-          onClick={onDelete}
-          className="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-500/10 rounded-lg transition-colors flex-shrink-0"
-          title={language === 'zh' ? '删除此实例' : 'Delete this instance'}
-        >
-          <TrashIcon className="h-4 w-4" />
-          {language === 'zh' ? '删除' : 'Delete'}
-        </button>
       </div>
 
       {/* Scan QR code section */}
+      {shouldShowQrPanel && (
       <div className="rounded-lg border border-dashed border-border-subtle p-4 text-center space-y-3">
         {(qrStatus === 'idle' || qrStatus === 'error') && (
           <>
@@ -245,6 +278,7 @@ const PopoInstanceSettings: React.FC<PopoInstanceSettingsProps> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* Platform Guide */}
       <div className="mb-3 p-3 rounded-lg border border-dashed border-border-subtle">
@@ -531,6 +565,11 @@ const PopoInstanceSettings: React.FC<PopoInstanceSettingsProps> = ({
               <option value="disabled">{i18nService.t('imDmPolicyDisabled')}</option>
             </select>
           </div>
+
+          {/* Pairing Requests (shown when dmPolicy is 'pairing') */}
+          {instance.dmPolicy === 'pairing' && (
+            <PairingSection platform="popo" />
+          )}
 
           {/* Allow From */}
           <div className="space-y-1.5">

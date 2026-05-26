@@ -1,5 +1,5 @@
 import { CheckIcon, ChevronDownIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
-import { FolderIcon, StopIcon } from '@heroicons/react/24/solid';
+import { ArrowUpIcon, FolderIcon } from '@heroicons/react/24/solid';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
@@ -27,8 +27,10 @@ import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
+import type { BrowserAnnotationPayload } from '../artifacts';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
+import TaskPauseIcon from '../icons/TaskPauseIcon';
 import XMarkIcon from '../icons/XMarkIcon';
 import ModelSelector from '../ModelSelector';
 import { ActiveSkillBadge, SkillsButton } from '../skills';
@@ -163,6 +165,8 @@ export interface CoworkPromptInputRef {
   setValue: (value: string) => void;
   /** 设置图片附件（用于重新编辑消息时还原图片） */
   setImageAttachments: (images: CoworkImageAttachment[]) => void;
+  /** 插入浏览器注释截图和注释文本 */
+  insertBrowserAnnotation: (annotation: BrowserAnnotationPayload) => void;
   /** 聚焦输入框 */
   focus: () => void;
 }
@@ -184,9 +188,12 @@ interface CoworkPromptInputProps {
   contextAgentId?: string;
   onManageSkills?: () => void;
   sessionId?: string;
+  contextUsageControl?: React.ReactNode;
   /** When true, hides attachment/skill buttons but keeps the input box visible (disabled) */
   remoteManaged?: boolean;
 }
+
+const EMPTY_ATTACHMENTS: CoworkAttachment[] = [];
 
 const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInputProps>(
   (props, ref) => {
@@ -207,12 +214,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       contextAgentId,
       onManageSkills,
       sessionId,
+      contextUsageControl,
       remoteManaged = false,
     } = props;
     const dispatch = useDispatch();
     const draftKey = sessionId || '__home__';
     const draftPrompt = useSelector((state: RootState) => selectDraftPrompts(state)[draftKey] || '');
-    const attachments = useSelector((state: RootState) => state.cowork.draftAttachments[draftKey] || []) as CoworkAttachment[];
+    const attachments = useSelector((state: RootState) => state.cowork.draftAttachments[draftKey] || EMPTY_ATTACHMENTS) as CoworkAttachment[];
     const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
     const agents = useSelector((state: RootState) => state.agent.agents);
     const coworkAgentEngine = useSelector((state: RootState) => state.cowork.config.agentEngine);
@@ -258,6 +266,53 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         dataUrl: `data:${img.mimeType};base64,${img.base64Data}`,
       }));
       dispatch(setDraftAttachments({ draftKey, attachments: newAttachments }));
+    },
+    insertBrowserAnnotation: (annotation) => {
+      const timestamp = Date.now();
+      const imageName = `${i18nService.t('artifactBrowserAnnotationImageName')}-${timestamp}.png`;
+      const annotationArea = [
+        `shape=${annotation.annotation.shape}`,
+        `color=${annotation.annotation.color}`,
+        `x=${annotation.annotation.x}`,
+        `y=${annotation.annotation.y}`,
+        `width=${annotation.annotation.width}`,
+        `height=${annotation.annotation.height}`,
+      ].join(', ');
+      const pageLabel = i18nService.t('artifactBrowserAnnotationPromptPage');
+      const elementLabel = i18nService.t('artifactBrowserAnnotationPromptElement');
+      const elementSummary = [
+        annotation.element.tagName,
+        annotation.element.text ? `"${annotation.element.text}"` : '',
+        `${annotation.element.width}x${annotation.element.height}`,
+      ].filter(Boolean).join(', ');
+      const annotationPrompt = [
+        i18nService.t('artifactBrowserAnnotationPromptTitle'),
+        i18nService.t('artifactBrowserAnnotationPromptTarget'),
+        '',
+        `${i18nService.t('artifactBrowserAnnotationPromptScreenshot')}: ${annotation.screenshot.width} x ${annotation.screenshot.height}`,
+        `${i18nService.t('artifactBrowserAnnotationPromptArea')}: ${annotationArea}`,
+        annotation.pageTitle || annotation.pageUrl ? `${pageLabel}: ${[annotation.pageTitle, annotation.pageUrl].filter(Boolean).join(' - ')}` : '',
+        elementSummary ? `${elementLabel}: ${elementSummary}` : '',
+        '',
+        `${i18nService.t('artifactBrowserAnnotationPromptComment')}:`,
+        annotation.comment.trim(),
+      ].filter(line => line !== '').join('\n');
+      const nextValue = value.trim() ? `${value.trim()}\n\n${annotationPrompt}` : annotationPrompt;
+      setValue(nextValue);
+      dispatch(setDraftPrompt({ sessionId: draftKey, draft: nextValue }));
+      dispatch(addDraftAttachment({
+        draftKey,
+        attachment: {
+          path: `inline:${imageName}:${timestamp}`,
+          name: imageName,
+          isImage: true,
+          dataUrl: annotation.imageDataUrl,
+        },
+      }));
+      setImageVisionHint(!modelSupportsImage);
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
     },
     focus: () => {
       textareaRef.current?.focus();
@@ -442,7 +497,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
 
     const trimmedValue = value.trim();
-    if ((!trimmedValue && attachments.length === 0) || isStreaming || disabled || isPatchingModel) return;
+    if (isStreaming) {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkSessionStillRunning'),
+      }));
+      return;
+    }
+    if ((!trimmedValue && attachments.length === 0) || disabled || isPatchingModel) return;
     setShowFolderRequiredWarning(false);
 
     // Get active skills prompts and combine them
@@ -581,7 +642,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         break;
     }
 
-    if (isSendCombo && !isStreaming && !disabled && !isPatchingModel) {
+    if (isSendCombo && isStreaming) {
+      event.preventDefault();
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkSessionStillRunning'),
+      }));
+    } else if (isSendCombo && !disabled && !isPatchingModel) {
       event.preventDefault();
       handleSubmit();
     } else {
@@ -940,6 +1006,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     () => configService.getConfig().shortcuts?.sendMessage ?? 'Enter'
   );
   const sendButtonTitle = `${i18nService.t('sendMessage')} (${getSendShortcutLabel(currentSendShortcut)})`;
+  const stopButtonLabel = i18nService.t('stop');
   const currentAgentForDisplay: AgentSelectorOption = currentAgent ?? {
     id: currentAgentId,
     name: currentAgentId,
@@ -1015,6 +1082,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
               if (currentAgent && agentModelIsInvalid) {
                 void agentService.updateAgent(currentAgent.id, { model: modelRef });
               }
+              void coworkService.refreshContextUsage(sessionId, { notifyCompaction: false });
             } catch {
               if (requestId === modelPatchRequestIdRef.current) {
                 dispatch(updateCurrentSessionModelOverride({
@@ -1044,22 +1112,22 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   ) : null;
 
   const largeInputActions = !remoteManaged ? (
-    <>
+    <div className="flex items-center gap-0.5">
       <button
         type="button"
         onClick={handleAddFile}
-        className="flex h-7 w-7 items-center justify-center rounded-lg text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
+        className="flex h-[34px] w-[34px] items-center justify-center rounded-lg text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
         title={i18nService.t('coworkAddFile')}
         aria-label={i18nService.t('coworkAddFile')}
         disabled={disabled || isStreaming || isAddingFile}
       >
-        <PaperClipIcon className="h-4 w-4" />
+        <PaperClipIcon className="h-5 w-5" />
       </button>
       <SkillsButton
         onSelectSkill={handleSelectSkill}
         onManageSkills={handleManageSkills}
       />
-    </>
+    </div>
   ) : null;
   const largeSendButtonSizeClass = useCompactSendButton ? 'h-7 w-7' : 'h-8 w-8';
   const largeSendIconSizeClass = useCompactSendButton ? 'h-4 w-4' : 'h-[18px] w-[18px]';
@@ -1068,10 +1136,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     <button
       type="button"
       onClick={handleStopClick}
-      className="p-2 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-all shadow-subtle hover:shadow-card active:scale-95"
-      aria-label="Stop"
+      className="flex h-[34px] w-[34px] items-center justify-center rounded-full transition-all hover:opacity-90 active:scale-95 focus:outline-none focus:ring-2 focus:ring-primary/40"
+      aria-label={stopButtonLabel}
+      title={stopButtonLabel}
     >
-      <StopIcon className="h-5 w-5" />
+      <TaskPauseIcon className="h-[34px] w-[34px]" aria-hidden="true" />
     </button>
   ) : (
     <button
@@ -1211,6 +1280,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                     {largeInputActions}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    {contextUsageControl}
                     {largeModelSelector}
                     {largeSendButton}
                   </div>
@@ -1358,6 +1428,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                   {largeInputActions}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {contextUsageControl}
                   {largeModelSelector}
                   {largeSendButton}
                 </div>
@@ -1383,40 +1454,47 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 <button
                   type="button"
                   onClick={handleAddFile}
-                  className="flex-shrink-0 p-1.5 rounded-lg text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
                   title={i18nService.t('coworkAddFile')}
                   aria-label={i18nService.t('coworkAddFile')}
                   disabled={disabled || isStreaming || isAddingFile}
                 >
-                  <PaperClipIcon className="h-4 w-4" />
+                  <PaperClipIcon className="h-5 w-5" />
                 </button>
               </div>
             )}
 
             {isStreaming ? (
-              <button
-                type="button"
-                onClick={handleStopClick}
-                className="flex-shrink-0 p-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition-all shadow-subtle hover:shadow-card active:scale-95"
-                aria-label="Stop"
-              >
-                <StopIcon className="h-4 w-4" />
-              </button>
+              <div className="flex flex-shrink-0 items-center gap-3">
+                {contextUsageControl}
+                <button
+                  type="button"
+                  onClick={handleStopClick}
+                  className="flex h-[34px] w-[34px] items-center justify-center rounded-full transition-all hover:opacity-90 active:scale-95 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  aria-label={stopButtonLabel}
+                  title={stopButtonLabel}
+                >
+                  <TaskPauseIcon className="h-[34px] w-[34px]" aria-hidden="true" />
+                </button>
+              </div>
             ) : (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={!canSubmit}
-                className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full transition-all ${
-                  canSubmit
-                    ? 'bg-neutral-950 text-white shadow-subtle hover:bg-neutral-800 active:scale-95 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200'
-                    : 'cursor-not-allowed bg-neutral-300 text-white dark:bg-neutral-700 dark:text-neutral-500'
-                }`}
-                aria-label={i18nService.t('sendMessage')}
-                title={sendButtonTitle}
-              >
-                <SendButtonIcon className="h-[17px] w-[17px]" />
-              </button>
+              <div className="flex flex-shrink-0 items-center gap-3">
+                {contextUsageControl}
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={!canSubmit}
+                  className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full transition-all ${
+                    canSubmit
+                      ? 'bg-neutral-950 text-white shadow-subtle hover:bg-neutral-800 active:scale-95 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200'
+                      : 'cursor-not-allowed bg-neutral-300 text-white dark:bg-neutral-700 dark:text-neutral-500'
+                  }`}
+                  aria-label={i18nService.t('sendMessage')}
+                  title={sendButtonTitle}
+                >
+                  <ArrowUpIcon className="h-[17px] w-[17px]" />
+                </button>
+              </div>
             )}
           </>
         )}

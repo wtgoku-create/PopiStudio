@@ -7,14 +7,15 @@ import {
   type AppUpdateCheckResult,
   type AppUpdateInfo,
   AppUpdateIpc,
-  AppUpdateSource,
   type AppUpdateRuntimeState,
+  AppUpdateSource,
   AppUpdateStatus,
 } from '../../shared/appUpdate/constants';
 import type { SqliteStore } from '../sqliteStore';
 import { getAppUpdateReadAuthorization } from './appUpdateConfig';
 import { cancelActiveDownload, downloadUpdate, installUpdate } from './appUpdateInstaller';
-import { getFallbackDownloadUrl, getUpdateCheckUrl } from './endpoints';
+import { getFallbackDownloadUrl, getManualUpdateCheckUrl, getUpdateCheckUrl } from './endpoints';
+import { getKeyfromAttribution } from './keyfromAttribution';
 
 type ChangeLogLang = {
   title?: string;

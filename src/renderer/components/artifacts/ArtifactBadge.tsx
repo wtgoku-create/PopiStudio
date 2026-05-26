@@ -2,7 +2,7 @@ import React from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { i18nService } from '@/services/i18n';
-import { selectArtifact, selectSelectedArtifact } from '@/store/slices/artifactSlice';
+import { openArtifactPreviewTab, selectSelectedArtifact } from '@/store/slices/artifactSlice';
 import type { Artifact, ArtifactType } from '@/types/artifact';
 
 const t = (key: string) => i18nService.t(key);
@@ -18,6 +18,7 @@ const TYPE_ICONS: Record<ArtifactType, string> = {
   markdown: '📝',
   text: '📄',
   document: '📑',
+  'local-service': '🌐',
 };
 
 interface ArtifactBadgeProps {
@@ -30,7 +31,7 @@ const ArtifactBadge: React.FC<ArtifactBadgeProps> = ({ artifact }) => {
   const isSelected = selected?.id === artifact.id;
 
   const handleClick = () => {
-    dispatch(selectArtifact(artifact.id));
+    dispatch(openArtifactPreviewTab({ sessionId: artifact.sessionId, artifactId: artifact.id }));
   };
 
   return (

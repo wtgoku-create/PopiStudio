@@ -17,7 +17,7 @@ import {
 import { addMessage, setCurrentSession, setStreaming, updateSessionStatus } from '../../store/slices/coworkSlice';
 import { clearSelection,selectAction, setActions } from '../../store/slices/quickActionSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../../store/slices/skillSlice';
-import type { CoworkImageAttachment, CoworkSession, OpenClawEngineStatus } from '../../types/cowork';
+import type { CoworkImageAttachment, CoworkSession, OpenClawEngineStatus, SubagentSessionSummary } from '../../types/cowork';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import ComposeIcon from '../icons/ComposeIcon';
 import SidebarToggleIcon from '../icons/SidebarToggleIcon';
@@ -25,9 +25,11 @@ import { PromptPanel,QuickActionBar } from '../quick-actions';
 import type { SettingsOpenOptions } from '../Settings';
 import WindowTitleBar from '../window/WindowTitleBar';
 import { useAgentSelectedModel } from './agentModelSelection';
+import { CoworkUiEvent } from './constants';
 import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInput';
 import CoworkSessionDetail from './CoworkSessionDetail';
 import { buildCoworkContinuationSystemPrompt, buildCoworkSystemPrompt } from './skillSystemPrompt';
+import SubagentSessionDetail from './SubagentSessionDetail';
 
 export interface CoworkViewProps {
   onRequestAppSettings?: (options?: SettingsOpenOptions) => void;
@@ -62,6 +64,24 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
   const config = useSelector(selectCoworkConfig);
   const isLoggedIn = useSelector((state: RootState) => state.auth.isLoggedIn);
   const availableModels = useSelector((state: RootState) => state.model.availableModels);
+
+  // Subagent detail view state
+  const [viewingSubagent, setViewingSubagent] = useState<SubagentSessionSummary | null>(null);
+
+  // Listen for subagent selection events from sidebar
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<SubagentSessionSummary | null>).detail;
+      setViewingSubagent(detail ?? null);
+    };
+    window.addEventListener(CoworkUiEvent.SelectSubagent, handler);
+    return () => window.removeEventListener(CoworkUiEvent.SelectSubagent, handler);
+  }, []);
+
+  // Clear subagent view when session changes
+  useEffect(() => {
+    setViewingSubagent(null);
+  }, [currentSession?.id]);
 
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);
@@ -307,9 +327,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
   };
 
   const handleContinueSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]) => {
-    if (!currentSession) return;
+    if (!currentSession) return false;
     // Prevent duplicate submissions
-    if (isContinuingRef.current) return;
+    if (isContinuingRef.current) return false;
     if (openClawStatus && !isOpenClawReadyForSession(openClawStatus)) {
       window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('coworkErrorEngineNotReady') }));
       return false;
@@ -327,22 +347,21 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       // Capture active skill IDs before clearing
       const sessionSkillIds = [...activeSkillIds];
 
-      // Clear active skills after capturing so they don't persist to next message
-      if (sessionSkillIds.length > 0) {
-        dispatch(clearActiveSkills());
-      }
-
       // Only send a continuation system prompt when this turn selects new skills.
       // Otherwise the main process falls back to the session prompt created on the first turn.
       const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(skillPrompt, config.systemPrompt);
 
-      await coworkService.continueSession({
+      const sent = await coworkService.continueSession({
         sessionId: currentSession.id,
         prompt,
         systemPrompt: combinedSystemPrompt,
         activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
         imageAttachments,
       });
+      if (sent && sessionSkillIds.length > 0) {
+        dispatch(clearActiveSkills());
+      }
+      return sent;
     } finally {
       isContinuingRef.current = false;
     }
@@ -503,6 +522,26 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     </div>
   ) : null;
 
+  // When viewing a subagent, show the subagent detail view
+  if (viewingSubagent) {
+    return (
+      <div className="flex-1 flex flex-col h-full">
+        {engineStatusBanner}
+        <SubagentSessionDetail
+          subagent={viewingSubagent}
+          onBack={() => {
+            setViewingSubagent(null);
+            window.dispatchEvent(new CustomEvent(CoworkUiEvent.SelectSubagent, { detail: null }));
+          }}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebar={onToggleSidebar}
+          onNewChat={onNewChat}
+          updateBadge={updateBadge}
+        />
+      </div>
+    );
+  }
+
   // When there's a current session, show the session detail view
   if (currentSession) {
     return (
@@ -523,7 +562,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
 
   // Home view - no current session
   return (
-    <div className="flex-1 flex flex-col bg-surface h-full">
+    <div className="flex-1 flex flex-col bg-background h-full">
       {/* Engine status banner for error states */}
       {engineStatusBanner}
 

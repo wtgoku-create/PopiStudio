@@ -1334,11 +1334,9 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
   const [isCopied, setIsCopied] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [wrap, setWrap] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const copyTimeoutRef = useRef<number | null>(null);
-  const viewRef = useRef<EditorView | null>(null);
   const isDark = useIsDark();
 
   useEffect(
@@ -1389,26 +1387,12 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
     }
   }, [trimmedCodeText, rawLang]);
 
-  const handleToggleSearch = useCallback(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    const isOpen = searchPanelOpen(view.state);
-    if (isOpen) {
-      closeSearchPanel(view);
-    } else {
-      openSearchPanel(view);
-      view.focus();
-    }
-    // searchOpen state is synced by the updateListener in useCodeMirrorView
-  }, []);
-
   const handleToggleCollapse = useCallback(() => {
     setCollapsed((v) => !v);
   }, []);
 
-  const handleViewReady = useCallback((view: EditorView | null) => {
-    viewRef.current = view;
-  }, []);
+  const ignoreCodeMirrorView = useCallback(() => undefined, []);
+  const ignoreSearchOpenChange = useCallback(() => undefined, []);
 
   // -------------------------------------------------------------------------
   // Inline code
@@ -1467,18 +1451,6 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
               )}
             </HeaderButton>
           </CodeBlockTooltip>
-          {/* Search toggle - only for regular code blocks (not diff) */}
-          {!isDiffBlock && (
-            <CodeBlockTooltip content={searchOpen ? i18nService.t('codeBlockSearchClose') : i18nService.t('codeBlockSearch')}>
-              <HeaderButton
-                onClick={handleToggleSearch}
-                ariaLabel={searchOpen ? i18nService.t('codeBlockSearchClose') : i18nService.t('codeBlockSearch')}
-                active={searchOpen}
-              >
-                <SearchIcon className="h-[18px] w-[18px]" />
-              </HeaderButton>
-            </CodeBlockTooltip>
-          )}
           {/* Word wrap toggle */}
           <CodeBlockTooltip content={wrap ? i18nService.t('codeBlockWordWrapOff') : i18nService.t('codeBlockWordWrap')}>
             <HeaderButton
@@ -1535,8 +1507,8 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
               isDark={isDark}
               wrap={wrap}
               langSupport={langSupport}
-              onViewReady={handleViewReady}
-              onSearchOpenChange={setSearchOpen}
+              onViewReady={ignoreCodeMirrorView}
+              onSearchOpenChange={ignoreSearchOpenChange}
             />
           )
         ) : (

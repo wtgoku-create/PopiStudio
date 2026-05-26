@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import type { OpenClawSessionPatch } from '../../../common/openclawSession';
 import type {
   CoworkAgentEngine,
+  CoworkContextUsage,
   CoworkContinueOptions,
   CoworkRuntime,
   CoworkRuntimeEvents,
@@ -80,6 +81,22 @@ export class CoworkEngineRouter extends EventEmitter implements CoworkRuntime {
     await this.runtime.patchSession(sessionId, patch);
   }
 
+  async getContextUsage(sessionId: string): Promise<CoworkContextUsage | null> {
+    if (!this.runtime.getContextUsage) {
+      return null;
+    }
+    return this.runtime.getContextUsage(sessionId);
+  }
+
+  async compactContext(sessionId: string): Promise<{ compacted: boolean; reason?: string; usage?: CoworkContextUsage | null }> {
+    const engine = this.safeResolveEngine();
+    this.sessionEngine.set(sessionId, engine);
+    if (!this.runtime.compactContext) {
+      throw new Error(`Context compaction is not supported by engine: ${engine}`);
+    }
+    return this.runtime.compactContext(sessionId);
+  }
+
   stopSession(sessionId: string): void {
     this.runtime.stopSession(sessionId);
     this.sessionEngine.delete(sessionId);
@@ -137,14 +154,26 @@ export class CoworkEngineRouter extends EventEmitter implements CoworkRuntime {
   }
 
   private bindRuntimeEvents(engine: CoworkAgentEngine, runtime: CoworkRuntime): void {
-    runtime.on('message', (sessionId, message) => {
+    runtime.on('message', (sessionId, message, beforeMessageId) => {
       this.sessionEngine.set(sessionId, engine);
-      this.emit('message', sessionId, message);
+      this.emit('message', sessionId, message, beforeMessageId);
     });
 
     runtime.on('messageUpdate', (sessionId, messageId, content, metadata) => {
       this.sessionEngine.set(sessionId, engine);
       this.emit('messageUpdate', sessionId, messageId, content, metadata);
+    });
+
+    runtime.on('sessionStatus', (sessionId, status) => {
+      if (status === 'running') {
+        this.sessionEngine.set(sessionId, engine);
+      }
+      this.emit('sessionStatus', sessionId, status);
+    });
+
+    runtime.on('contextUsageUpdate', (sessionId, usage) => {
+      this.sessionEngine.set(sessionId, engine);
+      this.emit('contextUsageUpdate', sessionId, usage);
     });
 
     runtime.on('permissionRequest', (sessionId, request) => {

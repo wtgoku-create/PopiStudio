@@ -61,6 +61,21 @@ export interface CoworkMessageMetadata {
   [key: string]: unknown;
 }
 
+export interface CoworkContextUsage {
+  sessionId: string;
+  sessionKey?: string;
+  usedTokens?: number;
+  contextTokens?: number;
+  percent?: number;
+  compactionCount?: number;
+  status: 'unknown' | 'normal' | 'warning' | 'danger' | 'compacting';
+  latestCompactionCheckpointId?: string;
+  latestCompactionReason?: string;
+  latestCompactionCreatedAt?: number;
+  model?: string;
+  updatedAt: number;
+}
+
 // Cowork message
 export interface CoworkMessage {
   id: string;
@@ -219,6 +234,18 @@ export interface CoworkSessionSummary {
   agentId?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+// Subagent session summary for sidebar display
+export interface SubagentSessionSummary {
+  id: string;
+  agentId: string | null;
+  task: string | null;
+  label: string | null;
+  sessionKey: string | null;
+  parentSessionId: string;
+  status: 'running' | 'done' | 'error';
+  createdAt: number;
 }
 
 // Start session options

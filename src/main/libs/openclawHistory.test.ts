@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { isInternalCompactionSystemText } from '../../common/coworkSystemMessages';
 import {
   buildScheduledReminderSystemMessage,
   extractGatewayHistoryEntries,
@@ -7,6 +8,7 @@ import {
   extractGatewayMessageText,
   isHeartbeatAckText,
   isHeartbeatPromptText,
+  isPreCompactionMemoryFlushPromptText,
   isSilentReplyPrefixText,
   isSilentReplyText,
   stripTrailingSilentReplyTail,
@@ -89,10 +91,61 @@ describe('openclawHistory', () => {
     expect(entry).toEqual({ role: 'system', text: 'Reminder fired' });
   });
 
+  test('filters internal compaction system labels', () => {
+    expect(isInternalCompactionSystemText('Compaction')).toBe(true);
+    expect(isInternalCompactionSystemText('--- COMPACTION ---')).toBe(true);
+    expect(
+      extractGatewayHistoryEntry({
+        role: 'system',
+        content: [{ type: 'text', text: 'Compaction' }],
+      })
+    ).toBeNull();
+    expect(
+      extractGatewayHistoryEntry({
+        role: 'system',
+        content: [{ type: 'text', text: '--- COMPACTION ---' }],
+      })
+    ).toBeNull();
+  });
+
+  test('keeps user-visible system messages that mention compaction', () => {
+    expect(isInternalCompactionSystemText('Context compaction completed')).toBe(false);
+    expect(
+      extractGatewayHistoryEntry({
+        role: 'system',
+        content: [{ type: 'text', text: 'Context compaction completed' }],
+      })
+    ).toEqual({ role: 'system', text: 'Context compaction completed' });
+  });
+
   test('filters pure heartbeat ack assistant messages', () => {
     const entry = extractGatewayHistoryEntry({
       role: 'assistant',
       content: [{ type: 'text', text: 'HEARTBEAT_OK' }],
+    });
+    expect(entry).toBeNull();
+  });
+
+  test('filters pure silent token assistant messages', () => {
+    expect(
+      extractGatewayHistoryEntry({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'NO_REPLY' }],
+      })
+    ).toBeNull();
+    expect(
+      extractGatewayHistoryEntry({
+        role: 'assistant',
+        content: [{ type: 'text', text: '`no_reply`' }],
+      })
+    ).toBeNull();
+  });
+
+  test('filters pre-compaction memory flush user messages', () => {
+    const entry = extractGatewayHistoryEntry({
+      role: 'user',
+      content: `Pre-compaction memory flush. Store durable memories only in memory/2026-05-09.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md as read-only during this flush. If nothing to store, reply with NO_REPLY.
+Current time: Saturday, May 9th, 2026 - 11:57 (Asia/Shanghai) / 2026-05-09 03:57 UTC`,
     });
     expect(entry).toBeNull();
   });
@@ -169,6 +222,18 @@ Do not infer or repeat old tasks from prior chats.
 If nothing needs attention, reply HEARTBEAT_OK.`)
     ).toBe(true);
     expect(isHeartbeatPromptText('Please read README.md and reply OK.')).toBe(false);
+  });
+
+  test('silent and memory flush detectors are narrow', () => {
+    expect(isSilentReplyText('NO_REPLY')).toBe(true);
+    expect(isSilentReplyPrefixText('NO_REP')).toBe(true);
+    expect(isSilentReplyPrefixText('NO_REPLY')).toBe(false);
+    expect(isSilentReplyPrefixText('NO_REPLY after saving memory')).toBe(false);
+    expect(isSilentReplyText('NO_REPLY after saving memory')).toBe(false);
+    expect(isPreCompactionMemoryFlushPromptText(`Pre-compaction memory flush.
+Store durable memories only in memory/2026-05-09.md.
+If nothing to store, reply with NO_REPLY.`)).toBe(true);
+    expect(isPreCompactionMemoryFlushPromptText('Please write a memory summary.')).toBe(false);
   });
 
   test('isSilentReplyText matches exact NO_REPLY token only', () => {

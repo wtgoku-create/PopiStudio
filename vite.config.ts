@@ -1,9 +1,9 @@
-import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
+import path from 'path';
+import { defineConfig } from 'vite';
 import electron from 'vite-plugin-electron';
 import renderer from 'vite-plugin-electron-renderer';
-import path from 'path';
-import fs from 'fs';
 
 // https://vitejs.dev/config/
 const devPort = 5175;
@@ -81,8 +81,9 @@ export default defineConfig({
     },
     watch: {
       usePolling: false,
-      // 排除 openclaw-runtime vendor 目录，减少不必要的热更新开销
-      ignored: ['**/vendor/openclaw-runtime/**'],
+      // Ignore vendor/ to prevent dev reload when plugins are installed into
+      // vendor/openclaw-runtime/.../third-party-extensions/
+      ignored: ['**/vendor/**'],
     },
   },
   optimizeDeps: {

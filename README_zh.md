@@ -87,6 +87,9 @@ OpenClaw 是主要 Agent 运行时，锁定版本写在 `package.json` 的
 ```bash
 # 构建或复用锁定版本的 OpenClaw runtime，然后启动开发应用
 npm run electron:dev:openclaw
+
+# 后续运行：如果锁定版本未变，自动跳过构建
+npm run electron:dev:openclaw
 ```
 
 常用环境变量：
@@ -139,7 +142,30 @@ npm run dist
 npm run dist:mac
 npm run dist:win
 npm run dist:linux
+
+# 渠道包
+# macOS - 仅 Intel
+KEYFROM=xxx npm run dist:mac:x64
+
+# macOS - 仅 Apple Silicon
+KEYFROM=xxx npm run dist:mac:arm64
+
+# Windows (.exe NSIS 安装包)
+npx cross-env KEYFROM=xxx npm run dist:win
 ```
+
+```bash
+# 渠道包
+# macOS - 仅 Intel
+KEYFROM=baidu npm run dist:mac:x64
+
+# macOS - 仅 Apple Silicon
+KEYFROM=baidu npm run dist:mac:arm64
+
+# Windows (.exe NSIS 安装包)
+npx cross-env KEYFROM=baidu npm run dist:win
+```
+
 
 桌面安装包会将准备好的 OpenClaw runtime 内置到 `Resources/cfmind`。
 Windows 安装包还可以内置便携 Python runtime 到 `resources/python-win`。

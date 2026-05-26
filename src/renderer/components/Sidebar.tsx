@@ -20,10 +20,11 @@ import Modal from './common/Modal';
 import CoworkSearchModal from './cowork/CoworkSearchModal';
 import Cog6ToothIcon from './icons/Cog6ToothIcon';
 import ComposeIcon from './icons/ComposeIcon';
-// Hidden in UI for now: keep these imports commented for quick restore later.
-// import ConnectorIcon from './icons/ConnectorIcon';
-// import SearchIcon from './icons/SearchIcon';
+import SidebarAutomationIcon from './icons/SidebarAutomationIcon';
+import SidebarMcpIcon from './icons/SidebarMcpIcon';
+import SidebarSearchIcon from './icons/SidebarSearchIcon';
 import SidebarToggleIcon from './icons/SidebarToggleIcon';
+import SkillIcon from './icons/SkillIcon';
 import TrashIcon from './icons/TrashIcon';
 import LoginButton from './LoginButton';
 
@@ -319,7 +320,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             }}
             className={sidebarNavItemClassName}
           >
-            <SearchIcon className="h-4 w-4 shrink-0" />
+            <SidebarSearchIcon className="h-4 w-4 shrink-0" />
             {i18nService.t('search')}
           </button>
           */}
@@ -332,20 +333,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             className={activeView === 'scheduledTasks' ? activeSidebarNavItemClassName : sidebarNavItemClassName}
             aria-current={activeView === 'scheduledTasks' ? 'page' : undefined}
           >
-            <span
-              aria-hidden="true"
-              className="inline-block h-4 w-4 shrink-0 bg-current"
-              style={{
-                WebkitMaskImage: `url("${scheduledTasksIconUrl}")`,
-                WebkitMaskPosition: 'center',
-                WebkitMaskRepeat: 'no-repeat',
-                WebkitMaskSize: 'contain',
-                maskImage: `url("${scheduledTasksIconUrl}")`,
-                maskPosition: 'center',
-                maskRepeat: 'no-repeat',
-                maskSize: 'contain',
-              }}
-            />
+            <SidebarAutomationIcon className="h-4 w-4 shrink-0" />
             {i18nService.t('scheduledTasks')}
           </button>
           <button
@@ -357,20 +345,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             className={activeView === 'skills' ? activeSidebarNavItemClassName : sidebarNavItemClassName}
             aria-current={activeView === 'skills' ? 'page' : undefined}
           >
-            <span
-              aria-hidden="true"
-              className="inline-block h-4 w-4 shrink-0 bg-current"
-              style={{
-                WebkitMaskImage: `url("${skillsIconUrl}")`,
-                WebkitMaskPosition: 'center',
-                WebkitMaskRepeat: 'no-repeat',
-                WebkitMaskSize: 'contain',
-                maskImage: `url("${skillsIconUrl}")`,
-                maskPosition: 'center',
-                maskRepeat: 'no-repeat',
-                maskSize: 'contain',
-              }}
-            />
+            <SkillIcon className="h-4 w-4 shrink-0" />
             {i18nService.t('skills')}
           </button>
           {/* Hidden in UI for now: keep MCP entry for quick restore later.
@@ -383,7 +358,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             className={activeView === 'mcp' ? activeSidebarNavItemClassName : sidebarNavItemClassName}
             aria-current={activeView === 'mcp' ? 'page' : undefined}
           >
-            <ConnectorIcon className="h-4 w-4 shrink-0" />
+            <SidebarMcpIcon className="h-4 w-4 shrink-0" />
             {i18nService.t('mcpServers')}
           </button>
           */}

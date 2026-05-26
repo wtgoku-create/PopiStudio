@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { normalizeFilePathForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseToolArtifact } from './artifactParser';
+import { normalizeFilePathForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseToolArtifact } from './artifactParser';
 
 describe('normalizeFilePathForDedup', () => {
   test('strips leading / before Windows drive letter', () => {
@@ -63,6 +63,95 @@ describe('parseFilePathsFromText', () => {
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0].type).toBe('video');
     expect(artifacts[0].filePath).toBe('D:/project/output.mkv');
+  });
+});
+
+describe('parseLocalServiceUrlsFromText', () => {
+  test('parses localhost service URLs', () => {
+    const content = '服务已启动：http://localhost:4173/login-react.html';
+    const artifacts = parseLocalServiceUrlsFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].type).toBe('local-service');
+    expect(artifacts[0].url).toBe('http://localhost:4173/login-react.html');
+    expect(artifacts[0].title).toBe('login-react.html');
+  });
+
+  test('uses markdown link text as title', () => {
+    const content = '[登录页面](http://localhost:4173/login-react.html)';
+    const artifacts = parseLocalServiceUrlsFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].title).toBe('登录页面');
+  });
+
+  test('deduplicates repeated markdown and bare URLs', () => {
+    const content = '[http://localhost:4173/](http://localhost:4173/)\nhttp://localhost:4173/';
+    const artifacts = parseLocalServiceUrlsFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+  });
+
+  test('ignores remote URLs', () => {
+    const artifacts = parseLocalServiceUrlsFromText('https://example.com/app', 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(0);
+  });
+});
+
+describe('parseMediaTokensFromText', () => {
+  test('parses MEDIA token with Windows path (no space)', () => {
+    const content = 'MEDIA:C:\\Users\\test\\images\\output.png';
+    const artifacts = parseMediaTokensFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].filePath).toBe('C:\\Users\\test\\images\\output.png');
+    expect(artifacts[0].type).toBe('image');
+  });
+
+  test('parses MEDIA token with space after colon', () => {
+    const content = 'MEDIA: /tmp/output.png';
+    const artifacts = parseMediaTokensFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].filePath).toBe('/tmp/output.png');
+  });
+
+  test('parses macOS path with spaces (Application Support)', () => {
+    const content = 'MEDIA: /Users/test/Library/Application Support/com.lobsterai/images/output.png';
+    const artifacts = parseMediaTokensFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].filePath).toBe('/Users/test/Library/Application Support/com.lobsterai/images/output.png');
+    expect(artifacts[0].type).toBe('image');
+  });
+
+  test('parses backtick-wrapped path with spaces', () => {
+    const content = 'MEDIA: `/Users/test/Library/Application Support/output.png`';
+    const artifacts = parseMediaTokensFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].filePath).toBe('/Users/test/Library/Application Support/output.png');
+  });
+
+  test('parses file:// prefixed MEDIA path', () => {
+    const content = 'MEDIA: file:///D:/workspace/image.jpg';
+    const artifacts = parseMediaTokensFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].filePath).toBe('D:/workspace/image.jpg');
+  });
+
+  test('parses multiple MEDIA tokens on separate lines', () => {
+    const content = 'MEDIA: /tmp/img1.png\nMEDIA: /tmp/img2.jpg';
+    const artifacts = parseMediaTokensFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(2);
+    expect(artifacts[0].filePath).toBe('/tmp/img1.png');
+    expect(artifacts[1].filePath).toBe('/tmp/img2.jpg');
+  });
+
+  test('ignores MEDIA token with unknown extension', () => {
+    const content = 'MEDIA: /tmp/data.xyz';
+    const artifacts = parseMediaTokensFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(0);
+  });
+
+  test('trims trailing whitespace from path', () => {
+    const content = 'MEDIA: /tmp/output.png   ';
+    const artifacts = parseMediaTokensFromText(content, 'msg1', 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].filePath).toBe('/tmp/output.png');
   });
 });
 

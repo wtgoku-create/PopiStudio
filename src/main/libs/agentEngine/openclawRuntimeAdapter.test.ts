@@ -12,6 +12,10 @@ vi.mock('electron', () => ({
   },
 }));
 
+import {
+  ContextCompactionStatus,
+  CoworkSystemMessageKind,
+} from '../../../common/coworkSystemMessages';
 import { OpenClawRuntimeAdapter, pickPersistedAssistantSegment } from './openclawRuntimeAdapter';
 
 test('pickPersistedAssistantSegment: stream authority keeps previous when same length or longer', () => {
@@ -54,12 +58,48 @@ test('pickPersistedAssistantSegment: empty branches', () => {
   });
 });
 
-function createApprovalAdapter() {
+test('context usage ignores non-checkpoint compactionCount', () => {
+  const adapter = new OpenClawRuntimeAdapter({} as never, {} as never);
+  const usage = (adapter as unknown as {
+    buildContextUsageFromSessionRow: (sessionId: string, row: Record<string, unknown>) => Record<string, unknown>;
+  }).buildContextUsageFromSessionRow('session-1', {
+    key: 'agent:main:lobsterai:session-1',
+    tokenCount: 53_250,
+    contextTokens: 60_000,
+    compactionCount: 1,
+  });
+
+  expect(usage.compactionCount).toBeUndefined();
+  expect(usage.percent).toBe(89);
+});
+
+test('context usage uses checkpoint compaction count', () => {
+  const adapter = new OpenClawRuntimeAdapter({} as never, {} as never);
+  const usage = (adapter as unknown as {
+    buildContextUsageFromSessionRow: (sessionId: string, row: Record<string, unknown>) => Record<string, unknown>;
+  }).buildContextUsageFromSessionRow('session-1', {
+    key: 'agent:main:lobsterai:session-1',
+    tokenCount: 20_000,
+    contextTokens: 60_000,
+    compactionCount: 9,
+    compactionCheckpointCount: 2,
+    latestCompactionCheckpoint: {
+      checkpointId: 'checkpoint-2',
+      reason: 'overflow',
+      createdAt: 123,
+    },
+  });
+
+  expect(usage.compactionCount).toBe(2);
+  expect(usage.latestCompactionCheckpointId).toBe('checkpoint-2');
+});
+
+test('context usage resolves historical sessions with targeted lookup', async () => {
   const session = {
     id: 'session-1',
-    title: 'Approval Session',
+    title: 'Historical Session',
     claudeSessionId: null,
-    status: 'running',
+    status: 'completed',
     pinned: false,
     cwd: '',
     systemPrompt: '',
@@ -71,111 +111,75 @@ function createApprovalAdapter() {
     createdAt: 1,
     updatedAt: 1,
   };
-  const addedMessages: Array<Record<string, unknown>> = [];
-  const gatewayRequests: Array<{ method: string; params: Record<string, unknown> }> = [];
-  const store = {
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const adapter = new OpenClawRuntimeAdapter({
     getSession: (sessionId: string) => (sessionId === session.id ? session : null),
-    addMessage: (_sessionId: string, message: Record<string, unknown>) => {
-      addedMessages.push(message);
-      return message;
-    },
-  };
-  const engineManager = {};
-  const adapter = new OpenClawRuntimeAdapter(store as never, engineManager as never, {});
-  adapter.continueSession = vi.fn().mockResolvedValue(undefined);
+  } as never, {} as never);
   adapter.gatewayClient = {
-    start: () => {},
-    stop: () => {},
     request: async (method: string, params?: unknown) => {
-      gatewayRequests.push({ method, params: (params ?? {}) as Record<string, unknown> });
-      return {};
+      requests.push({ method, params: params as Record<string, unknown> });
+      const p = params as Record<string, unknown>;
+      if (p.search === sessionKey) {
+        return {
+          sessions: [{
+            key: sessionKey,
+            totalTokens: 42_000,
+            contextTokens: 60_000,
+          }],
+        };
+      }
+      return { sessions: [] };
     },
-  };
-  const permissionRequests: Array<Record<string, unknown>> = [];
-  adapter.on('permissionRequest', (_sessionId, request) => {
-    permissionRequests.push(request as unknown as Record<string, unknown>);
+  } as never;
+
+  const usage = await adapter.getContextUsage(session.id);
+
+  expect(usage?.usedTokens).toBe(42_000);
+  expect(usage?.percent).toBe(70);
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({
+    method: 'sessions.list',
+    params: { search: sessionKey, limit: 5 },
   });
-  return { adapter, addedMessages, gatewayRequests, permissionRequests };
-}
-
-test('handleApprovalRequested allows popiart image command', async () => {
-  const { adapter, gatewayRequests, permissionRequests } = createApprovalAdapter();
-
-  adapter['handleApprovalRequested']({
-    id: 'req-1',
-    request: {
-      sessionKey: 'agent:main:popiai:session-1',
-      command: 'popiart image generate --prompt "hello"',
-    },
-  });
-
-  await Promise.resolve();
-
-  // popiart image is allowed — auto-approved
-  expect(gatewayRequests).toEqual([
-    {
-      method: 'exec.approval.resolve',
-      params: {
-        id: 'req-1',
-        decision: 'allow-always',
-      },
-    },
-  ]);
-  expect(permissionRequests).toHaveLength(1);
+  expect(requests[0].params).not.toHaveProperty('activeMinutes');
 });
 
-test('handleApprovalRequested denies popiart auth login', async () => {
-  const { adapter, gatewayRequests, permissionRequests, addedMessages } = createApprovalAdapter();
-
-  adapter['handleApprovalRequested']({
-    id: 'req-2',
-    request: {
-      sessionKey: 'agent:main:popiai:session-1',
-      command: 'popiart auth login --key abc123',
-    },
-  });
-
-  await Promise.resolve();
-
-  expect(gatewayRequests).toEqual([
-    {
-      method: 'exec.approval.resolve',
-      params: {
-        id: 'req-2',
-        decision: 'deny',
-      },
-    },
+test('usage metadata falls back to latest assistant when preferred id was replaced', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'Hello', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'Done', timestamp: 2, metadata: {} },
   ]);
-  expect(permissionRequests).toEqual([]);
-  expect(addedMessages).toHaveLength(1);
-  expect(addedMessages[0]?.content).toContain('popiart auth');
-});
+  const adapter = new OpenClawRuntimeAdapter(store, {});
 
-test('handleApprovalRequested denies popiart command with --key flag', async () => {
-  const { adapter, gatewayRequests, permissionRequests, addedMessages } = createApprovalAdapter();
+  await (adapter as unknown as {
+    applyUsageMetadataFromFinal: (
+      sessionId: string,
+      sessionKey: string,
+      assistantMessageId: string,
+      inputTokens: number | undefined,
+      outputTokens: number | undefined,
+      model: string | undefined,
+      totalTokens?: number | undefined,
+      cacheReadTokens?: number | undefined,
+    ) => Promise<void>;
+  }).applyUsageMetadataFromFinal(
+    session.id,
+    `agent:main:lobsterai:${session.id}`,
+    'stale-message-id',
+    80_262,
+    391,
+    'qwen-portal/qwen3.6-plus',
+  );
 
-  adapter['handleApprovalRequested']({
-    id: 'req-3',
-    request: {
-      sessionKey: 'agent:main:popiai:session-1',
-      command: 'popiart image --key sk-xxx --prompt "hello"',
+  expect(session.messages[1].metadata).toMatchObject({
+    usage: {
+      inputTokens: 80_262,
+      outputTokens: 391,
     },
+    model: 'qwen-portal/qwen3.6-plus',
+    agentName: 'main',
   });
-
-  await Promise.resolve();
-
-  expect(gatewayRequests).toEqual([
-    {
-      method: 'exec.approval.resolve',
-      params: {
-        id: 'req-3',
-        decision: 'deny',
-      },
-    },
-  ]);
-  expect(permissionRequests).toEqual([]);
-  expect(addedMessages).toHaveLength(1);
-  expect(addedMessages[0]?.content).toContain('--key');
 });
 
 // ==================== Session patch tests ====================
@@ -557,6 +561,34 @@ function createReconcileStore(messages: Array<Record<string, unknown>>) {
   };
 }
 
+function createActiveTurn(sessionId: string, sessionKey: string, runId: string) {
+  return {
+    sessionId,
+    sessionKey,
+    runId,
+    turnToken: 1,
+    startedAtMs: 1,
+    knownRunIds: new Set([runId]),
+    assistantMessageId: undefined,
+    committedAssistantText: '',
+    currentAssistantSegmentText: '',
+    currentText: '',
+    agentAssistantTextLength: 0,
+    currentContentText: '',
+    currentContentBlocks: [],
+    sawNonTextContentBlocks: false,
+    textStreamMode: 'snapshot',
+    toolUseMessageIdByToolCallId: new Map(),
+    toolResultMessageIdByToolCallId: new Map(),
+    toolResultTextByToolCallId: new Map(),
+    contextMaintenanceToolCallIds: new Set(),
+    stopRequested: false,
+    pendingUserSync: false,
+    bufferedChatPayloads: [],
+    bufferedAgentPayloads: [],
+  };
+}
+
 test('reconcileWithHistory: already in sync — skips replace', async () => {
   const { session, store, getReplaceCallCount } = createReconcileStore([
     { id: 'msg-1', type: 'user', content: 'Hello', timestamp: 1, metadata: {} },
@@ -669,6 +701,37 @@ If nothing needs attention, reply HEARTBEAT_OK.`,
   ]);
 });
 
+test('reconcileWithHistory: filters pre-compaction memory flush and silent entries', async () => {
+  const { session, store, getReplaceCallCount, getLastReplaceArgs } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'Build the page', timestamp: 1, metadata: {} },
+  ]);
+
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: 'Build the page' },
+        {
+          role: 'user',
+          content: `Pre-compaction memory flush. Store durable memories only in memory/2026-05-09.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md as read-only during this flush. If nothing to store, reply with NO_REPLY.`,
+        },
+        { role: 'assistant', content: 'NO_REPLY' },
+        { role: 'assistant', content: 'Created index-en.html' },
+      ],
+    }),
+  };
+
+  await adapter.reconcileWithHistory(session.id, 'managed:session-1');
+
+  expect(getReplaceCallCount()).toBe(1);
+  expect(getLastReplaceArgs()?.authoritative).toEqual([
+    { role: 'user', text: 'Build the page', timestamp: 1 },
+    { role: 'assistant', text: 'Created index-en.html' },
+  ]);
+});
+
 test('reconcileWithHistory: duplicate messages locally — triggers replace', async () => {
   const { session, store, getReplaceCallCount, getLastReplaceArgs } = createReconcileStore([
     { id: 'msg-1', type: 'user', content: 'Hello', timestamp: 1, metadata: {} },
@@ -772,6 +835,7 @@ test('lifecycle fallback repairs managed session assistant text from history', a
     toolUseMessageIdByToolCallId: new Map(),
     toolResultMessageIdByToolCallId: new Map(),
     toolResultTextByToolCallId: new Map(),
+    contextMaintenanceToolCallIds: new Set(),
     stopRequested: false,
     pendingUserSync: false,
     bufferedChatPayloads: [],
@@ -786,6 +850,326 @@ test('lifecycle fallback repairs managed session assistant text from history', a
   expect(getReplaceCallCount()).toBe(0);
   expect(session.messages.find((message) => message.id === 'msg-2')?.content).toBe(finalTable);
   expect(session.status).toBe('completed');
+});
+
+test('lifecycle fallback backfills missing tool result for the current turn', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'read the gateway log', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'tool_use', content: 'Using tool: read', timestamp: 2, metadata: { toolUseId: 'call-read' } },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: 'read the gateway log' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'Need to inspect the log.' },
+            { type: 'toolCall', id: 'call-read', name: 'read', arguments: { path: 'gateway.log' } },
+          ],
+        },
+        { role: 'toolResult', toolCallId: 'call-read', content: 'gateway log output' },
+        { role: 'assistant', content: 'The gateway log shows a clean shutdown.' },
+      ],
+    }),
+  };
+
+  const turn = createActiveTurn(session.id, sessionKey, 'run-fallback-tool');
+  turn.toolUseMessageIdByToolCallId.set('call-read', 'msg-2');
+  adapter.activeTurns.set(session.id, turn);
+  adapter.latestTurnTokenBySession.set(session.id, turn.turnToken);
+
+  await adapter.completeChannelTurnFallback(session.id, turn);
+
+  const resultMessage = session.messages.find((message) => (
+    message.type === 'tool_result'
+    && message.metadata?.toolUseId === 'call-read'
+  ));
+  expect(resultMessage?.content).toBe('gateway log output');
+  expect(session.status).toBe('completed');
+});
+
+test('lifecycle fallback waits when history sync returns a short assistant segment after large tool results', async () => {
+  vi.useFakeTimers();
+  try {
+    const interimAnswer = 'Let me check the main log around that time before I give the conclusion.';
+    const finalAnswer = `Final answer: the retry after context compaction continued the same OpenClaw run. ${
+      'The client must keep the turn open until the retry attempt reaches a stable final event, and the closed-run guard must not drop the same run id continuation. '.repeat(5)
+    }`;
+    const largeToolResult = 'gateway log line with context overflow evidence\n'.repeat(900);
+    let historyAnswer = interimAnswer;
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'analyze the latest logs', timestamp: 1, metadata: {} },
+      { id: 'msg-2', type: 'tool_use', content: 'Using grep', timestamp: 2, metadata: { toolUseId: 'call-grep' } },
+      { id: 'msg-3', type: 'tool_result', content: 'partial log output', timestamp: 3, metadata: { toolUseId: 'call-grep' } },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+    const maintenanceSpy = vi.fn();
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            { role: 'user', content: 'analyze the latest logs' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'toolCall', id: 'call-grep', name: 'exec', arguments: { command: 'grep restart gateway.log' } },
+              ],
+            },
+            { role: 'toolResult', toolCallId: 'call-grep', content: largeToolResult },
+            { role: 'assistant', content: historyAnswer },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.on('complete', completeSpy);
+    adapter.on('contextMaintenance', maintenanceSpy);
+    const turn = createActiveTurn(session.id, sessionKey, 'run-lifecycle-retry');
+    turn.toolUseMessageIdByToolCallId.set('call-grep', 'msg-2');
+    turn.toolResultMessageIdByToolCallId.set('call-grep', 'msg-3');
+    adapter.activeTurns.set(session.id, turn);
+    adapter.latestTurnTokenBySession.set(session.id, turn.turnToken);
+    adapter.rememberSessionKey(session.id, sessionKey);
+
+    adapter.handleAgentEvent({
+      runId: 'run-lifecycle-retry',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'end' },
+    }, 1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(maintenanceSpy).toHaveBeenCalledWith(session.id, true);
+    expect(adapter.activeTurns.get(session.id)?.pendingOpenClawRetry).toBe(true);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === interimAnswer
+    ))).toBe(true);
+
+    historyAnswer = finalAnswer;
+    adapter.handleAgentEvent({
+      runId: 'run-lifecycle-retry',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    }, 2);
+    adapter.processAgentAssistantText({
+      runId: 'run-lifecycle-retry',
+      sessionKey,
+      stream: 'assistant',
+      data: { text: finalAnswer },
+    });
+
+    expect(maintenanceSpy).toHaveBeenLastCalledWith(session.id, false);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content.includes('Final answer: the retry after context compaction')
+    ))).toBe(true);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-lifecycle-retry',
+      sessionKey,
+      message: { role: 'assistant', content: finalAnswer },
+    }, 3);
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-lifecycle-retry');
+    expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('chat final backfills only current-turn tool results from history', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'remember the gateway restart?', timestamp: 1, metadata: {} },
+      { id: 'msg-2', type: 'tool_use', content: 'Using tool: memory_search', timestamp: 2, metadata: { toolUseId: 'call-current' } },
+      { id: 'msg-3', type: 'assistant', content: 'working', timestamp: 3, metadata: { isStreaming: true } },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const historyMessages = [
+      { role: 'user', content: 'old question' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'toolCall', id: 'call-old', name: 'exec', arguments: { command: 'cat old.log' } },
+        ],
+      },
+      { role: 'toolResult', toolCallId: 'call-old', content: 'old log output' },
+      { role: 'user', content: 'remember the gateway restart?' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'toolCall', id: 'call-current', name: 'memory_search', arguments: { query: 'gateway restart' } },
+        ],
+      },
+      { role: 'toolResult', toolCallId: 'call-current', content: 'current memory result' },
+      { role: 'assistant', content: 'I remember the gateway restart analysis.' },
+    ];
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async () => ({ messages: historyMessages }),
+    };
+
+    const turn = createActiveTurn(session.id, sessionKey, 'run-current');
+    turn.assistantMessageId = 'msg-3';
+    turn.toolUseMessageIdByToolCallId.set('call-current', 'msg-2');
+    adapter.activeTurns.set(session.id, turn);
+    adapter.latestTurnTokenBySession.set(session.id, turn.turnToken);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-current',
+      sessionKey,
+      message: { role: 'assistant', content: 'I remember the gateway restart analysis.' },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const toolResults = session.messages.filter((message) => message.type === 'tool_result');
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0].metadata?.toolUseId).toBe('call-current');
+    expect(toolResults[0].content).toBe('current memory result');
+    expect(session.messages.some((message) => message.metadata?.toolUseId === 'call-old')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(800);
+    expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('chat final repairs managed session assistant text from history', async () => {
+  vi.useFakeTimers();
+  try {
+    const corruptedText = 'Created file://Users/admin/report.pptx';
+    const canonicalText = 'Created file:///Users/admin/report.pptx';
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'create a ppt', timestamp: 1, metadata: {} },
+      { id: 'msg-2', type: 'assistant', content: corruptedText, timestamp: 2, metadata: { isStreaming: true } },
+    ]);
+
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async () => ({
+        messages: [
+          { role: 'user', content: 'create a ppt' },
+          { role: 'assistant', content: canonicalText },
+        ],
+      }),
+    };
+
+    const turn = createActiveTurn(session.id, sessionKey, 'run-1');
+    turn.assistantMessageId = 'msg-2';
+    turn.currentAssistantSegmentText = corruptedText;
+    turn.currentText = corruptedText;
+    turn.currentContentText = corruptedText;
+    turn.currentContentBlocks = [corruptedText];
+    adapter.activeTurns.set(session.id, turn);
+    adapter.latestTurnTokenBySession.set(session.id, turn.turnToken);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-1',
+      sessionKey,
+      message: { role: 'assistant', content: corruptedText },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.messages.find((message) => message.id === 'msg-2')?.content).toBe(canonicalText);
+
+    await vi.advanceTimersByTimeAsync(800);
+    expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('chat final repairs last segment with corrupted committed text from tool calls', async () => {
+  vi.useFakeTimers();
+  try {
+    const committedSegment = 'I will create a file for you.';
+    const corruptedLastSegment = 'Done! Created file://Users/admin/report.pptx';
+    const canonicalLastSegment = 'Done! Created file:///Users/admin/report.pptx';
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'create a ppt', timestamp: 1, metadata: {} },
+      { id: 'msg-2', type: 'assistant', content: committedSegment, timestamp: 2, metadata: { isStreaming: false, isFinal: true } },
+      { id: 'msg-3', type: 'tool_use', content: 'write_file', timestamp: 3, metadata: {} },
+      { id: 'msg-4', type: 'tool_result', content: 'file created', timestamp: 4, metadata: {} },
+      { id: 'msg-5', type: 'assistant', content: corruptedLastSegment, timestamp: 5, metadata: { isStreaming: true } },
+    ]);
+
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async () => ({
+        messages: [
+          { role: 'user', content: 'create a ppt' },
+          { role: 'assistant', content: committedSegment },
+          { role: 'assistant', content: canonicalLastSegment },
+        ],
+      }),
+    };
+
+    const turn = createActiveTurn(session.id, sessionKey, 'run-1');
+    turn.assistantMessageId = 'msg-5';
+    turn.committedAssistantText = committedSegment;
+    turn.currentAssistantSegmentText = corruptedLastSegment;
+    turn.currentText = `${committedSegment}\n\n${corruptedLastSegment}`;
+    turn.currentContentText = `${committedSegment}\n\n${corruptedLastSegment}`;
+    turn.currentContentBlocks = [`${committedSegment}\n\n${corruptedLastSegment}`];
+    adapter.activeTurns.set(session.id, turn);
+    adapter.latestTurnTokenBySession.set(session.id, turn.turnToken);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-1',
+      sessionKey,
+      message: { role: 'assistant', content: `${committedSegment}\n\n${corruptedLastSegment}` },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.messages.find((message) => message.id === 'msg-5')?.content).toBe(canonicalLastSegment);
+    expect(session.messages.find((message) => message.id === 'msg-2')?.content).toBe(committedSegment);
+
+    await vi.advanceTimersByTimeAsync(800);
+    expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('late lifecycle fallback event does not reopen a completed managed session', () => {
@@ -846,6 +1230,1562 @@ test('late event for a closed run does not recreate a managed session turn', () 
   expect(session.status).toBe('completed');
   expect(adapter.activeTurns.has(session.id)).toBe(false);
   expect(adapter.sessionIdByRunId.has('closed-run')).toBe(false);
+});
+
+test('retryable closed run reopens on same-run lifecycle start', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'interim', timestamp: 2, metadata: { isStreaming: false, isFinal: true } },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+
+  adapter.rememberSessionKey(session.id, sessionKey);
+  adapter.ensureActiveTurn(session.id, sessionKey, 'retry-run');
+  const turn = adapter.activeTurns.get(session.id);
+  expect(turn).toBeTruthy();
+  if (turn) {
+    turn.allowRecentlyClosedRunRetryReopenOnCleanup = true;
+  }
+  session.status = 'completed';
+  adapter.cleanupSessionTurn(session.id);
+
+  adapter.handleGatewayEvent({
+    event: 'agent',
+    seq: 2,
+    payload: {
+      runId: 'retry-run',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    },
+  });
+
+  expect(session.status).toBe('running');
+  expect(adapter.activeTurns.has(session.id)).toBe(true);
+  expect(adapter.sessionIdByRunId.get('retry-run')).toBe(session.id);
+
+  adapter.handleGatewayEvent({
+    event: 'agent',
+    seq: 3,
+    payload: {
+      runId: 'retry-run',
+      sessionKey,
+      stream: 'assistant',
+      data: { text: 'final answer after retry' },
+    },
+  });
+
+  expect(session.messages.some((message) => (
+    message.type === 'assistant'
+    && message.content === 'final answer after retry'
+  ))).toBe(true);
+});
+
+test('chat final completes after the retry grace window', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-final'));
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-final',
+      sessionKey,
+      message: { role: 'assistant', content: 'Done' },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(799);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-final');
+    expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('chat final completion is postponed when the same run continues streaming', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-retry'));
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-retry',
+      sessionKey,
+      message: { role: 'assistant', content: 'Done' },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(400);
+    adapter.handleChatEvent({
+      state: 'delta',
+      runId: 'run-retry',
+      sessionKey,
+      message: { role: 'assistant', content: 'Still running after retry' },
+    }, 2);
+
+    await vi.advanceTimersByTimeAsync(700);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-retry');
+    expect(session.status).toBe('completed');
+    expect(adapter.activeTurns.has(session.id)).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('lifecycle end completes a pending chat final immediately', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-final'));
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-final',
+      sessionKey,
+      message: { role: 'assistant', content: 'Done' },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    adapter.handleAgentLifecycleEvent(session.id, { phase: 'end' }, 'run-final');
+
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-final');
+    expect(session.status).toBe('completed');
+    expect(adapter.activeTurns.has(session.id)).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(800);
+    expect(completeSpy).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('chat final completion is canceled when tool work continues after final', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-retry'));
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-retry',
+      sessionKey,
+      message: { role: 'assistant', content: 'Done' },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(400);
+    adapter.handleAgentEvent({
+      runId: 'run-retry',
+      sessionKey,
+      stream: 'tool',
+      data: { toolCallId: 'call-1', status: 'started', name: 'exec' },
+    }, 2);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('tool-use chat final keeps the session running until tool work arrives', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'read a file', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-tool-use'));
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-tool-use',
+      sessionKey,
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Let me read the file first.' },
+          { type: 'toolCall', id: 'call-1', name: 'read', arguments: { path: '/tmp/input.txt' } },
+        ],
+        stopReason: 'toolUse',
+      },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+
+    adapter.handleAgentEvent({
+      runId: 'run-tool-use',
+      sessionKey,
+      stream: 'tool',
+      data: { toolCallId: 'call-1', phase: 'start', name: 'read' },
+    }, 2);
+
+    expect(session.messages.find((message) => message.type === 'tool_use')?.metadata?.toolName).toBe('read');
+    expect(session.status).toBe('running');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('tool-use chat final inserts later tools after the preceding assistant segment', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'verify the file', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const messageUpdateSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('messageUpdate', messageUpdateSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-tool-use'));
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-tool-use',
+      sessionKey,
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Verify:' },
+          { type: 'toolCall', id: 'call-1', name: 'exec', arguments: { command: 'wc -l index.html' } },
+        ],
+        stopReason: 'toolUse',
+      },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    adapter.handleAgentEvent({
+      runId: 'run-tool-use',
+      sessionKey,
+      stream: 'tool',
+      data: { toolCallId: 'call-1', phase: 'start', name: 'exec' },
+    }, 2);
+    adapter.handleAgentEvent({
+      runId: 'run-tool-use',
+      sessionKey,
+      stream: 'tool',
+      data: { toolCallId: 'call-1', phase: 'result', name: 'exec', result: '100 index.html' },
+    }, 3);
+    adapter.processAgentAssistantText({
+      runId: 'run-tool-use',
+      sessionKey,
+      stream: 'assistant',
+      data: { text: 'Verify:Done.' },
+    });
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-tool-use',
+      sessionKey,
+      message: {
+        role: 'assistant',
+        content: 'Verify:Done.',
+      },
+    }, 4);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.messages.map((message) => message.type)).toEqual([
+      'user',
+      'assistant',
+      'tool_use',
+      'tool_result',
+      'assistant',
+    ]);
+    expect(session.messages[1].content).toBe('Verify:');
+    expect(session.messages[4].content).toBe('Done.');
+    expect(session.messages[4].metadata).toMatchObject({
+      isStreaming: false,
+      isFinal: true,
+    });
+    expect(messageUpdateSpy).toHaveBeenCalledWith(
+      session.id,
+      session.messages[4].id,
+      'Done.',
+      expect.objectContaining({ isStreaming: false, isFinal: true }),
+    );
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('tool-use lifecycle end waits for OpenClaw compaction retry', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'read a file', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-tool-use'));
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-tool-use',
+      sessionKey,
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Let me read the file first.' },
+          { type: 'toolCall', id: 'call-1', name: 'read', arguments: { path: '/tmp/input.txt' } },
+        ],
+        stopReason: 'toolUse',
+      },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    adapter.handleAgentEvent({
+      runId: 'run-tool-use',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'end' },
+    }, 2);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+
+    adapter.handleAgentEvent({
+      runId: 'run-tool-use',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    }, 3);
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('compaction stream shows context maintenance state while keeping the session running', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const messageSpy = vi.fn();
+  const messageUpdateSpy = vi.fn();
+  const maintenanceSpy = vi.fn();
+  const statusSpy = vi.fn();
+
+  session.status = 'running';
+  adapter.on('message', messageSpy);
+  adapter.on('messageUpdate', messageUpdateSpy);
+  adapter.on('contextMaintenance', maintenanceSpy);
+  adapter.on('sessionStatus', statusSpy);
+  adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-compaction'));
+
+  adapter.handleAgentEvent({
+    runId: 'run-compaction',
+    sessionKey,
+    stream: 'compaction',
+    data: { phase: 'start' },
+  }, 1);
+
+  expect(session.status).toBe('running');
+  expect(statusSpy).toHaveBeenCalledWith(session.id, 'running');
+  expect(maintenanceSpy).toHaveBeenCalledWith(session.id, true);
+  expect(adapter.activeTurns.get(session.id)?.hasContextCompactionEvent).toBe(true);
+  const compactionMessages = session.messages.filter(
+    (message) => message.metadata?.kind === CoworkSystemMessageKind.ContextCompaction,
+  );
+  expect(compactionMessages).toHaveLength(1);
+  expect(compactionMessages[0].metadata?.status).toBe(ContextCompactionStatus.Running);
+  expect(messageSpy).toHaveBeenCalledWith(session.id, compactionMessages[0]);
+
+  adapter.handleAgentEvent({
+    runId: 'run-compaction',
+    sessionKey,
+    stream: 'compaction',
+    data: { phase: 'end', completed: false, willRetry: true },
+  }, 2);
+
+  expect(session.status).toBe('running');
+  expect(maintenanceSpy).toHaveBeenLastCalledWith(session.id, true);
+  expect(session.messages.filter(
+    (message) => message.metadata?.kind === CoworkSystemMessageKind.ContextCompaction,
+  )).toHaveLength(1);
+  expect(compactionMessages[0].metadata?.status).toBe(ContextCompactionStatus.Retrying);
+  expect(messageUpdateSpy).toHaveBeenCalledWith(
+    session.id,
+    compactionMessages[0].id,
+    expect.any(String),
+    expect.objectContaining({
+      kind: CoworkSystemMessageKind.ContextCompaction,
+      status: ContextCompactionStatus.Retrying,
+    }),
+  );
+  expect(adapter.activeTurns.get(session.id)?.hasContextCompactionEvent).toBe(false);
+  expect(adapter.activeTurns.get(session.id)?.pendingRecoverableFollowup).toBe(true);
+  expect(adapter.activeTurns.has(session.id)).toBe(true);
+});
+
+test('compaction stream reuses active structured message for duplicate start events', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+
+  session.status = 'running';
+  adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-compaction'));
+
+  adapter.handleAgentEvent({
+    runId: 'run-compaction',
+    sessionKey,
+    stream: 'compaction',
+    data: { phase: 'start' },
+  }, 1);
+  adapter.handleAgentEvent({
+    runId: 'run-compaction',
+    sessionKey,
+    stream: 'compaction',
+    data: { phase: 'start' },
+  }, 2);
+
+  expect(session.messages.filter(
+    (message) => message.metadata?.kind === CoworkSystemMessageKind.ContextCompaction,
+  )).toHaveLength(1);
+});
+
+test('compaction end without a structured start message does not append a late message', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+
+  session.status = 'running';
+  adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-compaction'));
+
+  adapter.handleAgentEvent({
+    runId: 'run-compaction',
+    sessionKey,
+    stream: 'compaction',
+    data: { phase: 'end', completed: true, willRetry: false },
+  }, 1);
+
+  expect(session.messages.filter(
+    (message) => message.metadata?.kind === CoworkSystemMessageKind.ContextCompaction,
+  )).toHaveLength(0);
+});
+
+test('empty tool final waits for compaction retry and accepts same-run continuation', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'publish the article', timestamp: 1, metadata: {} },
+      { id: 'msg-2', type: 'tool_use', content: 'Using exec', timestamp: 2, metadata: { toolUseId: 'call-1' } },
+      { id: 'msg-3', type: 'tool_result', content: 'OK', timestamp: 3, metadata: { toolUseId: 'call-1' } },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+    const maintenanceSpy = vi.fn();
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            { role: 'user', content: 'publish the article' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'thinking', thinking: 'Need to inspect the repo.' },
+                { type: 'toolCall', id: 'call-1', name: 'exec', arguments: { command: 'git status' } },
+              ],
+            },
+            { role: 'toolResult', toolCallId: 'call-1', content: 'OK' },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.on('complete', completeSpy);
+    adapter.on('contextMaintenance', maintenanceSpy);
+    const turn = createActiveTurn(session.id, sessionKey, 'run-retry');
+    turn.toolUseMessageIdByToolCallId.set('call-1', 'msg-2');
+    turn.toolResultMessageIdByToolCallId.set('call-1', 'msg-3');
+    adapter.activeTurns.set(session.id, turn);
+    adapter.sessionIdByRunId.set('run-retry', session.id);
+    adapter.rememberSessionKey(session.id, sessionKey);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-retry',
+      sessionKey,
+      message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'Compacting.' }] },
+    }, 1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(maintenanceSpy).toHaveBeenCalledWith(session.id, true);
+    expect(session.messages.some((message) => message.type === 'system')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(13_000);
+    adapter.handleAgentEvent({
+      runId: 'run-retry',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    }, 2);
+    adapter.processAgentAssistantText({
+      runId: 'run-retry',
+      sessionKey,
+      stream: 'assistant',
+      data: { text: 'Retry produced a visible answer.' },
+    });
+
+    expect(maintenanceSpy).toHaveBeenLastCalledWith(session.id, false);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === 'Retry produced a visible answer.'
+    ))).toBe(true);
+    expect(session.messages.some((message) => message.type === 'system')).toBe(false);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-retry',
+      sessionKey,
+      message: { role: 'assistant', content: 'Retry produced a visible answer.' },
+    }, 3);
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-retry');
+    expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('empty final with local tool messages waits when history only has interim assistant text', async () => {
+  vi.useFakeTimers();
+  try {
+    const interimAnswer = '分析大致完成了，让我再确认一下 openclaw 日志有没有更多细节。';
+    const finalAnswer = '最终结论：OpenClaw 在压缩后继续 retry，客户端不能提前关闭 run。';
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'analyze these logs', timestamp: 1, metadata: {} },
+      { id: 'msg-2', type: 'tool_use', content: 'Using grep', timestamp: 2, metadata: { toolUseId: 'call-1' } },
+      { id: 'msg-3', type: 'tool_result', content: '80 lines of output', timestamp: 3, metadata: { toolUseId: 'call-1' } },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+    const maintenanceSpy = vi.fn();
+    let historyAnswer = interimAnswer;
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            { role: 'user', content: 'analyze these logs' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'toolCall', id: 'call-1', name: 'exec', arguments: { command: 'grep restart gateway.log' } },
+              ],
+            },
+            { role: 'toolResult', toolCallId: 'call-1', content: '80 lines of output' },
+            { role: 'assistant', content: historyAnswer },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.on('complete', completeSpy);
+    adapter.on('contextMaintenance', maintenanceSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-overflow'));
+    adapter.sessionIdByRunId.set('run-overflow', session.id);
+    adapter.latestTurnTokenBySession.set(session.id, 1);
+    adapter.rememberSessionKey(session.id, sessionKey);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-overflow',
+      sessionKey,
+    }, 1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(maintenanceSpy).toHaveBeenCalledWith(session.id, true);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === interimAnswer
+    ))).toBe(true);
+
+    adapter.handleAgentEvent({
+      runId: 'run-overflow',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'end' },
+    }, 2);
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+
+    adapter.handleAgentEvent({
+      runId: 'run-overflow',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    }, 3);
+    historyAnswer = finalAnswer;
+    adapter.processAgentAssistantText({
+      runId: 'run-overflow',
+      sessionKey,
+      stream: 'assistant',
+      data: { text: finalAnswer },
+    });
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(maintenanceSpy).toHaveBeenLastCalledWith(session.id, false);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === finalAnswer
+    ))).toBe(true);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-overflow',
+      sessionKey,
+      message: { role: 'assistant', content: finalAnswer },
+    }, 4);
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-overflow');
+    expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('visible short tool final waits under large tool results and accepts same-run continuation', async () => {
+  vi.useFakeTimers();
+  try {
+    const shortAnswer = 'I will inspect the logs and then summarize the restart timeline.';
+    const fullAnswer = `Full answer. ${'The gateway restart was caused by config sync and context retry evidence. '.repeat(12)}`;
+    const largeToolResult = 'gateway log line\n'.repeat(1600);
+    let historyAnswer = shortAnswer;
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'why did the gateway restart?', timestamp: 1, metadata: {} },
+      { id: 'msg-2', type: 'tool_use', content: 'Using exec', timestamp: 2, metadata: { toolUseId: 'call-1' } },
+      { id: 'msg-3', type: 'tool_result', content: 'partial', timestamp: 3, metadata: { toolUseId: 'call-1' } },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+    const maintenanceSpy = vi.fn();
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            { role: 'user', content: 'why did the gateway restart?' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'thinking', thinking: 'Need to inspect the logs.' },
+                { type: 'toolCall', id: 'call-1', name: 'exec', arguments: { command: 'cat gateway.log' } },
+              ],
+            },
+            { role: 'toolResult', toolCallId: 'call-1', content: largeToolResult },
+            { role: 'assistant', content: historyAnswer },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.on('complete', completeSpy);
+    adapter.on('contextMaintenance', maintenanceSpy);
+    const turn = createActiveTurn(session.id, sessionKey, 'run-visible-retry');
+    turn.toolUseMessageIdByToolCallId.set('call-1', 'msg-2');
+    turn.toolResultMessageIdByToolCallId.set('call-1', 'msg-3');
+    adapter.activeTurns.set(session.id, turn);
+    adapter.sessionIdByRunId.set('run-visible-retry', session.id);
+    adapter.rememberSessionKey(session.id, sessionKey);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-visible-retry',
+      sessionKey,
+      message: { role: 'assistant', content: shortAnswer },
+    }, 1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(maintenanceSpy).toHaveBeenCalledWith(session.id, true);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === shortAnswer
+    ))).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(70_000);
+    expect(completeSpy).not.toHaveBeenCalled();
+
+    historyAnswer = fullAnswer;
+    adapter.processAgentAssistantText({
+      runId: 'run-visible-retry',
+      sessionKey,
+      stream: 'assistant',
+      data: { text: fullAnswer },
+    });
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(maintenanceSpy).toHaveBeenLastCalledWith(session.id, false);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content.trim() === fullAnswer.trim()
+    ))).toBe(true);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-visible-retry',
+      sessionKey,
+      message: { role: 'assistant', content: fullAnswer },
+    }, 2);
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-visible-retry');
+    expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('visible short tool final completes with existing text when no continuation arrives', async () => {
+  vi.useFakeTimers();
+  try {
+    const shortAnswer = 'I checked the logs and did not find a restart.';
+    const lateAnswer = 'This late continuation should not be accepted.';
+    const largeToolResult = 'main log line\n'.repeat(1600);
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'check the logs', timestamp: 1, metadata: {} },
+      { id: 'msg-2', type: 'tool_use', content: 'Using exec', timestamp: 2, metadata: { toolUseId: 'call-1' } },
+      { id: 'msg-3', type: 'tool_result', content: 'partial', timestamp: 3, metadata: { toolUseId: 'call-1' } },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            { role: 'user', content: 'check the logs' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'thinking', thinking: 'Need to inspect the logs.' },
+                { type: 'toolCall', id: 'call-1', name: 'exec', arguments: { command: 'cat main.log' } },
+              ],
+            },
+            { role: 'toolResult', toolCallId: 'call-1', content: largeToolResult },
+            { role: 'assistant', content: shortAnswer },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.on('complete', completeSpy);
+    const turn = createActiveTurn(session.id, sessionKey, 'run-visible-timeout');
+    turn.toolUseMessageIdByToolCallId.set('call-1', 'msg-2');
+    turn.toolResultMessageIdByToolCallId.set('call-1', 'msg-3');
+    adapter.activeTurns.set(session.id, turn);
+    adapter.sessionIdByRunId.set('run-visible-timeout', session.id);
+    adapter.rememberSessionKey(session.id, sessionKey);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-visible-timeout',
+      sessionKey,
+      message: { role: 'assistant', content: shortAnswer },
+    }, 1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.messages.some((message) => message.type === 'system')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-visible-timeout');
+    expect(session.status).toBe('completed');
+    expect(session.messages.some((message) => message.type === 'system')).toBe(false);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === shortAnswer
+    ))).toBe(true);
+
+    adapter.processAgentAssistantText({
+      runId: 'run-visible-timeout',
+      sessionKey,
+      stream: 'assistant',
+      data: { text: lateAnswer },
+    });
+
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === lateAnswer
+    ))).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('empty tool final shows thinking-only hint only after the follow-up grace window', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'finish silently', timestamp: 1, metadata: {} },
+      { id: 'msg-2', type: 'tool_use', content: 'Using exec', timestamp: 2, metadata: { toolUseId: 'call-1' } },
+      { id: 'msg-3', type: 'tool_result', content: 'OK', timestamp: 3, metadata: { toolUseId: 'call-1' } },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            { role: 'user', content: 'finish silently' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'thinking', thinking: 'No visible answer.' },
+                { type: 'toolCall', id: 'call-1', name: 'exec', arguments: { command: 'true' } },
+              ],
+            },
+            { role: 'toolResult', toolCallId: 'call-1', content: 'OK' },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.on('complete', completeSpy);
+    const turn = createActiveTurn(session.id, sessionKey, 'run-empty');
+    turn.toolUseMessageIdByToolCallId.set('call-1', 'msg-2');
+    turn.toolResultMessageIdByToolCallId.set('call-1', 'msg-3');
+    adapter.activeTurns.set(session.id, turn);
+    adapter.sessionIdByRunId.set('run-empty', session.id);
+    adapter.rememberSessionKey(session.id, sessionKey);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-empty',
+      sessionKey,
+      message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'No visible answer.' }] },
+    }, 1);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.messages.some((message) => message.type === 'system')).toBe(false);
+    expect(completeSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.messages.some((message) => (
+      message.type === 'system'
+      && String(message.content).includes('[模型未输出内容]')
+    ))).toBe(true);
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-empty');
+    expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('memory maintenance NO_REPLY stays running while waiting for a follow-up run', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+    const maintenanceSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.on('contextMaintenance', maintenanceSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-memory'));
+
+    adapter.handleAgentEvent({
+      runId: 'run-memory',
+      sessionKey,
+      stream: 'tool',
+      data: {
+        toolCallId: 'memory-write',
+        phase: 'start',
+        name: 'write',
+        args: { path: '/tmp/work/memory/2026-05-09.md' },
+      },
+    }, 1);
+    adapter.handleAgentEvent({
+      runId: 'run-memory',
+      sessionKey,
+      stream: 'tool',
+      data: {
+        toolCallId: 'memory-write',
+        phase: 'result',
+        name: 'write',
+        result: 'updated memory',
+      },
+    }, 2);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-memory',
+      sessionKey,
+      message: { role: 'assistant', content: 'NO_REPLY' },
+    }, 3);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.status).toBe('running');
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.messages.some((message) => message.type === 'assistant' && message.content === 'NO_REPLY')).toBe(false);
+    expect(session.messages.some((message) => message.type === 'tool_use')).toBe(false);
+    expect(session.messages.some((message) => message.type === 'tool_result')).toBe(false);
+    expect(maintenanceSpy).toHaveBeenCalledWith(session.id, true);
+
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-memory');
+    expect(session.status).toBe('completed');
+    expect(maintenanceSpy).toHaveBeenLastCalledWith(session.id, false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('memory maintenance fallback does not block a delayed queued run', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    const turn = createActiveTurn(session.id, sessionKey, 'run-memory');
+    turn.knownRunIds.add('run-followup');
+    adapter.activeTurns.set(session.id, turn);
+
+    adapter.handleAgentEvent({
+      runId: 'run-memory',
+      sessionKey,
+      stream: 'tool',
+      data: {
+        toolCallId: 'memory-write',
+        phase: 'start',
+        name: 'write',
+        args: { path: '/tmp/work/memory/2026-05-09.md' },
+      },
+    }, 1);
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-memory',
+      sessionKey,
+      message: { role: 'assistant', content: 'NO_REPLY' },
+    }, 2);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-memory');
+    expect(session.status).toBe('completed');
+    expect(adapter.activeTurns.has(session.id)).toBe(false);
+
+    adapter.handleAgentEvent({
+      runId: 'run-followup',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    }, 3);
+    adapter.handleChatEvent({
+      state: 'delta',
+      runId: 'run-followup',
+      sessionKey,
+      message: { role: 'assistant', content: 'Real answer after delayed maintenance.' },
+    }, 4);
+
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === 'Real answer after delayed maintenance.'
+    ))).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('empty final with memory flush history waits for the original run to resume', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'create a Japanese version', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+    const maintenanceSpy = vi.fn();
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            {
+              role: 'user',
+              content: 'create a Japanese version',
+            },
+            {
+              role: 'user',
+              content: 'Pre-compaction memory flush. Store durable memories only in memory/2026-05-11.md. If nothing to store, reply with NO_REPLY.',
+            },
+            {
+              role: 'assistant',
+              content: [
+                {
+                  type: 'toolCall',
+                  id: 'memory-write',
+                  name: 'write',
+                  arguments: { path: '/tmp/work/memory/2026-05-11.md' },
+                },
+              ],
+            },
+            {
+              role: 'toolResult',
+              toolCallId: 'memory-write',
+              content: 'updated memory',
+            },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.on('contextMaintenance', maintenanceSpy);
+    adapter.ensureActiveTurn(session.id, sessionKey, 'run-original');
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-original',
+      sessionKey,
+    }, 1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.status).toBe('running');
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(maintenanceSpy).toHaveBeenCalledWith(session.id, true);
+
+    adapter.handleAgentEvent({
+      runId: 'run-original',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    }, 2);
+    adapter.handleChatEvent({
+      state: 'delta',
+      runId: 'run-original',
+      sessionKey,
+      message: { role: 'assistant', content: 'Real answer after memory flush.' },
+    }, 3);
+
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === 'Real answer after memory flush.'
+    ))).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('pre-compaction NO_REPLY without memory tools still waits for follow-up work', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+    const maintenanceSpy = vi.fn();
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            {
+              role: 'user',
+              content: 'continue the task',
+            },
+            {
+              role: 'user',
+              content: 'Pre-compaction memory flush. Store durable memories only in memory/2026-05-11.md. If nothing to store, reply with NO_REPLY.',
+            },
+            {
+              role: 'assistant',
+              content: 'NO_REPLY',
+            },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.on('contextMaintenance', maintenanceSpy);
+    adapter.ensureActiveTurn(session.id, sessionKey, 'run-original');
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-original',
+      sessionKey,
+      message: { role: 'assistant', content: 'NO_REPLY' },
+    }, 1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.status).toBe('running');
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.messages.some((message) => message.type === 'assistant' && message.content === 'NO_REPLY')).toBe(false);
+    expect(maintenanceSpy).toHaveBeenCalledWith(session.id, true);
+
+    adapter.handleChatEvent({
+      state: 'delta',
+      runId: 'run-original',
+      sessionKey,
+      message: { role: 'assistant', content: 'Real answer after no-op memory flush.' },
+    }, 2);
+
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+    expect(session.messages.some((message) => (
+      message.type === 'assistant'
+      && message.content === 'Real answer after no-op memory flush.'
+    ))).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('silent token prefixes do not create visible assistant messages', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+
+  session.status = 'running';
+  adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-memory'));
+
+  adapter.handleAgentEvent({
+    runId: 'run-memory',
+    sessionKey,
+    stream: 'assistant',
+    data: { text: 'NO_REP' },
+  }, 1);
+
+  expect(session.messages.some((message) => message.type === 'assistant')).toBe(false);
+});
+
+test('usage metadata sync ignores silent latest assistant history entries', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'Hello', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'Visible answer', timestamp: 2, metadata: {} },
+    { id: 'msg-3', type: 'assistant', content: 'NO_REPLY', timestamp: 3, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: 'Hello' },
+        {
+          role: 'assistant',
+          content: 'NO_REPLY',
+          model: 'qwen-portal/qwen3.6-plus',
+          usage: { input: 40_668, output: 93 },
+        },
+      ],
+    }),
+  };
+
+  await (adapter as unknown as {
+    syncUsageMetadata: (sessionId: string, sessionKey: string, assistantMessageId: string) => Promise<void>;
+  }).syncUsageMetadata(session.id, `agent:main:lobsterai:${session.id}`, 'missing-message-id');
+
+  expect(session.messages[1].metadata).toEqual({});
+  expect(session.messages[2].metadata).toEqual({});
+});
+
+test('memory maintenance wait is canceled when a follow-up run starts', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+    const maintenanceSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.on('contextMaintenance', maintenanceSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-memory'));
+
+    adapter.handleAgentEvent({
+      runId: 'run-memory',
+      sessionKey,
+      stream: 'tool',
+      data: {
+        toolCallId: 'memory-read',
+        phase: 'start',
+        name: 'read',
+        args: { path: '/tmp/work/memory/2026-05-09.md' },
+      },
+    }, 1);
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-memory',
+      sessionKey,
+      message: { role: 'assistant', content: 'no_reply' },
+    }, 2);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    adapter.bindRunIdToTurn(session.id, 'run-followup');
+    adapter.handleAgentEvent({
+      runId: 'run-followup',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    }, 3);
+
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+    expect(maintenanceSpy).toHaveBeenLastCalledWith(session.id, false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('memory maintenance lifecycle end does not close a follow-up run', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const completeSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.on('complete', completeSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-memory'));
+
+    adapter.handleAgentEvent({
+      runId: 'run-memory',
+      sessionKey,
+      stream: 'tool',
+      data: {
+        toolCallId: 'memory-read',
+        phase: 'start',
+        name: 'read',
+        args: { path: '/tmp/work/memory/2026-05-09.md' },
+      },
+    }, 1);
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-memory',
+      sessionKey,
+      message: { role: 'assistant', content: 'NO_REPLY' },
+    }, 2);
+    adapter.handleAgentEvent({
+      runId: 'run-memory',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'end' },
+    }, 3);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    adapter.handleAgentEvent({
+      runId: 'run-followup',
+      sessionKey,
+      stream: 'lifecycle',
+      data: { phase: 'start' },
+    }, 4);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    adapter.handleChatEvent({
+      state: 'delta',
+      runId: 'run-followup',
+      sessionKey,
+      message: { role: 'assistant', content: 'Real answer after maintenance.' },
+    }, 5);
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+    expect(session.messages.some((message) => message.type === 'assistant' && message.content === 'Real answer after maintenance.')).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('ordinary write tool does not trigger memory maintenance handling', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'write a file', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:lobsterai:${session.id}`;
+  const maintenanceSpy = vi.fn();
+
+  adapter.on('contextMaintenance', maintenanceSpy);
+  adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-write'));
+  adapter.handleAgentEvent({
+    runId: 'run-write',
+    sessionKey,
+    stream: 'tool',
+    data: {
+      toolCallId: 'write-file',
+      phase: 'start',
+      name: 'write',
+      args: { path: '/tmp/work/index.html' },
+    },
+  }, 1);
+
+  expect(maintenanceSpy).not.toHaveBeenCalled();
+  expect(session.messages.find((message) => message.type === 'tool_use')?.metadata?.toolName).toBe('write');
+});
+
+test('lifecycle error fallback waits before aborting a gateway run', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+    const turn = createActiveTurn(session.id, sessionKey, 'run-error');
+
+    adapter.on('error', () => {});
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string, params?: unknown) => {
+        requests.push({ method, params: params as Record<string, unknown> });
+        return {};
+      },
+    };
+    adapter.activeTurns.set(session.id, turn);
+
+    adapter.handleAgentLifecycleEvent(session.id, { phase: 'error', error: 'context exceeded' }, 'run-error');
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(requests.some((request) => request.method === 'chat.abort')).toBe(false);
+    expect(session.status).toBe('completed');
+
+    await vi.advanceTimersByTimeAsync(18_000);
+
+    expect(requests.find((request) => request.method === 'chat.abort')?.params).toMatchObject({
+      sessionKey,
+      runId: 'run-error',
+    });
+    expect(session.status).toBe('error');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('lifecycle error fallback ignores a later run for the same session', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'hello', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const sessionKey = `agent:main:lobsterai:${session.id}`;
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string, params?: unknown) => {
+        requests.push({ method, params: params as Record<string, unknown> });
+        return {};
+      },
+    };
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'old-run'));
+
+    adapter.handleAgentLifecycleEvent(session.id, { phase: 'error', error: 'old run failed' }, 'old-run');
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'new-run'));
+
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(requests.some((request) => request.method === 'chat.abort')).toBe(false);
+    expect(session.status).toBe('completed');
+    expect(adapter.activeTurns.get(session.id)?.runId).toBe('new-run');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('reconcileWithHistory: preserves tool messages', async () => {
@@ -1367,6 +3307,7 @@ Do not infer or repeat old tasks from prior chats.
 If nothing needs attention, reply HEARTBEAT_OK.`,
     },
     { role: 'assistant', content: 'HEARTBEAT_OK' },
+    { role: 'assistant', content: 'NO_REPLY' },
     { role: 'assistant', content: 'regular assistant' },
   ]);
 

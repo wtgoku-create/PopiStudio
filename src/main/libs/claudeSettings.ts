@@ -9,6 +9,7 @@ import {
   type OpenAICompatProxyTarget,
 } from './coworkOpenAICompatProxy';
 import { readOpenAICodexAuthFile } from './openaiCodexAuth';
+import { getOpenClawTokenProxyPort } from './openclawTokenProxy';
 
 type LocalProviderConfig = Omit<ProviderConfig, 'apiFormat'> & { apiFormat?: ApiFormat | 'native' };
 
@@ -33,12 +34,16 @@ type ProviderModelConfig = {
   id: string;
   name: string;
   supportsImage?: boolean;
+  contextWindow?: number;
+  customParams?: Record<string, unknown>;
 };
 
 type ProviderModelInputConfig = {
   id: string;
   name?: string;
   supportsImage?: boolean;
+  contextWindow?: number;
+  customParams?: Record<string, unknown>;
 };
 
 export type ApiConfigResolution = {
@@ -50,6 +55,7 @@ export type ApiConfigResolution = {
     codingPlanEnabled: boolean;
     supportsImage?: boolean;
     modelName?: string;
+    contextWindow?: number;
   };
 };
 
@@ -75,26 +81,28 @@ export function setServerBaseUrlGetter(getter: () => string): void {
 }
 
 // Cached server model metadata (populated when auth:getModels is called)
-// Keyed by modelId → { supportsImage }
-let serverModelMetadataCache: Map<string, { supportsImage?: boolean }> = new Map();
+// Keyed by modelId → { supportsImage, contextWindow }
+let serverModelMetadataCache: Map<string, { supportsImage?: boolean; contextWindow?: number }> = new Map();
 
 const serializeServerModelMetadata = (
-  models: Array<{ modelId: string; supportsImage?: boolean }>,
+  models: Array<{ modelId: string; supportsImage?: boolean; contextWindow?: number }>,
 ): string => JSON.stringify(
   models
     .map((model) => ({
       modelId: model.modelId,
       supportsImage: model.supportsImage,
+      contextWindow: model.contextWindow,
     }))
     .sort((a, b) => a.modelId.localeCompare(b.modelId)),
 );
 
-export function updateServerModelMetadata(models: Array<{ modelId: string; supportsImage?: boolean }>): boolean {
+export function updateServerModelMetadata(models: Array<{ modelId: string; supportsImage?: boolean; contextWindow?: number }>): boolean {
   const previous = serializeServerModelMetadata(getAllServerModelMetadata());
-  const nextCache = new Map(models.map(m => [m.modelId, { supportsImage: m.supportsImage }]));
+  const nextCache = new Map(models.map(m => [m.modelId, { supportsImage: m.supportsImage, contextWindow: m.contextWindow }]));
   const next = serializeServerModelMetadata(Array.from(nextCache.entries()).map(([modelId, meta]) => ({
     modelId,
     supportsImage: meta.supportsImage,
+    contextWindow: meta.contextWindow,
   })));
   serverModelMetadataCache = nextCache;
   return previous !== next;
@@ -104,10 +112,11 @@ export function clearServerModelMetadata(): void {
   serverModelMetadataCache.clear();
 }
 
-export function getAllServerModelMetadata(): Array<{ modelId: string; supportsImage?: boolean }> {
+export function getAllServerModelMetadata(): Array<{ modelId: string; supportsImage?: boolean; contextWindow?: number }> {
   return Array.from(serverModelMetadataCache.entries()).map(([modelId, meta]) => ({
     modelId,
     supportsImage: meta.supportsImage,
+    contextWindow: meta.contextWindow,
   }));
 }
 
@@ -159,6 +168,7 @@ type MatchedProvider = {
   baseURL: string;
   supportsImage?: boolean;
   modelName?: string;
+  contextWindow?: number;
 };
 
 function getEffectiveProviderApiFormat(providerName: string, apiFormat: unknown): AnthropicApiFormat {
@@ -387,17 +397,18 @@ export function resolveRawApiConfig(): ApiConfigResolution {
       codingPlanEnabled: !!matched.providerConfig.codingPlanEnabled,
       supportsImage: matched.supportsImage,
       modelName: matched.modelName,
+      contextWindow: matched.contextWindow,
     },
   };
 }
 
-  /**
-   * Collect apiKeys for ALL configured providers (not just the currently selected one).
-   * Used by OpenClaw config sync to pre-register all apiKeys as env vars at gateway
-   * startup, so switching between providers doesn't require a process restart.
-   *
-   * Returns a map of env-var-safe provider name → apiKey.
-   */
+/**
+ * Collect apiKeys for ALL configured providers (not just the currently selected one).
+ * Used by OpenClaw config sync to pre-register all apiKeys as env vars at gateway
+ * startup, so switching between providers doesn't require a process restart.
+ *
+ * Returns a map of env-var-safe provider name → apiKey.
+ */
 export function resolveAllProviderApiKeys(): Record<string, string> {
   const result: Record<string, string> = {};
 
@@ -410,11 +421,11 @@ export function resolveAllProviderApiKeys(): Record<string, string> {
       result.SERVER = credential.apiKey;
     }
 
-    // All configured custom providers
-    const sqliteStore = getStore();
-    if (!sqliteStore) return result;
-    const appConfig = sqliteStore.get<AppConfig>('app_config');
-    if (!appConfig?.providers) return result;
+  // All configured custom providers
+  const sqliteStore = getStore();
+  if (!sqliteStore) return result;
+  const appConfig = sqliteStore.get<AppConfig>('app_config');
+  if (!appConfig?.providers) return result;
 
     for (const [providerName, providerConfig] of Object.entries(appConfig.providers)) {
       if (!providerConfig?.enabled) continue;
@@ -434,12 +445,12 @@ export function resolveAllProviderApiKeys(): Record<string, string> {
       result[envName] = apiKey || 'sk-popiai-local';
     }
 
-    const D = gwDiagTs;
-    console.log(`${D()} resolveAllProviderApiKeys: hasServer=${!!result.SERVER} providers=[${Object.keys(result).filter(k => k !== 'SERVER').join(',')}]`);
+  const D = gwDiagTs;
+  console.log(`${D()} resolveAllProviderApiKeys: hasServer=${!!result.SERVER} providers=[${Object.keys(result).filter(k => k !== 'SERVER').join(',')}]`);
 
-    return result;
-  }
-  
+  return result;
+}
+
 
 export function buildEnvForConfig(config: CoworkApiConfig): Record<string, string> {
   const baseEnv = { ...process.env } as Record<string, string>;

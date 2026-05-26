@@ -326,6 +326,18 @@ test('updateSession can patch model override without refreshing the session upda
   expect(session?.updatedAt).toBe(1000);
 });
 
+test('updateSession can rename without refreshing the session updated time', () => {
+  const sid = 'sess-title-only';
+  insertSession(sid);
+  db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(1000, sid);
+
+  store.updateSession(sid, { title: 'Renamed task' }, { touchUpdatedAt: false });
+
+  const session = store.getSession(sid);
+  expect(session?.title).toBe('Renamed task');
+  expect(session?.updatedAt).toBe(1000);
+});
+
 test('deleteSession removes messages without relying on foreign key cascade', () => {
   const sid = 'sess-delete-hard';
   insertSession(sid);

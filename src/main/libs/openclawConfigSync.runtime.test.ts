@@ -24,7 +24,13 @@ const mockRuntimeState = vi.hoisted(() => ({
     apiType: 'anthropic' | 'openai';
     authType?: 'apikey' | 'oauth';
     codingPlanEnabled: boolean;
-    models: Array<{ id: string; name: string; supportsImage?: boolean }>;
+    models: Array<{
+      id: string;
+      name: string;
+      supportsImage?: boolean;
+      contextWindow?: number;
+      customParams?: Record<string, unknown>;
+    }>;
   }>,
   rawApiConfig: {
     config: {
@@ -50,6 +56,7 @@ vi.mock('./claudeSettings', () => ({
 }));
 
 vi.mock('./openclawLocalExtensions', () => ({
+  findBundledExtensionsDir: () => null,
   findThirdPartyExtensionsDir: () => null,
   hasBundledOpenClawExtension: (id: string) => id !== 'qwen-portal-auth',
   resolveOpenClawExtensionPluginId: (id: string) => {
@@ -104,6 +111,46 @@ describe('OpenClawConfigSync runtime config output', () => {
     const { setSystemProxyEnabled } = await import('./systemProxy');
     setSystemProxyEnabled(false);
   });
+
+  const createSync = async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    return new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    });
+  };
 
   test('writes model provider env-proxy transport when system proxy is enabled', async () => {
     const { setSystemProxyEnabled } = await import('./systemProxy');
@@ -241,7 +288,77 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.agents.defaults.cwd).toBe(path.resolve(tmpDir));
   });
 
-  test('merges all server models into existing popiai provider and updates image input', async () => {
+  test('uses the main agent working directory for default agent cwd', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+    const legacyWorkingDirectory = path.join(tmpDir, 'legacy-working-directory');
+    const mainAgentWorkingDirectory = path.join(tmpDir, 'main-agent-working-directory');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: legacyWorkingDirectory,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [
+        {
+          id: 'main',
+          name: 'Main',
+          description: '',
+          systemPrompt: '',
+          identity: '',
+          model: '',
+          workingDirectory: mainAgentWorkingDirectory,
+          icon: '',
+          skillIds: [],
+          enabled: true,
+          isDefault: true,
+          source: 'custom',
+          presetId: '',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    const result = sync.sync('main-agent-cwd');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const mainEntry = config.agents.list.find((entry: { id?: string }) => entry.id === 'main');
+
+    expect(config.agents.defaults.workspace).toBe(path.join(stateDir, 'workspace-main'));
+    expect(config.agents.defaults.cwd).toBe(path.resolve(mainAgentWorkingDirectory));
+    expect(mainEntry.cwd).toBe(path.resolve(mainAgentWorkingDirectory));
+  });
+
+  test('merges all server models into existing lobsterai provider and updates image input', async () => {
     mockRuntimeState.proxyPort = 56646;
     mockRuntimeState.serverModels = [
       { modelId: 'qwen3.5-plus-YoudaoInner', supportsImage: true },
@@ -305,8 +422,10 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(result.ok).toBe(true);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const provider = config.models.providers['popiai-server'];
-    expect(provider.baseUrl).toBe('https://popiai-server.youdao.com/api/proxy/v1');
+    const provider = config.models.providers['lobsterai-server'];
+    expect(provider.baseUrl).toBe('http://127.0.0.1:56646/v1');
+    expect(provider.apiKey).toBe('${LOBSTER_PROXY_TOKEN}');
+    expect(JSON.stringify(config)).not.toContain('LOBSTER_APIKEY_SERVER');
     expect(provider.models).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'qwen3.5-plus-YoudaoInner',
@@ -322,6 +441,100 @@ describe('OpenClawConfigSync runtime config output', () => {
       }),
     ]));
     expect(provider.models).toHaveLength(3);
+    expect(config.agents.defaults.models).toBeUndefined();
+  });
+
+  test('writes a complete agent model allowlist when any model has custom params', async () => {
+    const { ProviderName } = await import('../../shared/providers');
+
+    mockRuntimeState.proxyPort = 56646;
+    mockRuntimeState.serverModels = [
+      { modelId: 'MiniMax-M2.7-YoudaoInner', supportsImage: false },
+      { modelId: 'kimi-k2.6-inhouse-ZhiYun', supportsImage: true },
+    ];
+    mockRuntimeState.rawApiConfig = {
+      config: {
+        baseURL: 'https://api.deepseek.com',
+        apiKey: 'sk-deepseek',
+        model: 'deepseek-v4-flash',
+        apiType: 'openai',
+      },
+      providerMetadata: {
+        providerName: ProviderName.DeepSeek,
+        codingPlanEnabled: false,
+        supportsImage: false,
+        modelName: 'DeepSeek V4 Flash',
+      },
+    };
+    mockRuntimeState.enabledProviders = [
+      {
+        providerName: ProviderName.DeepSeek,
+        baseURL: 'https://api.deepseek.com',
+        apiKey: 'sk-deepseek',
+        apiType: 'openai',
+        codingPlanEnabled: false,
+        models: [
+          {
+            id: 'deepseek-v4-flash',
+            name: 'DeepSeek V4 Flash',
+            supportsImage: false,
+            customParams: { reasoning_effort: 'high' },
+          },
+          {
+            id: 'deepseek-v4-pro',
+            name: 'DeepSeek V4 Pro',
+            supportsImage: false,
+          },
+        ],
+      },
+    ];
+
+    const sync = await createSync();
+
+    const result = sync.sync('custom-params-complete-model-allowlist');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const modelDefaults = config.agents.defaults.models;
+
+    expect(modelDefaults).toEqual(expect.objectContaining({
+      'deepseek/deepseek-v4-flash': {
+        params: {
+          extra_body: {
+            reasoning_effort: 'high',
+          },
+        },
+      },
+      'deepseek/deepseek-v4-pro': {},
+      'lobsterai-server/MiniMax-M2.7-YoudaoInner': {},
+      'lobsterai-server/kimi-k2.6-inhouse-ZhiYun': {},
+    }));
+    expect(Object.keys(modelDefaults)).toEqual(expect.arrayContaining([
+      'deepseek/deepseek-v4-flash',
+      'deepseek/deepseek-v4-pro',
+      'lobsterai-server/MiniMax-M2.7-YoudaoInner',
+      'lobsterai-server/kimi-k2.6-inhouse-ZhiYun',
+    ]));
+  });
+
+  test('removes stale agent model allowlist when no model has custom params', async () => {
+    fs.writeFileSync(configPath, JSON.stringify({
+      agents: {
+        defaults: {
+          models: {
+            'lobsterai-server/MiniMax-M2.7-YoudaoInner': {},
+          },
+        },
+      },
+    }, null, 2));
+
+    const sync = await createSync();
+
+    const result = sync.sync('remove-stale-model-allowlist');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.agents.defaults.models).toBeUndefined();
   });
 
   test('maps OpenAI OAuth mode to the OpenAI Codex provider', async () => {
@@ -383,70 +596,34 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(customSelection.providerConfig.models[0].input).toEqual(['text', 'image']);
   });
 
-  test('adds missing array items in MCP bridge tool schemas for OpenAI compatibility', async () => {
-    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+  test('marks DeepSeek reasoning models and all Xiaomi models as reasoning-capable', async () => {
+    const { OpenClawApi, ProviderName } = await import('../../shared/providers');
+    const { buildProviderSelection } = await import('./openclawConfigSync');
 
-    const sync = new OpenClawConfigSync({
-      engineManager: {
-        getConfigPath: () => configPath,
-        getGatewayToken: () => 'gateway-token',
-        getStateDir: () => stateDir,
-        getBaseDir: () => tmpDir,
-      } as never,
-      getCoworkConfig: () => ({
-        workingDirectory: tmpDir,
-        systemPrompt: '',
-        executionMode: 'local',
-        agentEngine: 'openclaw',
-        memoryEnabled: false,
-        memoryImplicitUpdateEnabled: false,
-        memoryLlmJudgeEnabled: false,
-        memoryGuardLevel: 'balanced',
-        memoryUserMemoriesMaxItems: 100,
-        skipMissedJobs: false,
-      }),
-      isEnterprise: () => false,
-      getTelegramInstances: () => [],
-      getDiscordOpenClawConfig: () => null,
-      getDingTalkInstances: () => [],
-      getFeishuInstances: () => [],
-      getQQInstances: () => [],
-      getWecomConfig: () => null,
-      getWecomInstances: () => [],
-      getPopoInstances: () => [],
-      getNimConfig: () => null,
-      getNeteaseBeeChanConfig: () => null,
-      getWeixinConfig: () => null,
-      getIMSettings: () => null,
-      getSkillsList: () => [],
-      getAgents: () => [],
-      getMcpBridgeConfig: () => ({
-        callbackUrl: 'http://127.0.0.1:12345/mcp',
-        askUserCallbackUrl: 'http://127.0.0.1:12345/ask',
-        secret: 'test-secret',
-        tools: [{
-          server: 'github',
-          name: 'create_issue',
-          description: 'Create an issue',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              attachments: {
-                type: 'array',
-                description: 'Optional issue attachments',
-              },
-            },
-          },
-        }],
-      }),
+    const deepseekSelection = buildProviderSelection({
+      apiKey: 'sk-test',
+      baseURL: 'https://api.deepseek.com',
+      modelId: 'deepseek-v4-pro',
+      apiType: 'openai',
+      providerName: ProviderName.DeepSeek,
+      supportsImage: false,
+      modelName: 'DeepSeek V4 Pro',
     });
+    expect(deepseekSelection.providerConfig.api).toBe(OpenClawApi.OpenAICompletions);
+    expect(deepseekSelection.providerConfig.models[0].reasoning).toBe(true);
 
-    const result = sync.sync('test');
-    expect(result.ok).toBe(true);
-
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const [tool] = config.plugins.entries['mcp-bridge'].config.tools;
-    expect(tool.inputSchema.properties.attachments.items).toEqual({});
+    const xiaomiSelection = buildProviderSelection({
+      apiKey: 'sk-test',
+      baseURL: 'https://api.xiaomimimo.com/v1/chat/completions',
+      modelId: 'mimo-any-model',
+      apiType: 'openai',
+      providerName: ProviderName.Xiaomi,
+      supportsImage: false,
+      modelName: 'MiMo Any Model',
+    });
+    expect(xiaomiSelection.providerConfig.baseUrl).toBe('https://api.xiaomimimo.com/v1');
+    expect(xiaomiSelection.providerConfig.api).toBe(OpenClawApi.OpenAICompletions);
+    expect(xiaomiSelection.providerConfig.models[0].reasoning).toBe(true);
   });
 
   test('writes Telegram streaming in the nested schema expected by current OpenClaw', async () => {
@@ -949,5 +1126,156 @@ describe('OpenClawConfigSync runtime config output', () => {
       allowFrom: ['*'],
     });
     expect(config.channels['openclaw-weixin']).not.toHaveProperty('accountId');
+  });
+
+  test('writes managed browser policy forcing host target', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getPopoInstances: () => [],
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    } as never);
+
+    const result = sync.sync('browser-policy');
+    expect(result.ok).toBe(true);
+
+    const agentsMdPath = path.join(stateDir, 'workspace-main', 'AGENTS.md');
+    const agentsMd = fs.readFileSync(agentsMdPath, 'utf8');
+    expect(agentsMd).toContain('LobsterAI does not support sandbox browser execution in this version.');
+    expect(agentsMd).toContain('For every `browser` tool call, set `target="host"` explicitly.');
+  });
+
+  test('writes browser and web fetch access settings', async () => {
+    const { setSystemProxyEnabled } = await import('./systemProxy');
+    const {
+      BrowserNetworkMode,
+      BrowserProfileMode,
+      BrowserRuntimeProfile,
+      BrowserSnapshotMode,
+    } = await import('../../shared/browserWebAccess/constants');
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+    setSystemProxyEnabled(true);
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      getBrowserWebAccessConfig: () => ({
+        browserEnabled: true,
+        profileMode: BrowserProfileMode.User,
+        networkMode: BrowserNetworkMode.Strict,
+        followGlobalProxy: true,
+        allowedHostnames: ['https://Localhost:8443/path'],
+        blockedHostnames: ['https://www.baidu.com/search'],
+        snapshotMode: BrowserSnapshotMode.Efficient,
+        evaluateEnabled: false,
+        executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        cdpUrl: 'http://127.0.0.1:9222',
+        attachOnly: true,
+        remoteCdpTimeoutMs: 1500,
+        remoteCdpHandshakeTimeoutMs: 3000,
+        extraArgs: ['--disable-infobars'],
+        webFetch: {
+          enabled: true,
+          followGlobalProxy: true,
+          timeoutSeconds: 25,
+          maxRedirects: 4,
+          maxChars: 12000,
+          userAgent: 'LobsterAI Test',
+          readability: false,
+          allowRfc2544BenchmarkRange: true,
+        },
+      }),
+      isEnterprise: () => false,
+      getPopoInstances: () => [],
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    } as never);
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      gateway: { mode: 'local' },
+      tools: {
+        web: {
+          fetch: {
+            enabled: true,
+            useEnvProxy: true,
+          },
+        },
+      },
+    }, null, 2));
+
+    const result = sync.sync('browser-web-access');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.browser).toMatchObject({
+      enabled: true,
+      defaultProfile: BrowserRuntimeProfile.Managed,
+      evaluateEnabled: false,
+      ssrfPolicy: {
+        dangerouslyAllowPrivateNetwork: false,
+        allowedHostnames: ['localhost'],
+        hostnameAllowlist: ['localhost'],
+        blockedHostnames: ['www.baidu.com'],
+      },
+    });
+    expect(config.browser.cdpUrl).toBeUndefined();
+    expect(config.browser.executablePath).toBeUndefined();
+    expect(config.browser.attachOnly).toBeUndefined();
+    expect(config.browser.remoteCdpTimeoutMs).toBeUndefined();
+    expect(config.browser.remoteCdpHandshakeTimeoutMs).toBeUndefined();
+    expect(config.browser.extraArgs).toBeUndefined();
+    expect(config.browser.snapshotDefaults).toBeUndefined();
+    expect(config.tools.web.fetch).toMatchObject({
+      enabled: true,
+      readability: false,
+      timeoutSeconds: 25,
+      maxRedirects: 4,
+      maxChars: 12000,
+      userAgent: 'LobsterAI Test',
+      ssrfPolicy: { allowRfc2544BenchmarkRange: true },
+    });
+    expect(config.tools.web.fetch.useEnvProxy).toBeUndefined();
   });
 });

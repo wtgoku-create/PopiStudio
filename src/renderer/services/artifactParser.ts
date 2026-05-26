@@ -1,4 +1,4 @@
-import type { Artifact, ArtifactType } from '../types/artifact';
+import { type Artifact, type ArtifactType, ArtifactTypeValue } from '../types/artifact';
 import type { CoworkMessage } from '../types/cowork';
 
 /**
@@ -11,19 +11,6 @@ export function normalizeFilePathForDedup(p: string): string {
   // Unify separators and case for comparison
   return p.replace(/\\/g, '/').toLowerCase();
 }
-
-const LANGUAGE_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
-  html: 'html',
-  svg: 'svg',
-  mermaid: 'mermaid',
-  jsx: 'code',
-  tsx: 'code',
-  markdown: 'markdown',
-  md: 'markdown',
-  text: 'text',
-  txt: 'text',
-  plaintext: 'text',
-};
 
 const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
   '.html': 'html',
@@ -63,24 +50,10 @@ const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
 };
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
-const BINARY_DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx', '.pdf']);
-const MEDIA_EXTENSIONS = new Set([
-  '.mp4',
-  '.mov',
-  '.webm',
-  '.m4v',
-  '.avi',
-  '.mkv',
-  '.wmv',
-  '.flv',
-  '.mp3',
-  '.wav',
-  '.m4a',
-]);
-
-export function getArtifactTypeFromLanguage(lang: string): ArtifactType | null {
-  return LANGUAGE_TO_ARTIFACT_TYPE[lang.toLowerCase()] ?? null;
-}
+const BINARY_DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx', '.pdf', '.csv', '.tsv', '.xls']);
+const LOCAL_SERVICE_URL_RE = /\bhttps?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\])(?::\d{1,5})?(?:\/[^\s<>"'`)\]]*)?/gi;
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi;
+const LOCAL_SERVICE_TRAILING_PUNCTUATION_RE = /[.,;:!?，。；：！？、]+$/;
 
 export function getArtifactTypeFromExtension(ext: string): ArtifactType | null {
   return EXTENSION_TO_ARTIFACT_TYPE[ext.toLowerCase()] ?? null;
@@ -94,11 +67,59 @@ export function isBinaryDocumentExtension(ext: string): boolean {
   return BINARY_DOCUMENT_EXTENSIONS.has(ext.toLowerCase());
 }
 
-export function isMediaExtension(ext: string): boolean {
-  return MEDIA_EXTENSIONS.has(ext.toLowerCase());
+function trimLocalServiceUrl(rawUrl: string): string {
+  let url = rawUrl.trim();
+  while (url.endsWith(')') && !url.includes('(')) {
+    url = url.slice(0, -1);
+  }
+  while (url.endsWith(']') && !url.includes('[')) {
+    url = url.slice(0, -1);
+  }
+  return url.replace(LOCAL_SERVICE_TRAILING_PUNCTUATION_RE, '');
 }
 
-export function parseCodeBlockArtifacts(
+export function normalizeLocalServiceUrlForDedup(url: string): string {
+  try {
+    const parsed = new URL(trimLocalServiceUrl(url));
+    const pathname = parsed.pathname === '/' ? '/' : parsed.pathname.replace(/\/+$/, '');
+    return `${parsed.protocol}//${parsed.host.toLowerCase()}${pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return trimLocalServiceUrl(url).toLowerCase();
+  }
+}
+
+function isLocalServiceUrl(url: string): boolean {
+  try {
+    const parsed = new URL(trimLocalServiceUrl(url));
+    const isHttp = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    if (!isHttp) return false;
+
+    return parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '0.0.0.0' ||
+      parsed.hostname === '[::1]' ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function buildLocalServiceTitle(url: string, linkText?: string): string {
+  const title = linkText?.trim();
+  if (title && !/^https?:\/\//i.test(title)) {
+    return title;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const pathPart = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() ?? '');
+    return pathPart || parsed.host;
+  } catch {
+    return url;
+  }
+}
+
+export function parseLocalServiceUrlsFromText(
   messageContent: string,
   messageId: string,
   sessionId: string,
@@ -106,34 +127,89 @@ export function parseCodeBlockArtifacts(
   if (!messageContent) return [];
 
   const artifacts: Artifact[] = [];
-  const re = /```(artifact:)?(\w+)(?:\s+title="([^"]*)")?\s*\n([\s\S]*?)```/g;
+  const seenUrls = new Set<string>();
+  let index = 0;
+
+  const addUrl = (rawUrl: string, linkText?: string) => {
+    const url = trimLocalServiceUrl(rawUrl);
+    if (!url || !isLocalServiceUrl(url)) return;
+
+    const normalized = normalizeLocalServiceUrlForDedup(url);
+    if (seenUrls.has(normalized)) return;
+    seenUrls.add(normalized);
+
+    artifacts.push({
+      id: `artifact-local-service-${messageId}-${index}`,
+      messageId,
+      sessionId,
+      type: ArtifactTypeValue.LocalService,
+      title: buildLocalServiceTitle(url, linkText),
+      content: url,
+      url,
+      createdAt: Date.now(),
+    });
+    index++;
+  };
+
+  const markdownRe = new RegExp(MARKDOWN_LINK_RE.source, 'gi');
+  let markdownMatch: RegExpExecArray | null;
+  while ((markdownMatch = markdownRe.exec(messageContent)) !== null) {
+    addUrl(markdownMatch[2], markdownMatch[1]);
+  }
+
+  const urlRe = new RegExp(LOCAL_SERVICE_URL_RE.source, 'gi');
+  let urlMatch: RegExpExecArray | null;
+  while ((urlMatch = urlRe.exec(messageContent)) !== null) {
+    addUrl(urlMatch[0]);
+  }
+
+  return artifacts;
+}
+
+export const MEDIA_TOKEN_RE = /\bMEDIA:\s*`?([^`\n]+?)`?\s*$/gim;
+
+export function parseMediaTokensFromText(
+  messageContent: string,
+  messageId: string,
+  sessionId: string,
+): Artifact[] {
+  if (!messageContent) return [];
+
+  const artifacts: Artifact[] = [];
+  const re = new RegExp(MEDIA_TOKEN_RE.source, 'gim');
   let match: RegExpExecArray | null;
   let index = 0;
 
   while ((match = re.exec(messageContent)) !== null) {
-    const isExplicitArtifact = Boolean(match[1]);
-    const language = match[2];
-    const explicitTitle = match[3];
-    const content = match[4].trimEnd();
+    let filePath = match[1].trim();
+    if (!filePath) continue;
 
-    const artifactType = getArtifactTypeFromLanguage(language);
-
-    if (!artifactType && !isExplicitArtifact) {
-      continue;
+    if (filePath.startsWith('file:///')) {
+      filePath = filePath.slice(7);
+    } else if (filePath.startsWith('file://')) {
+      filePath = filePath.slice(7);
     }
 
-    const type = artifactType ?? 'code';
-    const title = explicitTitle || generateTitle(type, language, content);
+    // Strip leading / before Windows drive letter (e.g. /D:/path from file:///D:/path)
+    if (/^\/[A-Za-z]:/.test(filePath)) {
+      filePath = filePath.slice(1);
+    }
+
+    const ext = getFileExtension(filePath);
+    const artifactType = getArtifactTypeFromExtension(ext);
+    if (!artifactType) continue;
+
+    const fileName = getFileName(filePath);
 
     artifacts.push({
-      id: `artifact-${messageId}-${index}`,
+      id: `artifact-media-${messageId}-${index}`,
       messageId,
       sessionId,
-      type,
-      title,
-      content,
-      language: type === 'code' ? language : undefined,
-      source: 'codeblock',
+      type: artifactType,
+      title: fileName,
+      content: '',
+      fileName,
+      filePath,
       createdAt: Date.now(),
     });
 
@@ -195,7 +271,6 @@ export function parseFilePathsFromText(
       content: '',
       fileName,
       filePath,
-      source: 'tool',
       createdAt: Date.now(),
     });
 
@@ -244,7 +319,6 @@ export function parseFileLinksFromMessage(
       content: '',
       fileName,
       filePath,
-      source: 'tool',
       createdAt: Date.now(),
     });
 
@@ -252,33 +326,6 @@ export function parseFileLinksFromMessage(
   }
 
   return artifacts;
-}
-
-function generateTitle(type: ArtifactType, language: string, content: string): string {
-  switch (type) {
-    case 'html': {
-      const titleMatch = content.match(/<title>([^<]+)<\/title>/i);
-      return titleMatch ? titleMatch[1] : 'HTML Page';
-    }
-    case 'svg':
-      return 'SVG Image';
-    case 'mermaid':
-      return 'Mermaid Diagram';
-    case 'image':
-      return 'Image';
-    case 'video':
-      return 'Video';
-    case 'audio':
-      return 'Audio';
-    case 'markdown':
-      return 'Markdown Document';
-    case 'text':
-      return 'Text File';
-    case 'document':
-      return 'Document';
-    case 'code':
-      return `${language.charAt(0).toUpperCase() + language.slice(1)} Code`;
-  }
 }
 
 const WRITE_TOOL_NAMES = new Set(['write', 'writefile', 'write_file']);
@@ -347,7 +394,6 @@ export function parseToolArtifact(
     content,
     fileName,
     filePath,
-    source: 'tool',
     createdAt: toolUseMsg.timestamp || Date.now(),
   };
 }
