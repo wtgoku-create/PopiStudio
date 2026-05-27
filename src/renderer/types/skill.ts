@@ -50,7 +50,7 @@ export interface SkillHubSkillItem {
   tagId?: number | null;
   desp: string;
   author?: string;
-  origin?: string;
+  origin: string;
   originDesp?: string;
   downloadNum?: number;
   likeNum?: number;

@@ -199,6 +199,7 @@ test('mapSkillMarketplaceData falls back to url when origin is missing', () => {
         version: '2.0.0',
         categoryId: null,
         humanInstallDesp: '',
+        origin: '',
         desp: 'Install from GitHub.',
         url: 'https://github.com/example/repo',
       },

@@ -304,7 +304,7 @@ export function mapSkillMarketplaceData(
   const categories = Array.isArray(marketplaceData.categories) ? marketplaceData.categories : [];
   const skills = (Array.isArray(marketplaceData.skills) ? marketplaceData.skills : []).map((skill) => {
     const categoryTag = skill.categoryId != null ? String(skill.categoryId) : undefined;
-    const installSource = skill.humanInstallDesp;
+    const installSource = skill.origin;
     return {
       id: String(skill.id),
       name: skill.name,
