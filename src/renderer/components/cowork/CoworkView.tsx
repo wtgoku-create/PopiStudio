@@ -7,6 +7,8 @@ import { agentService } from '../../services/agent';
 import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
+import { appendPopiTVCanvasContext } from '../../services/popitvCanvasContext';
+import { registerPopiTVCanvasAutoOpenHandler } from '../../services/popitvCanvasToolRouter';
 import { quickActionService } from '../../services/quickAction';
 import { RootState } from '../../store';
 import {
@@ -30,6 +32,18 @@ import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInpu
 import CoworkSessionDetail from './CoworkSessionDetail';
 import { buildCoworkContinuationSystemPrompt, buildCoworkSystemPrompt } from './skillSystemPrompt';
 import SubagentSessionDetail from './SubagentSessionDetail';
+
+const POPITV_SKILL_ID = 'popitv';
+
+const isPopiTVSession = (session: CoworkSession | null | undefined): boolean => {
+  if (!session) return false;
+  if (session.activeSkillIds.includes(POPITV_SKILL_ID)) return true;
+
+  return session.messages.some(message => {
+    const skillIds = (message.metadata as { skillIds?: unknown } | undefined)?.skillIds;
+    return Array.isArray(skillIds) && skillIds.includes(POPITV_SKILL_ID);
+  });
+};
 
 export interface CoworkViewProps {
   onRequestAppSettings?: (options?: SettingsOpenOptions) => void;
@@ -178,6 +192,21 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);
 
+  useEffect(() => {
+    return registerPopiTVCanvasAutoOpenHandler(async sessionId => {
+      const cowork = window.electron?.cowork;
+      if (!cowork?.getSession) return false;
+
+      const result = await cowork.getSession(sessionId);
+      if (!result.success || !isPopiTVSession(result.session)) {
+        return false;
+      }
+
+      const loadedSession = await coworkService.loadSession(sessionId);
+      return isPopiTVSession(loadedSession);
+    });
+  }, []);
+
   const handleStartSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]): Promise<boolean | void> => {
     console.log('[CoworkView] handleStartSession: imageAttachments diagnosis', {
       hasImageAttachments: !!imageAttachments,
@@ -280,7 +309,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       // auto-routing prompt to avoid injecting Claude SDK tool-calling instructions
       // that confuse non-Claude models (e.g. kimi-k2.5 falls back to text-based
       // tool calls, producing empty tool names and err=true failures).
-      const combinedSystemPrompt = buildCoworkSystemPrompt(skillPrompt, config.systemPrompt);
+      const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+        shouldInclude: sessionSkillIds.includes(POPITV_SKILL_ID),
+      });
+      const combinedSystemPrompt = buildCoworkSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
 
       // Start the actual session immediately with fallback title
       const sessionModelOverride = currentAgentSelectedModel ? toOpenClawModelRef(currentAgentSelectedModel) : '';
@@ -349,7 +381,14 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
 
       // Only send a continuation system prompt when this turn selects new skills.
       // Otherwise the main process falls back to the session prompt created on the first turn.
-      const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(skillPrompt, config.systemPrompt);
+      const popitvContextSkillIds = sessionSkillIds.length > 0
+        ? sessionSkillIds
+        : currentSession.activeSkillIds;
+      const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+        shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
+        sessionId: currentSession.id,
+      });
+      const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
 
       const sent = await coworkService.continueSession({
         sessionId: currentSession.id,

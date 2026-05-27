@@ -283,6 +283,26 @@ interface ProfileSummaryData {
   creditItems: CreditItem[];
 }
 
+interface PopiTVToolRequestIPC {
+  requestId: string;
+  bridgeType:
+    | 'popitv:get-snapshot'
+    | 'popitv:apply-edit-operations'
+    | 'popitv:run-workflow'
+    | 'popitv:run-selected'
+    | 'popitv:stop-workflow';
+  sessionId?: string;
+  nodeIds?: string[];
+  operations?: unknown[];
+}
+
+interface PopiTVToolResponseIPC {
+  requestId: string;
+  ok: boolean;
+  payload?: unknown;
+  error?: string;
+}
+
 interface IElectronAPI {
   platform: string;
   arch: string;
@@ -375,6 +395,10 @@ interface IElectronAPI {
       data?: McpMarketplaceData;
       error?: string;
     }>;
+  };
+  popitv: {
+    onToolRequest: (callback: (data: PopiTVToolRequestIPC) => void) => () => void;
+    respondToolRequest: (data: PopiTVToolResponseIPC) => void;
   };
   agents: {
     list: () => Promise<Agent[]>;

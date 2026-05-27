@@ -14,7 +14,7 @@ import {
 import type { SqliteStore } from '../sqliteStore';
 import { getAppUpdateReadAuthorization } from './appUpdateConfig';
 import { cancelActiveDownload, downloadUpdate, installUpdate } from './appUpdateInstaller';
-import { getFallbackDownloadUrl, getManualUpdateCheckUrl, getUpdateCheckUrl } from './endpoints';
+import { getFallbackDownloadUrl, getUpdateCheckUrl } from './endpoints';
 import { getKeyfromAttribution } from './keyfromAttribution';
 
 type ChangeLogLang = {

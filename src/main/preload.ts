@@ -68,6 +68,14 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('mcp:setEnabled', options),
     fetchMarketplace: () => ipcRenderer.invoke('mcp:fetchMarketplace'),
   },
+  popitv: {
+    onToolRequest: (callback: (data: any) => void) => {
+      const handler = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('popitv:tool-request', handler);
+      return () => ipcRenderer.removeListener('popitv:tool-request', handler);
+    },
+    respondToolRequest: (data: any) => ipcRenderer.send('popitv:tool-response', data),
+  },
   permissions: {
     checkCalendar: () => ipcRenderer.invoke('permissions:checkCalendar'),
     requestCalendar: () => ipcRenderer.invoke('permissions:requestCalendar'),

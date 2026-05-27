@@ -229,6 +229,10 @@ tests/                     Node 集成和回归测试
 specs/                     设计说明与实现规格
 ```
 
+补充实现文档：
+
+- PopiTV 画布架构与工具路由说明：[`docs/popitv-canvas.md`](docs/popitv-canvas.md)
+
 ## 品牌信息
 
 - 产品名：**Popiai**

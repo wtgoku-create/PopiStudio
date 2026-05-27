@@ -27,7 +27,7 @@ import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebService
 import { PlatformRegistry } from '../shared/platform';
 // PopiArt CLI 登录态同步与 IPC 处理
 import { PopiArtAuthStatus } from '../shared/popiart/constants';
-import { ProviderName } from '../shared/providers';
+import { ProviderName, ProviderRegistry } from '../shared/providers';
 import { AgentManager } from './agentManager';
 import { APP_NAME } from './appConstants';
 import { getAutoLaunchEnabled, isAutoLaunched, setAutoLaunchEnabled } from './autoLaunchManager';
@@ -109,6 +109,8 @@ import {
 import { collectReferencedEnvVarNames, pickReferencedSecretEnvVars } from './libs/openclawSecretEnv';
 import { startOpenClawTokenProxy, stopOpenClawTokenProxy } from './libs/openclawTokenProxy';
 import { migrateMainAgentWorkspace } from './libs/openclawWorkspaceMigration';
+import { executePopiTVMcpTool, getPopiTVMcpToolManifest } from './libs/popiTVMcpBridgeTools';
+import { registerPopiTVRendererBridgeIpc, requestPopiTVCanvasFromRenderer } from './libs/popiTVRendererBridge';
 import { ensurePythonRuntimeReady } from './libs/pythonRuntime';
 import { resolveStdioCommand } from './libs/resolveStdioCommand';
 import { serializeForLog } from './libs/sanitizeForLog';
@@ -189,7 +191,7 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'text/csv': '.csv',
 };
 const POPI_DEFAULT_SERVER_MODELS = [
-  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: false },
+  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: true },
 ] as const;
 
 const cleanHtmlTitle = (value: string): string =>
@@ -904,6 +906,9 @@ let preventSleepBlockerId: number | null = null;
 let appUpdateCoordinator: AppUpdateCoordinator | null = null;
 
 const AUTH_USER_STORE_KEY = 'auth_user';
+const getLocalMcpBridgeToolManifest = () => [
+  ...getPopiTVMcpToolManifest(),
+];
 
 function setPreventSleepBlockerEnabled(enabled: boolean): void {
   if (enabled) {
@@ -1630,23 +1635,22 @@ const getMcpStore = () => {
 
 
 /**
- * Start the MCP Bridge: server manager + HTTP callback.
- * Called during OpenClaw bootstrap before config sync.
- * Returns the bridge config to be written into openclaw.json.
- *
- * The HTTP callback server is always started (even without MCP servers)
- * because the AskUserQuestion plugin also uses it for user confirmation dialogs.
- */
-/**
  * Start the AskUser HTTP callback server (serves ask-user-question plugin).
  * MCP server connections are now handled natively by OpenClaw via mcp.servers config.
  */
 const startAskUserServer = async (): Promise<void> => {
-  if (mcpBridgeServer?.port) return; // already running
-
   if (!mcpBridgeServer) {
     mcpBridgeServer = new McpBridgeServer(mcpBridgeSecret);
   }
+
+  mcpBridgeServer.setLocalToolHandler((server, tool, args, options) => (
+    executePopiTVMcpTool(server, tool, args, (request) => (
+      requestPopiTVCanvasFromRenderer(request, { signal: options.signal })
+    ))
+  ));
+
+  if (mcpBridgeServer.port) return; // already running
+
   console.log('[AskUser] starting HTTP callback server...');
   await mcpBridgeServer.start();
 
@@ -1684,7 +1688,7 @@ const startAskUserServer = async (): Promise<void> => {
     });
   });
 
-  console.log(`[AskUser] started: askUserUrl=${mcpBridgeServer.askUserCallbackUrl}`);
+  console.log(`[AskUser] started: askUserUrl=${mcpBridgeServer.askUserCallbackUrl}, localTools=${getLocalMcpBridgeToolManifest().length}`);
 };
 
 /**
@@ -2146,6 +2150,7 @@ if (!gotTheLock) {
     const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
     fn(`[Renderer][${tag}] ${message}`);
   });
+  registerPopiTVRendererBridgeIpc();
 
   // Allow renderer to retrieve a buffered auth code on init
   ipcMain.handle('auth:getPendingCallback', () => {
@@ -3042,13 +3047,17 @@ if (!gotTheLock) {
             }>;
           };
           // console.log('[Auth:getModels] fetched model list from gateway:', body.data);
-          const gatewayModels = (body.data ?? []).map(mode => ({
-            modelId: mode.id || '',
-            modelName: mode.id || '',
-            provider: ProviderName.PopiaiServer,
-            apiFormat: 'openai',
-            supportsImage: mode.is_multimodal,
-          }));
+          const gatewayModels = (body.data ?? [])
+            .map(model => model.id?.trim())
+            .filter((id): id is string => !!id)
+            .map(id => ({
+              modelId: id,
+              modelName: id,
+              provider: ProviderName.PopiaiServer,
+              apiFormat: 'openai',
+              supportsImage: body.data?.find(model => model.id?.trim() === id)?.is_multimodal
+                ?? ProviderRegistry.resolveModelSupportsImage(ProviderName.PopiaiServer, id, false),
+            }));
           if (gatewayModels.length > 0) {
             models = gatewayModels;
           }
@@ -6815,6 +6824,7 @@ end tell'`, { timeout: 5000 });
       }
 
       const devPort = process.env.ELECTRON_START_URL?.match(/:(\d+)/)?.[1] || '5175';
+      const frameSources = isDev ? "'self' file: http://127.0.0.1:* http://localhost:*" : "'self' file:";
       const cspDirectives = [
         "default-src 'self'",
         isDev ? `script-src 'self' 'unsafe-inline' http://localhost:${devPort} ws://localhost:${devPort}` : "script-src 'self'",
@@ -6825,7 +6835,7 @@ end tell'`, { timeout: 5000 });
         "font-src 'self' data: https:",
         "media-src 'self'",
         "worker-src 'self' blob:",
-        "frame-src 'self' file: http://127.0.0.1:*"
+        `frame-src ${frameSources}`
       ];
 
       callback({

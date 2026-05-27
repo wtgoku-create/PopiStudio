@@ -200,6 +200,52 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.models.providers.openai.request.proxy).toEqual({ mode: 'env-proxy' });
   });
 
+  test('includes bundled project skills in dev extraDirs even when userData skills are missing', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    });
+
+    const result = sync.sync('test');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.skills.load.extraDirs).toContain(path.join(process.cwd(), 'SKILLs'));
+  });
+
   test('does not create an agent model allowlist for OpenAI OAuth when system proxy is enabled', async () => {
     const { ProviderName } = await import('../../shared/providers');
     const { setSystemProxyEnabled } = await import('./systemProxy');

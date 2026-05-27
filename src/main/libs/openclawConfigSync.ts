@@ -2646,23 +2646,38 @@ export class OpenClawConfigSync {
    *   Linux:   ~/.config/Popiai/SKILLs
    */
   private resolveSkillsExtraDirs(): string[] {
+    const extraDirs: string[] = [];
+    const addIfDirectory = (dir: string): void => {
+      try {
+        const resolved = path.resolve(dir);
+        if (fs.statSync(resolved).isDirectory() && !extraDirs.includes(resolved)) {
+          extraDirs.push(resolved);
+        }
+      } catch (err: unknown) {
+        // ENOENT is expected on fresh installs before any skills sync.
+        if (
+          err &&
+          typeof err === 'object' &&
+          'code' in err &&
+          (err as NodeJS.ErrnoException).code !== 'ENOENT'
+        ) {
+          console.warn('[OpenClawConfigSync] Failed to stat SKILLs directory:', err);
+        }
+      }
+    };
+
     const userDataSkillsDir = path.join(app.getPath('userData'), 'SKILLs');
-    try {
-      if (fs.statSync(userDataSkillsDir).isDirectory()) {
-        return [userDataSkillsDir];
-      }
-    } catch (err: unknown) {
-      // ENOENT is expected on fresh installs before any skills sync.
-      if (
-        err &&
-        typeof err === 'object' &&
-        'code' in err &&
-        (err as NodeJS.ErrnoException).code !== 'ENOENT'
-      ) {
-        console.warn('[OpenClawConfigSync] Failed to stat SKILLs directory:', err);
-      }
+    addIfDirectory(userDataSkillsDir);
+
+    if (!app.isPackaged) {
+      [
+        path.join(app.getAppPath(), 'SKILLs'),
+        path.join(process.cwd(), 'SKILLs'),
+        path.resolve(__dirname, '..', 'SKILLs'),
+      ].forEach(addIfDirectory);
     }
-    return [];
+
+    return extraDirs;
   }
 
   /**

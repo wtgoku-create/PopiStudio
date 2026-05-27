@@ -155,7 +155,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     setName(isEn && preset.nameEn ? preset.nameEn : preset.name);
     setDescription(isEn && preset.descriptionEn ? preset.descriptionEn : preset.description);
     setSystemPrompt(isEn && preset.systemPromptEn ? preset.systemPromptEn : preset.systemPrompt);
-    setIdentity(isEn && preset.identityEn ? preset.identityEn : preset.identity);
+    setIdentity(isEn && preset.identityEn ? preset.identityEn : (preset.identity ?? ''));
     setIcon(preset.icon?.trim() || DefaultAgentAvatarIcon);
     setSkillIds(preset.skillIds ?? []);
     setActiveTab(AgentDetailTab.Identity);

@@ -56,6 +56,7 @@ import {
   COWORK_DETAIL_GUTTER_CLASS,
   hasRenderableAssistantContent,
 } from './messageDisplayUtils';
+import PopiTVCanvasWorkspace from './PopiTVCanvasWorkspace';
 import UserMessageItem from './UserMessageItem';
 interface CoworkSessionDetailProps {
   onManageSkills?: () => void;
@@ -1923,6 +1924,11 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     ? Math.max(0, artifactPanelFrameWidth - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH)
     : undefined;
   const shouldShowTurnNavigationRail = turns.length > 1 && isScrollable;
+  const isPopiTVSession = currentSession.activeSkillIds.includes('popitv')
+    || currentSession.messages.some((message) => {
+      const skillIds = (message.metadata as CoworkMessageMetadata | undefined)?.skillIds;
+      return Array.isArray(skillIds) && skillIds.includes('popitv');
+    });
 
   const renderConversationTurns = () => {
     let railCounter = 0;
@@ -2308,7 +2314,17 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
       {/* Content row: chat + artifact panel */}
       <div ref={contentRowRef} className="flex-1 flex overflow-hidden">
-      <div ref={detailRootRef} className="flex-1 flex flex-col bg-background h-full" style={{ minWidth: COWORK_DETAIL_MIN_WIDTH }}>
+      {isPopiTVSession && (
+        <PopiTVCanvasWorkspace
+          sessionId={currentSession.id}
+          sessionTitle={currentSession.title || i18nService.t('coworkNewSession')}
+        />
+      )}
+      <div
+        ref={detailRootRef}
+        className={`${isPopiTVSession ? 'w-[420px] 2xl:w-[500px] shrink-0 border-l border-border' : 'flex-1'} flex flex-col bg-background h-full`}
+        style={{ minWidth: isPopiTVSession ? 380 : COWORK_DETAIL_MIN_WIDTH }}
+      >
       <div className="relative flex-1 min-h-0">
         <div
           ref={scrollContainerRef}

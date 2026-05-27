@@ -224,6 +224,10 @@ tests/                     Node-based integration and regression tests
 specs/                     Design notes and implementation specs
 ```
 
+Additional implementation notes:
+
+- PopiTV canvas architecture and tool routing: [`docs/popitv-canvas.md`](docs/popitv-canvas.md)
+
 ## Branding
 
 - Product name: **Popiai**

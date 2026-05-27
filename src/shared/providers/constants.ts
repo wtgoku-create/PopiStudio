@@ -320,9 +320,12 @@ const PROVIDER_DEFINITIONS = [
     region: 'china',
     enPriority: 0,
     defaultModels: [
+      { id: 'doubao-seed-2-0-pro-260428', name: 'Doubao-Seed-2.0-pro', supportsImage: true },
       { id: 'doubao-seed-2-0-pro-260215', name: 'Doubao-Seed-2.0-pro', supportsImage: true },
       { id: 'ark-code-latest', name: 'Auto', supportsImage: true },
+      { id: 'doubao-seed-2-0-lite-260428', name: 'Doubao-Seed-2.0-lite', supportsImage: true },
       { id: 'doubao-seed-2-0-lite-260215', name: 'Doubao-Seed-2.0-lite', supportsImage: true },
+      { id: 'doubao-seed-2-0-mini-260428', name: 'Doubao-Seed-2.0-mini', supportsImage: true },
       { id: 'doubao-seed-2-0-mini-260215', name: 'Doubao-Seed-2.0-mini', supportsImage: true },
     ],
   },
