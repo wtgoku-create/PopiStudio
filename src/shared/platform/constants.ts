@@ -142,7 +142,8 @@ const DEFINITIONS = [
 // ═══════════════════════════════════════════════════════
 // 3. Derived Types
 // ═══════════════════════════════════════════════════════
-
+ // Hidden in UI for now: keep this list centralized for quick restore later.
+export const HIDDEN_IM_PLATFORMS: Platform[] = ['netease-bee', 'popo', 'email','nim'];
 export type Platform = (typeof DEFINITIONS)[number]['id'];
 export type ChannelName =
   | (typeof DEFINITIONS)[number]['channel']

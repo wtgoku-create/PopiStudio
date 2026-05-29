@@ -1,6 +1,6 @@
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import type { Platform } from '@shared/platform';
-import { PlatformRegistry } from '@shared/platform';
+import { HIDDEN_IM_PLATFORMS, PlatformRegistry } from '@shared/platform';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
@@ -570,6 +570,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
               <div className="space-y-1">
                 {PlatformRegistry.platforms
                   .filter((platform) => (getVisibleIMPlatforms(i18nService.getLanguage()) as readonly string[]).includes(platform))
+                  .filter((platform) => !HIDDEN_IM_PLATFORMS.includes(platform))
                   .map((platform) => {
                     if (isMultiInstancePlatform(platform)) {
                       return renderMultiInstancePlatform(platform);
