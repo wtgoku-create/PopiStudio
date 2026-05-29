@@ -158,7 +158,6 @@ describe('PopiTV MCP bridge tools', () => {
         type: 'addNode',
         nodeType: 'prompt',
         nodeId: 'shot-1-prompt',
-        position: { x: 200, y: 100 },
         data: {
           prompt: 'storybook tiger',
           customTitle: 'Shot 1 Prompt',
@@ -186,7 +185,6 @@ describe('PopiTV MCP bridge tools', () => {
         type: 'addNode',
         nodeType: 'prompt',
         data: { prompt: 'prompt text' },
-        position: { x: 200, y: 400 },
       },
     ]);
   });
@@ -214,6 +212,9 @@ describe('PopiTV MCP bridge tools', () => {
 
   test('sends normalized edit_canvas operations to the renderer edit bridge', async () => {
     const requestCanvas = vi.fn(async () => ({ operationResult: { applied: 1, skipped: [] } }));
+    const readCachedCanvas = vi.fn(() => ({
+      nodes: [{ id: 'existing-node', type: 'prompt', position: { x: 200, y: 200 } }],
+    }));
 
     await executePopiTVMcpTool(
       POPITV_MCP_SERVER_NAME,
@@ -225,13 +226,17 @@ describe('PopiTV MCP bridge tools', () => {
             action: 'addNode',
             nodeType: 'image_generation',
             nodeId: 'gen-1',
+            promptPosition: { x: 200, y: 200 },
+            position: { x: 640, y: 200 },
             data: { prompt: 'new image', aspect_ratio: '16:9' },
           },
         ],
       },
       requestCanvas,
+      readCachedCanvas,
     );
 
+    expect(readCachedCanvas).not.toHaveBeenCalled();
     expect(requestCanvas).toHaveBeenCalledWith({
       bridgeType: 'popitv:apply-edit-operations',
       sessionId: 'session-1',
@@ -247,7 +252,8 @@ describe('PopiTV MCP bridge tools', () => {
           type: 'addNode',
           nodeType: 'nanoBanana',
           nodeId: 'gen-1',
-          position: { x: 600, y: 200 },
+          promptPosition: { x: 200, y: 200 },
+          position: { x: 640, y: 200 },
           data: { inputPrompt: 'new image', aspectRatio: '16:9' },
         },
         {
@@ -261,135 +267,92 @@ describe('PopiTV MCP bridge tools', () => {
     });
   });
 
-  test('assigns stage-aware default positions and avoids cached canvas nodes', async () => {
-    const requestCanvas = vi.fn(async (request) => {
-      if (request.bridgeType === 'popitv:measure-nodes') {
-        return [
-          { id: 'existing-prompt', width: 320, height: 240 },
-          { id: 'existing-image', width: 300, height: 340 },
-          { id: 'existing-video', width: 300, height: 360 },
-        ];
-      }
-      return { operationResult: { applied: 1, skipped: [] } };
-    });
-    const readCachedCanvas = vi.fn(() => ({
-      nodes: [
-        { id: 'existing-prompt', type: 'prompt', position: { x: 200, y: 200 } },
-        { id: 'existing-image', type: 'nanoBanana', position: { x: 600, y: 200 } },
-        { id: 'existing-video', type: 'generateVideo', position: { x: 1020, y: 200 } },
-      ],
-    }));
+  test('rejects addNode operations without explicit positions', async () => {
+    const requestCanvas = vi.fn();
 
-    await executePopiTVMcpTool(
+    const result = await executePopiTVMcpTool(
       POPITV_MCP_SERVER_NAME,
       'edit_canvas',
       {
-        sessionId: 'session-1',
         operations: [
           {
-            action: 'addNode',
-            nodeType: 'image_generation',
-            nodeId: 'shot-2-image',
-            data: { prompt: 'shot 2 image' },
-          },
-          {
-            action: 'addNode',
-            nodeType: 'generateVideo',
-            nodeId: 'shot-2-video',
-            data: { customTitle: 'Shot 2 Video' },
-          },
-          {
-            action: 'addNode',
-            nodeType: 'generateAudio',
-            nodeId: 'shot-2-audio',
-            data: { customTitle: 'Shot 2 Audio' },
+            type: 'addNode',
+            nodeType: 'prompt',
+            nodeId: 'prompt-1',
+            data: { prompt: 'text' },
           },
         ],
       },
       requestCanvas,
-      readCachedCanvas,
     );
 
-    expect(readCachedCanvas).toHaveBeenCalledWith('session-1');
-    expect(requestCanvas).toHaveBeenNthCalledWith(1, {
-      bridgeType: 'popitv:measure-nodes',
-      sessionId: 'session-1',
-      nodeIds: ['existing-prompt', 'existing-image', 'existing-video'],
-    });
-    expect(requestCanvas).toHaveBeenNthCalledWith(2, {
-      bridgeType: 'popitv:apply-edit-operations',
-      sessionId: 'session-1',
-      operations: expect.arrayContaining([
-        expect.objectContaining({
-          nodeId: 'shot-2-image-prompt',
-          nodeType: 'prompt',
-          position: { x: 200, y: 620 },
-        }),
-        expect.objectContaining({
-          nodeId: 'shot-2-image',
-          nodeType: 'nanoBanana',
-          position: { x: 600, y: 620 },
-        }),
-        expect.objectContaining({
-          nodeId: 'shot-2-video',
-          nodeType: 'generateVideo',
-          position: { x: 1020, y: 640 },
-        }),
-        expect.objectContaining({
-          nodeId: 'shot-2-audio',
-          nodeType: 'generateAudio',
-          position: { x: 1500, y: 200 },
-        }),
-      ]),
-    });
+    expect(requestCanvas).not.toHaveBeenCalled();
+    expect(result?.isError).toBe(true);
+    expect(result?.content[0].text).toContain('requires an explicit position');
   });
 
-  test('continues edit_canvas layout when node measurement fails', async () => {
-    const requestCanvas = vi.fn(async (request) => {
-      if (request.bridgeType === 'popitv:measure-nodes') {
-        throw new Error('measurement failed');
-      }
-      return { operationResult: { applied: 1, skipped: [] } };
-    });
-    const readCachedCanvas = vi.fn(() => ({
-      nodes: [
-        { id: 'existing-image', type: 'nanoBanana', position: { x: 600, y: 200 } },
-      ],
-    }));
+  test('rejects overlapping addNode operations', async () => {
+    const requestCanvas = vi.fn();
 
-    await executePopiTVMcpTool(
+    const result = await executePopiTVMcpTool(
       POPITV_MCP_SERVER_NAME,
       'edit_canvas',
       {
-        sessionId: 'session-1',
         operations: [
           {
-            action: 'addNode',
-            nodeType: 'image_generation',
-            nodeId: 'shot-2-image',
-            data: { prompt: 'shot 2 image' },
+            type: 'addNode',
+            nodeType: 'prompt',
+            nodeId: 'prompt-1',
+            position: { x: 200, y: 200 },
+            data: { prompt: 'one' },
+          },
+          {
+            type: 'addNode',
+            nodeType: 'prompt',
+            nodeId: 'prompt-2',
+            position: { x: 300, y: 240 },
+            data: { prompt: 'two' },
           },
         ],
       },
       requestCanvas,
-      readCachedCanvas,
     );
 
-    expect(requestCanvas).toHaveBeenNthCalledWith(1, {
-      bridgeType: 'popitv:measure-nodes',
-      sessionId: 'session-1',
-      nodeIds: ['existing-image'],
-    });
-    expect(requestCanvas).toHaveBeenNthCalledWith(2, {
-      bridgeType: 'popitv:apply-edit-operations',
-      sessionId: 'session-1',
-      operations: expect.arrayContaining([
-        expect.objectContaining({
-          nodeId: 'shot-2-image',
-          position: { x: 600, y: 580 },
-        }),
-      ]),
-    });
+    expect(requestCanvas).not.toHaveBeenCalled();
+    expect(result?.isError).toBe(true);
+    expect(result?.content[0].text).toContain('overlaps');
+  });
+
+  test('rejects addNode operations without horizontal clearance', async () => {
+    const requestCanvas = vi.fn();
+
+    const result = await executePopiTVMcpTool(
+      POPITV_MCP_SERVER_NAME,
+      'edit_canvas',
+      {
+        operations: [
+          {
+            type: 'addNode',
+            nodeType: 'prompt',
+            nodeId: 'prompt-1',
+            position: { x: 200, y: 200 },
+            data: { prompt: 'one' },
+          },
+          {
+            type: 'addNode',
+            nodeType: 'nanoBanana',
+            nodeId: 'image-1',
+            position: { x: 580, y: 200 },
+            data: { inputPrompt: 'two' },
+          },
+        ],
+      },
+      requestCanvas,
+    );
+
+    expect(requestCanvas).not.toHaveBeenCalled();
+    expect(result?.isError).toBe(true);
+    expect(result?.content[0].text).toContain('horizontal clearance');
   });
 
   test('maps run_canvas nodeIds to selected-node execution', async () => {
