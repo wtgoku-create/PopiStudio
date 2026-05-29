@@ -9,6 +9,7 @@ export const POPITV_MCP_SERVER_NAME = 'popitv';
 
 export type PopiTVCanvasBridgeType =
   | 'popitv:get-snapshot'
+  | 'popitv:measure-nodes'
   | 'popitv:apply-edit-operations'
   | 'popitv:run-workflow'
   | 'popitv:run-selected'
@@ -31,6 +32,106 @@ type RequestPopiTVCanvas = (request: PopiTVCanvasBridgeRequest) => Promise<unkno
 type ReadCachedPopiTVCanvas = (sessionId?: string) => unknown | null;
 
 type CanvasEditOperation = Record<string, unknown>;
+type CanvasPosition = { x: number; y: number };
+type NodeDimensions = { width: number; height: number };
+type NodeMeasurement = { id: string; width: number; height: number };
+
+type LayoutState = {
+  nextYByColumnX: Map<number, number>;
+};
+
+const CANVAS_LAYOUT_ROW_START_Y = 200;
+const CANVAS_LAYOUT_ROW_GAP = 80;
+const CANVAS_LAYOUT_COLUMN_GAP = 80;
+const CANVAS_LAYOUT_COLUMN_START_X = 200;
+const CANVAS_LAYOUT_COLUMN_TOLERANCE = 220;
+const DEFAULT_NODE_DIMENSIONS: Record<string, NodeDimensions> = {
+  imageInput: { width: 300, height: 280 },
+  audioInput: { width: 300, height: 200 },
+  videoInput: { width: 300, height: 280 },
+  annotation: { width: 300, height: 280 },
+  prompt: { width: 320, height: 220 },
+  array: { width: 340, height: 260 },
+  promptConstructor: { width: 340, height: 280 },
+  nanoBanana: { width: 300, height: 300 },
+  generateVideo: { width: 300, height: 300 },
+  generate3d: { width: 300, height: 300 },
+  generateAudio: { width: 300, height: 280 },
+  llmGenerate: { width: 320, height: 360 },
+  splitGrid: { width: 300, height: 320 },
+  output: { width: 320, height: 320 },
+  outputGallery: { width: 320, height: 360 },
+  imageCompare: { width: 400, height: 360 },
+  videoStitch: { width: 400, height: 280 },
+  easeCurve: { width: 340, height: 280 },
+  videoTrim: { width: 360, height: 360 },
+  videoFrameGrab: { width: 320, height: 320 },
+  router: { width: 200, height: 80 },
+  switch: { width: 220, height: 120 },
+  conditionalSwitch: { width: 260, height: 180 },
+  glbViewer: { width: 360, height: 380 },
+};
+const CANVAS_LAYOUT_DEFAULT_DIMENSIONS = DEFAULT_NODE_DIMENSIONS.nanoBanana;
+const CANVAS_LAYOUT_SOURCE_COLUMN_WIDTH = Math.max(
+  DEFAULT_NODE_DIMENSIONS.prompt.width,
+  DEFAULT_NODE_DIMENSIONS.imageInput.width,
+  DEFAULT_NODE_DIMENSIONS.audioInput.width,
+  DEFAULT_NODE_DIMENSIONS.videoInput.width,
+);
+const CANVAS_LAYOUT_GENERATION_COLUMN_X =
+  CANVAS_LAYOUT_COLUMN_START_X + CANVAS_LAYOUT_SOURCE_COLUMN_WIDTH + CANVAS_LAYOUT_COLUMN_GAP;
+const CANVAS_LAYOUT_GENERATION_COLUMN_WIDTH = Math.max(
+  DEFAULT_NODE_DIMENSIONS.promptConstructor.width,
+  DEFAULT_NODE_DIMENSIONS.array.width,
+  DEFAULT_NODE_DIMENSIONS.nanoBanana.width,
+  DEFAULT_NODE_DIMENSIONS.llmGenerate.width,
+);
+const CANVAS_LAYOUT_VIDEO_COLUMN_X =
+  CANVAS_LAYOUT_GENERATION_COLUMN_X +
+  CANVAS_LAYOUT_GENERATION_COLUMN_WIDTH +
+  CANVAS_LAYOUT_COLUMN_GAP;
+const CANVAS_LAYOUT_VIDEO_COLUMN_WIDTH = Math.max(
+  DEFAULT_NODE_DIMENSIONS.generateVideo.width,
+  DEFAULT_NODE_DIMENSIONS.videoStitch.width,
+  DEFAULT_NODE_DIMENSIONS.videoTrim.width,
+  DEFAULT_NODE_DIMENSIONS.videoFrameGrab.width,
+);
+const CANVAS_LAYOUT_MEDIA_COLUMN_X =
+  CANVAS_LAYOUT_VIDEO_COLUMN_X + CANVAS_LAYOUT_VIDEO_COLUMN_WIDTH + CANVAS_LAYOUT_COLUMN_GAP;
+const CANVAS_LAYOUT_MEDIA_COLUMN_WIDTH = Math.max(
+  DEFAULT_NODE_DIMENSIONS.generateAudio.width,
+  DEFAULT_NODE_DIMENSIONS.generate3d.width,
+  DEFAULT_NODE_DIMENSIONS.splitGrid.width,
+);
+const CANVAS_LAYOUT_OUTPUT_COLUMN_X =
+  CANVAS_LAYOUT_MEDIA_COLUMN_X + CANVAS_LAYOUT_MEDIA_COLUMN_WIDTH + CANVAS_LAYOUT_COLUMN_GAP;
+const CANVAS_LAYOUT_COLUMNS: Record<string, number> = {
+  imageInput: CANVAS_LAYOUT_COLUMN_START_X,
+  audioInput: CANVAS_LAYOUT_COLUMN_START_X,
+  videoInput: CANVAS_LAYOUT_COLUMN_START_X,
+  prompt: CANVAS_LAYOUT_COLUMN_START_X,
+  annotation: CANVAS_LAYOUT_COLUMN_START_X,
+  promptConstructor: CANVAS_LAYOUT_GENERATION_COLUMN_X,
+  array: CANVAS_LAYOUT_GENERATION_COLUMN_X,
+  nanoBanana: CANVAS_LAYOUT_GENERATION_COLUMN_X,
+  llmGenerate: CANVAS_LAYOUT_GENERATION_COLUMN_X,
+  generateVideo: CANVAS_LAYOUT_VIDEO_COLUMN_X,
+  videoStitch: CANVAS_LAYOUT_VIDEO_COLUMN_X,
+  videoTrim: CANVAS_LAYOUT_VIDEO_COLUMN_X,
+  videoFrameGrab: CANVAS_LAYOUT_VIDEO_COLUMN_X,
+  generateAudio: CANVAS_LAYOUT_MEDIA_COLUMN_X,
+  generate3d: CANVAS_LAYOUT_MEDIA_COLUMN_X,
+  splitGrid: CANVAS_LAYOUT_MEDIA_COLUMN_X,
+  output: CANVAS_LAYOUT_OUTPUT_COLUMN_X,
+  outputGallery: CANVAS_LAYOUT_OUTPUT_COLUMN_X,
+  imageCompare: CANVAS_LAYOUT_OUTPUT_COLUMN_X,
+  router: 200,
+  switch: 500,
+  conditionalSwitch: 800,
+  glbViewer: 1180,
+  easeCurve: 1180,
+};
+const CANVAS_LAYOUT_DEFAULT_X = CANVAS_LAYOUT_COLUMNS.nanoBanana;
 
 const objectSchema = (
   properties: Record<string, unknown>,
@@ -86,6 +187,22 @@ export function getPopiTVMcpToolManifest(): McpToolManifestEntry[] {
           },
         },
         ['operations'],
+      ),
+    },
+    {
+      server: POPITV_MCP_SERVER_NAME,
+      name: 'measure_nodes',
+      description:
+        'Measure rendered PopiTV canvas nodes by id. Returns an array of {id,width,height} records.',
+      inputSchema: objectSchema(
+        {
+          sessionId: optionalSessionIdSchema,
+          nodeIds: {
+            ...nodeIdsSchema,
+            description: 'Node ids to measure on the active PopiTV canvas.',
+          },
+        },
+        ['nodeIds'],
       ),
     },
     {
@@ -231,6 +348,140 @@ const isPosition = (value: unknown): value is { x: number; y: number } =>
   typeof value.y === 'number' &&
   Number.isFinite(value.y);
 
+const getLayoutColumnX = (nodeType: unknown): number => {
+  if (typeof nodeType !== 'string') return CANVAS_LAYOUT_DEFAULT_X;
+  return CANVAS_LAYOUT_COLUMNS[nodeType] ?? CANVAS_LAYOUT_DEFAULT_X;
+};
+
+const isDimensions = (value: unknown): value is NodeDimensions =>
+  isRecord(value) &&
+  typeof value.width === 'number' &&
+  Number.isFinite(value.width) &&
+  typeof value.height === 'number' &&
+  Number.isFinite(value.height);
+
+const getNodeDimensions = (nodeType: unknown, node?: Record<string, unknown>): NodeDimensions => {
+  if (node) {
+    if (isDimensions(node)) return node;
+    if (isDimensions(node.measured)) return node.measured;
+    if (isDimensions(node.dimensions)) return node.dimensions;
+  }
+
+  if (typeof nodeType !== 'string') return CANVAS_LAYOUT_DEFAULT_DIMENSIONS;
+  return DEFAULT_NODE_DIMENSIONS[nodeType] ?? CANVAS_LAYOUT_DEFAULT_DIMENSIONS;
+};
+
+const getSnapshotNodes = (snapshot: unknown): Record<string, unknown>[] => {
+  if (!isRecord(snapshot) || !Array.isArray(snapshot.nodes)) return [];
+  return snapshot.nodes.filter((node): node is Record<string, unknown> => isRecord(node));
+};
+
+const getSnapshotNodeIds = (snapshot: unknown): string[] =>
+  getSnapshotNodes(snapshot)
+    .map(node => node.id)
+    .filter((id): id is string => typeof id === 'string' && id.trim() !== '');
+
+const isNodeMeasurement = (value: unknown): value is NodeMeasurement =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  value.id.trim() !== '' &&
+  typeof value.width === 'number' &&
+  Number.isFinite(value.width) &&
+  typeof value.height === 'number' &&
+  Number.isFinite(value.height);
+
+const mergeNodeMeasurementsIntoSnapshot = (
+  snapshot: unknown,
+  measurements: unknown,
+): unknown => {
+  if (!isRecord(snapshot) || !Array.isArray(measurements)) return snapshot;
+
+  const measurementsById = new Map<string, NodeDimensions>();
+  for (const measurement of measurements) {
+    if (!isNodeMeasurement(measurement)) continue;
+    measurementsById.set(measurement.id, {
+      width: measurement.width,
+      height: measurement.height,
+    });
+  }
+  if (measurementsById.size === 0) return snapshot;
+
+  return {
+    ...snapshot,
+    nodes: getSnapshotNodes(snapshot).map(node => {
+      const id = typeof node.id === 'string' ? node.id : '';
+      const measured = measurementsById.get(id);
+      return measured ? { ...node, measured } : node;
+    }),
+  };
+};
+
+const measureSnapshotNodes = async (
+  snapshot: unknown,
+  sessionId: string | undefined,
+  requestCanvas: RequestPopiTVCanvas,
+): Promise<unknown> => {
+  const nodeIds = getSnapshotNodeIds(snapshot);
+  if (nodeIds.length === 0) return snapshot;
+
+  try {
+    const measurements = await requestCanvas({
+      bridgeType: 'popitv:measure-nodes',
+      ...(sessionId ? { sessionId } : {}),
+      nodeIds,
+    });
+    return mergeNodeMeasurementsIntoSnapshot(snapshot, measurements);
+  } catch {
+    return snapshot;
+  }
+};
+
+const createLayoutState = (snapshot?: unknown): LayoutState => {
+  const nextYByColumnX = new Map<number, number>();
+
+  for (const node of getSnapshotNodes(snapshot)) {
+    if (!isPosition(node.position)) continue;
+
+    for (const columnX of Object.values(CANVAS_LAYOUT_COLUMNS)) {
+      if (Math.abs(node.position.x - columnX) > CANVAS_LAYOUT_COLUMN_TOLERANCE) continue;
+      const dimensions = getNodeDimensions(node.type, node);
+      const nextY = Math.max(
+        nextYByColumnX.get(columnX) ?? CANVAS_LAYOUT_ROW_START_Y,
+        node.position.y + dimensions.height + CANVAS_LAYOUT_ROW_GAP,
+      );
+      nextYByColumnX.set(columnX, nextY);
+      break;
+    }
+  }
+
+  return { nextYByColumnX };
+};
+
+const takeNextLayoutPosition = (layoutState: LayoutState, nodeType: unknown): CanvasPosition => {
+  const x = getLayoutColumnX(nodeType);
+  const y = layoutState.nextYByColumnX.get(x) ?? CANVAS_LAYOUT_ROW_START_Y;
+  const dimensions = getNodeDimensions(nodeType);
+  layoutState.nextYByColumnX.set(x, y + dimensions.height + CANVAS_LAYOUT_ROW_GAP);
+  return { x, y };
+};
+
+const reserveLayoutPosition = (
+  layoutState: LayoutState,
+  nodeType: unknown,
+  position: CanvasPosition,
+): void => {
+  const x = getLayoutColumnX(nodeType);
+  if (Math.abs(position.x - x) > CANVAS_LAYOUT_COLUMN_TOLERANCE) return;
+  const dimensions = getNodeDimensions(nodeType);
+  layoutState.nextYByColumnX.set(
+    x,
+    Math.max(
+      layoutState.nextYByColumnX.get(x) ?? CANVAS_LAYOUT_ROW_START_Y,
+      position.y + dimensions.height + CANVAS_LAYOUT_ROW_GAP,
+    ),
+  );
+};
+
 const GENERATION_NODE_TYPES = new Set([
   'nanoBanana',
   'generateVideo',
@@ -242,6 +493,7 @@ const GENERATION_NODE_TYPES = new Set([
 const expandInlinePromptGenerationNode = (
   operation: CanvasEditOperation,
   index: number,
+  layoutState: LayoutState,
 ): CanvasEditOperation[] | null => {
   if (operation.type !== 'addNode') return null;
   if (typeof operation.nodeType !== 'string' || !GENERATION_NODE_TYPES.has(operation.nodeType)) {
@@ -258,8 +510,13 @@ const expandInlinePromptGenerationNode = (
       : `${operation.nodeType}-popitv-${Date.now()}-${index}`;
   const generationPosition = isPosition(operation.position)
     ? operation.position
-    : { x: 540, y: 200 + index * 260 };
-  const promptPosition = { x: generationPosition.x - 340, y: generationPosition.y };
+    : takeNextLayoutPosition(layoutState, operation.nodeType);
+  const promptPosition = {
+    x: getLayoutColumnX('prompt'),
+    y: generationPosition.y,
+  };
+  reserveLayoutPosition(layoutState, 'prompt', promptPosition);
+  reserveLayoutPosition(layoutState, operation.nodeType, generationPosition);
   const promptTitle =
     typeof operation.data.customTitle === 'string' && operation.data.customTitle.trim()
       ? `${operation.data.customTitle.trim()} Prompt`
@@ -291,8 +548,13 @@ const expandInlinePromptGenerationNode = (
   ];
 };
 
-export const normalizePopiTVEditOperations = (operations: unknown[]): CanvasEditOperation[] =>
-  operations.flatMap((operation, index): CanvasEditOperation[] => {
+export const normalizePopiTVEditOperations = (
+  operations: unknown[],
+  canvasSnapshot?: unknown,
+): CanvasEditOperation[] => {
+  const layoutState = createLayoutState(canvasSnapshot);
+
+  return operations.flatMap((operation, index): CanvasEditOperation[] => {
     if (!isRecord(operation)) return [operation as CanvasEditOperation];
 
     const type = normalizeOperationType(operation.type ?? operation.action);
@@ -306,8 +568,20 @@ export const normalizePopiTVEditOperations = (operations: unknown[]): CanvasEdit
     };
 
     delete next.action;
-    return expandInlinePromptGenerationNode(next, index) ?? [next];
+    const expanded = expandInlinePromptGenerationNode(next, index, layoutState);
+    if (expanded) return expanded;
+
+    if (next.type === 'addNode') {
+      if (isPosition(next.position)) {
+        reserveLayoutPosition(layoutState, next.nodeType, next.position);
+      } else {
+        next.position = takeNextLayoutPosition(layoutState, next.nodeType);
+      }
+    }
+
+    return [next];
   });
+};
 
 const toToolResult = (
   payload: unknown,
@@ -363,11 +637,29 @@ export async function executePopiTVMcpTool(
       if (!Array.isArray(operations)) {
         return toToolError('edit_canvas requires an "operations" array.', details);
       }
-      const normalizedOperations = normalizePopiTVEditOperations(operations);
+      const canvasSnapshot = await measureSnapshotNodes(
+        readCachedCanvas?.(sessionId),
+        sessionId,
+        requestCanvas,
+      );
+      const normalizedOperations = normalizePopiTVEditOperations(operations, canvasSnapshot);
       const payload = await requestCanvas({
         bridgeType: 'popitv:apply-edit-operations',
         ...(sessionId ? { sessionId } : {}),
         operations: normalizedOperations,
+      });
+      return toToolResult(payload, details);
+    }
+
+    if (toolName === 'measure_nodes') {
+      const nodeIds = getOptionalStringArray(safeArgs, 'nodeIds');
+      if (!nodeIds) {
+        return toToolError('measure_nodes requires a non-empty "nodeIds" array.', details);
+      }
+      const payload = await requestCanvas({
+        bridgeType: 'popitv:measure-nodes',
+        ...(sessionId ? { sessionId } : {}),
+        nodeIds,
       });
       return toToolResult(payload, details);
     }

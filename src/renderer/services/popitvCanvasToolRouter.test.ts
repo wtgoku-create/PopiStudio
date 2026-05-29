@@ -78,6 +78,32 @@ describe('popitvCanvasToolRouter', () => {
     ]);
   });
 
+  test('routes measure-nodes requests with nodeIds', async () => {
+    const electron = setupElectronPopiTV();
+    registerPopiTVCanvasToolHandler('session-a', async request => ({
+      bridgeType: request.bridgeType,
+      nodeIds: request.nodeIds,
+    }));
+
+    await electron.emit({
+      requestId: 'request-1',
+      bridgeType: PopiTVCanvasBridgeType.MeasureNodes,
+      sessionId: 'session-a',
+      nodeIds: ['node-1', 'node-2'],
+    });
+
+    expect(electron.responses).toEqual([
+      {
+        requestId: 'request-1',
+        ok: true,
+        payload: {
+          bridgeType: PopiTVCanvasBridgeType.MeasureNodes,
+          nodeIds: ['node-1', 'node-2'],
+        },
+      },
+    ]);
+  });
+
   test('routes sessionless requests to the only active canvas handler', async () => {
     const electron = setupElectronPopiTV();
     registerPopiTVCanvasToolHandler('session-a', async () => ({ nodeCount: 2 }));

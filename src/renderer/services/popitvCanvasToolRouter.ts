@@ -1,5 +1,6 @@
 export const PopiTVCanvasBridgeType = {
   GetSnapshot: 'popitv:get-snapshot',
+  MeasureNodes: 'popitv:measure-nodes',
   ApplyEditOperations: 'popitv:apply-edit-operations',
   RunWorkflow: 'popitv:run-workflow',
   RunSelected: 'popitv:run-selected',

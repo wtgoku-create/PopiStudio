@@ -287,6 +287,7 @@ interface PopiTVToolRequestIPC {
   requestId: string;
   bridgeType:
     | 'popitv:get-snapshot'
+    | 'popitv:measure-nodes'
     | 'popitv:apply-edit-operations'
     | 'popitv:run-workflow'
     | 'popitv:run-selected'
