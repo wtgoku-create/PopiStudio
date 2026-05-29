@@ -24,7 +24,7 @@ interface PopiTVCanvasWorkspaceProps {
   sessionTitle: string;
 }
 
-const POPITV_CANVAS_ORIGIN = 'http://localhost:3000' //https://canvas.popi.art
+const POPITV_CANVAS_ORIGIN = 'https://canvas.popi.art'
 const POPIAI_BRIDGE_SOURCE = 'popiai';
 const POPITV_BRIDGE_SOURCE = 'popitv';
 const CANVAS_REQUEST_TIMEOUT_MS = 45_000;
@@ -32,9 +32,12 @@ const BRIDGE_READY_TIMEOUT_MS = 45_000;
 
 interface PopiTVBridgeEvent {
   source?: string;
-  type?: 'popitv:ready' | 'popitv:snapshot' | 'popitv:error';
+  type?: 'popitv:ready' | 'popitv:snapshot' | 'popitv:node-dimensions' | 'popitv:error';
   requestId?: string;
-  payload?: PopiTVCanvasSnapshot | { message?: string };
+  payload?:
+    | PopiTVCanvasSnapshot
+    | Array<{ id: string; x?: number; y?: number; width: number; height: number }>
+    | { message?: string };
 }
 
 type PendingCanvasRequest = {
@@ -185,6 +188,19 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
         return;
       }
 
+      if (event.data.type === 'popitv:node-dimensions') {
+        if (event.data.requestId) {
+          const pending = pendingCanvasRequestsRef.current.get(event.data.requestId);
+          if (pending) {
+            pendingCanvasRequestsRef.current.delete(event.data.requestId);
+            clearTimeout(pending.timer);
+            pending.resolve(event.data.payload);
+          }
+        }
+        setBridgeError(null);
+        return;
+      }
+
       if (event.data.type === 'popitv:ready' || event.data.type === 'popitv:snapshot') {
         const nextSnapshot = event.data.payload as PopiTVCanvasSnapshot;
         if (nextSnapshot.sessionId !== sessionId) {
@@ -258,7 +274,7 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
   return (
     <section className="relative flex-1 min-w-0 h-full overflow-hidden bg-[#f6f7f8] dark:bg-neutral-950">
       <>
-        <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-md border border-neutral-200 bg-white/95 px-2 py-1 shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95">
+        <div className="absolute left-4 top-16 z-20 flex items-center gap-2 rounded-md border border-neutral-200 bg-white/95 px-2 py-1 shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95">
           <button
             type="button"
             className="inline-flex h-8 w-8 items-center justify-center rounded text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
@@ -309,7 +325,7 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
           </span>
         </div>
 
-        <div className="absolute right-4 top-4 z-20 flex items-center gap-1 rounded-md border border-neutral-200 bg-white/95 px-2 py-1 shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95">
+        <div className="absolute right-4 top-16 z-20 flex items-center gap-1 rounded-md border border-neutral-200 bg-white/95 px-2 py-1 shadow-sm dark:border-neutral-800 dark:bg-neutral-900/95">
           <MapIcon className="h-4 w-4 text-neutral-500" />
           <span className="text-xs text-neutral-600 dark:text-neutral-300">Canvas context</span>
           <span className="ml-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
@@ -350,7 +366,7 @@ const PopiTVCanvasWorkspace: React.FC<PopiTVCanvasWorkspaceProps> = ({
           href={canvasUrl}
           target="_blank"
           rel="noreferrer"
-          className="absolute bottom-4 left-4 z-20 flex items-center gap-2 rounded-md border border-neutral-200 bg-white/95 px-3 py-2 text-xs font-medium text-neutral-700 shadow-sm hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/95 dark:text-neutral-200 dark:hover:bg-neutral-800"
+          className="absolute bottom-4 left-20 z-20 flex items-center gap-2 rounded-md border border-neutral-200 bg-white/95 px-3 py-2 text-xs font-medium text-neutral-700 shadow-sm hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900/95 dark:text-neutral-200 dark:hover:bg-neutral-800"
         >
           <LinkIcon className="h-5 w-5 text-violet-500" />
           {bridgeError || snapshot?.workflowName || 'Open canvas'}

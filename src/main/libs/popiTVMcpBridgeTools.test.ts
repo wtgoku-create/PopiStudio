@@ -410,8 +410,8 @@ describe('PopiTV MCP bridge tools', () => {
 
   test('maps measure_nodes nodeIds to the renderer measurement bridge', async () => {
     const requestCanvas = vi.fn(async () => [
-      { id: 'node-1', width: 320, height: 220 },
-      { id: 'node-2', width: 300, height: 300 },
+      { id: 'node-1', x: 200, y: 160, width: 320, height: 220 },
+      { id: 'node-2', x: 600, y: 160, width: 300, height: 300 },
     ]);
 
     const result = await executePopiTVMcpTool(
@@ -427,6 +427,8 @@ describe('PopiTV MCP bridge tools', () => {
       nodeIds: ['node-1', 'node-2'],
     });
     expect(result?.isError).toBe(false);
+    expect(result?.content[0].text).toContain('"x": 200');
+    expect(result?.content[0].text).toContain('"y": 160');
     expect(result?.content[0].text).toContain('"width": 320');
   });
 

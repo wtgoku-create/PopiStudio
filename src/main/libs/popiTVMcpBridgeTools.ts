@@ -34,7 +34,7 @@ type ReadCachedPopiTVCanvas = (sessionId?: string) => unknown | null;
 type CanvasEditOperation = Record<string, unknown>;
 type CanvasPosition = { x: number; y: number };
 type NodeDimensions = { width: number; height: number };
-type NodeMeasurement = { id: string; width: number; height: number };
+type NodeMeasurement = { id: string; x?: number; y?: number; width: number; height: number };
 
 type LayoutState = {
   nextYByColumnX: Map<number, number>;
@@ -193,7 +193,7 @@ export function getPopiTVMcpToolManifest(): McpToolManifestEntry[] {
       server: POPITV_MCP_SERVER_NAME,
       name: 'measure_nodes',
       description:
-        'Measure rendered PopiTV canvas nodes by id. Returns an array of {id,width,height} records.',
+        'Measure rendered PopiTV canvas nodes by id. Returns an array of {id,x,y,width,height} records.',
       inputSchema: objectSchema(
         {
           sessionId: optionalSessionIdSchema,
@@ -399,10 +399,18 @@ const mergeNodeMeasurementsIntoSnapshot = (
   const measurementsById = new Map<string, NodeDimensions>();
   for (const measurement of measurements) {
     if (!isNodeMeasurement(measurement)) continue;
-    measurementsById.set(measurement.id, {
+    const measured: NodeMeasurement = {
+      id: measurement.id,
       width: measurement.width,
       height: measurement.height,
-    });
+    };
+    if (typeof measurement.x === 'number' && Number.isFinite(measurement.x)) {
+      measured.x = measurement.x;
+    }
+    if (typeof measurement.y === 'number' && Number.isFinite(measurement.y)) {
+      measured.y = measurement.y;
+    }
+    measurementsById.set(measurement.id, measured);
   }
   if (measurementsById.size === 0) return snapshot;
 
