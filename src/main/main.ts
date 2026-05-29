@@ -26,7 +26,6 @@ import { DialogIpc } from '../shared/dialog/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import { PlatformRegistry } from '../shared/platform';
 // PopiArt CLI 登录态同步与 IPC 处理
-import { PopiArtAuthStatus } from '../shared/popiart/constants';
 import { ProviderName, ProviderRegistry } from '../shared/providers';
 import { AgentManager } from './agentManager';
 import { APP_NAME } from './appConstants';
@@ -913,9 +912,6 @@ let appUpdateCoordinator: AppUpdateCoordinator | null = null;
 
 const AUTH_USER_STORE_KEY = 'auth_user';
 const POPITV_MCP_SERVER_NAME = 'popitv';
-const getLocalMcpBridgeToolManifest = () => [
-  ...getPopiTVMcpToolManifest(),
-];
 
 function setPreventSleepBlockerEnabled(enabled: boolean): void {
   if (enabled) {
@@ -1712,7 +1708,6 @@ const startPopiTVToolBridgeServer = async (): Promise<void> => {
   if (popiTVToolBridgeServer.port) return;
 
   await popiTVToolBridgeServer.start();
-  console.log(`[PopiTVMcpHttp] started: url=${popiTVToolBridgeServer.mcpUrl}, tools=${getLocalMcpBridgeToolManifest().length}`);
 };
 
 /**
@@ -2569,6 +2564,7 @@ if (!gotTheLock) {
     clearServerModelMetadata();
     updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
     syncOpenClawConfig({ reason: 'popi-login', restartGatewayIfRunning: false }).catch(() => { });
+    void syncPopiArtLoginState('popi-login');
     return { success: true, user: normalizePopiUser(user), quota };
   };
 
@@ -2716,6 +2712,34 @@ if (!gotTheLock) {
     }
 
     return resp;
+  };
+
+  const getPopiArtService = (): PopiArtService => {
+    if (!popiArtService) {
+      popiArtService = new PopiArtService(getStore(), {
+        fetchWithAuth,
+        getServerBaseUrl: getServerApiBaseUrl,
+      });
+    }
+    return popiArtService;
+  };
+
+  const syncPopiArtLoginState = async (reason: string): Promise<void> => {
+    try {
+      await getPopiArtService().ensureAuthenticatedFromGatewayKey();
+      console.log(`[PopiArt] synchronized login state after ${reason}`);
+    } catch (error) {
+      console.warn(`[PopiArt] failed to synchronize login state after ${reason}:`, error);
+    }
+  };
+
+  const syncPopiArtLogoutState = async (reason: string): Promise<void> => {
+    try {
+      await getPopiArtService().ensureUnavailable();
+      console.log(`[PopiArt] synchronized logout state after ${reason}`);
+    } catch (error) {
+      console.warn(`[PopiArt] failed to synchronize logout state after ${reason}:`, error);
+    }
   };
 
   const fetchSkillMarketplacePage = async (options?: {
@@ -2937,6 +2961,7 @@ if (!gotTheLock) {
       }
       saveAuthTokens(body.data.accessToken, body.data.refreshToken);
       saveAuthUser(body.data.user);
+      void syncPopiArtLoginState('auth-exchange');
       console.log('[Auth] exchange user data:', JSON.stringify(body.data.user));
       return { success: true, user: body.data.user, quota: normalizeQuota(body.data.quota) };
     } catch (error) {
@@ -2966,6 +2991,7 @@ if (!gotTheLock) {
         ...(points ?? {}),
       });
       updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
+      void syncPopiArtLoginState('auth-restore');
       console.log('[Auth] restored Popi user session');
       return { success: true, user: normalizePopiUser(profileData.user), quota };
     } catch {
@@ -3030,12 +3056,14 @@ if (!gotTheLock) {
       clearAuthUser();
       clearModelGatewayCredential();
       clearServerModelMetadata();
+      await syncPopiArtLogoutState('auth-logout');
       return { success: true };
     } catch {
       clearAuthTokens();
       clearModelGatewayCredential();
       clearAuthUser();
       clearServerModelMetadata();
+      await syncPopiArtLogoutState('auth-logout-fallback');
       return { success: true };
     }
   });
