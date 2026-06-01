@@ -1,4 +1,4 @@
-import { ChatBubbleLeftIcon, CpuChipIcon, CubeIcon, EnvelopeIcon, GlobeAltIcon, InformationCircleIcon, SunIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { ChatBubbleLeftIcon, EnvelopeIcon, GlobeAltIcon, InformationCircleIcon, SunIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useCallback,useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
@@ -9,7 +9,7 @@ import {
   normalizeBrowserWebAccessConfig,
 } from '../../shared/browserWebAccess/constants';
 import { ProviderRegistry, resolveCodingPlanBaseUrl } from '../../shared/providers';
-import { type AppConfig, defaultConfig, getProviderDisplayName, getVisibleProviders } from '../config';
+import { type AppConfig, defaultConfig, getVisibleProviders } from '../config';
 import { APP_ID, EXPORT_FORMAT_TYPE, EXPORT_PASSWORD } from '../constants/app';
 import { apiService } from '../services/api';
 import { authService } from '../services/auth';
@@ -47,7 +47,6 @@ import {
   getDefaultActiveProvider,
   getDefaultProviders,
   getEffectiveApiFormat,
-  getOpenClawProviderIdForConfig,
   getProviderDefaultBaseUrl,
   hasProviderAuthConfigured,
   type Model,
@@ -168,11 +167,6 @@ interface ProvidersImportPayload {
   };
   providers?: Record<string, ProvidersImportEntry>;
 }
-
-const ABOUT_CONTACT_EMAIL = 'popiai.project@rd.netease.com';
-const ABOUT_USER_MANUAL_URL = 'https://popiai.youdao.com/#/docs/popiai_user_manual';
-const ABOUT_USER_COMMUNITY_URL = 'https://popiai.youdao.com/#/about';
-const ABOUT_SERVICE_TERMS_URL = 'https://c.youdao.com/dict/hardware/popiai/popiai_service.html';
 
 // MiniMax Portal OAuth constants
 const MINIMAX_OAUTH_CLIENT_ID = '78257093-7e40-4613-99e0-527b14b39113';

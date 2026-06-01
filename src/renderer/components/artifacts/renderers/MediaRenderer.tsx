@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 
 import { i18nService } from '@/services/i18n';
-import type { Artifact } from '@/types/artifact';
+import { type Artifact, ArtifactTypeValue } from '@/types/artifact';
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv', '.wmv', '.flv']);
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a']);
@@ -43,8 +43,8 @@ const MediaRenderer: React.FC<MediaRendererProps> = ({ artifact }) => {
   const source = useMemo(() => getArtifactSource(artifact), [artifact]);
   const fileName = artifact.fileName || artifact.filePath || artifact.title;
   const ext = getExtension(fileName);
-  const isVideo = artifact.type === 'video' || VIDEO_EXTENSIONS.has(ext);
-  const isAudio = artifact.type === 'audio' || AUDIO_EXTENSIONS.has(ext);
+  const isVideo = artifact.type === ArtifactTypeValue.Video || VIDEO_EXTENSIONS.has(ext);
+  const isAudio = artifact.type === ArtifactTypeValue.Audio || AUDIO_EXTENSIONS.has(ext);
 
   const handleOpenWithApp = () => {
     if (!artifact.filePath) return;

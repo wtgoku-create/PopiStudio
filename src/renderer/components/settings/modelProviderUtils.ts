@@ -12,7 +12,7 @@ export const CUSTOM_PROVIDER_KEYS = [
 ] as const;
 
 export const providerKeys = [
-  ...Object.values(ProviderName).filter(id => id !== ProviderName.Custom && id !== ProviderName.popiaiServer),
+  ...Object.values(ProviderName).filter(id => id !== ProviderName.Custom && id !== ProviderName.PopiaiServer),
   ...CUSTOM_PROVIDER_KEYS,
 ] as const;
 

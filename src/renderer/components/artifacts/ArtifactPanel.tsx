@@ -28,11 +28,24 @@ import CodeRenderer from './renderers/CodeRenderer';
 
 const t = (key: string) => i18nService.t(key);
 
-const BROWSER_OPENABLE_TYPES = new Set<ArtifactType>(['html', 'svg', 'mermaid']);
+const BROWSER_OPENABLE_TYPES = new Set<ArtifactType>([
+  ArtifactTypeValue.Html,
+  ArtifactTypeValue.Svg,
+  ArtifactTypeValue.Mermaid,
+]);
 
-const SYSTEM_OPENABLE_TYPES = new Set<ArtifactType>(['document', 'video', 'audio']);
+const SYSTEM_OPENABLE_TYPES = new Set<ArtifactType>([
+  ArtifactTypeValue.Document,
+  ArtifactTypeValue.Video,
+  ArtifactTypeValue.Audio,
+]);
 
-const NON_CODE_TYPES = new Set<ArtifactType>(['document', 'image', 'text', ArtifactTypeValue.LocalService]);
+const NON_CODE_TYPES = new Set<ArtifactType>([
+  ArtifactTypeValue.Document,
+  ArtifactTypeValue.Image,
+  ArtifactTypeValue.Text,
+  ArtifactTypeValue.LocalService,
+]);
 
 const COPYABLE_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg']);
 
@@ -40,14 +53,14 @@ const PANEL_CLOSE_DRAG_THRESHOLD = 48;
 const FILE_LIST_DRAWER_TRANSITION_MS = 180;
 
 function isCopyableArtifact(artifact: Artifact): boolean {
-  if (artifact.type === 'document') return false;
+  if (artifact.type === ArtifactTypeValue.Document) return false;
   if (artifact.type === ArtifactTypeValue.LocalService) return false;
-  if (artifact.type === 'image') {
+  if (artifact.type === ArtifactTypeValue.Image) {
     const filename = artifact.fileName || artifact.filePath || '';
     const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
     return COPYABLE_IMAGE_EXTENSIONS.has(ext);
   }
-  if (artifact.type === 'video' || artifact.type === 'audio') return false;
+  if (artifact.type === ArtifactTypeValue.Video || artifact.type === ArtifactTypeValue.Audio) return false;
   return true;
 }
 
@@ -88,12 +101,8 @@ function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function shouldLoadArtifactAsText(type: ArtifactType): boolean {
-  return !NON_CODE_TYPES.has(type);
-}
-
 function shouldReadArtifactContent(type: ArtifactType): boolean {
-  return type !== 'video' && type !== 'audio';
+  return type !== ArtifactTypeValue.Video && type !== ArtifactTypeValue.Audio;
 }
 
 interface ArtifactPanelProps {

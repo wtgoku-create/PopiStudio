@@ -1215,7 +1215,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             continue;
           }
           try {
-            if (artifact.type === 'video' || artifact.type === 'audio') {
+            if (artifact.type === ArtifactTypeValue.Video || artifact.type === ArtifactTypeValue.Audio) {
               loadedFileIdsRef.current.add(artifact.id);
               dispatch(addArtifact({
                 sessionId,
