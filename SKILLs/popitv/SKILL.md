@@ -108,6 +108,7 @@ Common node and edge CRUD operations:
     {
       "type": "updateNode",
       "nodeId": "node-id",
+      "position": { "x": 300, "y": 300 },
       "data": { "prompt": "Updated prompt" }
     },
     {

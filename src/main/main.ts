@@ -166,7 +166,7 @@ const MAX_MEMORY_USER_MEMORIES_MAX_ITEMS = 60;
 const IPC_MESSAGE_CONTENT_MAX_CHARS = 120_000;
 const IPC_UPDATE_CONTENT_MAX_CHARS = 120_000;
 const IPC_STRING_MAX_CHARS = 4_000;
-const IPC_MAX_DEPTH = 5;
+const IPC_MAX_DEPTH = 10;
 const IPC_MAX_KEYS = 80;
 const IPC_MAX_ITEMS = 40;
 const MAX_INLINE_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -497,6 +497,7 @@ const truncateIpcString = (value: string, maxChars: number): string => {
 };
 
 const sanitizeIpcPayload = (value: unknown, depth = 0, seen?: WeakSet<object>): unknown => {
+  console.debug(`[Main] Sanitizing IPC payload at depth ${depth}: ${serializeForLog(value)}`);
   const localSeen = seen ?? new WeakSet<object>();
   if (
     value === null
