@@ -24,7 +24,7 @@ interface PopiTVCanvasWorkspaceProps {
   sessionTitle: string;
 }
 
-const POPITV_CANVAS_ORIGIN = 'http://localhost:3000' //https://canvas.popi.art
+const POPITV_CANVAS_ORIGIN = 'https://canvas.popi.art' // 'http://localhost:3000'
 const POPIAI_BRIDGE_SOURCE = 'popiai';
 const POPITV_BRIDGE_SOURCE = 'popitv';
 const CANVAS_REQUEST_TIMEOUT_MS = 45_000;

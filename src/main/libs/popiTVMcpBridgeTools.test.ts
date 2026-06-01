@@ -340,10 +340,10 @@ describe('PopiTV MCP bridge tools', () => {
           },
           {
             type: 'addNode',
-            nodeType: 'nanoBanana',
-            nodeId: 'image-1',
+            nodeType: 'prompt',
+            nodeId: 'prompt-2',
             position: { x: 580, y: 200 },
-            data: { inputPrompt: 'two' },
+            data: { prompt: 'two' },
           },
         ],
       },
