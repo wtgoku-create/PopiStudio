@@ -2,6 +2,7 @@ import { ArrowPathIcon, KeyIcon, PhoneIcon, XMarkIcon } from '@heroicons/react/2
 import React, { useEffect, useState } from 'react';
 
 import { authService } from '../services/auth';
+import { getPrivacyPolicyUrl, getTermsOfServiceUrl } from '../services/endpoints';
 import { i18nService } from '../services/i18n';
 
 type LoginMode = 'sms' | 'password';
@@ -25,6 +26,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [agreedToPolicies, setAgreedToPolicies] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadCaptcha = async () => {
@@ -91,6 +93,10 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
+    if (!agreedToPolicies) {
+      setError(i18nService.t('loginAgreementRequired'));
+      return;
+    }
     setIsSubmitting(true);
     try {
       const result = mode === 'sms'
@@ -116,6 +122,11 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleOpenExternal = async (event: React.MouseEvent, url: string) => {
+    event.preventDefault();
+    await window.electron.shell.openExternal(url);
   };
 
   return (
@@ -263,9 +274,38 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
             </div>
           )}
 
+          <div className="mt-4 space-y-3">
+            <label className="flex items-start gap-3 text-xs leading-5 text-secondary">
+              <input
+                type="checkbox"
+                checked={agreedToPolicies}
+                onChange={event => setAgreedToPolicies(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              />
+              <span>
+                {i18nService.t('loginAgreementCheckboxPrefix')}
+                <a
+                  href={getTermsOfServiceUrl()}
+                  onClick={event => void handleOpenExternal(event, getTermsOfServiceUrl())}
+                  className="text-primary transition hover:text-primary-hover"
+                >
+                  {i18nService.t('loginAgreementTermsLinkText')}
+                </a>
+                {i18nService.t('loginAgreementConnector')}
+                <a
+                  href={getPrivacyPolicyUrl()}
+                  onClick={event => void handleOpenExternal(event, getPrivacyPolicyUrl())}
+                  className="text-primary transition hover:text-primary-hover"
+                >
+                  {i18nService.t('loginAgreementPrivacyLinkText')}
+                </a>
+              </span>
+            </label>
+          </div>
+
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || !agreedToPolicies}
             className="mt-6 flex h-11 w-full items-center justify-center rounded-lg bg-primary text-sm font-medium text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? i18nService.t('loginSubmitting') : i18nService.t('loginSubmit')}

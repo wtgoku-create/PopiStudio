@@ -1,7 +1,7 @@
 import React from 'react';
-import { i18nService } from '@/services/i18n';
 
-const PRIVACY_URL = 'https://c.youdao.com/dict/hardware/popiai/popiai_service.html';
+import { getPrivacyPolicyUrl, getTermsOfServiceUrl } from '@/services/endpoints';
+import { i18nService } from '@/services/i18n';
 
 interface PrivacyDialogProps {
   onAccept: () => void;
@@ -9,14 +9,10 @@ interface PrivacyDialogProps {
 }
 
 const PrivacyDialog: React.FC<PrivacyDialogProps> = ({ onAccept, onReject }) => {
-  const handleLinkClick = async (e: React.MouseEvent) => {
+  const handleLinkClick = async (e: React.MouseEvent, url: string) => {
     e.preventDefault();
-    await window.electron.shell.openExternal(PRIVACY_URL);
+    await window.electron.shell.openExternal(url);
   };
-
-  const desc = i18nService.t('privacyDialogDesc');
-  const linkText = i18nService.t('privacyDialogLinkText');
-  const parts = desc.split('{link}');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
@@ -31,15 +27,23 @@ const PrivacyDialog: React.FC<PrivacyDialogProps> = ({ onAccept, onReject }) => 
         {/* Content */}
         <div className="px-6 py-4">
           <p className="text-sm text-secondary text-center leading-relaxed">
-            {parts[0]}
+            {i18nService.t('privacyDialogDescPrefix')}
             <a
-              href={PRIVACY_URL}
-              onClick={handleLinkClick}
+              href={getTermsOfServiceUrl()}
+              onClick={event => void handleLinkClick(event, getTermsOfServiceUrl())}
               className="text-primary hover:text-primary-hover underline"
             >
-              {linkText}
+              {i18nService.t('privacyDialogTermsLinkText')}
             </a>
-            {parts[1]}
+            {i18nService.t('privacyDialogDescConnector')}
+            <a
+              href={getPrivacyPolicyUrl()}
+              onClick={event => void handleLinkClick(event, getPrivacyPolicyUrl())}
+              className="text-primary hover:text-primary-hover underline"
+            >
+              {i18nService.t('privacyDialogPrivacyLinkText')}
+            </a>
+            {i18nService.t('privacyDialogDescSuffix')}
           </p>
         </div>
 
