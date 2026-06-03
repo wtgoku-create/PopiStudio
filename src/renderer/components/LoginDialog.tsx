@@ -1,11 +1,12 @@
-import { ArrowPathIcon, KeyIcon, PhoneIcon, XMarkIcon } from '@heroicons/react/24/outline';
-import React, { useEffect, useState } from 'react';
+import { ArrowPathIcon, KeyIcon, PhoneIcon, QrCodeIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { authService } from '../services/auth';
 import { getPrivacyPolicyUrl, getTermsOfServiceUrl } from '../services/endpoints';
 import { i18nService } from '../services/i18n';
 
-type LoginMode = 'sms' | 'password';
+type LoginMode = 'sms' | 'password' | 'wechat';
+type WechatStage = 'qr' | 'bind-phone';
 
 interface LoginDialogProps {
   onClose: () => void;
@@ -28,6 +29,13 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
   const [countdown, setCountdown] = useState(0);
   const [agreedToPolicies, setAgreedToPolicies] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wechatStage, setWechatStage] = useState<WechatStage>('qr');
+  const [wechatQrCodeUrl, setWechatQrCodeUrl] = useState('');
+  const [wechatSceneCode, setWechatSceneCode] = useState('');
+  const [wechatRegisterToken, setWechatRegisterToken] = useState('');
+  const [isWechatLoading, setIsWechatLoading] = useState(false);
+  const wechatQrRequestSeqRef = useRef(0);
+  const wechatQrLoadInFlightRef = useRef(false);
 
   const loadCaptcha = async () => {
     setIsLoadingCaptcha(true);
@@ -57,11 +65,124 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
     return () => window.clearTimeout(timer);
   }, [countdown]);
 
+  useEffect(() => {
+    if (mode !== 'wechat' || wechatStage !== 'qr' || !wechatSceneCode) {
+      return;
+    }
+
+    let cancelled = false;
+    let nextPollTimer: number | null = null;
+
+    const stopPolling = () => {
+      cancelled = true;
+      setWechatSceneCode('');
+      if (nextPollTimer !== null) {
+        window.clearTimeout(nextPollTimer);
+        nextPollTimer = null;
+      }
+    };
+
+    // 后端长轮询接口：串行发起轮询
+    const pollOnce = async () => {
+      try {
+        const result = await authService.checkWechatLogin({ sceneCode: wechatSceneCode });
+        if (cancelled) return;
+        if (!result.success) {
+          setError(result.error || i18nService.t('loginFailed'));
+          return;
+        }
+        if (result.user) {
+          stopPolling();
+          await authService.finalizeLoginResult(result);
+          onSuccess?.();
+          onClose();
+          return;
+        }
+        if (result.needBindPhone === true && result.registerToken) {
+          stopPolling();
+          setWechatRegisterToken(result.registerToken);
+          setWechatStage('bind-phone');
+          setPhone('');
+          setCode('');
+          setCaptchaValue('');
+          setError(null);
+          void loadCaptcha();
+          return;
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : i18nService.t('loginFailed'));
+        }
+      }
+
+      if (!cancelled) {
+        nextPollTimer = window.setTimeout(() => {
+          void pollOnce();
+        }, 300);
+      }
+    };
+
+    // StrictMode 下 effect 会先 mount/cleanup 再 mount，这里延迟一拍启动，避免首轮假挂载发出长轮询。
+    nextPollTimer = window.setTimeout(() => {
+      void pollOnce();
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      if (nextPollTimer !== null) {
+        window.clearTimeout(nextPollTimer);
+      }
+    };
+  }, [mode, onClose, onSuccess, wechatSceneCode, wechatStage]);
+
   const captchaSrc = captchaImage
     ? captchaImage.startsWith('data:')
       ? captchaImage
       : `data:image/png;base64,${captchaImage}`
     : '';
+
+  // 进入微信登录时按需拉取二维码，避免首次渲染就产生额外请求。
+  const loadWechatQrCode = async () => {
+    if (wechatQrLoadInFlightRef.current) {
+      return;
+    }
+
+    const requestSeq = wechatQrRequestSeqRef.current + 1;
+    wechatQrRequestSeqRef.current = requestSeq;
+    wechatQrLoadInFlightRef.current = true;
+    setIsWechatLoading(true);
+    setError(null);
+    setWechatSceneCode('');
+    try {
+      const result = await authService.getWechatQrCode();
+      if (wechatQrRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+      if (!result.success || !result.data) {
+        setError(result.error || i18nService.t('loginFailed'));
+        return;
+      }
+      setWechatStage('qr');
+      setWechatQrCodeUrl(result.data.qrCodeUrl);
+      setWechatSceneCode(result.data.sceneCode);
+      setWechatRegisterToken('');
+    } catch (err) {
+      if (wechatQrRequestSeqRef.current === requestSeq) {
+        setError(err instanceof Error ? err.message : i18nService.t('loginFailed'));
+      }
+    } finally {
+      if (wechatQrRequestSeqRef.current === requestSeq) {
+        setIsWechatLoading(false);
+      }
+      wechatQrLoadInFlightRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (mode === 'wechat' && !wechatQrCodeUrl && !isWechatLoading) {
+      void loadWechatQrCode();
+    }
+  }, [isWechatLoading, mode, wechatQrCodeUrl]);
 
   const handleSendCode = async () => {
     setError(null);
@@ -105,11 +226,18 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
           code: code.trim(),
           inviteCode: inviteCode.trim() || undefined,
         })
-        : await authService.loginWithPassword({
-          username: username.trim(),
-          password,
-          inviteCode: inviteCode.trim() || undefined,
-        });
+        : mode === 'password'
+          ? await authService.loginWithPassword({
+            username: username.trim(),
+            password,
+            inviteCode: inviteCode.trim() || undefined,
+          })
+          : await authService.registerWechatByPhone({
+            registerToken: wechatRegisterToken,
+            phone: phone.trim(),
+            code: code.trim(),
+            inviteCode: inviteCode.trim() || undefined,
+          });
 
       if (!result.success) {
         setError(result.error || i18nService.t('loginFailed'));
@@ -174,7 +302,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
             <h1 className="text-xl font-semibold text-foreground">{i18nService.t('loginTitle')}</h1>
           </div>
 
-          <div className="mb-5 grid grid-cols-2 rounded-lg border border-border bg-surface-raised p-1">
+          <div className="mb-5 grid grid-cols-3 rounded-lg border border-border bg-surface-raised p-1">
             <button
               type="button"
               onClick={() => setMode('sms')}
@@ -190,6 +318,14 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
             >
               <KeyIcon className="h-4 w-4" />
               {i18nService.t('loginPasswordTab')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('wechat')}
+              className={`flex h-9 items-center justify-center gap-2 rounded-md text-sm transition ${mode === 'wechat' ? 'bg-surface font-medium text-foreground shadow-sm' : 'text-secondary hover:text-foreground'}`}
+            >
+              <QrCodeIcon className="h-4 w-4" />
+              {i18nService.t('loginWechatTab')}
             </button>
           </div>
 
@@ -243,7 +379,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
                   </button>
                 </div>
               </>
-            ) : (
+            ) : mode === 'password' ? (
               <>
                 <input
                   value={username}
@@ -259,13 +395,96 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
                   placeholder={i18nService.t('loginPasswordPlaceholder')}
                 />
               </>
+            ) : wechatStage === 'qr' ? (
+              <div className="space-y-4 py-2">
+                <div className="text-center text-sm text-secondary">
+                  {i18nService.t('loginWechatScanTip')}
+                </div>
+                <div className="flex justify-center">
+                  {wechatQrCodeUrl ? (
+                    <img
+                      src={wechatQrCodeUrl}
+                      alt={i18nService.t('loginWechatQrAlt')}
+                      className="h-48 w-48"
+                    />
+                  ) : (
+                    <div className="flex h-48 w-48 items-center justify-center text-sm text-secondary">
+                      {isWechatLoading ? i18nService.t('loginWechatLoading') : i18nService.t('loginWechatQrUnavailable')}
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => void loadWechatQrCode()}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-primary transition hover:bg-surface-raised"
+                  >
+                    <ArrowPathIcon className={`h-4 w-4 ${isWechatLoading ? 'animate-spin' : ''}`} />
+                    {i18nService.t('loginWechatRefreshQr')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-secondary">
+                  {i18nService.t('loginWechatBindTip')}
+                </div>
+                <input
+                  value={phone}
+                  onChange={event => setPhone(event.target.value)}
+                  className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-secondary/70 focus:border-primary"
+                  placeholder={i18nService.t('loginPhonePlaceholder')}
+                />
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <input
+                    value={captchaValue}
+                    onChange={event => setCaptchaValue(event.target.value)}
+                    className="h-11 min-w-0 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-secondary/70 focus:border-primary"
+                    placeholder={i18nService.t('loginCaptchaPlaceholder')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      void loadCaptcha();
+                    }}
+                    className="flex h-11 w-28 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-raised text-foreground transition hover:bg-surface"
+                  >
+                    {isLoadingCaptcha ? (
+                      <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                    ) : captchaSrc ? (
+                      <img src={captchaSrc} alt={i18nService.t('loginCaptchaAlt')} className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-xs">{i18nService.t('loginRefreshCaptcha')}</span>
+                    )}
+                  </button>
+                </div>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <input
+                    value={code}
+                    onChange={event => setCode(event.target.value)}
+                    className="h-11 min-w-0 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-secondary/70 focus:border-primary"
+                    placeholder={i18nService.t('loginSmsCodePlaceholder')}
+                  />
+                  <button
+                    type="button"
+                    disabled={isSendingCode || countdown > 0}
+                    onClick={() => void handleSendCode()}
+                    className="h-11 rounded-lg border border-border bg-surface-raised px-3 text-sm font-medium text-foreground transition hover:bg-surface disabled:cursor-not-allowed disabled:text-secondary"
+                  >
+                    {countdown > 0 ? `${countdown}s` : i18nService.t('loginSendCode')}
+                  </button>
+                </div>
+              </>
             )}
-            <input
-              value={inviteCode}
-              onChange={event => setInviteCode(event.target.value)}
-              className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-secondary/70 focus:border-primary"
-              placeholder={i18nService.t('loginInvitePlaceholder')}
-            />
+            {(mode !== 'wechat' || wechatStage === 'bind-phone') && (
+              <input
+                value={inviteCode}
+                onChange={event => setInviteCode(event.target.value)}
+                className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition placeholder:text-secondary/70 focus:border-primary"
+                placeholder={i18nService.t('loginInvitePlaceholder')}
+              />
+            )}
           </div>
 
           {error && (
@@ -275,15 +494,9 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
           )}
 
           <div className="mt-4 space-y-3">
-            <label className="flex items-start gap-3 text-xs leading-5 text-secondary">
-              <input
-                type="checkbox"
-                checked={agreedToPolicies}
-                onChange={event => setAgreedToPolicies(event.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
-              />
-              <span>
-                {i18nService.t('loginAgreementCheckboxPrefix')}
+            {mode === 'wechat' && wechatStage === 'qr' ? (
+              <div className="text-center text-xs leading-5 text-secondary">
+                <span>{i18nService.t('loginAgreementByLoginPrefix')}</span>
                 <a
                   href={getTermsOfServiceUrl()}
                   onClick={event => void handleOpenExternal(event, getTermsOfServiceUrl())}
@@ -299,17 +512,46 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
                 >
                   {i18nService.t('loginAgreementPrivacyLinkText')}
                 </a>
-              </span>
-            </label>
+              </div>
+            ) : (
+              <label className="flex items-start gap-3 text-xs leading-5 text-secondary">
+                <input
+                  type="checkbox"
+                  checked={agreedToPolicies}
+                  onChange={event => setAgreedToPolicies(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                />
+                <span>
+                  {i18nService.t('loginAgreementCheckboxPrefix')}
+                  <a
+                    href={getTermsOfServiceUrl()}
+                    onClick={event => void handleOpenExternal(event, getTermsOfServiceUrl())}
+                    className="text-primary transition hover:text-primary-hover"
+                  >
+                    {i18nService.t('loginAgreementTermsLinkText')}
+                  </a>
+                  {i18nService.t('loginAgreementConnector')}
+                  <a
+                    href={getPrivacyPolicyUrl()}
+                    onClick={event => void handleOpenExternal(event, getPrivacyPolicyUrl())}
+                    className="text-primary transition hover:text-primary-hover"
+                  >
+                    {i18nService.t('loginAgreementPrivacyLinkText')}
+                  </a>
+                </span>
+              </label>
+            )}
           </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting || !agreedToPolicies}
-            className="mt-6 flex h-11 w-full items-center justify-center rounded-lg bg-primary text-sm font-medium text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? i18nService.t('loginSubmitting') : i18nService.t('loginSubmit')}
-          </button>
+          {!(mode === 'wechat' && wechatStage === 'qr') && (
+            <button
+              type="submit"
+              disabled={isSubmitting || !agreedToPolicies}
+              className="mt-6 flex h-11 w-full items-center justify-center rounded-lg bg-primary text-sm font-medium text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? i18nService.t('loginSubmitting') : i18nService.t('loginSubmit')}
+            </button>
+          )}
         </form>
       </div>
     </div>

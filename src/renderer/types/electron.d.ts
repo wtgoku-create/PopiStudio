@@ -1052,6 +1052,26 @@ interface IElectronAPI {
     sendSmsCode: (payload: { phone: string; captchaId: number; captchaValue: string }) => Promise<{ success: boolean; error?: string }>;
     loginWithPassword: (payload: { username: string; password: string; inviteCode?: string }) => Promise<{ success: boolean; user?: any; quota?: any; error?: string }>;
     loginWithCode: (payload: { phone: string; code: string; inviteCode?: string }) => Promise<{ success: boolean; user?: any; quota?: any; error?: string }>;
+    getWechatQrCode: () => Promise<{
+      success: boolean;
+      data?: { qrCodeUrl: string; sceneCode: string };
+      error?: string;
+    }>;
+    checkWechatLogin: (payload: { sceneCode: string }) => Promise<{
+      success: boolean;
+      pending?: boolean;
+      needBindPhone?: boolean;
+      registerToken?: string;
+      user?: any;
+      quota?: any;
+      error?: string;
+    }>;
+    registerWechatByPhone: (payload: {
+      registerToken: string;
+      phone: string;
+      code: string;
+      inviteCode?: string;
+    }) => Promise<{ success: boolean; user?: any; quota?: any; error?: string }>;
     exchange: (
       code: string,
     ) => Promise<{ success: boolean; user?: any; quota?: any; error?: string }>;
@@ -1103,6 +1123,43 @@ interface IElectronAPI {
       error?: string;
     }>;
     loginWithCode: (payload: { phone: string; code: string; inviteCode?: string }) => Promise<{
+      success: boolean;
+      user?: import('../store/slices/authSlice').UserProfile;
+      quota?: {
+        planName: string;
+        subscriptionStatus: string;
+        creditsLimit: number;
+        creditsUsed: number;
+        creditsRemaining: number;
+      };
+      error?: string;
+    }>;
+    getWechatQrCode: () => Promise<{
+      success: boolean;
+      data?: { qrCodeUrl: string; sceneCode: string };
+      error?: string;
+    }>;
+    checkWechatLogin: (payload: { sceneCode: string }) => Promise<{
+      success: boolean;
+      pending?: boolean;
+      needBindPhone?: boolean;
+      registerToken?: string;
+      user?: import('../store/slices/authSlice').UserProfile;
+      quota?: {
+        planName: string;
+        subscriptionStatus: string;
+        creditsLimit: number;
+        creditsUsed: number;
+        creditsRemaining: number;
+      };
+      error?: string;
+    }>;
+    registerWechatByPhone: (payload: {
+      registerToken: string;
+      phone: string;
+      code: string;
+      inviteCode?: string;
+    }) => Promise<{
       success: boolean;
       user?: import('../store/slices/authSlice').UserProfile;
       quota?: {
