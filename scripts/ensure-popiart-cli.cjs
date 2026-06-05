@@ -3,10 +3,10 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const tar = require('tar');
-const extractZip = require('extract-zip');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, 'package.json');
@@ -151,6 +151,24 @@ function normalizeName(name) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function resolve7zaPath() {
+  let path7za;
+  try {
+    ({ path7za } = require('7zip-bin'));
+  } catch (error) {
+    throw new Error(
+      'Missing dependency "7zip-bin". Run npm install and retry. '
+      + `Original error: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!path7za || !fs.existsSync(path7za)) {
+    throw new Error(`7zip-bin executable not found: ${path7za || '(empty path)'}`);
+  }
+
+  return path7za;
 }
 
 function hasNameToken(name, token) {
@@ -361,7 +379,16 @@ async function extractAsset(assetPath, extractDir) {
   console.log(`[ensure-popiart-cli] Extracting asset ${assetPath} into ${extractDir}`);
 
   if (lower.endsWith('.zip')) {
-    await extractZip(assetPath, { dir: extractDir });
+    const sevenZip = resolve7zaPath();
+    const result = spawnSync(sevenZip, ['x', assetPath, `-o${extractDir}`, '-y'], {
+      stdio: 'inherit',
+    });
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      throw new Error(`7zip extraction failed with exit code ${result.status}`);
+    }
     console.log(`[ensure-popiart-cli] Finished extracting zip asset ${path.basename(assetPath)}`);
     return;
   }
