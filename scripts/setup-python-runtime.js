@@ -16,7 +16,6 @@ const path = require('path');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const { spawnSync } = require('child_process');
-const extractZip = require('extract-zip');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(PROJECT_ROOT, 'resources', 'python-win');
@@ -87,6 +86,24 @@ function getDirSize(dir) {
     }
   }
   return size;
+}
+
+function resolve7zaPath() {
+  let path7za;
+  try {
+    ({ path7za } = require('7zip-bin'));
+  } catch (error) {
+    throw new Error(
+      'Missing dependency "7zip-bin". Run npm install and retry. '
+      + `Original error: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  if (!path7za || !fs.existsSync(path7za)) {
+    throw new Error(`7zip-bin executable not found: ${path7za || '(empty path)'}`);
+  }
+
+  return path7za;
 }
 
 function checkRuntimeHealth(rootDir, options = {}) {
@@ -547,7 +564,17 @@ async function bootstrapRuntimeOnWindows() {
 async function extractArchiveToRuntime(archivePath) {
   const tempRoot = fs.mkdtempSync(path.join(PROJECT_ROOT, 'tmp-python-runtime-'));
   try {
-    await extractZip(archivePath, { dir: tempRoot });
+    const sevenZip = resolve7zaPath();
+    const result = spawnSync(sevenZip, ['x', archivePath, `-o${tempRoot}`, '-y'], {
+      stdio: 'inherit',
+    });
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      throw new Error(`7zip extraction failed with exit code ${result.status}`);
+    }
+    console.log(`[setup-python-runtime] Finished extracting runtime archive into ${tempRoot}`);
     const runtimeRoot = findRuntimeRoot(tempRoot);
     if (!runtimeRoot) {
       throw new Error('Could not locate python runtime root after extraction.');
