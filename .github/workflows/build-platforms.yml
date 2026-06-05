@@ -126,6 +126,16 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           POPIARTCLI_GITHUB_TOKEN: ${{ secrets.POPIARTCLI_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Inspect Windows release output
+        shell: pwsh
+        run: |
+          if (Test-Path release) {
+            Write-Host 'Listing files under release/'
+            Get-ChildItem release -Recurse | Select-Object FullName, Length
+          } else {
+            Write-Host 'release/ directory does not exist'
+          }
       
       - uses: actions/upload-artifact@v4
         with:
