@@ -2,8 +2,8 @@ import { ArrowPathIcon, KeyIcon, PhoneIcon, QrCodeIcon, XMarkIcon } from '@heroi
 import React, { useEffect, useRef, useState } from 'react';
 
 import { authService } from '../services/auth';
-import { getPrivacyPolicyUrl, getTermsOfServiceUrl } from '../services/endpoints';
 import { i18nService } from '../services/i18n';
+import { getPolicyUrl, PrivacyPolicyContentKey } from '../services/privacyPolicy';
 
 type LoginMode = 'sms' | 'password' | 'wechat';
 type WechatStage = 'qr' | 'bind-phone';
@@ -252,8 +252,9 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
     }
   };
 
-  const handleOpenExternal = async (event: React.MouseEvent, url: string) => {
+  const handleOpenExternal = async (event: React.MouseEvent, key: PrivacyPolicyContentKey) => {
     event.preventDefault();
+    const url = await getPolicyUrl(key);
     await window.electron.shell.openExternal(url);
   };
 
@@ -498,16 +499,16 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
               <div className="text-center text-xs leading-5 text-secondary">
                 <span>{i18nService.t('loginAgreementByLoginPrefix')}</span>
                 <a
-                  href={getTermsOfServiceUrl()}
-                  onClick={event => void handleOpenExternal(event, getTermsOfServiceUrl())}
+                  href="#"
+                  onClick={event => void handleOpenExternal(event, PrivacyPolicyContentKey.UserTerms)}
                   className="text-primary transition hover:text-primary-hover"
                 >
                   {i18nService.t('loginAgreementTermsLinkText')}
                 </a>
                 {i18nService.t('loginAgreementConnector')}
                 <a
-                  href={getPrivacyPolicyUrl()}
-                  onClick={event => void handleOpenExternal(event, getPrivacyPolicyUrl())}
+                  href="#"
+                  onClick={event => void handleOpenExternal(event, PrivacyPolicyContentKey.PrivacyPolicy)}
                   className="text-primary transition hover:text-primary-hover"
                 >
                   {i18nService.t('loginAgreementPrivacyLinkText')}
@@ -524,16 +525,16 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ onClose, onSuccess }) => {
                 <span>
                   {i18nService.t('loginAgreementCheckboxPrefix')}
                   <a
-                    href={getTermsOfServiceUrl()}
-                    onClick={event => void handleOpenExternal(event, getTermsOfServiceUrl())}
+                    href="#"
+                    onClick={event => void handleOpenExternal(event, PrivacyPolicyContentKey.UserTerms)}
                     className="text-primary transition hover:text-primary-hover"
                   >
                     {i18nService.t('loginAgreementTermsLinkText')}
                   </a>
                   {i18nService.t('loginAgreementConnector')}
                   <a
-                    href={getPrivacyPolicyUrl()}
-                    onClick={event => void handleOpenExternal(event, getPrivacyPolicyUrl())}
+                    href="#"
+                    onClick={event => void handleOpenExternal(event, PrivacyPolicyContentKey.PrivacyPolicy)}
                     className="text-primary transition hover:text-primary-hover"
                   >
                     {i18nService.t('loginAgreementPrivacyLinkText')}

@@ -42,5 +42,4 @@ const getPortalBase = () => isTestMode() ? PORTAL_BASE_TEST : PORTAL_BASE_PROD;
 export const getPortalLoginUrl = () => `${getPortalBase()}/login`;
 export const getPortalPricingUrl = () => `${getPortalBase()}`;
 export const getPortalProfileUrl = () => `${getPortalBase()}`;
-export const getTermsOfServiceUrl = () => 'https://www.popi.art/content/user-terms';
-export const getPrivacyPolicyUrl = () => 'https://www.popi.art/content/privacy-policy';
+export const getPrivacyPolicyContentApiUrl = () => `${getPortalBase()}/api_client/content/privacyPolicy/latest`;

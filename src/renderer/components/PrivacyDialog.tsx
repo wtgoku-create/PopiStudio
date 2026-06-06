@@ -1,7 +1,7 @@
 import React from 'react';
 
-import { getPrivacyPolicyUrl, getTermsOfServiceUrl } from '@/services/endpoints';
 import { i18nService } from '@/services/i18n';
+import { getPolicyUrl, PrivacyPolicyContentKey } from '@/services/privacyPolicy';
 
 interface PrivacyDialogProps {
   onAccept: () => void;
@@ -9,8 +9,9 @@ interface PrivacyDialogProps {
 }
 
 const PrivacyDialog: React.FC<PrivacyDialogProps> = ({ onAccept, onReject }) => {
-  const handleLinkClick = async (e: React.MouseEvent, url: string) => {
+  const handleLinkClick = async (e: React.MouseEvent, key: PrivacyPolicyContentKey) => {
     e.preventDefault();
+    const url = await getPolicyUrl(key);
     await window.electron.shell.openExternal(url);
   };
 
@@ -29,16 +30,16 @@ const PrivacyDialog: React.FC<PrivacyDialogProps> = ({ onAccept, onReject }) => 
           <p className="text-sm text-secondary text-center leading-relaxed">
             {i18nService.t('privacyDialogDescPrefix')}
             <a
-              href={getTermsOfServiceUrl()}
-              onClick={event => void handleLinkClick(event, getTermsOfServiceUrl())}
+              href="#"
+              onClick={event => void handleLinkClick(event, PrivacyPolicyContentKey.UserTerms)}
               className="text-primary hover:text-primary-hover underline"
             >
               {i18nService.t('privacyDialogTermsLinkText')}
             </a>
             {i18nService.t('privacyDialogDescConnector')}
             <a
-              href={getPrivacyPolicyUrl()}
-              onClick={event => void handleLinkClick(event, getPrivacyPolicyUrl())}
+              href="#"
+              onClick={event => void handleLinkClick(event, PrivacyPolicyContentKey.PrivacyPolicy)}
               className="text-primary hover:text-primary-hover underline"
             >
               {i18nService.t('privacyDialogPrivacyLinkText')}
