@@ -1,7 +1,7 @@
 import { store } from '../store';
-import { setAuthLoading, setLoggedIn, setLoggedOut, updateQuota, setProfileSummary } from '../store/slices/authSlice';
-import { setServerModels, clearServerModels, setDefaultSelectedModel } from '../store/slices/modelSlice';
+import { setAuthLoading, setLoggedIn, setLoggedOut, setProfileSummary, updateQuota } from '../store/slices/authSlice';
 import type { Model } from '../store/slices/modelSlice';
+import { clearServerModels, setDefaultSelectedModel, setServerModels } from '../store/slices/modelSlice';
 import { configService } from './config';
 
 class AuthService {
@@ -78,22 +78,40 @@ class AuthService {
     return window.electron.auth.sendSmsCode(payload);
   }
 
+  async getWechatQrCode() {
+    return window.electron.auth.getWechatQrCode();
+  }
+
   async loginWithPassword(payload: { username: string; password: string; inviteCode?: string }) {
     const result = await window.electron.auth.loginWithPassword(payload);
-    if (result.success && result.user && result.quota) {
-      store.dispatch(setLoggedIn({ user: result.user, quota: result.quota }));
-      await this.loadServerModels();
-    }
+    await this.applyLoginResult(result);
     return result;
   }
 
   async loginWithCode(payload: { phone: string; code: string; inviteCode?: string }) {
     const result = await window.electron.auth.loginWithCode(payload);
-    if (result.success && result.user && result.quota) {
-      store.dispatch(setLoggedIn({ user: result.user, quota: result.quota }));
-      await this.loadServerModels();
-    }
+    await this.applyLoginResult(result);
     return result;
+  }
+
+  async checkWechatLogin(payload: { sceneCode: string }) {
+    return window.electron.auth.checkWechatLogin(payload);
+  }
+
+  async registerWechatByPhone(payload: {
+    registerToken: string;
+    phone: string;
+    code: string;
+    inviteCode?: string;
+  }) {
+    const result = await window.electron.auth.registerWechatByPhone(payload);
+    await this.applyLoginResult(result);
+    return result;
+  }
+
+  // 给登录弹窗一个显式的收口入口，避免被已取消的异步流程提前落登录态。
+  async finalizeLoginResult(result: { success: boolean; user?: any; quota?: any }) {
+    await this.applyLoginResult(result);
   }
 
   /**
@@ -174,6 +192,14 @@ class AuthService {
     this.unsubQuotaChanged = null;
     this.unsubWindowState?.();
     this.unsubWindowState = null;
+  }
+
+  // 统一复用登录成功后的状态落盘与模型刷新逻辑，避免多种登录方式分叉。
+  private async applyLoginResult(result: { success: boolean; user?: any; quota?: any }) {
+    if (result.success && result.user && result.quota) {
+      store.dispatch(setLoggedIn({ user: result.user, quota: result.quota }));
+      await this.loadServerModels();
+    }
   }
 
   /**

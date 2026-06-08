@@ -14,15 +14,11 @@ import {
 import type { CoworkSessionSummary } from '../types/cowork';
 import { getAgentDisplayNameById } from '../utils/agentDisplay';
 import MyAgentSidebarTree from './agentSidebar/MyAgentSidebarTree';
-import scheduledTasksIconUrl from '../assets/agent-avatars/Cron_job.png';
-import skillsIconUrl from '../assets/agent-avatars/lightning.svg';
 import Modal from './common/Modal';
 import CoworkSearchModal from './cowork/CoworkSearchModal';
 import Cog6ToothIcon from './icons/Cog6ToothIcon';
 import ComposeIcon from './icons/ComposeIcon';
 import SidebarAutomationIcon from './icons/SidebarAutomationIcon';
-import SidebarMcpIcon from './icons/SidebarMcpIcon';
-import SidebarSearchIcon from './icons/SidebarSearchIcon';
 import SidebarToggleIcon from './icons/SidebarToggleIcon';
 import SkillIcon from './icons/SkillIcon';
 import TrashIcon from './icons/TrashIcon';

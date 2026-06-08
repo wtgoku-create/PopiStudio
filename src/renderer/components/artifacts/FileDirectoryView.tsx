@@ -11,12 +11,14 @@ const TYPE_ORDER: Record<ArtifactType, number> = {
   html: 0,
   svg: 1,
   image: 2,
-  mermaid: 3,
-  document: 4,
-  markdown: 5,
-  text: 6,
-  code: 7,
-  'local-service': 8,
+  video: 3,
+  audio: 4,
+  mermaid: 5,
+  document: 6,
+  markdown: 7,
+  text: 8,
+  code: 9,
+  'local-service': 10,
 };
 
 const TYPE_LABEL_KEYS: Record<ArtifactType, string> = {

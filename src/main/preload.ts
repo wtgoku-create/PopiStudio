@@ -699,6 +699,15 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('auth:loginWithPassword', payload),
     loginWithCode: (payload: { phone: string; code: string; inviteCode?: string }) =>
       ipcRenderer.invoke('auth:loginWithCode', payload),
+    getWechatQrCode: () => ipcRenderer.invoke('auth:getWechatQrCode'),
+    checkWechatLogin: (payload: { sceneCode: string }) =>
+      ipcRenderer.invoke('auth:checkWechatLogin', payload),
+    registerWechatByPhone: (payload: {
+      registerToken: string;
+      phone: string;
+      code: string;
+      inviteCode?: string;
+    }) => ipcRenderer.invoke('auth:registerWechatByPhone', payload),
     exchange: (code: string) => ipcRenderer.invoke('auth:exchange', { code }),
     getUser: () => ipcRenderer.invoke('auth:getUser'),
     getQuota: () => ipcRenderer.invoke('auth:getQuota'),

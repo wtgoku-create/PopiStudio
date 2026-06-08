@@ -1,6 +1,6 @@
 import React from 'react';
 
-import type { Artifact } from '@/types/artifact';
+import { type Artifact, ArtifactTypeValue } from '@/types/artifact';
 
 import CodeRenderer from './renderers/CodeRenderer';
 import DocumentRenderer from './renderers/DocumentRenderer';
@@ -25,8 +25,8 @@ const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ artifact }) => {
       return <SvgRenderer artifact={artifact} />;
     case 'image':
       return <ImageRenderer artifact={artifact} />;
-    case 'video':
-    case 'audio':
+    case ArtifactTypeValue.Video:
+    case ArtifactTypeValue.Audio:
       return <MediaRenderer artifact={artifact} />;
     case 'mermaid':
       return <MermaidRenderer artifact={artifact} />;

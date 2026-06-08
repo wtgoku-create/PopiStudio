@@ -2464,6 +2464,19 @@ if (!gotTheLock) {
     status?: number;
   };
 
+  type WechatQrCodeData = {
+    qrCodeUrl: string;
+    sceneCode: string;
+  };
+
+  type WechatLoginCheckData = {
+    expired?: number;
+    token?: string;
+    needBindPhone?: boolean;
+    registerToken?: string;
+    user?: PopiUser | null;
+  };
+
   type ModelGatewayCredential = {
     apiKey: string;
     baseURL: string;
@@ -2931,6 +2944,99 @@ if (!gotTheLock) {
     } catch (error) {
       console.error('[Auth] SMS login failed:', error);
       return { success: false, error: error instanceof Error ? error.message : 'Login failed' };
+    }
+  });
+
+  ipcMain.handle('auth:getWechatQrCode', async () => {
+    try {
+      const serverBaseUrl = getServerApiBaseUrl();
+      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/wxghQrCode`);
+      if (!resp.ok) {
+        return { success: false, error: `WeChat QR code request failed: ${resp.status}` };
+      }
+      const data = await parsePopiResponse<WechatQrCodeData>(resp);
+      if (!data?.qrCodeUrl || !data?.sceneCode) {
+        return { success: false, error: 'WeChat QR code response is missing required fields.' };
+      }
+      return { success: true, data };
+    } catch (error) {
+      console.error('[Auth] WeChat QR code request failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to request WeChat QR code' };
+    }
+  });
+
+  ipcMain.handle('auth:checkWechatLogin', async (_event, payload: { sceneCode: string }) => {
+    try {
+      const sceneCode = payload.sceneCode?.trim();
+      if (!sceneCode) {
+        return { success: false, error: 'sceneCode is required.' };
+      }
+      const serverBaseUrl = getServerApiBaseUrl();
+      const params = new URLSearchParams({ sceneCode });
+      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/checkWxghLogin?${params.toString()}`);
+      if (!resp.ok) {
+        return { success: false, error: `WeChat login check failed: ${resp.status}` };
+      }
+      const data = await parsePopiResponse<WechatLoginCheckData>(resp);
+
+      // 已绑定老用户：直接沿用现有登录成功链路。
+      if (data?.token && data.user) {
+        return await buildPopiAuthResult(data.token, data.user, data.expired);
+      }
+
+      // 新用户：扫码后拿到 registerToken，进入手机号绑定流程。
+      if (data?.needBindPhone === true && data.registerToken) {
+        return {
+          success: true,
+          needBindPhone: true,
+          registerToken: data.registerToken,
+        };
+      }
+
+      // 其余情况先统一视为等待扫码/确认，避免前端误判失败。
+      return {
+        success: true,
+        pending: true,
+      };
+    } catch (error) {
+      console.error('[Auth] WeChat login check failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to check WeChat login' };
+    }
+  });
+
+  ipcMain.handle('auth:registerWechatByPhone', async (
+    _event,
+    payload: { registerToken: string; phone: string; code: string; inviteCode?: string },
+  ) => {
+    try {
+      const registerToken = payload.registerToken?.trim();
+      const phone = payload.phone?.trim();
+      const code = payload.code?.trim();
+      if (!registerToken || !phone || !code) {
+        return { success: false, error: 'registerToken, phone, and code are required.' };
+      }
+      const serverBaseUrl = getServerApiBaseUrl();
+      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/wxghRegisterByPhone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          registerToken,
+          phone,
+          code,
+          inviteCode: payload.inviteCode?.trim() || '',
+        }),
+      });
+      if (!resp.ok) {
+        return { success: false, error: `WeChat phone binding failed: ${resp.status}` };
+      }
+      const data = await parsePopiResponse<{ token: string; expired?: number; user: PopiUser }>(resp);
+      if (!data?.token || !data.user) {
+        return { success: false, error: 'WeChat phone binding response is missing token or user.' };
+      }
+      return await buildPopiAuthResult(data.token, data.user, data.expired);
+    } catch (error) {
+      console.error('[Auth] WeChat phone binding failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to bind phone' };
     }
   });
 

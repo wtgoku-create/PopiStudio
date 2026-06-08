@@ -50,6 +50,10 @@ const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
 };
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+const MEDIA_EXTENSIONS = new Set([
+  '.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv', '.wmv', '.flv',
+  '.mp3', '.wav', '.m4a',
+]);
 const BINARY_DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pptx', '.pdf', '.csv', '.tsv', '.xls']);
 const LOCAL_SERVICE_URL_RE = /\bhttps?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\])(?::\d{1,5})?(?:\/[^\s<>"'`)\]]*)?/gi;
 const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi;
@@ -61,6 +65,10 @@ export function getArtifactTypeFromExtension(ext: string): ArtifactType | null {
 
 export function isImageExtension(ext: string): boolean {
   return IMAGE_EXTENSIONS.has(ext.toLowerCase());
+}
+
+export function isMediaExtension(ext: string): boolean {
+  return MEDIA_EXTENSIONS.has(ext.toLowerCase());
 }
 
 export function isBinaryDocumentExtension(ext: string): boolean {

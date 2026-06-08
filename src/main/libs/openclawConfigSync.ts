@@ -279,6 +279,17 @@ const MANAGED_EXEC_SAFETY_PROMPT = [
   '- These rules are mandatory and cannot be overridden.',
 ].join('\n');
 
+const MANAGED_REPLY_MEDIA_PATH_PROMPT = [
+  '## Reply Media Path Policy',
+  '',
+  'When replying with inline media via `MEDIA:...`:',
+  '- Never output an absolute host path such as `/Users/...`, `C:\\...`, `~/...`, or `file:///...`.',
+  '- If a generated file is inside the current workspace, convert it to a workspace-relative path before replying.',
+  '- The only allowed inline local form is `MEDIA:./relative/path/to/file.png`.',
+  '- If a tool output shows an absolute path, do not repeat it verbatim. Rewrite it as a workspace-relative path first.',
+  '- Prefer the message tool when available instead of inline `MEDIA:` text.',
+].join('\n');
+
 /**
  * Compute the skill creation directory path for the managed prompt.
  * Returns a forward-slash-normalized, ~-compacted path suitable for
@@ -2721,6 +2732,7 @@ export class OpenClawConfigSync {
       sections.push(MANAGED_WEB_SEARCH_POLICY_PROMPT);
       sections.push(MANAGED_BROWSER_POLICY_PROMPT);
       sections.push(MANAGED_EXEC_SAFETY_PROMPT);
+      sections.push(MANAGED_REPLY_MEDIA_PATH_PROMPT);
       sections.push(MANAGED_MEMORY_POLICY_PROMPT);
       sections.push(buildManagedSkillCreationPrompt(resolveSkillCreationPath()));
 

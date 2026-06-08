@@ -3,10 +3,10 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const tar = require('tar');
-const extractZip = require('extract-zip');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, 'package.json');
@@ -153,6 +153,24 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function resolve7zaPath() {
+  let path7za;
+  try {
+    ({ path7za } = require('7zip-bin'));
+  } catch (error) {
+    throw new Error(
+      'Missing dependency "7zip-bin". Run npm install and retry. '
+      + `Original error: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!path7za || !fs.existsSync(path7za)) {
+    throw new Error(`7zip-bin executable not found: ${path7za || '(empty path)'}`);
+  }
+
+  return path7za;
+}
+
 function hasNameToken(name, token) {
   const lower = normalizeName(name);
   return new RegExp(`(^|[^a-z0-9])${escapeRegExp(token.toLowerCase())}([^a-z0-9]|$)`).test(lower);
@@ -270,6 +288,7 @@ function pickBestAsset(release, targetId) {
 }
 
 async function downloadFile(url, outPath) {
+  console.log(`[ensure-popiart-cli] Downloading asset from ${url} to ${outPath}`);
   const response = await fetch(url, {
     headers: createGitHubHeaders('application/octet-stream'),
   });
@@ -280,6 +299,8 @@ async function downloadFile(url, outPath) {
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outPath));
+  const size = fs.statSync(outPath).size;
+  console.log(`[ensure-popiart-cli] Downloaded asset to ${outPath} (${size} bytes)`);
 }
 
 function walkFiles(rootDir) {
@@ -355,9 +376,20 @@ function scoreExtractedBinaryCandidate(candidate, extractDir, targetConfig) {
 async function extractAsset(assetPath, extractDir) {
   const lower = assetPath.toLowerCase();
   fs.mkdirSync(extractDir, { recursive: true });
+  console.log(`[ensure-popiart-cli] Extracting asset ${assetPath} into ${extractDir}`);
 
   if (lower.endsWith('.zip')) {
-    await extractZip(assetPath, { dir: extractDir });
+    const sevenZip = resolve7zaPath();
+    const result = spawnSync(sevenZip, ['x', assetPath, `-o${extractDir}`, '-y'], {
+      stdio: 'inherit',
+    });
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      throw new Error(`7zip extraction failed with exit code ${result.status}`);
+    }
+    console.log(`[ensure-popiart-cli] Finished extracting zip asset ${path.basename(assetPath)}`);
     return;
   }
   if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
@@ -365,6 +397,7 @@ async function extractAsset(assetPath, extractDir) {
       file: assetPath,
       cwd: extractDir,
     });
+    console.log(`[ensure-popiart-cli] Finished extracting tar asset ${path.basename(assetPath)}`);
     return;
   }
 
@@ -395,6 +428,10 @@ function pickExtractedBinary(extractDir, targetId) {
     );
   }
 
+  console.log(
+    `[ensure-popiart-cli] Selected extracted executable for ${targetId}: `
+    + `${path.relative(extractDir, best.path)} (score=${best.score})`,
+  );
   return best.path;
 }
 
@@ -413,6 +450,10 @@ async function ensurePopiArtCliTarget(targetId) {
   const targetConfig = resolveTargetConfig(targetId);
   const preparedExecutable = resolvePreparedExecutablePath(targetId);
   const preparedMetadata = readPreparedMetadata(targetId);
+  console.log(
+    `[ensure-popiart-cli] Ensuring target ${targetId} from ${repo} `
+    + `(requested version=${version})`,
+  );
 
   let release;
   let asset;
@@ -445,6 +486,10 @@ async function ensurePopiArtCliTarget(targetId) {
     && preparedMetadata.assetName === asset.name
     && fs.existsSync(preparedExecutable)
   ) {
+    console.log(
+      `[ensure-popiart-cli] Using cached prepared executable for ${targetId}: `
+      + `${preparedExecutable}`,
+    );
     return {
       targetId,
       releaseTag,
@@ -457,6 +502,7 @@ async function ensurePopiArtCliTarget(targetId) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lobster-popiart-cli-'));
   try {
     const assetPath = path.join(tempRoot, asset.name);
+    console.log(`[ensure-popiart-cli] Created temporary workspace for ${targetId}: ${tempRoot}`);
     await downloadFile(asset.browser_download_url, assetPath);
 
     let resolvedBinary = assetPath;
@@ -473,6 +519,10 @@ async function ensurePopiArtCliTarget(targetId) {
 
     const preparedRoot = resolvePreparedTargetRoot(targetId);
     const destinationDir = path.dirname(preparedExecutable);
+    console.log(
+      `[ensure-popiart-cli] Copying prepared executable for ${targetId} `
+      + `from ${resolvedBinary} to ${preparedExecutable}`,
+    );
     fs.rmSync(preparedRoot, { recursive: true, force: true });
     fs.mkdirSync(destinationDir, { recursive: true });
     fs.copyFileSync(resolvedBinary, preparedExecutable);

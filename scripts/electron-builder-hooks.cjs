@@ -73,8 +73,15 @@ function resolvePopiArtCliTargetIds(context) {
 
 async function ensureBundledPopiArtCli(context) {
   const targetIds = resolvePopiArtCliTargetIds(context);
+  console.log(
+    '[electron-builder-hooks] Preparing bundled PopiArt CLI targets for '
+    + `${context?.electronPlatformName || 'unknown-platform'}: `
+    + `${targetIds.length > 0 ? targetIds.join(', ') : 'none'}`,
+  );
   for (const targetId of targetIds) {
+    console.log(`[electron-builder-hooks] Ensuring bundled PopiArt CLI target ${targetId} is prepared...`);
     await ensurePopiArtCliTarget(targetId);
+    console.log(`[electron-builder-hooks] Bundled PopiArt CLI target ${targetId} is ready.`);
   }
   return targetIds;
 }
@@ -579,10 +586,18 @@ function installSkillDependencies() {
 }
 
 async function beforePack(context) {
+  console.log(
+    '[electron-builder-hooks] Starting beforePack for '
+    + `${context?.electronPlatformName || 'unknown-platform'} `
+    + `(arch=${resolveTargetArch(context)})`,
+  );
   ensureBundledOpenClawRuntime(context);
+  console.log('[electron-builder-hooks] Bundled OpenClaw runtime is ready for packaging.');
   await ensureBundledPopiArtCli(context);
+  console.log('[electron-builder-hooks] Bundled PopiArt CLI is ready for packaging.');
   // Install skill dependencies first (for all platforms)
   installSkillDependencies();
+  console.log('[electron-builder-hooks] Skill dependency installation finished.');
 
   if (isWindowsTarget(context)) {
     // Pack all large resource directories into a single tar for faster NSIS
@@ -627,6 +642,7 @@ async function beforePack(context) {
   }
 
   if (!isWindowsTarget(context)) {
+    console.log('[electron-builder-hooks] Non-Windows target detected, skipping Windows-only packaging preparation.');
     return;
   }
 
@@ -640,6 +656,7 @@ async function beforePack(context) {
       + runtimeHealth.missing.join(', ')
     );
   }
+  console.log('[electron-builder-hooks] Portable Python runtime passed the pre-pack health check.');
 
 }
 
