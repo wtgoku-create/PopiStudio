@@ -40,8 +40,8 @@ const statusConfig: Record<TaskStatus, { label: string; color: string; activeCol
   },
   [TaskStatus.Running]: {
     label: 'scheduledTasksStatusRunning',
-    color: 'text-blue-500',
-    activeColor: 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400',
+    color: 'text-primary',
+    activeColor: 'bg-primary-muted border-primary/30 text-primary',
   },
 };
 
@@ -209,7 +209,7 @@ const AllRunsHistory: React.FC = () => {
                       {run.taskName}
                       {run.status === 'running' && (
                         <svg
-                          className="inline-block w-3 h-3 ml-1.5 animate-spin text-blue-500"
+                          className="inline-block w-3 h-3 ml-1.5 animate-spin text-primary"
                           viewBox="0 0 24 24"
                           fill="none"
                         >

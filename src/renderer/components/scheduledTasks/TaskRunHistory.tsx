@@ -34,14 +34,14 @@ const statusPillColors: Record<TaskStatus, string> = {
   [TaskStatus.Success]: 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400',
   [TaskStatus.Error]: 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400',
   [TaskStatus.Skipped]: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-600 dark:text-yellow-400',
-  [TaskStatus.Running]: 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400',
+  [TaskStatus.Running]: 'bg-primary-muted border-primary/30 text-primary',
 };
 
 const statusIcons: Record<TaskStatus, { icon: string; color: string }> = {
   [TaskStatus.Success]: { icon: '✓', color: 'text-green-500' },
   [TaskStatus.Error]: { icon: '✗', color: 'text-red-500' },
   [TaskStatus.Skipped]: { icon: '↷', color: 'text-yellow-500' },
-  [TaskStatus.Running]: { icon: '●', color: 'text-blue-500' },
+  [TaskStatus.Running]: { icon: '●', color: 'text-primary' },
 };
 
 function applyClientFilter(runs: ScheduledTaskRun[], filter: RunFilter): ScheduledTaskRun[] {
