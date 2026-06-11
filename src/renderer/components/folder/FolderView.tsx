@@ -1,7 +1,18 @@
-import { FolderOpenIcon } from '@heroicons/react/24/outline';
-import React, { useCallback, useEffect } from 'react';
+import {
+  hotkeysCoreFeature,
+  type ItemInstance,
+  selectionFeature,
+  syncDataLoaderFeature,
+} from '@headless-tree/core';
+import { useTree } from '@headless-tree/react';
+import {
+  ChevronRightIcon,
+  FolderIcon,
+} from '@heroicons/react/24/outline';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
+import type { FolderTreeEntry } from '../../../shared/folder/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -12,95 +23,272 @@ interface FolderViewProps {
   updateBadge?: React.ReactNode;
 }
 
-const openFolder = async (path: string): Promise<void> => {
-  const normalizedPath = path.trim();
+interface FolderTreeNode {
+  id: string;
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  modifiedAt: number;
+  childCount?: number;
+  children: string[];
+  loaded: boolean;
+}
+
+const ROOT_ID = '__folder-root__';
+
+const formatBytes = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+};
+
+const formatModifiedAt = (timestamp: number): string => {
+  if (!timestamp) return '-';
+  return new Intl.DateTimeFormat(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+};
+
+const makeRootNode = (children: string[] = []): FolderTreeNode => ({
+  id: ROOT_ID,
+  name: 'root',
+  path: '',
+  isDirectory: true,
+  size: 0,
+  modifiedAt: 0,
+  children,
+  loaded: true,
+});
+
+const entryToNode = (entry: FolderTreeEntry): FolderTreeNode => ({
+  id: entry.id,
+  name: entry.name,
+  path: entry.path,
+  isDirectory: entry.isDirectory,
+  size: entry.size,
+  modifiedAt: entry.modifiedAt,
+  childCount: entry.childCount,
+  children: [],
+  loaded: !entry.isDirectory || entry.childCount === 0,
+});
+
+const openPath = async (targetPath: string): Promise<void> => {
+  const normalizedPath = targetPath.trim();
   if (!normalizedPath) return;
   const result = await window.electron?.shell?.openPath(normalizedPath);
   if (result && !result.success) {
-    window.dispatchEvent(new CustomEvent('app:showToast', { detail: result.error || i18nService.t('showInFolderFailed') }));
+    window.dispatchEvent(new CustomEvent('app:showToast', {
+      detail: result.error || i18nService.t('showInFolderFailed'),
+    }));
   }
 };
 
 const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
   const configWorkingDirectory = useSelector((state: RootState) => state.cowork.config.workingDirectory);
   const agents = useSelector((state: RootState) => state.agent.agents);
-  
+  const [nodes, setNodes] = useState<Record<string, FolderTreeNode>>(() => ({
+    [ROOT_ID]: makeRootNode(),
+  }));
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     void coworkService.loadConfig();
     void agentService.loadAgents();
-    console.log('agents', agents);
   }, []);
 
-  const handleOpenFolder = useCallback((path: string) => {
-    void openFolder(path);
-  }, []);
+  const rootEntries = useMemo(() => {
+    const entries: FolderTreeEntry[] = [];
+    const seenPaths = new Set<string>();
+    const addEntry = (entry: Omit<FolderTreeEntry, 'id' | 'isDirectory' | 'size' | 'modifiedAt'>) => {
+      const normalizedPath = entry.path.trim();
+      if (!normalizedPath || seenPaths.has(normalizedPath)) return;
+      seenPaths.add(normalizedPath);
+      entries.push({
+        ...entry,
+        id: normalizedPath,
+        path: normalizedPath,
+        isDirectory: true,
+        size: 0,
+        modifiedAt: 0,
+        childCount: 1,
+      });
+    };
 
-  const folders = [
-    ...(configWorkingDirectory.trim()
-      ? [{
-          id: '__cowork__',
-          name: i18nService.t('folderWorkspaceRoot'),
-          description: i18nService.t('folderWorkspaceRootDescription'),
-          path: configWorkingDirectory,
-        }]
-      : []),
-    ...agents
-      .filter((agent) => agent.workingDirectory.trim())
-      .map((agent) => ({
-        id: agent.id,
+    if (configWorkingDirectory.trim()) {
+      addEntry({
+        name: i18nService.t('folderWorkspaceRoot'),
+        path: configWorkingDirectory,
+        childCount: 1,
+      });
+    }
+
+    for (const agent of agents) {
+      addEntry({
         name: agent.name,
-        description: agent.isDefault
-          ? i18nService.t('folderMainAgentDescription')
-          : i18nService.t('folderAgentDescription'),
         path: agent.workingDirectory,
-      })),
-  ];
+        childCount: 1,
+      });
+    }
+
+    return entries;
+  }, [agents, configWorkingDirectory]);
+
+  useEffect(() => {
+    setNodes((current) => {
+      const rootIds = rootEntries.map((entry) => entry.id);
+      const nextNodes: Record<string, FolderTreeNode> = {
+        [ROOT_ID]: makeRootNode(rootIds),
+      };
+      for (const entry of rootEntries) {
+        nextNodes[entry.id] = current[entry.id] ?? entryToNode(entry);
+      }
+      return nextNodes;
+    });
+  }, [rootEntries]);
+
+  const loadChildren = useCallback(async (node: FolderTreeNode) => {
+    if (!node.isDirectory || node.loaded || loadingIds.has(node.id)) return;
+    setLoadingIds((current) => new Set(current).add(node.id));
+    try {
+      const result = await window.electron?.folder?.listChildren(node.path);
+      if (!result?.success) {
+        window.dispatchEvent(new CustomEvent('app:showToast', {
+          detail: result?.error || i18nService.t('folderLoadFailed'),
+        }));
+        return;
+      }
+      const childNodes = (result.entries ?? []).map(entryToNode);
+      setNodes((current) => ({
+        ...current,
+        [node.id]: {
+          ...current[node.id],
+          size: childNodes.reduce((sum, child) => sum + child.size, 0),
+          children: childNodes.map((child) => child.id),
+          loaded: true,
+        },
+        ...Object.fromEntries(childNodes.map((child) => [child.id, child])),
+      }));
+    } finally {
+      setLoadingIds((current) => {
+        const next = new Set(current);
+        next.delete(node.id);
+        return next;
+      });
+    }
+  }, [loadingIds]);
+
+  const tree = useTree<FolderTreeNode>({
+    initialState: { expandedItems: rootEntries.map((entry) => entry.id) },
+    rootItemId: ROOT_ID,
+    getItemName: (item) => item.getItemData().name,
+    isItemFolder: (item) => item.getItemData().isDirectory,
+    dataLoader: {
+      getItem: (itemId) => nodes[itemId] ?? makeRootNode(),
+      getChildren: (itemId) => nodes[itemId]?.children ?? [],
+    },
+    indent: 18,
+    features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
+  });
+
+  const renderRow = (item: ItemInstance<FolderTreeNode>) => {
+    const node = item.getItemData();
+    if (node.id === ROOT_ID) return null;
+    const level = item.getItemMeta().level;
+    const isLoading = loadingIds.has(node.id);
+    const canExpand = node.isDirectory && (node.childCount ?? node.children.length) > 0;
+    const rowProps = item.getProps();
+    const toggleExpanded = () => {
+      if (item.isExpanded()) {
+        item.collapse();
+      } else {
+        item.expand();
+      }
+    };
+
+    return (
+      <button
+        {...rowProps}
+        key={node.id}
+        type="button"
+        onDoubleClick={() => {
+          if (node.isDirectory) {
+            void loadChildren(node);
+            toggleExpanded();
+          } else {
+            void openPath(node.path);
+          }
+        }}
+        className={`grid w-full grid-cols-[1fr_140px_160px] items-center border-0 bg-transparent px-0 py-0 text-left text-sm outline-none transition-colors ${
+          item.isSelected() ? 'bg-surface' : 'hover:bg-surface'
+        }`}
+      >
+        <div
+          className="flex min-w-0 items-center gap-2 px-5 py-2.5 text-foreground"
+          style={{ paddingLeft: `${20 + level * 18}px` }}
+        >
+          {canExpand ? (
+            <span
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-raised"
+              onClick={(event) => {
+                event.stopPropagation();
+                void loadChildren(node);
+                toggleExpanded();
+              }}
+            >
+              <ChevronRightIcon className={`h-3.5 w-3.5 transition-transform ${item.isExpanded() ? 'rotate-90' : ''}`} />
+            </span>
+          ) : (
+            <span className="h-4 w-4 shrink-0" />
+          )}
+          <FolderIcon className="h-4 w-4 shrink-0 text-muted" />
+          <span className="truncate">{node.name}</span>
+          {isLoading && <span className="text-xs text-muted">{i18nService.t('folderLoading')}</span>}
+        </div>
+        <div className="px-4 py-2.5 text-xs text-muted">{formatBytes(node.size)}</div>
+        <div className="px-4 py-2.5 text-xs text-muted">{formatModifiedAt(node.modifiedAt)}</div>
+      </button>
+    );
+  };
 
   return (
     <div className="flex h-full flex-1 flex-col bg-background">
       <div className="draggable flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-        <div className="flex h-8 items-center gap-3">
+        <div className="flex h-8 items-center gap-5">
           <h1 className="text-lg font-semibold text-foreground">
-            {i18nService.t('folder')}
+            {i18nService.t('folderAllFiles')}
           </h1>
-          {updateBadge}
         </div>
-        <WindowTitleBar inline />
+        <div className="flex items-center gap-3">
+          {updateBadge}
+          <WindowTitleBar inline />
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-6">
-          {folders.length === 0 ? (
-            <div className="rounded-lg border border-border bg-surface-raised px-4 py-8 text-center text-sm text-secondary">
-              {i18nService.t('folderEmpty')}
-            </div>
-          ) : (
-            folders.map((folder) => (
-              <div
-                key={folder.id}
-                className="flex items-center gap-3 rounded-lg border border-border bg-surface-raised px-3 py-3"
-              >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-secondary">
-                  <FolderOpenIcon className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-foreground">{folder.name}</div>
-                  <div className="truncate text-xs text-secondary">{folder.description}</div>
-                  <div className="mt-1 truncate font-mono text-xs text-muted" title={folder.path}>
-                    {folder.path}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleOpenFolder(folder.path)}
-                  className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm text-secondary transition-colors hover:bg-surface hover:text-foreground"
-                >
-                  {i18nService.t('openFolder')}
-                </button>
-              </div>
-            ))
-          )}
+      <div className="flex-1 overflow-hidden p-4">
+        <div className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-background">
+          <div className="grid h-10 shrink-0 grid-cols-[1fr_140px_160px] items-center border-b border-border bg-surface text-xs text-secondary">
+            <div className="px-6">{i18nService.t('folderColumnName')}</div>
+            <div className="px-4">{i18nService.t('folderColumnSize')}</div>
+            <div className="px-4">{i18nService.t('folderColumnModified')}</div>
+          </div>
+          <div {...tree.getContainerProps()} className="flex-1 overflow-y-auto py-2">
+            {tree.getItems().length <= 1 ? (
+              <div className="px-6 py-8 text-sm text-secondary">{i18nService.t('folderEmpty')}</div>
+            ) : (
+              tree.getItems().map(renderRow)
+            )}
+          </div>
         </div>
       </div>
     </div>

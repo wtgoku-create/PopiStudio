@@ -4,6 +4,7 @@ import type {
   BrowserDiagnosticResult,
   BrowserRuntimeProfile,
 } from '../../shared/browserWebAccess/constants';
+import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
 interface ApiResponse {
   ok: boolean;
@@ -683,6 +684,9 @@ interface IElectronAPI {
     openHtmlInBrowser: (htmlContent: string) => Promise<{ success: boolean; error?: string }>;
     getAppsForFile: (filePath: string) => Promise<{ success: boolean; apps: Array<{ name: string; path: string; isDefault: boolean; icon?: string }>; error?: string }>;
     openPathWithApp: (filePath: string, appPath: string) => Promise<{ success: boolean; error?: string }>;
+  };
+  folder: {
+    listChildren: (folderPath: string) => Promise<FolderListChildrenResult>;
   };
   clipboard: {
     writeImageFromFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;

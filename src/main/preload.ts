@@ -7,6 +7,7 @@ import { ArtifactPreviewIpc } from '../shared/artifactPreview/constants';
 import { BrowserIpc, type BrowserRuntimeProfile } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import { DialogIpc } from '../shared/dialog/constants';
+import { FolderIpc } from '../shared/folder/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../shared/localWebServices/constants';
 import { LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import type { Platform } from '../shared/platform';
@@ -435,6 +436,9 @@ contextBridge.exposeInMainWorld('electron', {
     openHtmlInBrowser: (htmlContent: string) => ipcRenderer.invoke('shell:openHtmlInBrowser', htmlContent),
     getAppsForFile: (filePath: string) => ipcRenderer.invoke('shell:getAppsForFile', filePath),
     openPathWithApp: (filePath: string, appPath: string) => ipcRenderer.invoke('shell:openPathWithApp', filePath, appPath),
+  },
+  folder: {
+    listChildren: (folderPath: string) => ipcRenderer.invoke(FolderIpc.ListChildren, folderPath),
   },
   clipboard: {
     writeImageFromFile: (filePath: string) =>

@@ -23,6 +23,7 @@ import {
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
+import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import { PlatformRegistry } from '../shared/platform';
 // PopiArt CLI 登录态同步与 IPC 处理
@@ -6429,6 +6430,103 @@ if (!gotTheLock) {
         };
       }
     }
+  );
+
+  const MAX_FOLDER_SIZE_ENTRIES = 4000;
+  const calculateDirectorySize = async (dirPath: string): Promise<number> => {
+    let totalSize = 0;
+    let visitedEntries = 0;
+    const pending = [dirPath];
+
+    while (pending.length > 0 && visitedEntries < MAX_FOLDER_SIZE_ENTRIES) {
+      const current = pending.pop()!;
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (visitedEntries >= MAX_FOLDER_SIZE_ENTRIES) break;
+        visitedEntries += 1;
+        const entryPath = path.join(current, entry.name);
+        try {
+          if (entry.isDirectory()) {
+            pending.push(entryPath);
+          } else if (entry.isFile()) {
+            const stat = await fs.promises.stat(entryPath);
+            totalSize += stat.size;
+          }
+        } catch {
+          // Skip entries that are removed or inaccessible while scanning.
+        }
+      }
+    }
+
+    return totalSize;
+  };
+
+  ipcMain.handle(
+    FolderIpc.ListChildren,
+    async (_event, folderPath?: string): Promise<{ success: boolean; entries?: FolderTreeEntry[]; error?: string }> => {
+      try {
+        if (typeof folderPath !== 'string' || !folderPath.trim()) {
+          return { success: false, error: 'Missing folder path' };
+        }
+        const resolvedPath = path.resolve(folderPath.trim());
+        const rootStat = await fs.promises.stat(resolvedPath);
+        if (!rootStat.isDirectory()) {
+          return { success: false, error: 'Not a directory' };
+        }
+
+        const dirents = await fs.promises.readdir(resolvedPath, { withFileTypes: true });
+        const visibleDirents = dirents.filter((entry) => !entry.name.startsWith('.'));
+        const entries = await Promise.all(
+          visibleDirents.map(async (entry): Promise<FolderTreeEntry | null> => {
+            const entryPath = path.join(resolvedPath, entry.name);
+            try {
+              const stat = await fs.promises.stat(entryPath);
+              const isDirectory = stat.isDirectory();
+              let childCount: number | undefined;
+              if (isDirectory) {
+                try {
+                  childCount = (await fs.promises.readdir(entryPath)).filter((name) => !name.startsWith('.')).length;
+                } catch {
+                  childCount = 0;
+                }
+              }
+              return {
+                id: entryPath,
+                name: entry.name,
+                path: entryPath,
+                isDirectory,
+                size: isDirectory ? await calculateDirectorySize(entryPath) : stat.size,
+                modifiedAt: stat.mtimeMs,
+                childCount,
+              };
+            } catch {
+              return null;
+            }
+          }),
+        );
+
+        return {
+          success: true,
+          entries: entries
+            .filter((entry): entry is FolderTreeEntry => entry !== null)
+            .sort((a, b) => {
+              if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+              return a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
+            }),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to list folder',
+        };
+      }
+    },
   );
 
   ipcMain.handle(
