@@ -9,18 +9,15 @@ import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { imService } from '../../services/im';
 import { RootState } from '../../store';
-import type { Model } from '../../store/slices/modelSlice';
 import type { Agent } from '../../types/agent';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, FeishuInstanceConfig, IMGatewayConfig, NimInstanceConfig, PopoInstanceConfig, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from '../../types/im';
 import { getAgentDisplayName, getAgentDisplayNameById, isDefaultAgentId } from '../../utils/agentDisplay';
-import { resolveOpenClawModelRef, toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import Modal from '../common/Modal';
 import TrashIcon from '../icons/TrashIcon';
 import Switch from '../ui/Switch';
 import AgentAvatarPicker from './AgentAvatarPicker';
 import AgentConfirmDialog from './AgentConfirmDialog';
-import AgentDetailToolbar from './AgentDetailToolbar';
 import AgentSkillSelector from './AgentSkillSelector';
 import { AgentConfirmDialogVariant, AgentDetailTab } from './constants';
 
@@ -39,8 +36,6 @@ interface AgentSettingsPanelProps {
 
 const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClose }) => {
   const agents = useSelector((state: RootState) => state.agent.agents);
-  const availableModels = useSelector((state: RootState) => state.model.availableModels);
-  const defaultSelectedModel = useSelector((state: RootState) => state.model.defaultSelectedModel);
   const [, setAgent] = useState<Agent | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -48,8 +43,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
   const [identity, setIdentity] = useState('');
   const [userInfo, setUserInfo] = useState('');
   const [icon, setIcon] = useState('');
-  const [model, setModel] = useState<Model | null>(null);
-  const [workingDirectory, setWorkingDirectory] = useState('');
   const [skillIds, setSkillIds] = useState<string[]>([]);
   const [nameTouched, setNameTouched] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -71,8 +64,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     identity: '',
     userInfo: '',
     icon: '',
-    model: '',
-    workingDirectory: '',
     skillIds: [] as string[],
   });
 
@@ -109,10 +100,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
       setIdentity(nextIdentity);
       setUserInfo(nextUserInfo);
       setIcon(a.icon);
-      const resolvedModel = resolveOpenClawModelRef(a.model, availableModels) ?? defaultSelectedModel ?? null;
-      const resolvedModelRef = resolvedModel ? toOpenClawModelRef(resolvedModel) : '';
-      setModel(resolvedModel);
-      setWorkingDirectory(a.workingDirectory ?? '');
       setSkillIds(a.skillIds ?? []);
       initialValuesRef.current = {
         name: a.name,
@@ -121,8 +108,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
         identity: nextIdentity,
         userInfo: nextUserInfo,
         icon: a.icon,
-        model: resolvedModelRef,
-        workingDirectory: a.workingDirectory ?? '',
         skillIds: a.skillIds ?? [],
       };
     })();
@@ -145,7 +130,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     return () => {
       cancelled = true;
     };
-  }, [agentId, availableModels, defaultSelectedModel]);
+  }, [agentId]);
 
   const isDirty = useCallback((): boolean => {
     const init = initialValuesRef.current;
@@ -155,12 +140,10 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     if (identity !== init.identity) return true;
     if (userInfo !== init.userInfo) return true;
     if (icon !== init.icon) return true;
-    if ((model ? toOpenClawModelRef(model) : '') !== init.model) return true;
-    if (workingDirectory !== init.workingDirectory) return true;
     if (skillIds.length !== init.skillIds.length || skillIds.some((id, i) => id !== init.skillIds[i])) return true;
     if (boundKeys.size !== initialBoundKeys.size || [...boundKeys].some((k) => !initialBoundKeys.has(k))) return true;
     return false;
-  }, [name, description, systemPrompt, identity, userInfo, icon, model, workingDirectory, skillIds, boundKeys, initialBoundKeys]);
+  }, [name, description, systemPrompt, identity, userInfo, icon, skillIds, boundKeys, initialBoundKeys]);
 
   if (!agentId) return null;
 
@@ -186,8 +169,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
         description: description.trim(),
         systemPrompt: systemPrompt.trim(),
         identity: identity.trim(),
-        model: model ? toOpenClawModelRef(model) : '',
-        workingDirectory: workingDirectory.trim(),
         icon: icon.trim(),
         skillIds,
       });
@@ -574,14 +555,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
         </div>
 
         {/* Footer */}
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-t border-border">
-          <AgentDetailToolbar
-            model={model}
-            onModelChange={setModel}
-            workingDirectory={workingDirectory}
-            onWorkingDirectoryChange={setWorkingDirectory}
-          />
-          <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 items-center justify-end gap-2 px-5 py-3.5 border-t border-border">
             {!isMainAgent && (
               <button
                 type="button"
@@ -600,7 +574,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
             >
               {saving ? i18nService.t('saving') : i18nService.t('save')}
             </button>
-          </div>
         </div>
       </Modal>
 
