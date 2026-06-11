@@ -249,6 +249,37 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         console.error('Failed to check cowork API config:', error);
       }
 
+      // Capture active skill IDs before clearing them
+      const sessionSkillIds = [...activeSkillIds];
+      const existingSessionResult = await coworkService.listSessionsForAgentPreview(currentAgentId, 1, 0);
+      const existingSessionSummary = existingSessionResult.success
+        ? existingSessionResult.sessions?.[0]
+        : null;
+
+      if (existingSessionSummary) {
+        const loadedSession = await coworkService.loadSession(existingSessionSummary.id);
+        const popitvContextSkillIds = sessionSkillIds.length > 0
+          ? sessionSkillIds
+          : loadedSession?.activeSkillIds ?? [];
+        const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+          shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
+          sessionId: existingSessionSummary.id,
+        });
+        const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
+        const sent = await coworkService.continueSession({
+          sessionId: existingSessionSummary.id,
+          prompt,
+          systemPrompt: combinedSystemPrompt,
+          activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
+          imageAttachments,
+        });
+        if (sent && sessionSkillIds.length > 0) {
+          dispatch(clearActiveSkills());
+        }
+        dispatch(clearSelection());
+        return sent;
+      }
+
       // Create a temporary session with user message to show immediately
       const tempSessionId = `temp-${Date.now()}`;
       const fallbackTitle = buildSessionTitleFromInput(
@@ -256,9 +287,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         i18nService.t('coworkDefaultSessionTitle')
       );
       const now = Date.now();
-
-      // Capture active skill IDs before clearing them
-      const sessionSkillIds = [...activeSkillIds];
 
       const tempSession: CoworkSession = {
         id: tempSessionId,

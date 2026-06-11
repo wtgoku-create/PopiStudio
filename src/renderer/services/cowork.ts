@@ -5,6 +5,7 @@ import {
   CoworkSystemMessageKind,
 } from '../../common/coworkSystemMessages';
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
+import { AgentId } from '../../shared/agent';
 import { COWORK_SESSION_PAGE_SIZE } from '../../shared/cowork/constants';
 import { store } from '../store';
 import {
@@ -68,6 +69,10 @@ const restoreCurrentAgentDefaultSkills = (): void => {
   } else {
     store.dispatch(clearActiveSkills());
   }
+};
+
+const resolveCurrentAgentId = (): string => {
+  return store.getState().agent.currentAgentId?.trim() || AgentId.Main;
 };
 
 class CoworkService {
@@ -437,7 +442,8 @@ class CoworkService {
 
   async loadSessions(agentId?: string): Promise<void> {
     const requestId = ++this.latestLoadSessionsRequestId;
-    const result = await window.electron?.cowork?.listSessions({ limit: COWORK_SESSION_PAGE_SIZE, offset: 0, agentId });
+    const resolvedAgentId = agentId?.trim() || resolveCurrentAgentId();
+    const result = await window.electron?.cowork?.listSessions({ limit: COWORK_SESSION_PAGE_SIZE, offset: 0, agentId: resolvedAgentId });
     if (result?.success && result.sessions) {
       // High-frequency IM traffic can trigger overlapping list refreshes.
       // Ignore stale responses so an older snapshot does not hide newer sessions.
@@ -468,7 +474,7 @@ class CoworkService {
     if (!state.hasMoreSessions) return false;
 
     const offset = state.sessions.length;
-    const result = await window.electron?.cowork?.listSessions({ limit: COWORK_SESSION_PAGE_SIZE, offset });
+    const result = await window.electron?.cowork?.listSessions({ limit: COWORK_SESSION_PAGE_SIZE, offset, agentId: resolveCurrentAgentId() });
     if (result?.success && result.sessions) {
       store.dispatch(appendSessions({ sessions: result.sessions, hasMore: result.hasMore ?? false }));
       return true;

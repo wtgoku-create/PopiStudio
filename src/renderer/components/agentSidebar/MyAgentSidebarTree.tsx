@@ -6,16 +6,14 @@ import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { RootState } from '../../store';
 import { selectCurrentSessionId } from '../../store/selectors/coworkSelectors';
-import type { SubagentSessionSummary } from '../../types/cowork';
 import { isDefaultAgentId } from '../../utils/agentDisplay';
 import AgentCreateModal from '../agent/AgentCreateModal';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
-import { type CoworkOpenShareOptionsEventDetail,CoworkUiEvent } from '../cowork/constants';
+import { CoworkUiEvent } from '../cowork/constants';
 import AgentTreeNode from './AgentTreeNode';
 import MyAgentSidebarHeader from './MyAgentSidebarHeader';
-import type { AgentSidebarAgentNode, AgentSidebarTaskNode } from './types';
+import type { AgentSidebarAgentNode } from './types';
 import { useAgentSidebarState } from './useAgentSidebarState';
-import { useSubagentSessions } from './useSubagentSessions';
 
 interface MyAgentSidebarTreeProps {
   isBatchMode: boolean;
@@ -26,115 +24,38 @@ interface MyAgentSidebarTreeProps {
   onToggleSelection: (sessionId: string, agentId: string) => void;
   onEnterBatchMode: (sessionId: string, agentId: string) => void;
   onBatchSelectableIdsChange: (sessionIds: string[]) => void;
-  onSelectSubagent?: (subagent: SubagentSessionSummary) => void;
 }
 
 const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
-  isBatchMode,
-  batchAgentId,
   deletedSessionIds,
-  selectedIds,
   onShowCowork,
-  onToggleSelection,
-  onEnterBatchMode,
   onBatchSelectableIdsChange,
-  onSelectSubagent,
 }) => {
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
   const currentSessionId = useSelector(selectCurrentSessionId);
-  const currentSessionStatus = useSelector(
-    (state: RootState) => state.cowork.currentSession?.status,
-  );
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null);
-  const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(null);
-  const { subagentsBySessionId, refetchSubagents } = useSubagentSessions(currentSessionId, currentSessionStatus);
   const {
     agentNodes,
-    patchTaskPreview,
-    removeTaskPreview,
     removeTaskPreviews,
     removeAgentTaskPreviews,
     retryLoadTasks,
-    loadMoreTasks,
-    collapseTasks,
-    toggleAgentExpanded,
   } = useAgentSidebarState();
 
   useEffect(() => {
     void agentService.loadAgents();
   }, []);
 
-  // Listen for subagent selection events to track active subagent in sidebar
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<SubagentSessionSummary | null>).detail;
-      setSelectedSubagentId(detail?.id ?? null);
-      // Refetch subagent data when navigating back from detail view
-      if (!detail && currentSessionId) {
-        void refetchSubagents(currentSessionId);
-      }
-    };
-    window.addEventListener(CoworkUiEvent.SelectSubagent, handler);
-    return () => window.removeEventListener(CoworkUiEvent.SelectSubagent, handler);
-  }, [currentSessionId, refetchSubagents]);
-
-  const handleSelectTask = async (task: AgentSidebarTaskNode) => {
-    if (task.agentId !== currentAgentId) {
-      agentService.switchAgent(task.agentId);
-      await coworkService.loadSessions(task.agentId);
-    }
-    onShowCowork();
-    // Clear subagent detail view so the main session detail is shown
-    window.dispatchEvent(new CustomEvent(CoworkUiEvent.SelectSubagent, { detail: null }));
-    return coworkService.loadSession(task.id);
-  };
-
-  const handleDeleteTask = async (task: AgentSidebarTaskNode) => {
-    const deleted = await coworkService.deleteSession(task.id);
-    if (deleted) {
-      removeTaskPreview(task.id);
-    }
-  };
-
-  const handleToggleTaskPin = async (task: AgentSidebarTaskNode, pinned: boolean) => {
-    const result = await coworkService.setSessionPinned(task.id, pinned);
-    if (result.success) {
-      patchTaskPreview(task.id, { pinned, pinOrder: result.pinOrder }, { preserveUpdatedAt: true });
-    }
-  };
-
-  const handleRenameTask = async (task: AgentSidebarTaskNode, title: string) => {
-    const renamed = await coworkService.renameSession(task.id, title);
-    if (renamed) {
-      patchTaskPreview(task.id, { title }, { preserveUpdatedAt: true });
-    }
-  };
-
-  const handleShareTask = async (task: AgentSidebarTaskNode) => {
-    const session = await handleSelectTask(task);
-    if (!session) return;
-
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent<CoworkOpenShareOptionsEventDetail>(
-        CoworkUiEvent.OpenShareOptions,
-        { detail: { sessionId: task.id } },
-      ));
-    }, 0);
-  };
-
-  const handleEnterBatchMode = (task: AgentSidebarTaskNode) => {
-    if (task.agentId !== currentAgentId) {
-      agentService.switchAgent(task.agentId);
-      void coworkService.loadSessions(task.agentId);
-    }
-    onEnterBatchMode(task.id, task.agentId);
-  };
-
-  const handleCreateTask = async (agent: AgentSidebarAgentNode) => {
+  const handleSelectAgent = async (agent: AgentSidebarAgentNode) => {
     if (agent.id !== currentAgentId) {
       agentService.switchAgent(agent.id);
       await coworkService.loadSessions(agent.id);
+    }
+    if (agent.tasks.length > 0) {
+      onShowCowork();
+      window.dispatchEvent(new CustomEvent(CoworkUiEvent.SelectSubagent, { detail: null }));
+      await coworkService.loadSession(agent.tasks[0].id);
+      return;
     }
     coworkService.clearSession({ restoreAgentSkills: true });
     onShowCowork();
@@ -170,32 +91,12 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     <AgentTreeNode
       key={agent.id}
       agent={agent}
-      isBatchMode={isBatchMode}
-      batchAgentId={batchAgentId}
-      selectedIds={selectedIds}
-      showBatchOption
-      subagentsBySessionId={subagentsBySessionId}
-      selectedSubagentId={selectedSubagentId}
-      onSelectSubagent={(sub) => {
-        onSelectSubagent?.(sub);
-        onShowCowork();
-        window.dispatchEvent(new CustomEvent(CoworkUiEvent.SelectSubagent, { detail: sub }));
-      }}
-      onToggleExpanded={toggleAgentExpanded}
+      isActive={agent.id === currentAgentId || agent.tasks.some((task) => task.id === currentSessionId)}
       onEditAgent={(agent) => setSettingsAgentId(agent.id)}
-      onCreateTask={(agent) => void handleCreateTask(agent)}
+      onSelectAgent={(agent) => void handleSelectAgent(agent)}
       onDeleteAgent={handleDeleteAgent}
       onToggleAgentPin={handleToggleAgentPin}
       onRetryLoadTasks={(agentId) => void retryLoadTasks(agentId)}
-      onLoadMoreTasks={(agentId) => void loadMoreTasks(agentId)}
-      onCollapseTasks={collapseTasks}
-      onSelectTask={(task) => void handleSelectTask(task)}
-      onDeleteTask={handleDeleteTask}
-      onShareTask={handleShareTask}
-      onToggleTaskPin={handleToggleTaskPin}
-      onRenameTask={handleRenameTask}
-      onToggleSelection={onToggleSelection}
-      onEnterBatchMode={handleEnterBatchMode}
     />
   );
 
@@ -209,14 +110,8 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   }, [deletedSessionIds, removeTaskPreviews]);
 
   useEffect(() => {
-    if (!batchAgentId) {
-      onBatchSelectableIdsChange([]);
-      return;
-    }
-
-    const batchAgent = agentNodes.find((agent) => agent.id === batchAgentId);
-    onBatchSelectableIdsChange(batchAgent?.tasks.map((task) => task.id) ?? []);
-  }, [agentNodes, batchAgentId, onBatchSelectableIdsChange]);
+    onBatchSelectableIdsChange([]);
+  }, [onBatchSelectableIdsChange]);
 
   return (
     <div className="pb-3" role="tree" aria-label={i18nService.t('myAgents')}>

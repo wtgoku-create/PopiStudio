@@ -24,6 +24,9 @@ import type {
 } from './types';
 
 const normalizeAgentId = (agentId?: string) => agentId?.trim() || 'main';
+const limitAgentSessions = (sessions: CoworkSessionSummary[]): CoworkSessionSummary[] => {
+  return sortAgentSidebarTasks(sessions).slice(0, AgentSidebarPageSize.Preview);
+};
 
 const hasSessionChanged = (
   previous: CoworkSessionSummary,
@@ -290,7 +293,7 @@ export const useAgentSidebarState = () => {
         const current = replace ? [] : previous[agentId] ?? [];
         return {
           ...previous,
-          [agentId]: mergeSessions(current, result.sessions ?? []),
+          [agentId]: limitAgentSessions(mergeSessions(current, result.sessions ?? [])),
         };
       });
       setHasMoreTasksByAgentId((previous) => ({
@@ -371,7 +374,7 @@ export const useAgentSidebarState = () => {
         const index = existingTasks.findIndex((item) => item.id === session.id);
         if (index === -1) {
           if (loadedAgentIdsRef.current.has(agentId)) {
-            next[agentId] = [session, ...existingTasks];
+            next[agentId] = limitAgentSessions([session, ...existingTasks]);
             changed = true;
           }
           return;
@@ -380,7 +383,7 @@ export const useAgentSidebarState = () => {
         if (hasSessionChanged(existingTasks[index], session)) {
           const updatedTasks = [...existingTasks];
           updatedTasks[index] = session;
-          next[agentId] = updatedTasks;
+          next[agentId] = limitAgentSessions(updatedTasks);
           changed = true;
         }
       });
@@ -445,7 +448,7 @@ export const useAgentSidebarState = () => {
       loadedAgentIdsRef.current.add(agentId);
       setTaskPreviewsByAgentId((previous) => ({
         ...previous,
-        [agentId]: mergeSessions([], sessions),
+        [agentId]: limitAgentSessions(mergeSessions([], sessions)),
       }));
       setHasMoreTasksByAgentId((previous) => ({
         ...previous,
@@ -532,17 +535,9 @@ export const useAgentSidebarState = () => {
   const agentNodes = useMemo<AgentSidebarAgentNode[]>(() => {
     return sortedEnabledAgents.map((agent) => {
       const taskPreviews = taskPreviewsByAgentId[agent.id] ?? [];
-      const sortedTaskPreviews = sortAgentSidebarTasks(taskPreviews);
+      const sortedTaskPreviews = limitAgentSessions(taskPreviews);
       const isTaskListExpanded = expandedTaskListAgentIdSet.has(agent.id);
-      const hasMoreLoadedTasks = sortedTaskPreviews.length > AgentSidebarPageSize.Preview;
-      const canExpandTasks =
-        !isTaskListExpanded
-        && ((hasMoreTasksByAgentId[agent.id] ?? false) || hasMoreLoadedTasks);
-      const canCollapseTasks = isTaskListExpanded && hasMoreLoadedTasks;
-      const visibleTaskPreviews = isTaskListExpanded
-        ? sortedTaskPreviews
-        : sortedTaskPreviews.slice(0, AgentSidebarPageSize.Preview);
-      const tasks = visibleTaskPreviews.map((session) => {
+      const tasks = sortedTaskPreviews.map((session) => {
         return toAgentSidebarTaskNode(session, currentSessionId, unreadSessionIdSet);
       });
 
@@ -550,8 +545,8 @@ export const useAgentSidebarState = () => {
         ...agent,
         isExpanded: expandedAgentIdSet.has(agent.id),
         isTaskListExpanded,
-        canExpandTasks,
-        canCollapseTasks,
+        canExpandTasks: false,
+        canCollapseTasks: false,
         isLoadingTasks: loadingAgentIdSet.has(agent.id),
         hasLoadError: failedAgentIdSet.has(agent.id),
         tasks,
@@ -562,7 +557,6 @@ export const useAgentSidebarState = () => {
     expandedAgentIdSet,
     expandedTaskListAgentIdSet,
     failedAgentIdSet,
-    hasMoreTasksByAgentId,
     loadingAgentIdSet,
     sortedEnabledAgents,
     taskPreviewsByAgentId,

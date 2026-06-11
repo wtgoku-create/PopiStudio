@@ -1,52 +1,31 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
-import type { SubagentSessionSummary } from '../../types/cowork';
 import { getAgentDisplayName, isDefaultAgentId, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import { AgentConfirmDialogVariant } from '../agent/constants';
-import ComposeIcon from '../icons/ComposeIcon';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import EditIcon from '../icons/EditIcon';
 import EllipsisHorizontalIcon from '../icons/EllipsisHorizontalIcon';
 import PushPinIcon from '../icons/PushPinIcon';
 import TrashIcon from '../icons/TrashIcon';
-import AgentTaskRow from './AgentTaskRow';
-import ExpandAgentTasksRow from './ExpandAgentTasksRow';
-import SubagentTaskRow from './SubagentTaskRow';
-import type { AgentSidebarAgentNode, AgentSidebarTaskNode } from './types';
+import { AgentSidebarIndicator } from './constants';
+import type { AgentSidebarAgentNode } from './types';
 
 interface AgentTreeNodeProps {
   agent: AgentSidebarAgentNode;
-  isBatchMode: boolean;
-  batchAgentId: string | null;
-  selectedIds: Set<string>;
-  showBatchOption?: boolean;
-  subagentsBySessionId?: Record<string, SubagentSessionSummary[]>;
-  selectedSubagentId?: string | null;
-  onSelectSubagent?: (subagent: SubagentSessionSummary) => void;
-  onToggleExpanded: (agentId: string) => void;
+  isActive: boolean;
   onEditAgent: (agent: AgentSidebarAgentNode) => void;
-  onCreateTask: (agent: AgentSidebarAgentNode) => void;
+  onSelectAgent: (agent: AgentSidebarAgentNode) => void;
   onDeleteAgent: (agent: AgentSidebarAgentNode) => Promise<void>;
   onToggleAgentPin: (agent: AgentSidebarAgentNode, pinned: boolean) => Promise<void>;
   onRetryLoadTasks: (agentId: string) => void;
-  onLoadMoreTasks: (agentId: string) => void;
-  onCollapseTasks: (agentId: string) => void;
-  onSelectTask: (task: AgentSidebarTaskNode) => void;
-  onDeleteTask: (task: AgentSidebarTaskNode) => Promise<void>;
-  onShareTask: (task: AgentSidebarTaskNode) => Promise<void>;
-  onToggleTaskPin: (task: AgentSidebarTaskNode, pinned: boolean) => Promise<void>;
-  onRenameTask: (task: AgentSidebarTaskNode, title: string) => Promise<void>;
-  onToggleSelection: (sessionId: string, agentId: string) => void;
-  onEnterBatchMode: (task: AgentSidebarTaskNode) => void;
 }
 
 const ACTION_MENU_VIEWPORT_PADDING = 8;
 const ACTION_MENU_VERTICAL_GAP = 4;
 const ACTION_MENU_HEIGHT = 104;
-const AGENT_TASKS_TRANSITION_MS = 200;
 
 const AgentAvatar: React.FC<{ agent: AgentSidebarAgentNode }> = ({ agent }) => {
   if (shouldUseDefaultAgentIcon(agent)) {
@@ -66,42 +45,24 @@ const AgentAvatar: React.FC<{ agent: AgentSidebarAgentNode }> = ({ agent }) => {
 
 const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
   agent,
-  isBatchMode,
-  batchAgentId,
-  selectedIds,
-  showBatchOption = false,
-  subagentsBySessionId,
-  selectedSubagentId,
-  onSelectSubagent,
-  onToggleExpanded,
+  isActive,
   onEditAgent,
-  onCreateTask,
+  onSelectAgent,
   onDeleteAgent,
   onToggleAgentPin,
   onRetryLoadTasks,
-  onLoadMoreTasks,
-  onCollapseTasks,
-  onSelectTask,
-  onDeleteTask,
-  onShareTask,
-  onToggleTaskPin,
-  onRenameTask,
-  onToggleSelection,
-  onEnterBatchMode,
 }) => {
   const [menuPosition, setMenuPosition] = useState<{ right: number; top: number } | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-  const [shouldRenderTasks, setShouldRenderTasks] = useState(agent.isExpanded);
-  const [isTaskGroupVisible, setIsTaskGroupVisible] = useState(agent.isExpanded);
-  const [isTaskGroupTransitioning, setIsTaskGroupTransitioning] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const previousExpandedRef = useRef(agent.isExpanded);
   const isMenuOpen = menuPosition !== null;
   const isMainAgent = isDefaultAgentId(agent.id);
-  const isBatchAgent = isBatchMode && batchAgentId === agent.id;
-  const isOutsideBatchAgent = isBatchMode && batchAgentId !== null && batchAgentId !== agent.id;
   const agentName = getAgentDisplayName(agent);
+  const boundTask = agent.tasks[0] ?? null;
+  const indicator = boundTask?.indicator ?? AgentSidebarIndicator.None;
+  const showRunningIndicator = indicator === AgentSidebarIndicator.Running;
+  const showUnreadIndicator = indicator === AgentSidebarIndicator.CompletedUnread;
   const menuItemClassName =
     'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
   const dangerMenuItemClassName =
@@ -109,8 +70,6 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
   const disabledMenuItemClassName =
     'flex w-full cursor-not-allowed items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-secondary/40';
   const rowActionButtonClassName =
-    'inline-flex h-5 w-5 items-center justify-center rounded text-foreground opacity-[0.3] transition-opacity hover:opacity-[0.46]';
-  const rowEditActionButtonClassName =
     'inline-flex h-5 w-5 items-center justify-center rounded text-foreground opacity-[0.3] transition-opacity hover:opacity-[0.46]';
   const menuIconClassName = 'h-3.5 w-3.5';
 
@@ -173,63 +132,20 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
     };
   }, [calculateMenuPosition, closeMenu, isMenuOpen]);
 
-  useEffect(() => {
-    let animationFrame: number | undefined;
-    let transitionTimeout: number | undefined;
-    const wasExpanded = previousExpandedRef.current;
-
-    previousExpandedRef.current = agent.isExpanded;
-
-    if (wasExpanded === agent.isExpanded) {
-      return undefined;
-    }
-
-    if (agent.isExpanded) {
-      setShouldRenderTasks(true);
-      setIsTaskGroupVisible(false);
-      setIsTaskGroupTransitioning(true);
-      animationFrame = window.requestAnimationFrame(() => {
-        animationFrame = window.requestAnimationFrame(() => {
-          setIsTaskGroupVisible(true);
-          transitionTimeout = window.setTimeout(() => {
-            setIsTaskGroupTransitioning(false);
-          }, AGENT_TASKS_TRANSITION_MS);
-        });
-      });
-    } else {
-      setIsTaskGroupTransitioning(true);
-      setIsTaskGroupVisible(false);
-      transitionTimeout = window.setTimeout(() => {
-        setShouldRenderTasks(false);
-        setIsTaskGroupTransitioning(false);
-      }, AGENT_TASKS_TRANSITION_MS);
-    }
-
-    return () => {
-      if (animationFrame !== undefined) {
-        window.cancelAnimationFrame(animationFrame);
-      }
-      if (transitionTimeout !== undefined) {
-        window.clearTimeout(transitionTimeout);
-      }
-    };
-  }, [agent.isExpanded]);
-
   const handleEditAgent = (event: React.MouseEvent) => {
     event.stopPropagation();
     closeMenu();
     onEditAgent(agent);
   };
 
-  const handleCreateTask = (event: React.MouseEvent) => {
+  const handleAgentClick = (event: React.MouseEvent) => {
     event.stopPropagation();
     closeMenu();
-    onCreateTask(agent);
-  };
-
-  const handleAgentClick = (event: React.MouseEvent) => {
-    onToggleExpanded(agent.id);
-    handleCreateTask(event);
+    if (agent.hasLoadError && agent.tasks.length === 0) {
+      onRetryLoadTasks(agent.id);
+      return;
+    }
+    onSelectAgent(agent);
   };
 
   const handleDeleteMenuClick = (event: React.MouseEvent) => {
@@ -251,10 +167,12 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
         <button
           type="button"
           onClick={handleAgentClick}
-          className="flex h-full w-full items-center gap-2 rounded-[18px] py-0 pl-3.5 pr-12 text-left text-[14px] font-normal text-foreground transition-colors hover:bg-surface-raised dark:hover:bg-white/[0.04]"
+          className={`flex h-full w-full items-center gap-2 rounded-[18px] py-0 pl-3.5 pr-12 text-left text-[14px] font-normal text-foreground transition-colors hover:bg-surface-raised dark:hover:bg-white/[0.04] ${
+            isActive ? 'bg-surface-raised dark:bg-white/[0.04]' : ''
+          }`}
           role="treeitem"
           aria-level={1}
-          aria-expanded={agent.isExpanded}
+          aria-current={isActive ? 'page' : undefined}
         >
           <span className="flex h-4 w-4 shrink-0 items-center justify-center leading-none text-foreground">
             <AgentAvatar agent={agent} />
@@ -262,6 +180,28 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
           <span className="min-w-0 flex-1 truncate opacity-[0.76]">
             {agentName}
           </span>
+          {agent.isLoadingTasks && agent.tasks.length === 0 && (
+            <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-secondary/50" />
+          )}
+          {showRunningIndicator && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+              title={i18nService.t('myAgentSidebarRunning')}
+              aria-label={i18nService.t('myAgentSidebarRunning')}
+            />
+          )}
+          {showUnreadIndicator && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+              title={i18nService.t('myAgentSidebarUnreadResult')}
+              aria-label={i18nService.t('myAgentSidebarUnreadResult')}
+            />
+          )}
+          {agent.hasLoadError && agent.tasks.length === 0 && (
+            <span className="shrink-0 text-[11px] text-red-500">
+              {i18nService.t('myAgentSidebarLoadFailed')}
+            </span>
+          )}
         </button>
 
         <div
@@ -287,14 +227,6 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
             aria-label={i18nService.t('coworkSessionActions')}
           >
             <EllipsisHorizontalIcon className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={handleCreateTask}
-            className={rowEditActionButtonClassName}
-            aria-label={i18nService.t('myAgentSidebarNewTask')}
-          >
-            <ComposeIcon className="h-3.5 w-3.5" />
           </button>
         </div>
 
@@ -363,99 +295,6 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
           />
         )}
       </div>
-
-      {shouldRenderTasks && (
-        <div
-          className={`grid w-full min-w-0 max-w-full transition-all duration-200 ease-out motion-reduce:transition-none ${
-            isTaskGroupVisible ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-          }`}
-        >
-          <div
-            className={`min-h-0 min-w-0 max-w-full ${
-              isTaskGroupVisible && !isTaskGroupTransitioning ? 'overflow-visible' : 'overflow-hidden'
-            } ${isTaskGroupVisible ? '' : 'pointer-events-none'}`}
-            role="group"
-            aria-hidden={!agent.isExpanded}
-          >
-            <div className="min-w-0 max-w-full space-y-0.5">
-              {agent.hasLoadError && agent.tasks.length === 0 && (
-                <button
-                  type="button"
-                  onClick={() => onRetryLoadTasks(agent.id)}
-                  className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center rounded-md pl-[38px] pr-2.5 text-left text-[13px] text-red-500 transition-colors hover:bg-red-500/10"
-                >
-                  {i18nService.t('myAgentSidebarLoadFailed')}
-                </button>
-              )}
-
-              {agent.isLoadingTasks && agent.tasks.length === 0 && (
-                <div className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center pl-[38px] pr-2.5 text-[13px] text-secondary">
-                  {i18nService.t('loading')}
-                </div>
-              )}
-
-              {!agent.isLoadingTasks && !agent.hasLoadError && agent.tasks.length === 0 && (
-                <div className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center pl-[38px] pr-2.5 text-[13px] text-foreground opacity-[0.28]">
-                  {i18nService.t('myAgentSidebarNoTasks')}
-                </div>
-              )}
-
-              {agent.tasks.map((task) => (
-                <React.Fragment key={task.id}>
-                  <AgentTaskRow
-                    task={task}
-                    isBatchMode={isBatchAgent}
-                    isSelected={selectedIds.has(task.id)}
-                    isSelectionDisabled={isOutsideBatchAgent}
-                    showBatchOption={showBatchOption && !isBatchMode}
-                    hasActiveSubagent={task.isSelected && selectedSubagentId != null}
-                    onSelect={() => onSelectTask(task)}
-                    onDelete={() => onDeleteTask(task)}
-                    onShare={() => onShareTask(task)}
-                    onTogglePin={(pinned) => onToggleTaskPin(task, pinned)}
-                    onRename={(title) => onRenameTask(task, title)}
-                    onToggleSelection={() => onToggleSelection(task.id, task.agentId)}
-                    onEnterBatchMode={() => onEnterBatchMode(task)}
-                  />
-                  {task.isSelected && subagentsBySessionId?.[task.id]?.map((sub) => (
-                    <SubagentTaskRow
-                      key={sub.id}
-                      subagent={sub}
-                      isSelected={sub.id === selectedSubagentId}
-                      onSelect={() => onSelectSubagent?.(sub)}
-                    />
-                  ))}
-                </React.Fragment>
-              ))}
-
-              {agent.hasLoadError && agent.tasks.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => onRetryLoadTasks(agent.id)}
-                  className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center rounded-md pl-[38px] pr-2.5 text-left text-[13px] text-red-500 transition-colors hover:bg-red-500/10"
-                >
-                  {i18nService.t('myAgentSidebarLoadFailed')}
-                </button>
-              )}
-
-              {agent.canExpandTasks && (
-                <ExpandAgentTasksRow
-                  isLoading={agent.isLoadingTasks}
-                  label={i18nService.t('myAgentSidebarExpandMore')}
-                  onClick={() => onLoadMoreTasks(agent.id)}
-                />
-              )}
-              {agent.canCollapseTasks && (
-                <ExpandAgentTasksRow
-                  isLoading={false}
-                  label={i18nService.t('myAgentSidebarCollapse')}
-                  onClick={() => onCollapseTasks(agent.id)}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
