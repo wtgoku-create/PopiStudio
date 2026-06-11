@@ -14,6 +14,7 @@ import { CoworkView } from './components/cowork';
 import CoworkPermissionModal from './components/cowork/CoworkPermissionModal';
 import CoworkQuestionWizard from './components/cowork/CoworkQuestionWizard';
 import EngineStartupOverlay from './components/cowork/EngineStartupOverlay';
+import { FolderView } from './components/folder';
 import LoginDialog from './components/LoginDialog';
 import { McpView } from './components/mcp';
 import PrivacyDialog from './components/PrivacyDialog';
@@ -53,7 +54,7 @@ const INIT_STEP_TIMEOUT_MS_DEFAULT = 16_000;
 const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState<SettingsOpenOptions>({});
-  const [mainView, setMainView] = useState<'cowork' | 'skills' | 'scheduledTasks' | 'mcp'>('cowork');
+  const [mainView, setMainView] = useState<'cowork' | 'skills' | 'scheduledTasks' | 'mcp' | 'folder'>('cowork');
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -282,6 +283,10 @@ const App: React.FC = () => {
 
   const handleShowScheduledTasks = useCallback(() => {
     setMainView('scheduledTasks');
+  }, []);
+
+  const handleShowFolder = useCallback(() => {
+    setMainView('folder');
   }, []);
 
   const handleToggleSidebar = useCallback(() => {
@@ -738,7 +743,7 @@ const App: React.FC = () => {
           onShowScheduledTasks={handleShowScheduledTasks}
           onNewChat={handleNewChat}
           isCollapsed={false}
-          onShowFolder={() => {}}
+          onShowFolder={handleShowFolder}
           onToggleCollapse={handleToggleSidebar}
           isAgentPanelCollapsed={isAgentPanelCollapsed}
           onToggleAgentPanel={handleToggleSidebar}
@@ -774,6 +779,10 @@ const App: React.FC = () => {
                 isSidebarCollapsed={isAgentPanelCollapsed}
                 onToggleSidebar={handleToggleSidebar}
                 onNewChat={handleNewChat}
+                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
+              />
+            ) : mainView === 'folder' ? (
+              <FolderView
                 updateBadge={isAgentPanelCollapsed ? updateBadge : null}
               />
             ) : (

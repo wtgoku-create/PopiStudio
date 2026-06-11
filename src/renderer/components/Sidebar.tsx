@@ -99,6 +99,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   activeView,
   onShowSkills,
   onShowCowork,
+  onShowFolder,
   onShowScheduledTasks,
   isAgentPanelCollapsed,
   onToggleAgentPanel,
@@ -170,7 +171,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             label={i18nService.t('folder')}
             active={activeView === 'folder'}
             onClick={() => {
-              onShowSkills();
+              onShowFolder();
               onCollapseAgentPanel();
             }}
           >

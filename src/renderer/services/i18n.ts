@@ -1007,6 +1007,11 @@ const translations: Record<LanguageType, Record<string, string>> = {
     noRecentFolders: '暂无最近文件夹',
     folderDriveRootNotAllowed:
       '不支持使用磁盘根目录作为工作目录，请选择一个子文件夹（例如 D:\\Projects）。',
+    folderWorkspaceRoot: '工作区目录',
+    folderWorkspaceRootDescription: '全局默认工作目录',
+    folderMainAgentDescription: '主 Agent 工作目录',
+    folderAgentDescription: 'Agent 工作目录',
+    folderEmpty: '暂无文件夹',
     coworkOpenFolder: '打开文件夹',
     coworkSessionStillRunning: '当前任务仍在运行，请等待完成后继续。',
     coworkContextUsageUnknown: '上下文使用量暂不可用',
@@ -3196,6 +3201,11 @@ const translations: Record<LanguageType, Record<string, string>> = {
     noRecentFolders: 'No recent folders',
     folderDriveRootNotAllowed:
       'Drive root directories are not supported as working directories. Please select a subfolder (e.g. D:\\Projects).',
+    folderWorkspaceRoot: 'Workspace root',
+    folderWorkspaceRootDescription: 'Global default working directory',
+    folderMainAgentDescription: 'Main agent working directory',
+    folderAgentDescription: 'Agent working directory',
+    folderEmpty: 'No folders yet',
     coworkOpenFolder: 'Open folder',
     coworkSessionStillRunning: 'The current task is still running. Please wait for it to finish.',
     coworkContextUsageUnknown: 'Context usage is unavailable',
