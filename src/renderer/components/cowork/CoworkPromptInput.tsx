@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
-import { agentService } from '../../services/agent';
 import { configService } from '../../services/config';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -279,14 +278,17 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);
   const hasActiveSkills = activeSkillIds.some(id => skills.some(skill => skill.id === id));
-  const currentAgent = agents.find((agent) => agent.id === currentAgentId);
-  const currentAgentSelectedModel = useAgentSelectedModel(currentAgentId, currentAgent?.model ?? '');
+  const modelTargetAgentId = currentSession && currentSession.id === sessionId
+    ? currentSession.agentId
+    : currentAgentId;
+  const currentAgent = agents.find((agent) => agent.id === modelTargetAgentId);
+  const currentAgentSelectedModel = useAgentSelectedModel(modelTargetAgentId, currentAgent?.model ?? '');
   const {
     isPersistingAgentModel,
     persistAgentModelSelection,
   } = usePersistAgentModelSelection({
-    agentId: currentAgentId,
-    syncDefaultModel: currentAgentId === 'main' || currentAgent?.isDefault === true,
+    agentId: modelTargetAgentId,
+    syncDefaultModel: modelTargetAgentId === 'main' || currentAgent?.isDefault === true,
   });
   const {
     selectedModel: agentSelectedModel,
@@ -936,9 +938,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 return;
               }
 
-              if (currentAgent && agentModelIsInvalid) {
-                void agentService.updateAgent(currentAgent.id, { model: modelRef });
-              }
+              await persistAgentModelSelection(nextModel);
               void coworkService.refreshContextUsage(sessionId, { notifyCompaction: false });
             } catch {
               if (requestId === modelPatchRequestIdRef.current) {
