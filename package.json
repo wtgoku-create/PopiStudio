@@ -150,6 +150,7 @@
     "@larksuiteoapi/node-sdk": "^1.58.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@nodesecure/js-x-ray": "^14.2.0",
+    "@radix-ui/react-popover": "^1.1.16",
     "@radix-ui/react-slot": "^1.2.5",
     "@radix-ui/react-tooltip": "^1.2.9",
     "@reduxjs/toolkit": "^2.2.1",

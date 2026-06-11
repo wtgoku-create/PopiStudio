@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import * as PopoverPrimitive from '@radix-ui/react-popover';
+import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 
+import { cn } from '../lib/utils';
 import { authService } from '../services/auth';
 import { i18nService } from '../services/i18n';
 import { RootState } from '../store';
@@ -96,7 +98,7 @@ const CreditItemRow: React.FC<{ item: CreditItem; isEn: boolean }> = ({ item, is
   );
 };
 
-const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> = ({ onClose, onShowSettings }) => {
   const user = useSelector((state: RootState) => state.auth.user);
   const profileSummary = useSelector((state: RootState) => state.auth.profileSummary);
   const [creditsExpanded, setCreditsExpanded] = useState(false);
@@ -108,6 +110,11 @@ const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   const handleLogout = async () => {
     await authService.logout();
+    onClose();
+  };
+
+  const handleShowSettings = () => {
+    onShowSettings?.();
     onClose();
   };
 
@@ -128,7 +135,7 @@ const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const hasCredits = creditItems.length > 0;
 
   return (
-    <div className="absolute bottom-full left-[-0.5rem] mb-1 w-[14.5rem] bg-surface rounded-xl shadow-popover border border-border overflow-hidden z-50 popover-enter">
+    <div className="w-[14.5rem] overflow-hidden rounded-xl border border-border bg-surface shadow-popover">
       {/* Account info */}
       <div className="px-4 py-3 border-b border-border">
         <div className="text-sm font-medium text-foreground truncate">
@@ -199,6 +206,15 @@ const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
       {/* Actions */}
       <div className="py-1">
+        {onShowSettings && (
+          <button
+            type="button"
+            onClick={handleShowSettings}
+            className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-surface-raised transition-colors cursor-pointer"
+          >
+            {i18nService.t('settings')}
+          </button>
+        )}
         <button
           type="button"
           onClick={handleSubscribe}
@@ -223,62 +239,77 @@ const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   );
 };
 
-const LoginButton: React.FC = () => {
+interface LoginButtonProps {
+  iconOnly?: boolean;
+  onShowSettings?: () => void;
+}
+
+const LoginButton: React.FC<LoginButtonProps> = ({ iconOnly = false, onShowSettings }) => {
   const { isLoggedIn, isLoading, user } = useSelector((state: RootState) => state.auth);
   const [showMenu, setShowMenu] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setShowMenu(false);
-      }
-    };
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showMenu]);
 
   if (isLoading) {
     return null;
   }
 
-  const handleClick = async () => {
-    if (isLoggedIn) {
-      setShowMenu(!showMenu);
-    } else {
-      await authService.login();
-    }
+  const handleLoginClick = async () => {
+    await authService.login();
   };
 
+  const button = (
+    <button
+      type="button"
+      onClick={isLoggedIn ? undefined : handleLoginClick}
+      className={cn(
+        iconOnly
+          ? 'inline-flex h-10 w-10 items-center justify-center rounded-[10px] text-[#999999] transition-colors hover:bg-black/[0.04] hover:text-[#555555] dark:hover:bg-white/[0.05] cursor-pointer'
+          : 'inline-flex h-7 items-center justify-start gap-2 rounded-md px-1.5 text-[14px] font-normal text-foreground/80 transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04] cursor-pointer',
+        showMenu && iconOnly ? 'bg-black/[0.06] text-[#333333] dark:bg-white/[0.07] dark:text-foreground' : '',
+      )}
+      title={isLoggedIn ? i18nService.t('myAccount') : i18nService.t('login')}
+      aria-label={isLoggedIn ? i18nService.t('myAccount') : i18nService.t('login')}
+    >
+      {isLoggedIn ? (
+        <>
+          {user?.avatarUrl ? (
+            <img src={user.avatarUrl} alt="" className={`${iconOnly ? 'h-[30px] w-[30px]' : 'h-4 w-4'} shrink-0 rounded-full`} />
+          ) : (
+            <UserAvatarIcon className={`${iconOnly ? 'h-[30px] w-[30px]' : 'h-4 w-4'} shrink-0`} />
+          )}
+          {!iconOnly && <span className="truncate max-w-[80px]">{i18nService.t('myAccount')}</span>}
+        </>
+      ) : (
+        <>
+          <UserAvatarIcon className={`${iconOnly ? 'h-[30px] w-[30px]' : 'h-4 w-4'} shrink-0`} />
+          {!iconOnly && i18nService.t('login')}
+        </>
+      )}
+    </button>
+  );
+
+  if (!isLoggedIn) {
+    return button;
+  }
+
   return (
-    <div ref={containerRef} className="relative">
-      <button
-        type="button"
-        onClick={handleClick}
-        className="inline-flex h-7 items-center justify-start gap-2 rounded-md px-1.5 text-[14px] font-normal text-foreground/80 transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04] cursor-pointer"
-      >
-        {isLoggedIn ? (
-          <>
-            {user?.avatarUrl ? (
-              <img src={user.avatarUrl} alt="" className="h-4 w-4 shrink-0 rounded-full" />
-            ) : (
-              <UserAvatarIcon className="h-4 w-4 shrink-0" />
-            )}
-            <span className="truncate max-w-[80px]">{i18nService.t('myAccount')}</span>
-          </>
-        ) : (
-          <>
-            <UserAvatarIcon className="h-4 w-4 shrink-0" />
-            {i18nService.t('login')}
-          </>
-        )}
-      </button>
-      {showMenu && <UserMenu onClose={() => setShowMenu(false)} />}
-    </div>
+    <PopoverPrimitive.Root open={showMenu} onOpenChange={setShowMenu}>
+      <PopoverPrimitive.Trigger asChild>
+        {button}
+      </PopoverPrimitive.Trigger>
+      {showMenu && (
+        <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content
+            side="top"
+            align={iconOnly ? 'center' : 'start'}
+            sideOffset={8}
+            collisionPadding={12}
+            className="z-[1000] outline-none popover-enter"
+          >
+            <UserMenu onClose={() => setShowMenu(false)} onShowSettings={onShowSettings} />
+          </PopoverPrimitive.Content>
+        </PopoverPrimitive.Portal>
+      )}
+    </PopoverPrimitive.Root>
   );
 };
 
