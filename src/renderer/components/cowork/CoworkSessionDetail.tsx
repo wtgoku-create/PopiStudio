@@ -39,8 +39,11 @@ import type { Artifact } from '../../types/artifact';
 import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import { CoworkSessionStatusValue } from '../../types/cowork';
+import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
+import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload } from '../artifacts';
 import ComposeIcon from '../icons/ComposeIcon';
+import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
 import SidebarToggleIcon from '../icons/SidebarToggleIcon';
 import WindowTitleBar from '../window/WindowTitleBar';
@@ -88,6 +91,28 @@ const formatExportTimestamp = (value: Date): string => {
 };
 
 type CaptureRect = { x: number; y: number; width: number; height: number };
+
+interface HeaderAgent {
+  id: string;
+  name?: string;
+  icon?: string;
+}
+
+const HeaderAgentAvatar: React.FC<{ agent: HeaderAgent }> = ({ agent }) => {
+  if (shouldUseDefaultAgentIcon(agent)) {
+    return <DefaultAgentIcon className="h-4 w-4" />;
+  }
+
+  return (
+    <AgentAvatarIcon
+      value={agent.icon}
+      className="h-8 w-8"
+      iconClassName="h-4 w-4"
+      legacyClassName="text-[16px]"
+      fallbackText={getAgentDisplayName(agent).trim().slice(0, 1).toUpperCase() || 'A'}
+    />
+  );
+};
 
 const MAX_EXPORT_CANVAS_HEIGHT = 32760;
 const MAX_EXPORT_SEGMENTS = 240;
@@ -505,6 +530,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const lastMessageContent = useSelector(selectLastMessageContent);
   const messagesLength = useSelector(selectCurrentMessagesLength);
   const skills = useSelector((state: RootState) => state.skill.skills);
+  const agents = useSelector((state: RootState) => state.agent.agents);
   const contextUsage = useSelector((state: RootState) =>
     currentSession?.id ? state.cowork.contextUsageBySessionId[currentSession.id] : undefined
   );
@@ -516,6 +542,15 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   );
   const isContextBusy = isContextCompacting || isContextMaintenance;
   const isSessionBusy = isStreaming || isContextMaintenance;
+  const headerAgent = useMemo<HeaderAgent>(() => {
+    const agentId = currentSession?.agentId?.trim() || 'main';
+    return agents.find((agent) => agent.id === agentId) ?? {
+      id: agentId,
+      name: agentId,
+      icon: '',
+    };
+  }, [agents, currentSession?.agentId]);
+  const headerAgentName = getAgentDisplayName(headerAgent);
   const detailRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
@@ -2030,9 +2065,19 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               {updateBadge}
             </div>
           )}
-          <h1 className="text-sm leading-none font-medium text-foreground truncate max-w-[360px]">
-            {currentSession.title || i18nService.t('coworkNewSession')}
-          </h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-transparent leading-none text-foreground dark:border-white/[0.12]">
+              <HeaderAgentAvatar agent={headerAgent} />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium leading-4 text-foreground max-w-[360px]">
+                {headerAgentName}
+              </div>
+              <div className="mt-0.5 truncate text-[12px] leading-4 text-secondary max-w-[360px]">
+                {currentSession.title || i18nService.t('coworkNewSession')}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Right side: Artifact toggle */}
