@@ -1145,7 +1145,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                           type="button"
                           onClick={(e) => { e.stopPropagation(); handleInstallMarketplaceSkill(skill); }}
                           disabled={installingSkillId !== null}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg bg-primary text-white hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg bg-gradient-to-r from-[#F0F0F0] to-[#D6CEEF] text-[#333] hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <ArrowDownTrayIcon className="h-3.5 w-3.5" />
                           {installingSkillId === skill.id ? i18nService.t('skillInstalling') : i18nService.t('skillInstall')}
@@ -1293,7 +1293,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                   type="button"
                   onClick={() => handleInstallMarketplaceSkill(selectedMarketplaceSkill)}
                   disabled={installingSkillId !== null}
-                  className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#F0F0F0] to-[#D6CEEF] text-[#333] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                 >
                   <ArrowDownTrayIcon className="h-4 w-4" />
                   {installingSkillId === selectedMarketplaceSkill.id ? i18nService.t('skillInstalling') : i18nService.t('skillInstall')}
