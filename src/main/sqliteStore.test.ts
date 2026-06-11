@@ -95,7 +95,7 @@ test('backfills agent working directories from legacy cowork config only once', 
 
   expect(rows).toEqual([
     { id: 'docs', working_directory: '/repo/legacy' },
-    { id: 'main', working_directory: '/repo/legacy' },
+    { id: 'main', working_directory: path.join('/repo/legacy', 'main') },
   ]);
 
   db.prepare("UPDATE agents SET working_directory = '' WHERE id = 'docs'").run();
@@ -108,7 +108,7 @@ test('backfills agent working directories from legacy cowork config only once', 
 
   expect(reopenedRows).toEqual([
     { id: 'docs', working_directory: '' },
-    { id: 'main', working_directory: '/repo/legacy' },
+    { id: 'main', working_directory: path.join('/repo/legacy', 'main') },
   ]);
 
   reopenedStore.close();

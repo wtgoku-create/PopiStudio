@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { AgentId, normalizeAgentAvatarIcon } from '../shared/agent';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
+import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 
 
 // Default working directory for new users
@@ -2068,7 +2069,9 @@ export class CoworkStore {
     const configWorkingDirectory = this.getConfig().workingDirectory.trim() || getDefaultWorkingDirectory();
     const workingDirectory =
       requestedWorkingDirectory ||
-      path.join(configWorkingDirectory, sanitizeAgentWorkspaceName(request.name));
+      (id === AgentId.Main
+        ? resolveMainAgentWorkingDirectory(configWorkingDirectory)
+        : path.join(configWorkingDirectory, sanitizeAgentWorkspaceName(request.name)));
     if (!requestedWorkingDirectory) {
       fs.mkdirSync(workingDirectory, { recursive: true });
     }

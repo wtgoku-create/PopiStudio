@@ -385,6 +385,17 @@ test('createAgent creates default working directory under cowork config director
   expect(fs.existsSync(expectedWorkingDirectory)).toBe(true);
 });
 
+test('createAgent creates main agent working directory under cowork config main directory', () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-main-agent-project-'));
+  store.setConfig({ workingDirectory: projectRoot });
+
+  const agent = store.createAgent({ id: 'main', name: 'Popiai' });
+  const expectedWorkingDirectory = path.join(projectRoot, 'main');
+
+  expect(agent.workingDirectory).toBe(expectedWorkingDirectory);
+  expect(fs.existsSync(expectedWorkingDirectory)).toBe(true);
+});
+
 test('deleteAgent removes its task history before an agent with the same name is recreated', () => {
   const agent = store.createAgent({ name: 'Docs Agent' });
   const session = store.createSession('Old Docs Task', '/tmp/docs-project', '', 'local', [], agent.id);

@@ -28,6 +28,7 @@ import { PlatformRegistry } from '../shared/platform';
 // PopiArt CLI 登录态同步与 IPC 处理
 import { ProviderName, ProviderRegistry } from '../shared/providers';
 import { AgentManager } from './agentManager';
+import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 import { APP_NAME } from './appConstants';
 import { getAutoLaunchEnabled, isAutoLaunched, setAutoLaunchEnabled } from './autoLaunchManager';
 import { CoworkStore } from './coworkStore';
@@ -1137,7 +1138,10 @@ const resolveAgentDefaultWorkingDirectory = (agentId?: string): string => {
   const resolvedAgentId = agentId?.trim() || 'main';
   const agentWorkingDirectory = getAgentManager().getAgent(resolvedAgentId)?.workingDirectory?.trim();
   if (agentWorkingDirectory) return agentWorkingDirectory;
-  return getCoworkStore().getConfig().workingDirectory.trim();
+  const configuredWorkingDirectory = getCoworkStore().getConfig().workingDirectory.trim();
+  return resolvedAgentId === AgentId.Main
+    ? resolveMainAgentWorkingDirectory(configuredWorkingDirectory)
+    : configuredWorkingDirectory;
 };
 
 const resolveSessionWorkingDirectory = (options: { cwd?: string; agentId?: string }): string => {
@@ -4827,10 +4831,21 @@ if (!gotTheLock) {
       const previousWorkingDir = previousConfig.workingDirectory;
       getCoworkStore().setConfig(normalizedConfig);
       if (normalizedConfig.workingDirectory !== undefined && normalizedConfig.workingDirectory !== previousWorkingDir) {
+        const mainAgent = getAgentManager().getAgent(AgentId.Main);
+        const previousMainAgentWorkingDirectory = resolveMainAgentWorkingDirectory(previousWorkingDir);
+        const nextMainAgentWorkingDirectory = resolveMainAgentWorkingDirectory(normalizedConfig.workingDirectory);
+        if (
+          mainAgent
+          && (
+            !mainAgent.workingDirectory.trim()
+            || mainAgent.workingDirectory.trim() === previousMainAgentWorkingDirectory
+          )
+        ) {
+          getAgentManager().updateAgent(AgentId.Main, {
+            workingDirectory: nextMainAgentWorkingDirectory,
+          });
+        }
         getSkillManager().handleWorkingDirectoryChange();
-        // Main agent workspace is decoupled from workingDirectory — no MEMORY.md
-        // or IDENTITY.md sync needed here. The workspace is always at
-        // {STATE_DIR}/workspace-main/ regardless of the user's working directory.
       }
 
       const nextConfig = getCoworkStore().getConfig();
