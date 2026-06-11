@@ -180,8 +180,8 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
 
   return (
     <div>
-      <div className={`group relative ${isMenuOpen ? 'z-50' : 'z-20'} h-[58px] w-full rounded-lg transition-colors hover:bg-[#f0edf9] dark:hover:bg-primary/15 ${
-        isActive ? 'bg-[#f0edf9] dark:bg-primary/15' : 'bg-white dark:bg-transparent'
+      <div className={`group relative ${isMenuOpen ? 'z-50' : 'z-20'} h-[58px] w-full rounded-lg transition-colors hover:bg-[#f0edf9] dark:hover:bg-white/[0.06] ${
+        isActive ? 'bg-[#f0edf9] dark:bg-white/[0.06]' : 'bg-white dark:bg-transparent'
       }`}
       >
         <button

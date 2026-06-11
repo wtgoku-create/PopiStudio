@@ -2579,7 +2579,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             showReadOnlyContext={true}
             readOnlyContextTrailingText={i18nService.t('aiGeneratedDisclaimer')}
             workingDirectory={currentSession?.cwd ?? ''}
-            contextAgentId={currentSession?.agentId}
             sessionId={currentSession?.id}
             contextUsageControl={(
               <div ref={compactConfirmRef} className="relative inline-flex flex-shrink-0">

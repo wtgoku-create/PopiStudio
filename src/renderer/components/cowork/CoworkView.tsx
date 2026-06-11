@@ -3,7 +3,6 @@ import React, { useEffect, useRef,useState } from 'react';
 import { useDispatch,useSelector } from 'react-redux';
 
 import { buildSessionTitleFromInput } from '../../../common/sessionTitle';
-import { agentService } from '../../services/agent';
 import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -671,9 +670,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
               placeholder={i18nService.t('coworkPlaceholder')}
               size="large"
               workingDirectory={currentAgentWorkingDirectory}
-              onWorkingDirectoryChange={async (dir: string) => {
-                await agentService.updateAgent(currentAgentId, { workingDirectory: dir });
-              }}
               showFolderSelector={true}
               showModelSelector={true}
               showAgentSelector={true}
