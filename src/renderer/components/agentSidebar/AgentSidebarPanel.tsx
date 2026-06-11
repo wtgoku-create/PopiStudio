@@ -90,6 +90,11 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
     await coworkService.loadSession(session.id);
   };
 
+  const handleOpenSearch = useCallback(() => {
+    onShowCowork();
+    setIsSearchOpen(true);
+  }, [onShowCowork]);
+
   const handleEnterBatchMode = useCallback((sessionId: string, agentId: string) => {
     setIsBatchMode(true);
     setBatchAgentId(agentId);
@@ -248,7 +253,7 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
           transitionDuration: `${SIDEBAR_COLLAPSE_TRANSITION_MS}ms`,
         }}
       >
-        <div className="relative min-h-0 flex-1 pt-3">
+        <div className="relative min-h-0 flex-1">
           <div
             ref={agentScrollContainerRef}
             className="scrollbar-hidden h-full overflow-y-auto px-2.5 pb-10"
@@ -263,6 +268,7 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
               onToggleSelection={handleToggleSelection}
               onEnterBatchMode={handleEnterBatchMode}
               onBatchSelectableIdsChange={handleBatchSelectableIdsChange}
+              onSearch={handleOpenSearch}
             />
           </div>
           <div

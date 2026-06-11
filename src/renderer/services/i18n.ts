@@ -792,6 +792,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Multi-Agent 管理
     createAgent: '创建 Agent',
     myAgents: '我的 Agent',
+    agentSidebarMessages: '消息',
     defaultAgentDisplayName: '主 Agent',
     myAgentSidebarPinned: '置顶',
     myAgentSidebarExpandMore: '展开显示',
@@ -2973,6 +2974,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Multi-Agent management
     createAgent: 'Create Agent',
     myAgents: 'My Agents',
+    agentSidebarMessages: 'Messages',
     defaultAgentDisplayName: 'Primary Agent',
     myAgentSidebarPinned: 'Pinned',
     myAgentSidebarExpandMore: 'Show more',

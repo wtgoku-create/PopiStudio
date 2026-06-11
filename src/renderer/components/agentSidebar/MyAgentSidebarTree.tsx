@@ -9,7 +9,7 @@ import { selectCurrentSessionId } from '../../store/selectors/coworkSelectors';
 import { isDefaultAgentId } from '../../utils/agentDisplay';
 import AgentCreateModal from '../agent/AgentCreateModal';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
-import { CoworkUiEvent } from '../cowork/constants';
+import { type CoworkOpenShareOptionsEventDetail, CoworkUiEvent } from '../cowork/constants';
 import AgentTreeNode from './AgentTreeNode';
 import MyAgentSidebarHeader from './MyAgentSidebarHeader';
 import type { AgentSidebarAgentNode } from './types';
@@ -24,12 +24,14 @@ interface MyAgentSidebarTreeProps {
   onToggleSelection: (sessionId: string, agentId: string) => void;
   onEnterBatchMode: (sessionId: string, agentId: string) => void;
   onBatchSelectableIdsChange: (sessionIds: string[]) => void;
+  onSearch: () => void;
 }
 
 const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   deletedSessionIds,
   onShowCowork,
   onBatchSelectableIdsChange,
+  onSearch,
 }) => {
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
   const currentSessionId = useSelector(selectCurrentSessionId);
@@ -87,6 +89,18 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     }
   };
 
+  const handleShareAgentSession = async (agent: AgentSidebarAgentNode) => {
+    const task = agent.tasks[0];
+    if (!task) return;
+    await handleSelectAgent(agent);
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent<CoworkOpenShareOptionsEventDetail>(
+        CoworkUiEvent.OpenShareOptions,
+        { detail: { sessionId: task.id } },
+      ));
+    }, 0);
+  };
+
   const renderAgentNode = (agent: AgentSidebarAgentNode) => (
     <AgentTreeNode
       key={agent.id}
@@ -95,6 +109,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
       onEditAgent={(agent) => setSettingsAgentId(agent.id)}
       onSelectAgent={(agent) => void handleSelectAgent(agent)}
       onDeleteAgent={handleDeleteAgent}
+      onShareAgentSession={handleShareAgentSession}
       onToggleAgentPin={handleToggleAgentPin}
       onRetryLoadTasks={(agentId) => void retryLoadTasks(agentId)}
     />
@@ -115,20 +130,16 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
 
   return (
     <div className="pb-3" role="tree" aria-label={i18nService.t('myAgents')}>
+      <MyAgentSidebarHeader
+        onCreateAgent={() => setIsCreateOpen(true)}
+        onSearch={onSearch}
+      />
+
       {hasPinnedAgents && (
-        <div className="space-y-0.5">
-          <div className="sticky top-0 z-30 flex h-10 items-center bg-background px-1.5">
-            <h2 className="min-w-0 truncate text-[14px] font-normal text-foreground opacity-[0.28]">
-              {i18nService.t('myAgentSidebarPinned')}
-            </h2>
-          </div>
+        <div className="space-y-1.5 pb-1.5">
           {pinnedAgentNodes.map(renderAgentNode)}
         </div>
       )}
-
-      <MyAgentSidebarHeader
-        onCreateAgent={() => setIsCreateOpen(true)}
-      />
 
       {agentNodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
@@ -144,7 +155,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
           </button>
         </div>
       ) : projectAgentNodes.length > 0 ? (
-        <div className="space-y-0.5 px-0">
+        <div className="space-y-1.5 px-0">
           {projectAgentNodes.map(renderAgentNode)}
         </div>
       ) : null}
