@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import dreamingLobsterSrc from '../../assets/dreaming-lobster.png';
 import { i18nService } from '../../services/i18n';
 import type { DreamDiaryData, DreamingEntry, DreamingPhaseInfo, DreamingStatusData } from '../../types/cowork';
+import Switch from '../ui/Switch';
 
 interface DreamingSettingsSectionProps {
   dreamingEnabled: boolean;
@@ -714,21 +715,11 @@ const DreamingSettingsSection: React.FC<DreamingSettingsSectionProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
         <p className="text-sm text-secondary">{i18nService.t('coworkDreamingHeaderSubtitle')}</p>
 
-        <button
-          type="button"
-          role="switch"
-          aria-checked={dreamingEnabled}
+        <Switch
+          checked={dreamingEnabled}
+          ariaLabel={i18nService.t('coworkDreamingHeaderSubtitle')}
           onClick={() => onDreamingEnabledChange(!dreamingEnabled)}
-          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-            dreamingEnabled ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              dreamingEnabled ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </button>
+        />
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-3">

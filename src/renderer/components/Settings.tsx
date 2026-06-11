@@ -63,6 +63,7 @@ import {
 } from './settings/modelProviderUtils';
 import ModelSettingsSection, { ModelEditorDialog } from './settings/ModelSettingsSection';
 import EmailSkillConfig from './skills/EmailSkillConfig';
+import Switch from './ui/Switch';
 import ThemedSelect from './ui/ThemedSelect';
 
 type TabType = 'general' | 'appearance' | 'coworkAgentEngine' | 'model' | 'browserWebAccess' | 'coworkMemory' | 'coworkDreaming' | 'shortcuts' | 'im' | 'email' | 'plugins' | 'about';
@@ -406,29 +407,14 @@ const SettingsSwitch: React.FC<{
   disabled?: boolean;
   onClick: () => void | Promise<void>;
 }> = ({ checked, label, disabled, onClick }) => (
-  <button
-    type="button"
-    role="switch"
-    aria-checked={checked}
-    aria-label={label}
+  <Switch
+    checked={checked}
+    ariaLabel={label}
+    disabled={disabled}
     onClick={() => {
       void onClick();
     }}
-    disabled={disabled}
-    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-      disabled ? 'opacity-50 cursor-not-allowed' : ''
-    } ${
-      checked
-        ? 'bg-primary'
-        : 'bg-gray-300 dark:bg-gray-600'
-    }`}
-  >
-    <span
-      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-        checked ? 'translate-x-6' : 'translate-x-1'
-      }`}
-    />
-  </button>
+  />
 );
 
 const SettingsToggleRow: React.FC<{
@@ -3270,21 +3256,11 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
               {testModeUnlocked && (
                 <div className="flex items-center justify-between px-4 py-3">
                   <span className="text-sm text-foreground">{i18nService.t('testMode')}</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={testMode}
+                  <Switch
+                    checked={testMode}
+                    ariaLabel={i18nService.t('testMode')}
                     onClick={() => setTestMode((prev) => !prev)}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                      testMode ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        testMode ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
+                  />
                 </div>
               )}
             </div>

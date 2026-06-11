@@ -23,9 +23,9 @@ interface SidebarProps {
 
 const SIDEBAR_WIDTH = 60;
 const sidebarIconButtonClassName =
-  'relative inline-flex h-10 w-10 items-center justify-center rounded-[10px] text-[#999999] transition-colors hover:bg-black/[0.04] hover:text-[#555555] dark:hover:bg-white/[0.05]';
+  'relative inline-flex h-10 w-10 items-center justify-center rounded-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground dark:hover:bg-white/[0.06]';
 const activeSidebarIconButtonClassName =
-  `${sidebarIconButtonClassName} bg-black/[0.06] text-[#333333] dark:bg-white/[0.07] dark:text-foreground`;
+  `${sidebarIconButtonClassName} bg-surface text-foreground dark:bg-white/[0.08]`;
 const sidebarIconClassName = 'h-[25px] w-[25px] shrink-0';
 
 const PopiRailLogo: React.FC = () => (
@@ -180,7 +180,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex-1" />
         <div className="non-draggable flex flex-col items-center gap-2 px-[10px] pb-3">
           {updateBadge && (
-            <div className="flex min-h-10 w-10 items-center justify-center overflow-hidden rounded-[9px] border border-[#c9c9c9] bg-[#f9f9f9] px-[5px] py-0.5">
+            <div className="flex min-h-10 w-10 items-center justify-center overflow-hidden rounded-[9px] border border-border bg-surface-raised px-[5px] py-0.5">
               {updateBadge}
             </div>
           )}

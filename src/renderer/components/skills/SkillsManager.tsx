@@ -31,6 +31,7 @@ import SearchIcon from '../icons/SearchIcon';
 import SkillIcon from '../icons/SkillIcon';
 import TrashIcon from '../icons/TrashIcon';
 import UploadIcon from '../icons/UploadIcon';
+import Switch from '../ui/Switch';
 import SkillSecurityReport from './SkillSecurityReport';
 
 type SkillTab = 'installed' | 'marketplace';
@@ -189,15 +190,14 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
         setMarketplaceCurrentPage(1);
       }
     } finally {
-      if (requestId !== marketplaceRequestIdRef.current) {
-        return;
-      }
-      if (mode === 'loadMore') {
-        setIsLoadingMoreMarketplace(false);
-      } else if (mode === 'refresh') {
-        setIsRefreshingMarketplace(false);
-      } else {
-        setIsLoadingMarketplace(false);
+      if (requestId === marketplaceRequestIdRef.current) {
+        if (mode === 'loadMore') {
+          setIsLoadingMoreMarketplace(false);
+        } else if (mode === 'refresh') {
+          setIsRefreshingMarketplace(false);
+        } else {
+          setIsLoadingMarketplace(false);
+        }
       }
     }
   }, [activeMarketTag, debouncedMarketplaceQuery]);
@@ -1029,20 +1029,13 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                       <TrashIcon className="h-4 w-4" />
                     </button>
                   )}
-                  <div
-                    className={`w-9 h-5 rounded-full flex items-center transition-colors flex-shrink-0 ${
-                      readOnly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                    } ${
-                      skill.enabled ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                    }`}
+                  <Switch
+                    checked={skill.enabled}
+                    disabled={readOnly}
+                    size="sm"
+                    ariaLabel={skill.name}
                     onClick={(e) => { e.stopPropagation(); if (!readOnly) handleToggleSkill(skill.id); }}
-                  >
-                    <div
-                      className={`w-3.5 h-3.5 rounded-full bg-white shadow-md transform transition-transform ${
-                        skill.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                      }`}
-                    />
-                  </div>
+                  />
                 </div>
               </div>
 
@@ -1397,24 +1390,17 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
               ) : (
                 <div />
               )}
-              <div
-                className={`w-9 h-5 rounded-full flex items-center transition-colors flex-shrink-0 ${
-                  readOnly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                } ${
-                  selectedSkill.enabled ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                }`}
+              <Switch
+                checked={selectedSkill.enabled}
+                disabled={readOnly}
+                size="sm"
+                ariaLabel={selectedSkill.name}
                 onClick={() => {
                   if (readOnly) return;
                   handleToggleSkill(selectedSkill.id);
                   setSelectedSkill({ ...selectedSkill, enabled: !selectedSkill.enabled });
                 }}
-              >
-                <div
-                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-md transform transition-transform ${
-                    selectedSkill.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                  }`}
-                />
-              </div>
+              />
             </div>
         </Modal>
       , document.body)}

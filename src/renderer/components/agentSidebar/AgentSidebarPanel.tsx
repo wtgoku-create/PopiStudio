@@ -23,7 +23,7 @@ interface AgentSidebarPanelProps {
   onShowCowork: () => void;
 }
 
-const DEFAULT_AGENT_PANEL_WIDTH = 284;
+const DEFAULT_AGENT_PANEL_WIDTH = 307;
 const MIN_AGENT_PANEL_WIDTH = 240;
 const MAX_AGENT_PANEL_WIDTH = 440;
 const SIDEBAR_COLLAPSE_TRANSITION_MS = 200;
@@ -234,7 +234,7 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
 
   return (
     <aside
-      className={`relative shrink-0 overflow-hidden border-l border-border/50 bg-background dark:border-white/[0.04] ${
+      className={`relative shrink-0 overflow-hidden border-l border-border-subtle bg-background dark:border-white/[0.04] ${
         isResizing ? '' : 'sidebar-transition'
       }`}
       style={{ width: isCollapsed ? 0 : panelWidth }}

@@ -17,6 +17,7 @@ import { resolveOpenClawModelRef, toOpenClawModelRef } from '../../utils/opencla
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import Modal from '../common/Modal';
 import TrashIcon from '../icons/TrashIcon';
+import Switch from '../ui/Switch';
 import AgentAvatarPicker from './AgentAvatarPicker';
 import AgentConfirmDialog from './AgentConfirmDialog';
 import AgentDetailToolbar from './AgentDetailToolbar';
@@ -328,17 +329,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
   );
 
   const renderToggle = (isOn: boolean) => (
-    <div
-      className={`relative w-9 h-5 rounded-full transition-colors ${
-        isOn ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
-      }`}
-    >
-      <div
-        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-          isOn ? 'translate-x-4' : 'translate-x-0.5'
-        }`}
-      />
-    </div>
+    <Switch checked={isOn} size="sm" className="pointer-events-none" />
   );
 
   const renderMultiInstancePlatform = (platform: MultiInstancePlatform) => {

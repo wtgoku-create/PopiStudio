@@ -11,6 +11,7 @@ import React, { useEffect,useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
 import type { FeishuInstanceConfig, FeishuInstanceStatus, FeishuOpenClawConfig, IMConnectivityTestResult } from '../../types/im';
+import Switch from '../ui/Switch';
 
 interface FeishuInstanceSettingsProps {
   instance: FeishuInstanceConfig;
@@ -627,21 +628,16 @@ const FeishuInstanceSettings: React.FC<FeishuInstanceSettingsProps> = ({
                   {i18nService.t('imFeishuStreamingDesc')}
                 </p>
               </div>
-              <button
-                type="button"
+              <Switch
+                checked={instance.streaming}
+                size="sm"
+                ariaLabel={i18nService.t('imFeishuStreaming')}
                 onClick={() => {
                   const update = { streaming: !instance.streaming };
                   onConfigChange(update);
                   void onSave(update);
                 }}
-                className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer ${
-                  instance.streaming ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                }`}
-              >
-                <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  instance.streaming ? 'translate-x-4' : 'translate-x-0'
-                }`} />
-              </button>
+              />
             </div>
           </div>
 
@@ -652,43 +648,33 @@ const FeishuInstanceSettings: React.FC<FeishuInstanceSettingsProps> = ({
                 <label className="text-xs text-secondary">
                   {i18nService.t('imFeishuFooterStatus')}
                 </label>
-                <button
-                  type="button"
+                <Switch
+                  checked={!!instance.footer?.status}
+                  size="sm"
+                  ariaLabel={i18nService.t('imFeishuFooterStatus')}
                   onClick={() => {
                     const newFooter = { ...instance.footer, status: !instance.footer?.status };
                     const update = { footer: newFooter };
                     onConfigChange(update);
                     void onSave(update);
                   }}
-                  className={`relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer ${
-                    instance.footer?.status ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                  }`}
-                >
-                  <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    instance.footer?.status ? 'translate-x-3' : 'translate-x-0'
-                  }`} />
-                </button>
+                />
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-xs text-secondary">
                   {i18nService.t('imFeishuFooterElapsed')}
                 </label>
-                <button
-                  type="button"
+                <Switch
+                  checked={!!instance.footer?.elapsed}
+                  size="sm"
+                  ariaLabel={i18nService.t('imFeishuFooterElapsed')}
                   onClick={() => {
                     const newFooter = { ...instance.footer, elapsed: !instance.footer?.elapsed };
                     const update = { footer: newFooter };
                     onConfigChange(update);
                     void onSave(update);
                   }}
-                  className={`relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer ${
-                    instance.footer?.elapsed ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                  }`}
-                >
-                  <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    instance.footer?.elapsed ? 'translate-x-3' : 'translate-x-0'
-                  }`} />
-                </button>
+                />
               </div>
             </div>
           )}
@@ -725,21 +711,16 @@ const FeishuInstanceSettings: React.FC<FeishuInstanceSettingsProps> = ({
                     {i18nService.t('imFeishuBlockStreamingDesc')}
                   </p>
                 </div>
-                <button
-                  type="button"
+                <Switch
+                  checked={instance.blockStreaming}
+                  size="sm"
+                  ariaLabel={i18nService.t('imFeishuBlockStreaming')}
                   onClick={() => {
                     const update = { blockStreaming: !instance.blockStreaming };
                     onConfigChange(update);
                     void onSave(update);
                   }}
-                  className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer ${
-                    instance.blockStreaming ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                  }`}
-                >
-                  <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    instance.blockStreaming ? 'translate-x-4' : 'translate-x-0'
-                  }`} />
-                </button>
+                />
               </div>
             </div>
           )}

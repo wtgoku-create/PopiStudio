@@ -14,6 +14,7 @@ import ConnectorIcon from '../icons/ConnectorIcon';
 import PencilIcon from '../icons/PencilIcon';
 import SearchIcon from '../icons/SearchIcon';
 import TrashIcon from '../icons/TrashIcon';
+import Switch from '../ui/Switch';
 import McpServerFormModal from './McpServerFormModal';
 
 const TRANSPORT_BADGE_COLORS: Record<string, string> = {
@@ -460,18 +461,12 @@ const McpManager: React.FC = () => {
                       >
                         <TrashIcon className="h-3.5 w-3.5" />
                       </button>
-                      <div
-                        className={`w-9 h-5 rounded-full flex items-center transition-colors cursor-pointer flex-shrink-0 ${
-                          server.enabled ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                        }`}
+                      <Switch
+                        checked={server.enabled}
+                        size="sm"
+                        ariaLabel={server.name}
                         onClick={() => handleToggleEnabled(server.id)}
-                      >
-                        <div
-                          className={`w-3.5 h-3.5 rounded-full bg-white shadow-md transform transition-transform ${
-                            server.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                          }`}
-                        />
-                      </div>
+                      />
                     </div>
                   </div>
 
@@ -617,18 +612,12 @@ const McpManager: React.FC = () => {
                       >
                         <TrashIcon className="h-3.5 w-3.5" />
                       </button>
-                      <div
-                        className={`w-9 h-5 rounded-full flex items-center transition-colors cursor-pointer flex-shrink-0 ${
-                          server.enabled ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                        }`}
+                      <Switch
+                        checked={server.enabled}
+                        size="sm"
+                        ariaLabel={server.name}
                         onClick={() => handleToggleEnabled(server.id)}
-                      >
-                        <div
-                          className={`w-3.5 h-3.5 rounded-full bg-white shadow-md transform transition-transform ${
-                            server.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                          }`}
-                        />
-                      </div>
+                      />
                     </div>
                   </div>
 

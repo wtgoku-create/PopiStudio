@@ -10,6 +10,7 @@ import EditIcon from '../icons/EditIcon';
 import PlusCircleIcon from '../icons/PlusCircleIcon';
 import { GitHubCopilotIcon } from '../icons/providers';
 import TrashIcon from '../icons/TrashIcon';
+import Switch from '../ui/Switch';
 import {
   CUSTOM_PROVIDER_KEYS,
   getEffectiveApiFormat,
@@ -571,13 +572,12 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
                           </svg>
                         </button>
                       )}
-                      <div
+                      <Switch
+                        checked={effectiveEnabled}
+                        disabled={!canToggleProvider}
+                        size="sm"
                         title={!canToggleProvider ? i18nService.t('configureApiKey') : undefined}
-                        className={`w-7 h-4 rounded-full flex items-center transition-colors ${
-                          effectiveEnabled ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                        } ${
-                          canToggleProvider ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
-                        }`}
+                        ariaLabel={getProviderDisplayName(providerKey)}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!canToggleProvider) {
@@ -585,13 +585,7 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
                           }
                           toggleProviderEnabled(providerKey);
                         }}
-                      >
-                        <div
-                          className={`w-3 h-3 rounded-full bg-white shadow-md transform transition-transform ${
-                            effectiveEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
-                          }`}
-                        />
-                      </div>
+                      />
                     </div>
                   </div>
                 );
@@ -1439,15 +1433,13 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
                       {i18nService.t('zhipuCodingPlanHint')}
                     </p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer ml-3">
-                    <input
-                      type="checkbox"
-                      checked={providers.zhipu.codingPlanEnabled ?? false}
-                      onChange={(e) => handleProviderConfigChange('zhipu', 'codingPlanEnabled', e.target.checked ? 'true' : 'false')}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
-                  </label>
+                  <Switch
+                    checked={providers.zhipu.codingPlanEnabled ?? false}
+                    size="sm"
+                    ariaLabel="GLM Coding Plan"
+                    className="ml-3"
+                    onClick={() => handleProviderConfigChange('zhipu', 'codingPlanEnabled', providers.zhipu.codingPlanEnabled ? 'false' : 'true')}
+                  />
                 </div>
               )}
 
@@ -1467,15 +1459,13 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
                       {i18nService.t('qwenCodingPlanHint')}
                     </p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer ml-3">
-                    <input
-                      type="checkbox"
-                      checked={providers.qwen.codingPlanEnabled ?? false}
-                      onChange={(e) => handleProviderConfigChange('qwen', 'codingPlanEnabled', e.target.checked ? 'true' : 'false')}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
-                  </label>
+                  <Switch
+                    checked={providers.qwen.codingPlanEnabled ?? false}
+                    size="sm"
+                    ariaLabel="Coding Plan"
+                    className="ml-3"
+                    onClick={() => handleProviderConfigChange('qwen', 'codingPlanEnabled', providers.qwen.codingPlanEnabled ? 'false' : 'true')}
+                  />
                 </div>
               )}
 
@@ -1495,15 +1485,13 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
                       {i18nService.t('volcengineCodingPlanHint')}
                     </p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer ml-3">
-                    <input
-                      type="checkbox"
-                      checked={providers.volcengine.codingPlanEnabled ?? false}
-                      onChange={(e) => handleProviderConfigChange('volcengine', 'codingPlanEnabled', e.target.checked ? 'true' : 'false')}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
-                  </label>
+                  <Switch
+                    checked={providers.volcengine.codingPlanEnabled ?? false}
+                    size="sm"
+                    ariaLabel="Coding Plan"
+                    className="ml-3"
+                    onClick={() => handleProviderConfigChange('volcengine', 'codingPlanEnabled', providers.volcengine.codingPlanEnabled ? 'false' : 'true')}
+                  />
                 </div>
               )}
 
@@ -1523,15 +1511,13 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
                       {i18nService.t('moonshotCodingPlanHint')}
                     </p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer ml-3">
-                    <input
-                      type="checkbox"
-                      checked={providers.moonshot.codingPlanEnabled ?? false}
-                      onChange={(e) => handleProviderConfigChange('moonshot', 'codingPlanEnabled', e.target.checked ? 'true' : 'false')}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
-                  </label>
+                  <Switch
+                    checked={providers.moonshot.codingPlanEnabled ?? false}
+                    size="sm"
+                    ariaLabel="Coding Plan"
+                    className="ml-3"
+                    onClick={() => handleProviderConfigChange('moonshot', 'codingPlanEnabled', providers.moonshot.codingPlanEnabled ? 'false' : 'true')}
+                  />
                 </div>
               )}
 
@@ -1551,15 +1537,13 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
                       {i18nService.t('qianfanCodingPlanHint')}
                     </p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer ml-3">
-                    <input
-                      type="checkbox"
-                      checked={providers.qianfan.codingPlanEnabled ?? false}
-                      onChange={(e) => handleProviderConfigChange('qianfan', 'codingPlanEnabled', e.target.checked ? 'true' : 'false')}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
-                  </label>
+                  <Switch
+                    checked={providers.qianfan.codingPlanEnabled ?? false}
+                    size="sm"
+                    ariaLabel="Coding Plan"
+                    className="ml-3"
+                    onClick={() => handleProviderConfigChange('qianfan', 'codingPlanEnabled', providers.qianfan.codingPlanEnabled ? 'false' : 'true')}
+                  />
                 </div>
               )}
 
@@ -1579,15 +1563,13 @@ const ModelSettingsSection: React.FC<ModelSettingsSectionProps> = ({
                       {i18nService.t('xiaomiCodingPlanHint')}
                     </p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer ml-3">
-                    <input
-                      type="checkbox"
-                      checked={providers.xiaomi.codingPlanEnabled ?? false}
-                      onChange={(e) => handleProviderConfigChange('xiaomi', 'codingPlanEnabled', e.target.checked ? 'true' : 'false')}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
-                  </label>
+                  <Switch
+                    checked={providers.xiaomi.codingPlanEnabled ?? false}
+                    size="sm"
+                    ariaLabel="Coding Plan"
+                    className="ml-3"
+                    onClick={() => handleProviderConfigChange('xiaomi', 'codingPlanEnabled', providers.xiaomi.codingPlanEnabled ? 'false' : 'true')}
+                  />
                 </div>
               )}
 

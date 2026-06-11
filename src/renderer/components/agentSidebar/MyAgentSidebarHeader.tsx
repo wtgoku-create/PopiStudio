@@ -11,8 +11,8 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
   onCreateAgent,
 }) => {
   return (
-    <div className="sticky top-0 z-30 -ml-[6px] flex h-10 w-[calc(100%+12px)] items-center justify-between bg-background pl-3 pr-1">
-      <h2 className="min-w-0 truncate text-[14px] font-normal text-foreground opacity-[0.28]">
+    <div className="sticky top-0 z-30 -ml-[6px] flex h-[60px] w-[calc(100%+12px)] items-center justify-between bg-background pl-3 pr-1">
+      <h2 className="min-w-0 truncate text-[20px] font-medium text-foreground">
         {i18nService.t('myAgents')}
       </h2>
       <button

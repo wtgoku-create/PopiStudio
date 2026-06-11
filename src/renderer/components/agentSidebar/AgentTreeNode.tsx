@@ -247,11 +247,11 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
 
   return (
     <div className="space-y-0.5">
-      <div className={`group sticky top-10 ${isMenuOpen ? 'z-50' : 'z-20'} -ml-[6px] h-7 w-[calc(100%+12px)] bg-background`}>
+      <div className={`group sticky top-[60px] ${isMenuOpen ? 'z-50' : 'z-20'} -ml-[6px] h-9 w-[calc(100%+12px)] bg-background`}>
         <button
           type="button"
           onClick={handleAgentClick}
-          className="flex h-full w-full items-center gap-2 rounded-md py-0 pl-3.5 pr-12 text-left text-[14px] font-normal text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+          className="flex h-full w-full items-center gap-2 rounded-[18px] py-0 pl-3.5 pr-12 text-left text-[14px] font-normal text-foreground transition-colors hover:bg-surface-raised dark:hover:bg-white/[0.04]"
           role="treeitem"
           aria-level={1}
           aria-expanded={agent.isExpanded}

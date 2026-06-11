@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
+import Switch from '../ui/Switch';
 
 interface EmbeddingSettingsSectionProps {
   embeddingEnabled: boolean;
@@ -44,21 +45,11 @@ const EmbeddingSettingsSection: React.FC<EmbeddingSettingsSectionProps> = ({
             {i18nService.t('coworkMemoryEmbeddingEnabledHint')}
           </div>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={embeddingEnabled}
+        <Switch
+          checked={embeddingEnabled}
+          ariaLabel={i18nService.t('coworkMemoryEmbeddingEnabled')}
           onClick={() => onEmbeddingEnabledChange(!embeddingEnabled)}
-          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-            embeddingEnabled ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
-          }`}
-        >
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-              embeddingEnabled ? 'translate-x-6' : 'translate-x-1'
-            }`}
-          />
-        </button>
+        />
       </div>
 
       {embeddingEnabled && (
