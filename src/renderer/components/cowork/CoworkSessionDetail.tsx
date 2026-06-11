@@ -2046,7 +2046,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       <div className="draggable flex h-12 items-center justify-between px-4 border-b border-border bg-background shrink-0">
         {/* Left side: Toggle buttons (when collapsed) + Title */}
         <div className="flex h-full flex-1 items-center gap-2 min-w-0">
-          {isSidebarCollapsed && (
+          {/* {isSidebarCollapsed && (
             <div className={`non-draggable flex items-center gap-1 ${isMac ? 'pl-[68px]' : ''}`}>
               <button
                 type="button"
@@ -2064,7 +2064,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               </button>
               {updateBadge}
             </div>
-          )}
+          )} */}
           <div className="flex min-w-0 items-center gap-2">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-transparent leading-none text-foreground dark:border-white/[0.12]">
               <HeaderAgentAvatar agent={headerAgent} />

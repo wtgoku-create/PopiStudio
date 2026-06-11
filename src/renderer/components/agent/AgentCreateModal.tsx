@@ -102,7 +102,8 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     initialUserInfoRef.current = '';
     setIcon(DefaultAgentAvatarIcon);
     const currentAgent = agents.find((agent) => agent.id === currentAgentId);
-    const defaultWorkingDirectory = currentAgent?.workingDirectory?.trim() || coworkConfig.workingDirectory || '';
+    const defaultWorkingDirectory = currentAgent?.workingDirectory?.trim() || '';
+    console.log('defaultWorkingDirectory', defaultWorkingDirectory);
     initialWorkingDirectoryRef.current = defaultWorkingDirectory;
     initialModelRef.current = globalSelectedModel ? toOpenClawModelRef(globalSelectedModel) : '';
     setModel(globalSelectedModel ?? null);
