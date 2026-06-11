@@ -107,11 +107,19 @@ class ThemeService {
     return theme?.meta.appearance ?? 'light';
   }
 
-  // 根据 appearance 选择默认经典主题。自定义主题只在用户显式选择主题 ID 时保留。
+  // 根据 appearance 选择第一个匹配的主题，或恢复已保存的主题
   private applyByAppearance(appearance: 'light' | 'dark'): void {
-    const defaultThemeId = appearance === 'dark' ? 'classic-dark' : 'classic-light';
-    const match = allThemes.find(t => t.meta.id === defaultThemeId)
-      ?? allThemes.find(t => t.meta.appearance === appearance);
+    // Check if there's a saved theme ID with the right appearance
+    const savedId = localStorage.getItem('lobster-theme-id');
+    if (savedId) {
+      const saved = allThemes.find(t => t.meta.id === savedId);
+      if (saved && saved.meta.appearance === appearance) {
+        void this.manager.setTheme(savedId);
+        return;
+      }
+    }
+    // Fallback: pick first theme matching the appearance
+    const match = allThemes.find(t => t.meta.appearance === appearance);
     if (match) {
       void this.manager.setTheme(match.meta.id);
     }

@@ -28,7 +28,7 @@ const TodoWriteInputView: React.FC<{ items: ParsedTodoItem[] }> = ({ items }) =>
       case 'completed':
         return 'bg-green-500/10 border-green-500 text-green-500';
       case 'in_progress':
-        return 'bg-transparent border-primary';
+        return 'bg-transparent border-blue-500';
       case 'pending':
       case 'unknown':
       default:
@@ -116,7 +116,7 @@ const ToolCallGroup: React.FC<{
       >
         <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
           !toolResult
-            ? 'bg-primary animate-pulse'
+            ? 'bg-blue-500 animate-pulse'
             : isToolError
               ? 'bg-red-500'
               : 'bg-green-500'

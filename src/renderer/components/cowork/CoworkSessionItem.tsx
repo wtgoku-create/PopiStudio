@@ -297,8 +297,8 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
             {/* Status indicator */}
             {showStatusIndicator && (
               <span
-                className={`block w-2 h-2 rounded-full bg-primary flex-shrink-0 ${
-                  showRunningIndicator ? 'shadow-[0_0_6px_var(--lobster-primary-muted)] animate-pulse' : ''
+                className={`block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 ${
+                  showRunningIndicator ? 'shadow-[0_0_6px_rgba(59,130,246,0.5)] animate-pulse' : ''
                 }`}
                 title={showRunningIndicator ? i18nService.t(statusLabels[session.status]) : undefined}
               />

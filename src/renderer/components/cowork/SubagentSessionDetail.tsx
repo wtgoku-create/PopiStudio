@@ -127,7 +127,7 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span
             className={`h-2 w-2 shrink-0 rounded-full ${
-              status === 'done' ? 'bg-green-500' : status === 'error' ? 'bg-red-500' : 'bg-primary animate-pulse'
+              status === 'done' ? 'bg-green-500' : status === 'error' ? 'bg-red-500' : 'bg-blue-500 animate-pulse'
             }`}
           />
           <span className="min-w-0 truncate text-sm font-medium text-foreground">
@@ -140,7 +140,7 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
             ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
             : status === 'error'
               ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-              : 'bg-primary-muted text-primary'
+              : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
         }`}>
           {status === 'done'
             ? (i18nService.t('subagentCompleted') || 'Completed')
@@ -154,7 +154,7 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
       <div ref={contentRef} className="flex-1 overflow-y-auto">
         {loading && (
           <div className="flex items-center justify-center py-12">
-            <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             <span className="ml-3 text-sm text-secondary">
               {i18nService.t('loading') || 'Loading...'}
             </span>
@@ -178,7 +178,7 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
             : ''}
         </span>
         {subagent.label && (
-          <span className="text-xs font-medium text-primary/70">
+          <span className="text-xs font-medium text-blue-500/70">
             {subagent.label}
           </span>
         )}
