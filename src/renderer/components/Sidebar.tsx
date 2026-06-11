@@ -1,8 +1,8 @@
 import React, { useEffect } from 'react';
 
 import { i18nService } from '../services/i18n';
-import LoginButton from './LoginButton';
 import SidebarAutomationIcon from './icons/SidebarAutomationIcon';
+import LoginButton from './LoginButton';
 interface SidebarProps {
   onShowSettings: () => void;
   onShowLogin?: () => void;
@@ -121,7 +121,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className="relative z-40 shrink-0 overflow-y-hidden overflow-x-visible bg-[#E5E6EB] sidebar-transition dark:bg-[#1f1f1f]"
+      className="relative z-40 shrink-0 overflow-y-hidden overflow-x-visible bg-surface-raised sidebar-transition"
       style={{ width: isCollapsed ? 0 : SIDEBAR_WIDTH }}
     >
       <div
