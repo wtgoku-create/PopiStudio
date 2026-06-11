@@ -411,6 +411,7 @@ const SettingsSwitch: React.FC<{
     checked={checked}
     ariaLabel={label}
     disabled={disabled}
+    size="sm"
     onClick={() => {
       void onClick();
     }}
@@ -436,7 +437,7 @@ const SettingsToggleRow: React.FC<{
         onClick={onToggle}
       />
     </div>
-    <p className="mt-3 text-sm text-secondary">
+    <p className="mt-1 text-sm text-secondary">
       {description}
     </p>
   </div>
