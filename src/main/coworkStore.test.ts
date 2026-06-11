@@ -19,6 +19,9 @@ vi.mock('electron', () => ({
 // Now import the class under test
 // ---------------------------------------------------------------------------
 import BetterSqlite3 from 'better-sqlite3';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 import { AgentAvatarSvg, DefaultAgentAvatarIcon, encodeAgentAvatarIcon } from '../shared/agent/avatar';
 import { CoworkStore } from './coworkStore';
@@ -69,7 +72,8 @@ function setupDb(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS cowork_config (
       key TEXT PRIMARY KEY,
-      value TEXT
+      value TEXT,
+      updated_at INTEGER NOT NULL DEFAULT 0
     );
   `);
 
@@ -135,6 +139,7 @@ function setupDb(): void {
 
   // CoworkStore only needs (db)
   store = new CoworkStore(db);
+  store.setConfig({ workingDirectory: fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-cowork-project-')) });
 }
 
 /** Insert a session row directly. */
@@ -367,6 +372,17 @@ test('agent CRUD stores working directory independently', () => {
 
   expect(updated?.workingDirectory).toBe('/tmp/docs-next');
   expect(store.getAgent(agent.id)?.workingDirectory).toBe('/tmp/docs-next');
+});
+
+test('createAgent creates default working directory under cowork config directory', () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-agent-project-'));
+  store.setConfig({ workingDirectory: projectRoot });
+
+  const agent = store.createAgent({ name: 'Docs Agent' });
+  const expectedWorkingDirectory = path.join(projectRoot, 'Docs Agent');
+
+  expect(agent.workingDirectory).toBe(expectedWorkingDirectory);
+  expect(fs.existsSync(expectedWorkingDirectory)).toBe(true);
 });
 
 test('deleteAgent removes its task history before an agent with the same name is recreated', () => {

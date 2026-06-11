@@ -60,8 +60,6 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
   const [activeTab, setActiveTab] = useState<AgentDetailTab>(AgentDetailTab.Identity);
   const globalSelectedModel = useSelector((state: RootState) => state.model.defaultSelectedModel);
   const agents = useSelector((state: RootState) => state.agent.agents);
-  const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
-  const coworkConfig = useSelector((state: RootState) => state.cowork.config);
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
   const initialWorkingDirectoryRef = useRef('');
   const initialModelRef = useRef('');
@@ -101,13 +99,10 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     setUserInfo('');
     initialUserInfoRef.current = '';
     setIcon(DefaultAgentAvatarIcon);
-    const currentAgent = agents.find((agent) => agent.id === currentAgentId);
-    const defaultWorkingDirectory = currentAgent?.workingDirectory?.trim() || '';
-    console.log('defaultWorkingDirectory', defaultWorkingDirectory);
-    initialWorkingDirectoryRef.current = defaultWorkingDirectory;
+    initialWorkingDirectoryRef.current = '';
     initialModelRef.current = globalSelectedModel ? toOpenClawModelRef(globalSelectedModel) : '';
     setModel(globalSelectedModel ?? null);
-    setWorkingDirectory(defaultWorkingDirectory);
+    setWorkingDirectory('');
     setSkillIds([]);
     setActiveTab(AgentDetailTab.Identity);
     setShowUnsavedConfirm(false);
@@ -124,7 +119,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     agentService.getPresetTemplates()
       .then(setPresetTemplates)
       .finally(() => setTemplatesLoading(false));
-  }, [agents, coworkConfig.workingDirectory, currentAgentId, globalSelectedModel, isOpen]);
+  }, [globalSelectedModel, isOpen]);
 
   useEffect(() => {
     if (!isOpen || model || !globalSelectedModel) return;

@@ -15,6 +15,16 @@ const getDefaultWorkingDirectory = (): string => {
   return path.join(os.homedir(), 'popiai', 'project');
 };
 
+const AGENT_WORKSPACE_NAME_INVALID_CHARS = /[<>:"/\\|?*\u0000-\u001F]/g;
+
+const sanitizeAgentWorkspaceName = (name: string): string => {
+  const sanitized = name
+    .replace(AGENT_WORKSPACE_NAME_INVALID_CHARS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return sanitized || 'agent';
+};
+
 const TASK_WORKSPACE_CONTAINER_DIR = '.popiai-tasks';
 
 const normalizeRecentWorkspacePath = (cwd: string): string => {
@@ -2054,6 +2064,15 @@ export class CoworkStore {
       return this.createAgent({ ...request, id: `${id}-${Date.now()}` });
     }
 
+    const requestedWorkingDirectory = request.workingDirectory?.trim() || '';
+    const configWorkingDirectory = this.getConfig().workingDirectory.trim() || getDefaultWorkingDirectory();
+    const workingDirectory =
+      requestedWorkingDirectory ||
+      path.join(configWorkingDirectory, sanitizeAgentWorkspaceName(request.name));
+    if (!requestedWorkingDirectory) {
+      fs.mkdirSync(workingDirectory, { recursive: true });
+    }
+
     let removedOrphanSessionCount = 0;
     const createAgent = this.db.transaction(() => {
       removedOrphanSessionCount = this.deleteSessionsForAgent(id).length;
@@ -2072,7 +2091,7 @@ export class CoworkStore {
           request.systemPrompt || '',
           request.identity || '',
           request.model || '',
-          request.workingDirectory || '',
+          workingDirectory,
           normalizeAgentAvatarIcon(request.icon),
           JSON.stringify(request.skillIds || []),
           request.source || 'custom',
