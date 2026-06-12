@@ -22,7 +22,7 @@ import {
   normalizeBrowserWebAccessConfig,
 } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
-import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
+import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
@@ -1252,7 +1252,7 @@ const annotateCoworkSessionSummaries = async (
     const imStore = getIMGatewayManager()?.getIMStore();
     if (imStore) {
       for (const session of sessions) {
-        if (sourceBySessionId.get(session.id)?.kind === CoworkSessionSourceKind.ScheduledTask) continue;
+        if (sourceBySessionId.has(session.id)) continue;
         const mapping = imStore.getSessionMappingByCoworkSessionId(session.id);
         if (!mapping) continue;
         const source = {
@@ -4226,6 +4226,30 @@ if (!gotTheLock) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to list sessions',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.ListAgentSidebarSessions, async () => {
+    try {
+      const store = getCoworkStore();
+      const groups = store.listAgentSidebarSessionGroups();
+      const annotated = await annotateCoworkSessionSummaries(
+        groups.flatMap((group) => [group.primarySession, ...group.sourceSessions]),
+      );
+      const annotatedById = new Map(annotated.map((session) => [session.id, session]));
+      return {
+        success: true,
+        groups: groups.map((group) => ({
+          agentId: group.agentId,
+          primarySession: annotatedById.get(group.primarySession.id) ?? group.primarySession,
+          sourceSessions: group.sourceSessions.map((session) => annotatedById.get(session.id) ?? session),
+        })),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list agent sidebar sessions',
       };
     }
   });

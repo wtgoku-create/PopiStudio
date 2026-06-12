@@ -44,6 +44,9 @@ const AgentAvatar: React.FC<{ agent: AgentSidebarAgentNode }> = ({ agent }) => {
 };
 
 const getSessionSourceLabel = (task: AgentSidebarTaskNode): string => {
+  if (task.source?.kind === CoworkSessionSourceKind.AgentHome) {
+    return '';
+  }
   if (task.source?.kind === CoworkSessionSourceKind.ScheduledTask) {
     return i18nService.t('myAgentSidebarScheduledTask');
   }

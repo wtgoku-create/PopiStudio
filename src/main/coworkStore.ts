@@ -455,6 +455,12 @@ export interface CoworkSessionSummary {
   updatedAt: number;
 }
 
+export interface AgentSidebarSessionGroup {
+  agentId: string;
+  primarySession: CoworkSessionSummary;
+  sourceSessions: CoworkSessionSummary[];
+}
+
 export interface CoworkSessionSource {
   kind: CoworkSessionSourceKindType;
   label?: string;
@@ -618,6 +624,17 @@ interface CoworkUserMemoryRow {
   last_used_at: number | null;
 }
 
+interface CoworkSessionSummaryRow {
+  id: string;
+  title: string;
+  status: string;
+  pinned: number | null;
+  pin_order: number | null;
+  agent_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
 export class CoworkStore {
   private db: Database.Database;
 
@@ -643,6 +660,19 @@ export class CoworkStore {
            updated_at = excluded.updated_at`,
       )
       .run(key, value, now);
+  }
+
+  private mapSessionSummaryRow(row: CoworkSessionSummaryRow): CoworkSessionSummary {
+    return {
+      id: row.id,
+      title: row.title,
+      status: row.status as CoworkSessionStatus,
+      pinned: Boolean(row.pinned),
+      pinOrder: row.pin_order ?? null,
+      agentId: row.agent_id || AgentId.Main,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
   }
 
   createSession(
@@ -695,6 +725,78 @@ export class CoworkStore {
       totalMessages: 0,
       createdAt: now,
       updatedAt: now,
+    };
+  }
+
+  ensureAgentHomeSession(agentId: string): CoworkSessionSummary {
+    const normalizedAgentId = agentId.trim() || AgentId.Main;
+    const existingRow = this.db
+      .prepare(
+        `
+        SELECT s.id, s.title, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at
+        FROM cowork_sessions s
+        INNER JOIN cowork_session_sources src
+          ON src.session_id = s.id AND src.kind = ?
+        WHERE COALESCE(s.agent_id, ?) = ?
+        ORDER BY src.updated_at DESC
+        LIMIT 1
+      `,
+      )
+      .get(
+        CoworkSessionSourceKind.AgentHome,
+        AgentId.Main,
+        normalizedAgentId,
+      ) as {
+        id: string;
+        title: string;
+        status: string;
+        pinned: number | null;
+        pin_order: number | null;
+        agent_id: string | null;
+        created_at: number;
+        updated_at: number;
+      } | undefined;
+
+    if (existingRow) {
+      return this.mapSessionSummaryRow(existingRow);
+    }
+
+    const agent = this.getAgent(normalizedAgentId);
+    const config = this.getConfig();
+    const cwd =
+      agent?.workingDirectory?.trim()
+      || config.workingDirectory.trim()
+      || getDefaultWorkingDirectory();
+    const title = agent?.name?.trim() || 'Popiai';
+    const session = this.createSession(
+      title,
+      cwd,
+      agent?.systemPrompt || config.systemPrompt,
+      config.executionMode || 'local',
+      agent?.skillIds || [],
+      normalizedAgentId,
+      agent?.model || '',
+    );
+    this.upsertSessionSource({
+      sessionId: session.id,
+      kind: CoworkSessionSourceKind.AgentHome,
+      priority: 100,
+      label: title,
+    });
+
+    return {
+      id: session.id,
+      title: session.title,
+      status: session.status,
+      pinned: session.pinned,
+      pinOrder: session.pinOrder ?? null,
+      agentId: session.agentId,
+      source: {
+        kind: CoworkSessionSourceKind.AgentHome,
+        label: title,
+      },
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
     };
   }
 
@@ -1009,20 +1111,9 @@ export class CoworkStore {
   }
 
   listSessions(limit = COWORK_SESSION_PAGE_SIZE, offset = 0, agentId?: string): CoworkSessionSummary[] {
-    interface SessionSummaryRow {
-      id: string;
-      title: string;
-      status: string;
-      pinned: number | null;
-      pin_order: number | null;
-      agent_id: string | null;
-      created_at: number;
-      updated_at: number;
-    }
-
-    let rows: SessionSummaryRow[];
+    let rows: CoworkSessionSummaryRow[];
     if (agentId) {
-      rows = this.getAll<SessionSummaryRow>(
+      rows = this.getAll<CoworkSessionSummaryRow>(
         `
         SELECT id, title, status, pinned, pin_order, agent_id, created_at, updated_at
         FROM cowork_sessions
@@ -1036,7 +1127,7 @@ export class CoworkStore {
         [agentId, limit, offset],
       );
     } else {
-      rows = this.getAll<SessionSummaryRow>(
+      rows = this.getAll<CoworkSessionSummaryRow>(
         `
         SELECT id, title, status, pinned, pin_order, agent_id, created_at, updated_at
         FROM cowork_sessions
@@ -1050,16 +1141,67 @@ export class CoworkStore {
       );
     }
 
-    return rows.map(row => ({
-      id: row.id,
-      title: row.title,
-      status: row.status as CoworkSessionStatus,
-      pinned: Boolean(row.pinned),
-      pinOrder: row.pin_order ?? null,
-      agentId: row.agent_id || 'main',
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return rows.map(row => this.mapSessionSummaryRow(row));
+  }
+
+  listAgentSidebarSessionGroups(sourceLimitPerAgent = 8): AgentSidebarSessionGroup[] {
+    const agents = this.listAgents().filter(agent => agent.enabled);
+    const groups = new Map<string, AgentSidebarSessionGroup>();
+
+    for (const agent of agents) {
+      groups.set(agent.id, {
+        agentId: agent.id,
+        primarySession: this.ensureAgentHomeSession(agent.id),
+        sourceSessions: [],
+      });
+    }
+
+    if (groups.size === 0) return [];
+
+    const sourceRows = this.db
+      .prepare(
+        `
+        SELECT s.id, s.title, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at,
+               src.kind, src.label, src.task_id, src.platform, src.conversation_id
+        FROM cowork_sessions s
+        INNER JOIN cowork_session_sources src ON src.session_id = s.id
+        WHERE src.kind IN (?, ?)
+        ORDER BY src.priority DESC,
+          s.pinned DESC,
+          CASE WHEN s.pinned = 1 THEN COALESCE(s.pin_order, s.updated_at, s.created_at) END ASC,
+          CASE WHEN s.pinned = 0 THEN s.updated_at END DESC,
+          s.updated_at DESC
+      `,
+      )
+      .all(
+        CoworkSessionSourceKind.ScheduledTask,
+        CoworkSessionSourceKind.IM,
+      ) as Array<CoworkSessionSummaryRow & {
+        kind: CoworkSessionSourceKindType;
+        label: string | null;
+        task_id: string | null;
+        platform: string | null;
+        conversation_id: string | null;
+      }>;
+
+    for (const row of sourceRows) {
+      const agentId = row.agent_id || AgentId.Main;
+      const group = groups.get(agentId);
+      if (!group || group.sourceSessions.length >= sourceLimitPerAgent) continue;
+
+      group.sourceSessions.push({
+        ...this.mapSessionSummaryRow(row),
+        source: {
+          kind: row.kind,
+          ...(row.label ? { label: row.label } : {}),
+          ...(row.task_id ? { taskId: row.task_id } : {}),
+          ...(row.platform ? { platform: row.platform } : {}),
+          ...(row.conversation_id ? { conversationId: row.conversation_id } : {}),
+        },
+      });
+    }
+
+    return agents.map(agent => groups.get(agent.id)!).filter(Boolean);
   }
 
   resetRunningSessions(): number {
@@ -2224,7 +2366,9 @@ export class CoworkStore {
       this.markOrphanImplicitMemoriesStale();
     }
 
-    return this.getAgent(id)!;
+    const agent = this.getAgent(id)!;
+    this.ensureAgentHomeSession(agent.id);
+    return agent;
   }
 
   backfillEmptyAgentModels(modelId: string): number {

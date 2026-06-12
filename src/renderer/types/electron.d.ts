@@ -59,7 +59,7 @@ interface CoworkSessionSummary {
   pinOrder?: number | null;
   agentId?: string;
   source?: {
-    kind: 'scheduledTask' | 'im';
+    kind: 'agentHome' | 'scheduledTask' | 'im';
     label?: string;
     taskId?: string;
     platform?: string;
@@ -545,6 +545,15 @@ interface IElectronAPI {
       success: boolean;
       sessions?: CoworkSessionSummary[];
       hasMore?: boolean;
+      error?: string;
+    }>;
+    listAgentSidebarSessions: () => Promise<{
+      success: boolean;
+      groups?: Array<{
+        agentId: string;
+        primarySession: CoworkSessionSummary;
+        sourceSessions: CoworkSessionSummary[];
+      }>;
       error?: string;
     }>;
     getContextUsage: (

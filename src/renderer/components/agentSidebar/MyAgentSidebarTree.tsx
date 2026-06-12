@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 
+import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -51,11 +52,11 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   }, []);
 
   const getPrimaryTask = (agent: AgentSidebarAgentNode): AgentSidebarTaskNode | null => {
-    return agent.tasks.find((task) => !task.source) ?? null;
+    return agent.tasks.find((task) => !task.source || task.source.kind === CoworkSessionSourceKind.AgentHome) ?? null;
   };
 
   const getExternalTasks = (agent: AgentSidebarAgentNode): AgentSidebarTaskNode[] => {
-    return agent.tasks.filter((task) => !!task.source);
+    return agent.tasks.filter((task) => task.source && task.source.kind !== CoworkSessionSourceKind.AgentHome);
   };
 
   const handleSelectAgentSession = async (

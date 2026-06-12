@@ -238,11 +238,17 @@ export interface CoworkSessionSummary {
 }
 
 export interface CoworkSessionSource {
-  kind: 'scheduledTask' | 'im';
+  kind: 'agentHome' | 'scheduledTask' | 'im';
   label?: string;
   taskId?: string;
   platform?: string;
   conversationId?: string;
+}
+
+export interface CoworkAgentSidebarSessionGroup {
+  agentId: string;
+  primarySession: CoworkSessionSummary;
+  sourceSessions: CoworkSessionSummary[];
 }
 
 // Subagent session summary for sidebar display
@@ -290,6 +296,12 @@ export interface CoworkSessionListResult {
   sessions?: CoworkSessionSummary[];
   /** Whether more sessions exist beyond the currently loaded set. */
   hasMore?: boolean;
+  error?: string;
+}
+
+export interface CoworkAgentSidebarSessionListResult {
+  success: boolean;
+  groups?: CoworkAgentSidebarSessionGroup[];
   error?: string;
 }
 
