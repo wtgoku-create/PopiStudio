@@ -7,6 +7,7 @@ import {
 import { useTree } from '@headless-tree/react';
 import {
   ChevronRightIcon,
+  DocumentIcon,
   FolderIcon,
 } from '@heroicons/react/24/outline';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -14,9 +15,13 @@ import { useSelector } from 'react-redux';
 
 import type { FolderTreeEntry } from '../../../shared/folder/constants';
 import { agentService } from '../../services/agent';
+import { getArtifactTypeFromExtension } from '../../services/artifactParser';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { RootState } from '../../store';
+import type { Artifact, ArtifactType } from '../../types/artifact';
+import { ArtifactTypeValue } from '../../types/artifact';
+import ArtifactRenderer from '../artifacts/ArtifactRenderer';
 import WindowTitleBar from '../window/WindowTitleBar';
 
 interface FolderViewProps {
@@ -59,6 +64,19 @@ const formatModifiedAt = (timestamp: number): string => {
     minute: '2-digit',
   }).format(new Date(timestamp));
 };
+
+const getFileExtension = (filePath: string): string => {
+  const lastDot = filePath.lastIndexOf('.');
+  return lastDot === -1 ? '' : filePath.slice(lastDot).toLowerCase();
+};
+
+const CONTENT_PRELOAD_TYPES = new Set<ArtifactType>([
+  ArtifactTypeValue.Image,
+  ArtifactTypeValue.Svg,
+  ArtifactTypeValue.Markdown,
+  ArtifactTypeValue.Text,
+  ArtifactTypeValue.Mermaid,
+]);
 
 const makeRootNode = (children: string[] = []): FolderTreeNode => ({
   id: ROOT_ID,
@@ -106,6 +124,10 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
   }));
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<string[]>([ROOT_ID]);
+  const [previewNode, setPreviewNode] = useState<FolderTreeNode | null>(null);
+  const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     void coworkService.loadConfig();
@@ -220,6 +242,61 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
     }
   }, [loadingIds]);
 
+  const previewFile = useCallback(async (node: FolderTreeNode) => {
+    if (node.isDirectory) return;
+    const artifactType = getArtifactTypeFromExtension(getFileExtension(node.path));
+    setPreviewNode(node);
+    setPreviewArtifact(null);
+    setPreviewError(null);
+
+    if (!artifactType) {
+      setPreviewLoading(false);
+      return;
+    }
+
+    const artifact: Artifact = {
+      id: `folder-preview-${node.id}`,
+      messageId: 'folder-preview',
+      sessionId: 'folder',
+      type: artifactType,
+      title: node.name,
+      content: '',
+      fileName: node.name,
+      filePath: node.path,
+      createdAt: Date.now(),
+    };
+
+    if (!CONTENT_PRELOAD_TYPES.has(artifactType)) {
+      setPreviewArtifact(artifact);
+      setPreviewLoading(false);
+      return;
+    }
+
+    setPreviewLoading(true);
+    try {
+      if (artifactType === ArtifactTypeValue.Image) {
+        const result = await window.electron?.dialog?.readFileAsDataUrl(node.path);
+        if (!result?.success || !result.dataUrl) {
+          setPreviewError(result?.error || i18nService.t('folderPreviewLoadFailed'));
+          return;
+        }
+        setPreviewArtifact({ ...artifact, content: result.dataUrl });
+        return;
+      }
+
+      const result = await window.electron?.dialog?.readTextFile(node.path);
+      if (!result?.success || typeof result.content !== 'string') {
+        setPreviewError(result?.error || i18nService.t('folderPreviewLoadFailed'));
+        return;
+      }
+      setPreviewArtifact({ ...artifact, content: result.content });
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : i18nService.t('folderPreviewLoadFailed'));
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
   const tree = useTree<FolderTreeNode>({
     state: { expandedItems },
     setExpandedItems,
@@ -256,6 +333,12 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
         {...rowProps}
         key={node.id}
         type="button"
+        onClick={() => {
+          item.setFocused();
+          if (!node.isDirectory) {
+            void previewFile(node);
+          }
+        }}
         onDoubleClick={() => {
           if (node.isDirectory) {
             void loadChildren(node);
@@ -286,7 +369,11 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
           ) : (
             <span className="h-4 w-4 shrink-0" />
           )}
-          <FolderIcon className="h-4 w-4 shrink-0 text-muted" />
+          {node.isDirectory ? (
+            <FolderIcon className="h-4 w-4 shrink-0 text-muted" />
+          ) : (
+            <DocumentIcon className="h-4 w-4 shrink-0 text-muted" />
+          )}
           <span className="truncate">{node.name}</span>
           {isLoading && <span className="text-xs text-muted">{i18nService.t('folderLoading')}</span>}
         </div>
@@ -311,19 +398,76 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
       </div>
 
       <div className="flex-1 overflow-hidden p-4">
-        <div className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-background">
-          <div className="grid h-10 shrink-0 grid-cols-[1fr_140px_160px] items-center border-b border-border bg-surface text-xs text-secondary">
-            <div className="px-6">{i18nService.t('folderColumnName')}</div>
-            <div className="px-4">{i18nService.t('folderColumnSize')}</div>
-            <div className="px-4">{i18nService.t('folderColumnModified')}</div>
+        <div className="flex h-full gap-3 overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background">
+            <div className="grid h-10 shrink-0 grid-cols-[1fr_140px_160px] items-center border-b border-border bg-surface text-xs text-secondary">
+              <div className="px-6">{i18nService.t('folderColumnName')}</div>
+              <div className="px-4">{i18nService.t('folderColumnSize')}</div>
+              <div className="px-4">{i18nService.t('folderColumnModified')}</div>
+            </div>
+            <div {...tree.getContainerProps()} className="flex-1 overflow-y-auto py-2">
+              {visibleItems.length === 0 ? (
+                <div className="px-6 py-8 text-sm text-secondary">{i18nService.t('folderEmpty')}</div>
+              ) : (
+                visibleItems.map(renderRow)
+              )}
+            </div>
           </div>
-          <div {...tree.getContainerProps()} className="flex-1 overflow-y-auto py-2">
-            {visibleItems.length === 0 ? (
-              <div className="px-6 py-8 text-sm text-secondary">{i18nService.t('folderEmpty')}</div>
-            ) : (
-              visibleItems.map(renderRow)
-            )}
-          </div>
+
+          {previewNode && (
+            <div className="flex w-[42%] min-w-[360px] max-w-[640px] flex-col overflow-hidden rounded-lg border border-border bg-background">
+              <div className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-surface px-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-foreground">{previewNode.name}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void openPath(previewNode.path)}
+                    className="rounded px-2 py-1 text-xs text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+                  >
+                    {i18nService.t('artifactOpenWithApp')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewNode(null);
+                      setPreviewArtifact(null);
+                      setPreviewError(null);
+                    }}
+                    className="rounded px-2 py-1 text-xs text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+                    aria-label={i18nService.t('artifactCloseTab')}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {previewLoading ? (
+                  <div className="flex h-full items-center justify-center text-sm text-muted">
+                    {i18nService.t('artifactSourceLoading')}
+                  </div>
+                ) : previewError ? (
+                  <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted">
+                    {previewError}
+                  </div>
+                ) : previewArtifact ? (
+                  <ArtifactRenderer artifact={previewArtifact} />
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                    <div className="text-sm text-muted">{i18nService.t('artifactNoPreview')}</div>
+                    <button
+                      type="button"
+                      onClick={() => void openPath(previewNode.path)}
+                      className="rounded bg-primary px-3 py-1.5 text-xs text-white transition-colors hover:bg-primary/90"
+                    >
+                      {i18nService.t('artifactOpenWithApp')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
