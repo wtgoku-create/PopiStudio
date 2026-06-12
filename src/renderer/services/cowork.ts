@@ -7,6 +7,7 @@ import {
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
 import { AgentId } from '../../shared/agent';
 import { COWORK_SESSION_PAGE_SIZE } from '../../shared/cowork/constants';
+import { CoworkUiEvent } from '../components/cowork/constants';
 import { store } from '../store';
 import {
   addMessage,
@@ -240,10 +241,10 @@ class CoworkService {
 
     // Sessions changed listener (new channel sessions discovered by polling,
     // or reconcileWithHistory replaced messages for a channel session)
-    const sessionsChangedCleanup = cowork.onSessionsChanged(() => {
+    const sessionsChangedCleanup = cowork.onSessionsChanged((event) => {
       const beforeState = store.getState().cowork;
       console.log('[CoworkService] onSessionsChanged: received IPC event, before sessions:', beforeState.sessions.length, 'sessionIds:', beforeState.sessions.map(s => s.id).slice(0, 5));
-      void this.loadSessions().then(() => {
+      void this.loadSessionSummaryForChangedSession(event?.sessionId).then(() => this.loadSessions()).then(() => {
         const state = store.getState().cowork;
         console.log('[CoworkService] onSessionsChanged: loadSessions complete, total sessions:', state.sessions.length, 'sessionIds:', state.sessions.map(s => s.id).slice(0, 5));
 
@@ -261,6 +262,27 @@ class CoworkService {
       });
     });
     this.streamListenerCleanups.push(sessionsChangedCleanup);
+  }
+
+  private async loadSessionSummaryForChangedSession(sessionId?: string): Promise<void> {
+    if (!sessionId) return;
+
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSession) return;
+
+    const result = await cowork.getSession(sessionId);
+    if (!result?.success || !result.session) return;
+
+    if (store.getState().cowork.currentSessionId === sessionId) {
+      store.dispatch(setCurrentSession(result.session));
+    }
+    const summaryAgentId = result.session.agentId?.trim() || AgentId.Main;
+    window.dispatchEvent(new CustomEvent(CoworkUiEvent.SessionSummaryChanged, {
+      detail: {
+        sessionId: result.session.id,
+        agentId: summaryAgentId,
+      },
+    }));
   }
 
   private isStillRunningError(error: string): boolean {

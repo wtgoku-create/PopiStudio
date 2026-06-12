@@ -11,6 +11,7 @@ import {
 } from '../../store/selectors/coworkSelectors';
 import type { CoworkSessionSummary } from '../../types/cowork';
 import { CoworkSessionStatusValue } from '../../types/cowork';
+import { type CoworkSessionSummaryChangedEventDetail, CoworkUiEvent } from '../cowork/constants';
 import {
   AgentSidebarIndicator,
   AgentSidebarPageSize,
@@ -317,6 +318,20 @@ export const useAgentSidebarState = () => {
       void loadAgentTasks(agent.id, { replace: true });
     });
   }, [loadAgentTasks, sortedEnabledAgents]);
+
+  useEffect(() => {
+    const handleSessionSummaryChanged = (event: Event) => {
+      const detail = (event as CustomEvent<CoworkSessionSummaryChangedEventDetail>).detail;
+      const agentId = normalizeAgentId(detail?.agentId);
+      if (!agentId) return;
+      void loadAgentTasks(agentId, { replace: true });
+    };
+
+    window.addEventListener(CoworkUiEvent.SessionSummaryChanged, handleSessionSummaryChanged);
+    return () => {
+      window.removeEventListener(CoworkUiEvent.SessionSummaryChanged, handleSessionSummaryChanged);
+    };
+  }, [loadAgentTasks]);
 
   useEffect(() => {
     if (agents.length === 0) return;
