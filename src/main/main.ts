@@ -6467,6 +6467,63 @@ if (!gotTheLock) {
     return totalSize;
   };
 
+  const getFolderTreeEntry = async (
+    entryPath: string,
+    name = path.basename(entryPath),
+  ): Promise<FolderTreeEntry | null> => {
+    try {
+      const stat = await fs.promises.stat(entryPath);
+      const isDirectory = stat.isDirectory();
+      let childCount: number | undefined;
+      if (isDirectory) {
+        try {
+          childCount = (await fs.promises.readdir(entryPath)).filter((childName) => !childName.startsWith('.')).length;
+        } catch {
+          childCount = 0;
+        }
+      }
+
+      return {
+        id: entryPath,
+        name,
+        path: entryPath,
+        isDirectory,
+        size: isDirectory ? await calculateDirectorySize(entryPath) : stat.size,
+        modifiedAt: stat.mtimeMs,
+        childCount,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  ipcMain.handle(
+    FolderIpc.GetEntries,
+    async (_event, entries?: Array<{ path?: string; name?: string; id?: string }>): Promise<{ success: boolean; entries?: FolderTreeEntry[]; error?: string }> => {
+      try {
+        if (!Array.isArray(entries)) {
+          return { success: false, error: 'Missing folder entries' };
+        }
+        const resultEntries = await Promise.all(entries.map(async (entry) => {
+          if (typeof entry.path !== 'string' || !entry.path.trim()) return null;
+          const resolvedPath = path.resolve(entry.path.trim());
+          const result = await getFolderTreeEntry(resolvedPath, entry.name?.trim() || path.basename(resolvedPath));
+          return result ? { ...result, id: entry.id?.trim() || result.id } : null;
+        }));
+
+        return {
+          success: true,
+          entries: resultEntries.filter((entry): entry is FolderTreeEntry => entry !== null),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to read folder entries',
+        };
+      }
+    },
+  );
+
   ipcMain.handle(
     FolderIpc.ListChildren,
     async (_event, folderPath?: string): Promise<{ success: boolean; entries?: FolderTreeEntry[]; error?: string }> => {
@@ -6485,29 +6542,7 @@ if (!gotTheLock) {
         const entries = await Promise.all(
           visibleDirents.map(async (entry): Promise<FolderTreeEntry | null> => {
             const entryPath = path.join(resolvedPath, entry.name);
-            try {
-              const stat = await fs.promises.stat(entryPath);
-              const isDirectory = stat.isDirectory();
-              let childCount: number | undefined;
-              if (isDirectory) {
-                try {
-                  childCount = (await fs.promises.readdir(entryPath)).filter((name) => !name.startsWith('.')).length;
-                } catch {
-                  childCount = 0;
-                }
-              }
-              return {
-                id: entryPath,
-                name: entry.name,
-                path: entryPath,
-                isDirectory,
-                size: isDirectory ? await calculateDirectorySize(entryPath) : stat.size,
-                modifiedAt: stat.mtimeMs,
-                childCount,
-              };
-            } catch {
-              return null;
-            }
+            return getFolderTreeEntry(entryPath, entry.name);
           }),
         );
 

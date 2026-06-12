@@ -71,8 +71,12 @@ const makeRootNode = (children: string[] = []): FolderTreeNode => ({
   loaded: true,
 });
 
-const entryToNode = (entry: FolderTreeEntry): FolderTreeNode => ({
-  id: entry.id,
+const makeRootEntryId = (entryPath: string): string => `root:${entryPath}`;
+
+const makeChildEntryId = (parentId: string, entryPath: string): string => `child:${parentId}:${entryPath}`;
+
+const entryToNode = (entry: FolderTreeEntry, id = entry.id): FolderTreeNode => ({
+  id,
   name: entry.name,
   path: entry.path,
   isDirectory: entry.isDirectory,
@@ -101,6 +105,7 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
     [ROOT_ID]: makeRootNode(),
   }));
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
+  const [expandedItems, setExpandedItems] = useState<string[]>([ROOT_ID]);
 
   useEffect(() => {
     void coworkService.loadConfig();
@@ -116,7 +121,7 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
       seenPaths.add(normalizedPath);
       entries.push({
         ...entry,
-        id: normalizedPath,
+        id: makeRootEntryId(normalizedPath),
         path: normalizedPath,
         isDirectory: true,
         size: 0,
@@ -157,6 +162,30 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
     });
   }, [rootEntries]);
 
+  useEffect(() => {
+    if (rootEntries.length === 0) return;
+    let disposed = false;
+
+    const loadRootEntryMetadata = async () => {
+      const result = await window.electron?.folder?.getEntries(rootEntries.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        path: entry.path,
+      })));
+      if (disposed || !result?.success) return;
+      const nextRootNodes = Object.fromEntries((result.entries ?? []).map((entry) => [entry.id, entryToNode(entry)]));
+      setNodes((current) => ({
+        ...current,
+        ...nextRootNodes,
+      }));
+    };
+
+    void loadRootEntryMetadata();
+    return () => {
+      disposed = true;
+    };
+  }, [rootEntries]);
+
   const loadChildren = useCallback(async (node: FolderTreeNode) => {
     if (!node.isDirectory || node.loaded || loadingIds.has(node.id)) return;
     setLoadingIds((current) => new Set(current).add(node.id));
@@ -168,7 +197,10 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
         }));
         return;
       }
-      const childNodes = (result.entries ?? []).map(entryToNode);
+      const childNodes = (result.entries ?? []).map((entry) => entryToNode(
+        entry,
+        makeChildEntryId(node.id, entry.path),
+      ));
       setNodes((current) => ({
         ...current,
         [node.id]: {
@@ -189,7 +221,8 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
   }, [loadingIds]);
 
   const tree = useTree<FolderTreeNode>({
-    initialState: { expandedItems: rootEntries.map((entry) => entry.id) },
+    state: { expandedItems },
+    setExpandedItems,
     rootItemId: ROOT_ID,
     getItemName: (item) => item.getItemData().name,
     isItemFolder: (item) => item.getItemData().isDirectory,
@@ -201,9 +234,11 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
     features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
   });
 
+  tree.scheduleRebuildTree();
+  const visibleItems = tree.getItems();
+
   const renderRow = (item: ItemInstance<FolderTreeNode>) => {
     const node = item.getItemData();
-    if (node.id === ROOT_ID) return null;
     const level = item.getItemMeta().level;
     const isLoading = loadingIds.has(node.id);
     const canExpand = node.isDirectory && (node.childCount ?? node.children.length) > 0;
@@ -246,7 +281,7 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
                 toggleExpanded();
               }}
             >
-              <ChevronRightIcon className={`h-3.5 w-3.5 transition-transform ${item.isExpanded() ? 'rotate-90' : ''}`} />
+              <ChevronRightIcon className={`h-3.5 w-3.5 transition-transform ${isLoading ? 'animate-spin opacity-60' : item.isExpanded() ? 'rotate-90' : ''}`} />
             </span>
           ) : (
             <span className="h-4 w-4 shrink-0" />
@@ -283,10 +318,10 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
             <div className="px-4">{i18nService.t('folderColumnModified')}</div>
           </div>
           <div {...tree.getContainerProps()} className="flex-1 overflow-y-auto py-2">
-            {tree.getItems().length <= 1 ? (
+            {visibleItems.length === 0 ? (
               <div className="px-6 py-8 text-sm text-secondary">{i18nService.t('folderEmpty')}</div>
             ) : (
-              tree.getItems().map(renderRow)
+              visibleItems.map(renderRow)
             )}
           </div>
         </div>

@@ -438,6 +438,8 @@ contextBridge.exposeInMainWorld('electron', {
     openPathWithApp: (filePath: string, appPath: string) => ipcRenderer.invoke('shell:openPathWithApp', filePath, appPath),
   },
   folder: {
+    getEntries: (entries: Array<{ path: string; name?: string; id?: string }>) =>
+      ipcRenderer.invoke(FolderIpc.GetEntries, entries),
     listChildren: (folderPath: string) => ipcRenderer.invoke(FolderIpc.ListChildren, folderPath),
   },
   clipboard: {

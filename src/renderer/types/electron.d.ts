@@ -686,6 +686,7 @@ interface IElectronAPI {
     openPathWithApp: (filePath: string, appPath: string) => Promise<{ success: boolean; error?: string }>;
   };
   folder: {
+    getEntries: (entries: Array<{ path: string; name?: string; id?: string }>) => Promise<FolderListChildrenResult>;
     listChildren: (folderPath: string) => Promise<FolderListChildrenResult>;
   };
   clipboard: {

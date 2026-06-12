@@ -1,5 +1,6 @@
 export const FolderIpc = {
   ListChildren: 'folder:listChildren',
+  GetEntries: 'folder:getEntries',
 } as const;
 
 export type FolderIpc = typeof FolderIpc[keyof typeof FolderIpc];
