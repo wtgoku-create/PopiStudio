@@ -76,6 +76,9 @@ const CONTENT_PRELOAD_TYPES = new Set<ArtifactType>([
   ArtifactTypeValue.Markdown,
   ArtifactTypeValue.Text,
   ArtifactTypeValue.Mermaid,
+  ArtifactTypeValue.Code,
+  ArtifactTypeValue.Video,
+  ArtifactTypeValue.Audio,
 ]);
 
 const makeRootNode = (children: string[] = []): FolderTreeNode => ({
@@ -333,52 +336,56 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
         {...rowProps}
         key={node.id}
         type="button"
-        onClick={() => {
+        onClick={(event) => {
+          if (event.detail > 1) return;
           item.setFocused();
-          if (!node.isDirectory) {
-            void previewFile(node);
-          }
-        }}
-        onDoubleClick={() => {
           if (node.isDirectory) {
             void loadChildren(node);
             toggleExpanded();
           } else {
+            void previewFile(node);
+          }
+        }}
+        onDoubleClick={() => {
+          if (!node.isDirectory) {
             void openPath(node.path);
           }
         }}
-        className={`grid w-full grid-cols-[1fr_140px_160px] items-center border-0 bg-transparent px-0 py-0 text-left text-sm outline-none transition-colors ${
-          item.isSelected() ? 'bg-surface' : 'hover:bg-surface'
-        }`}
+        className="group block w-full border-0 bg-transparent px-2 py-0.5 text-left text-sm outline-none"
       >
-        <div
-          className="flex min-w-0 items-center gap-2 px-5 py-2.5 text-foreground"
-          style={{ paddingLeft: `${20 + level * 18}px` }}
+        <div className={`grid w-full grid-cols-[1fr_140px_160px] items-center rounded-md transition-colors ${
+          item.isSelected() ? 'bg-surface-raised' : 'group-hover:bg-surface-raised'
+        }`}
         >
-          {canExpand ? (
-            <span
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-raised"
-              onClick={(event) => {
-                event.stopPropagation();
-                void loadChildren(node);
-                toggleExpanded();
-              }}
-            >
-              <ChevronRightIcon className={`h-3.5 w-3.5 transition-transform ${isLoading ? 'animate-spin opacity-60' : item.isExpanded() ? 'rotate-90' : ''}`} />
-            </span>
-          ) : (
-            <span className="h-4 w-4 shrink-0" />
-          )}
-          {node.isDirectory ? (
-            <FolderIcon className="h-4 w-4 shrink-0 text-muted" />
-          ) : (
-            <DocumentIcon className="h-4 w-4 shrink-0 text-muted" />
-          )}
-          <span className="truncate">{node.name}</span>
-          {isLoading && <span className="text-xs text-muted">{i18nService.t('folderLoading')}</span>}
+          <div
+            className="flex min-w-0 items-center gap-2 px-3 py-2.5 text-foreground"
+            style={{ paddingLeft: `${12 + level * 18}px` }}
+          >
+            {canExpand ? (
+              <span
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-raised"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void loadChildren(node);
+                  toggleExpanded();
+                }}
+              >
+                <ChevronRightIcon className={`h-3.5 w-3.5 transition-transform ${isLoading ? 'animate-spin opacity-60' : item.isExpanded() ? 'rotate-90' : ''}`} />
+              </span>
+            ) : (
+              <span className="h-4 w-4 shrink-0" />
+            )}
+            {node.isDirectory ? (
+              <FolderIcon className="h-4 w-4 shrink-0 text-muted" />
+            ) : (
+              <DocumentIcon className="h-4 w-4 shrink-0 text-muted" />
+            )}
+            <span className="truncate">{node.name}</span>
+            {isLoading && <span className="text-xs text-muted">{i18nService.t('folderLoading')}</span>}
+          </div>
+          <div className="px-4 py-2.5 text-xs text-muted">{formatBytes(node.size)}</div>
+          <div className="px-4 py-2.5 text-xs text-muted">{formatModifiedAt(node.modifiedAt)}</div>
         </div>
-        <div className="px-4 py-2.5 text-xs text-muted">{formatBytes(node.size)}</div>
-        <div className="px-4 py-2.5 text-xs text-muted">{formatModifiedAt(node.modifiedAt)}</div>
       </button>
     );
   };
