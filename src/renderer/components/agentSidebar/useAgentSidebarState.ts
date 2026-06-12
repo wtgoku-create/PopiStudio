@@ -25,7 +25,10 @@ import type {
 
 const normalizeAgentId = (agentId?: string) => agentId?.trim() || 'main';
 const limitAgentSessions = (sessions: CoworkSessionSummary[]): CoworkSessionSummary[] => {
-  return sortAgentSidebarTasks(sessions).slice(0, AgentSidebarPageSize.Preview);
+  const sortedSessions = sortAgentSidebarTasks(sessions).slice(0, AgentSidebarPageSize.Preview);
+  const primarySession = sortedSessions.find((session) => !session.source);
+  const sourceSessions = sortedSessions.filter((session) => !!session.source);
+  return primarySession ? [primarySession, ...sourceSessions] : sourceSessions;
 };
 
 const hasSessionChanged = (
@@ -36,6 +39,7 @@ const hasSessionChanged = (
     || previous.status !== next.status
     || previous.pinned !== next.pinned
     || previous.pinOrder !== next.pinOrder
+    || JSON.stringify(previous.source ?? null) !== JSON.stringify(next.source ?? null)
     || previous.updatedAt !== next.updatedAt
     || previous.createdAt !== next.createdAt
     || normalizeAgentId(previous.agentId) !== normalizeAgentId(next.agentId);
@@ -110,6 +114,7 @@ export const toAgentSidebarTaskNode = (
     status: session.status,
     pinned: session.pinned,
     pinOrder: session.pinOrder ?? null,
+    source: session.source,
     updatedAt: session.updatedAt,
     createdAt: session.createdAt,
     indicator: deriveAgentSidebarIndicator(session, unreadSessionIds),

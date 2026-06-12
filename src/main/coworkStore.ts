@@ -7,6 +7,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 import { AgentId, normalizeAgentAvatarIcon } from '../shared/agent';
+import type { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
 import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 
@@ -445,8 +446,17 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId: string;
+  source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface CoworkSessionSource {
+  kind: CoworkSessionSourceKind;
+  label?: string;
+  taskId?: string;
+  platform?: string;
+  conversationId?: string;
 }
 
 export type CoworkUserMemoryStatus = 'created' | 'stale' | 'deleted';

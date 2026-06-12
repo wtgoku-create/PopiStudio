@@ -58,6 +58,13 @@ interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId?: string;
+  source?: {
+    kind: 'scheduledTask' | 'im';
+    label?: string;
+    taskId?: string;
+    platform?: string;
+    conversationId?: string;
+  };
   createdAt: number;
   updatedAt: number;
 }

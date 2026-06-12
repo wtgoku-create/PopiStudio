@@ -6,6 +6,7 @@ import path from 'path';
 
 import type { OpenClawSessionPatch } from '../common/openclawSession';
 import { buildSessionTitleFromInput } from '../common/sessionTitle';
+import { BindingKind } from '../scheduledTask/constants';
 import { buildScheduledTaskEnginePrompt } from '../scheduledTask/enginePrompt';
 import { migrateScheduledTaskRunsToOpenclaw, migrateScheduledTasksToOpenclaw } from '../scheduledTask/migrate';
 import { AgentId, AgentIpcChannel } from '../shared/agent/constants';
@@ -22,6 +23,7 @@ import {
 } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
+import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
@@ -32,7 +34,7 @@ import { AgentManager } from './agentManager';
 import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 import { APP_NAME } from './appConstants';
 import { getAutoLaunchEnabled, isAutoLaunched, setAutoLaunchEnabled } from './autoLaunchManager';
-import { CoworkStore } from './coworkStore';
+import { type CoworkSessionSource, type CoworkSessionSummary, CoworkStore } from './coworkStore';
 import { setLanguage, t } from './i18n';
 import { IMGatewayConfig, IMGatewayManager } from './im';
 import {
@@ -1177,6 +1179,97 @@ const shouldRefreshServerQuotaForSession = (sessionId: string): boolean => {
 
   const apiConfig = resolveCurrentApiConfig();
   return apiConfig.providerMetadata?.providerName === ProviderName.PopiaiServer;
+};
+
+const getPlatformLabelForSessionSource = (platform: string): string => {
+  const platformId = platform.split(':')[0] as Platform;
+  try {
+    return PlatformRegistry.get(platformId).label;
+  } catch {
+    return platform;
+  }
+};
+
+const parseScheduledTaskBinding = (value: string): { kind?: string; sessionId?: string } | null => {
+  try {
+    const parsed = JSON.parse(value) as { kind?: unknown; sessionId?: unknown };
+    return {
+      kind: typeof parsed.kind === 'string' ? parsed.kind : undefined,
+      sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const annotateCoworkSessionSummaries = async (
+  sessions: CoworkSessionSummary[],
+): Promise<CoworkSessionSummary[]> => {
+  if (sessions.length === 0) return sessions;
+
+  const sessionIds = new Set(sessions.map(session => session.id));
+  const sourceBySessionId = new Map<string, CoworkSessionSource>();
+
+  try {
+    const imStore = getIMGatewayManager()?.getIMStore();
+    if (imStore) {
+      for (const session of sessions) {
+        const mapping = imStore.getSessionMappingByCoworkSessionId(session.id);
+        if (!mapping) continue;
+        sourceBySessionId.set(session.id, {
+          kind: CoworkSessionSourceKind.IM,
+          platform: mapping.platform,
+          conversationId: mapping.imConversationId,
+          label: getPlatformLabelForSessionSource(mapping.platform),
+        });
+      }
+    }
+  } catch {
+    // IM metadata is optional for sidebar rendering.
+  }
+
+  try {
+    if (!openClawRuntimeAdapter?.getGatewayClient()) {
+      throw new Error('OpenClaw gateway client is not connected.');
+    }
+    const runs = await getCronJobService().listAllRuns(200, 0);
+    for (const run of runs) {
+      if (!run.sessionId || !sessionIds.has(run.sessionId)) continue;
+      if (sourceBySessionId.has(run.sessionId)) continue;
+      sourceBySessionId.set(run.sessionId, {
+        kind: CoworkSessionSourceKind.ScheduledTask,
+        taskId: run.taskId,
+        label: run.taskName,
+      });
+    }
+  } catch {
+    // Gateway may not be ready; fall back to plain session summaries.
+  }
+
+  try {
+    const rows = getStore().getDatabase()
+      .prepare('SELECT task_id, binding FROM scheduled_task_meta')
+      .all() as Array<{ task_id: string; binding: string }>;
+    for (const row of rows) {
+      const binding = parseScheduledTaskBinding(row.binding);
+      if (!binding?.sessionId || !sessionIds.has(binding.sessionId)) continue;
+      if (sourceBySessionId.has(binding.sessionId)) continue;
+      if (binding.kind !== BindingKind.IMSession) continue;
+      const taskName = getCronJobService().getJobNameSync(row.task_id) ?? undefined;
+      sourceBySessionId.set(binding.sessionId, {
+        kind: CoworkSessionSourceKind.ScheduledTask,
+        taskId: row.task_id,
+        label: taskName,
+      });
+    }
+  } catch {
+    // Metadata table may be absent on first launch.
+  }
+
+  return sessions.map(session => {
+    const source = sourceBySessionId.get(session.id);
+    return source ? { ...session, source } : session;
+  });
 };
 
 const resolveCoworkAgentEngine = (): CoworkAgentEngine => {
@@ -4070,7 +4163,7 @@ if (!gotTheLock) {
       const offset = options?.offset ?? 0;
       const agentId = options?.agentId;
       const store = getCoworkStore();
-      const sessions = store.listSessions(limit, offset, agentId);
+      const sessions = await annotateCoworkSessionSummaries(store.listSessions(limit, offset, agentId));
       const total = store.countSessions(agentId);
       return { success: true, sessions, hasMore: offset + sessions.length < total };
     } catch (error) {

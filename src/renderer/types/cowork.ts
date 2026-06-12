@@ -232,8 +232,17 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId?: string;
+  source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface CoworkSessionSource {
+  kind: 'scheduledTask' | 'im';
+  label?: string;
+  taskId?: string;
+  platform?: string;
+  conversationId?: string;
 }
 
 // Subagent session summary for sidebar display
