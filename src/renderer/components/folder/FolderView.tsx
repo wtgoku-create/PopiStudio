@@ -76,9 +76,6 @@ const CONTENT_PRELOAD_TYPES = new Set<ArtifactType>([
   ArtifactTypeValue.Markdown,
   ArtifactTypeValue.Text,
   ArtifactTypeValue.Mermaid,
-  ArtifactTypeValue.Code,
-  ArtifactTypeValue.Video,
-  ArtifactTypeValue.Audio,
 ]);
 
 const makeRootNode = (children: string[] = []): FolderTreeNode => ({
@@ -89,6 +86,17 @@ const makeRootNode = (children: string[] = []): FolderTreeNode => ({
   size: 0,
   modifiedAt: 0,
   children,
+  loaded: true,
+});
+
+const makeFallbackNode = (id: string): FolderTreeNode => ({
+  id,
+  name: id,
+  path: '',
+  isDirectory: false,
+  size: 0,
+  modifiedAt: 0,
+  children: [],
   loaded: true,
 });
 
@@ -307,7 +315,7 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
     getItemName: (item) => item.getItemData().name,
     isItemFolder: (item) => item.getItemData().isDirectory,
     dataLoader: {
-      getItem: (itemId) => nodes[itemId] ?? makeRootNode(),
+      getItem: (itemId) => nodes[itemId] ?? makeFallbackNode(itemId),
       getChildren: (itemId) => nodes[itemId]?.children ?? [],
     },
     indent: 18,
@@ -334,7 +342,7 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
     return (
       <button
         {...rowProps}
-        key={node.id}
+        key={item.getId()}
         type="button"
         onClick={(event) => {
           if (event.detail > 1) return;
