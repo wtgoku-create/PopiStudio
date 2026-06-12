@@ -244,7 +244,7 @@ export function isCronSessionKey(sessionKey: string): boolean {
 }
 
 /** Extract the jobId from a cron session key (either format). */
-function extractCronJobId(sessionKey: string): string {
+export function extractCronJobIdFromSessionKey(sessionKey: string): string {
   const idx = sessionKey.lastIndexOf('cron:');
   return idx >= 0 ? sessionKey.slice(idx + 'cron:'.length) : sessionKey;
 }
@@ -640,7 +640,7 @@ export class OpenClawChannelSessionSync {
     const cached = this.syncedSessionKeys.get(sessionKey);
     if (cached) return cached;
 
-    const jobId = extractCronJobId(sessionKey);
+    const jobId = extractCronJobIdFromSessionKey(sessionKey);
     // Prefer the human-readable job name for the session title; fall back to a short UUID prefix.
     const jobName = this.resolveJobName?.(jobId) ?? null;
     const cronLabel = t('cronSessionPrefix');

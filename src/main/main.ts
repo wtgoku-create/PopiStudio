@@ -80,6 +80,8 @@ import { parsePrimaryModelRef, resolveQualifiedAgentModelRef } from './libs/open
 import {
   buildManagedSessionKey,
   DEFAULT_MANAGED_AGENT_ID,
+  extractCronJobIdFromSessionKey,
+  isCronSessionKey,
   OpenClawChannelSessionSync,
 } from './libs/openclawChannelSessionSync';
 import {
@@ -1202,6 +1204,20 @@ const parseScheduledTaskBinding = (value: string): { kind?: string; sessionId?: 
   }
 };
 
+const setScheduledTaskSessionSource = (
+  sourceBySessionId: Map<string, CoworkSessionSource>,
+  sessionId: string | null | undefined,
+  taskId: string,
+  label?: string,
+): void => {
+  if (!sessionId) return;
+  sourceBySessionId.set(sessionId, {
+    kind: CoworkSessionSourceKind.ScheduledTask,
+    taskId,
+    label,
+  });
+};
+
 const annotateCoworkSessionSummaries = async (
   sessions: CoworkSessionSummary[],
 ): Promise<CoworkSessionSummary[]> => {
@@ -1235,12 +1251,7 @@ const annotateCoworkSessionSummaries = async (
     const runs = await getCronJobService().listAllRuns(200, 0);
     for (const run of runs) {
       if (!run.sessionId || !sessionIds.has(run.sessionId)) continue;
-      if (sourceBySessionId.has(run.sessionId)) continue;
-      sourceBySessionId.set(run.sessionId, {
-        kind: CoworkSessionSourceKind.ScheduledTask,
-        taskId: run.taskId,
-        label: run.taskName,
-      });
+      setScheduledTaskSessionSource(sourceBySessionId, run.sessionId, run.taskId, run.taskName);
     }
   } catch {
     // Gateway may not be ready; fall back to plain session summaries.
@@ -1253,17 +1264,26 @@ const annotateCoworkSessionSummaries = async (
     for (const row of rows) {
       const binding = parseScheduledTaskBinding(row.binding);
       if (!binding?.sessionId || !sessionIds.has(binding.sessionId)) continue;
-      if (sourceBySessionId.has(binding.sessionId)) continue;
-      if (binding.kind !== BindingKind.IMSession) continue;
+      if (binding.kind !== BindingKind.IMSession && binding.kind !== BindingKind.UISession) continue;
       const taskName = getCronJobService().getJobNameSync(row.task_id) ?? undefined;
-      sourceBySessionId.set(binding.sessionId, {
-        kind: CoworkSessionSourceKind.ScheduledTask,
-        taskId: row.task_id,
-        label: taskName,
-      });
+      setScheduledTaskSessionSource(sourceBySessionId, binding.sessionId, row.task_id, taskName);
     }
   } catch {
     // Metadata table may be absent on first launch.
+  }
+
+  try {
+    for (const session of sessions) {
+      if (sourceBySessionId.get(session.id)?.kind === CoworkSessionSourceKind.ScheduledTask) continue;
+      const sessionKeys = openClawRuntimeAdapter?.getSessionKeysForSession(session.id) ?? [];
+      const cronSessionKey = sessionKeys.find(isCronSessionKey);
+      if (!cronSessionKey) continue;
+      const taskId = extractCronJobIdFromSessionKey(cronSessionKey);
+      const taskName = getCronJobService().getJobNameSync(taskId) ?? undefined;
+      setScheduledTaskSessionSource(sourceBySessionId, session.id, taskId, taskName);
+    }
+  } catch {
+    // Runtime session-key metadata is optional for sidebar rendering.
   }
 
   return sessions.map(session => {

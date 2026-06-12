@@ -26,9 +26,11 @@ import type {
 
 const normalizeAgentId = (agentId?: string) => agentId?.trim() || 'main';
 const limitAgentSessions = (sessions: CoworkSessionSummary[]): CoworkSessionSummary[] => {
-  const sortedSessions = sortAgentSidebarTasks(sessions).slice(0, AgentSidebarPageSize.Preview);
+  const sortedSessions = sortAgentSidebarTasks(sessions);
   const primarySession = sortedSessions.find((session) => !session.source);
-  const sourceSessions = sortedSessions.filter((session) => !!session.source);
+  const sourceSessions = sortedSessions
+    .filter((session) => !!session.source)
+    .slice(0, AgentSidebarPageSize.Preview);
   return primarySession ? [primarySession, ...sourceSessions] : sourceSessions;
 };
 
