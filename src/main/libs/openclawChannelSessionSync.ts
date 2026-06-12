@@ -5,6 +5,7 @@
  * to local Cowork sessions so that conversations are visible in the Popiai UI.
  */
 
+import { CoworkSessionSourceKind } from '../../shared/cowork/constants';
 import { PlatformRegistry } from '../../shared/platform';
 import type { CoworkSession, CoworkStore } from '../coworkStore';
 import { t } from '../i18n';
@@ -476,6 +477,7 @@ export class OpenClawChannelSessionSync {
             currentAgentId,
             sessionKey,
           );
+          this.upsertIMSessionSource(newSession.id, parsed.platform, parsed.conversationId);
           this.syncedSessionKeys.set(sessionKey, newSession.id);
           // Mark so pollChannelSessions skips full history sync for this session —
           // old gateway messages should not be pulled into the new session.
@@ -488,6 +490,7 @@ export class OpenClawChannelSessionSync {
           existingMapping.coworkSessionId,
         );
         this.syncedSessionKeys.set(sessionKey, existingMapping.coworkSessionId);
+        this.upsertIMSessionSource(existingMapping.coworkSessionId, parsed.platform, parsed.conversationId);
         if (existingMapping.openClawSessionKey !== sessionKey) {
           this.imStore.updateSessionOpenClawSessionKey(parsed.conversationId, parsed.platform, sessionKey);
         }
@@ -523,6 +526,7 @@ export class OpenClawChannelSessionSync {
 
     // 6. Persist mapping
     this.imStore.createSessionMapping(parsed.conversationId, parsed.platform, session.id, agentId, sessionKey);
+    this.upsertIMSessionSource(session.id, parsed.platform, parsed.conversationId);
     console.log(
       '[ChannelSessionSync] persisted mapping: conversationId=',
       parsed.conversationId,
@@ -564,6 +568,7 @@ export class OpenClawChannelSessionSync {
       if (session) {
         this.updateLocalSessionCwdIfNeeded(session, existingMapping.agentId);
         this.syncedSessionKeys.set(sessionKey, existingMapping.coworkSessionId);
+        this.upsertIMSessionSource(existingMapping.coworkSessionId, parsed.platform, parsed.conversationId);
         if (existingMapping.openClawSessionKey !== sessionKey) {
           this.imStore.updateSessionOpenClawSessionKey(parsed.conversationId, parsed.platform, sessionKey);
         }
@@ -659,6 +664,7 @@ export class OpenClawChannelSessionSync {
     );
     const session = this.coworkStore.createSession(title, cwd, '', 'local', [], agentId);
     console.log('[ChannelSessionSync] created cron session:', session.id);
+    this.upsertScheduledTaskSessionSource(session.id, jobId, jobName);
 
     this.syncedSessionKeys.set(sessionKey, session.id);
     return session.id;
@@ -666,6 +672,43 @@ export class OpenClawChannelSessionSync {
   clearCache(): void {
     this.syncedSessionKeys.clear();
     this.rejectedKeys.clear();
+  }
+
+  private upsertIMSessionSource(
+    sessionId: string,
+    platform: string,
+    conversationId: string,
+  ): void {
+    try {
+      this.coworkStore.upsertSessionSource({
+        sessionId,
+        kind: CoworkSessionSourceKind.IM,
+        priority: 10,
+        platform,
+        conversationId,
+        label: getChannelTitlePrefix(platform).replace(/^\[|\]$/g, ''),
+      });
+    } catch {
+      // Source metadata must not block channel session synchronization.
+    }
+  }
+
+  private upsertScheduledTaskSessionSource(
+    sessionId: string,
+    taskId: string,
+    label?: string | null,
+  ): void {
+    try {
+      this.coworkStore.upsertSessionSource({
+        sessionId,
+        kind: CoworkSessionSourceKind.ScheduledTask,
+        priority: 20,
+        taskId,
+        label: label ?? undefined,
+      });
+    } catch {
+      // Source metadata must not block channel session synchronization.
+    }
   }
 
   /**

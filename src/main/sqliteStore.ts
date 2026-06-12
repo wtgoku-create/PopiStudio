@@ -109,6 +109,27 @@ export class SqliteStore {
     `);
 
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS cowork_session_sources (
+        session_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        label TEXT,
+        task_id TEXT,
+        platform TEXT,
+        conversation_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (session_id, kind),
+        FOREIGN KEY (session_id) REFERENCES cowork_sessions(id) ON DELETE CASCADE
+      );
+    `);
+
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_cowork_session_sources_session_id
+      ON cowork_session_sources(session_id);
+    `);
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS cowork_config (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,

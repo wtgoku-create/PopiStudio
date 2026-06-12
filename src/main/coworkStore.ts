@@ -7,8 +7,12 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 import { AgentId, normalizeAgentAvatarIcon } from '../shared/agent';
-import type { CoworkSessionSourceKind } from '../shared/cowork/constants';
-import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
+import {
+  COWORK_MESSAGE_PAGE_SIZE,
+  COWORK_SESSION_PAGE_SIZE,
+  CoworkSessionSourceKind,
+  type CoworkSessionSourceKind as CoworkSessionSourceKindType,
+} from '../shared/cowork/constants';
 import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 
 
@@ -452,11 +456,21 @@ export interface CoworkSessionSummary {
 }
 
 export interface CoworkSessionSource {
-  kind: CoworkSessionSourceKind;
+  kind: CoworkSessionSourceKindType;
   label?: string;
   taskId?: string;
   platform?: string;
   conversationId?: string;
+}
+
+export interface CoworkSessionSourceInput {
+  sessionId: string;
+  kind: CoworkSessionSourceKindType;
+  priority?: number;
+  label?: string | null;
+  taskId?: string | null;
+  platform?: string | null;
+  conversationId?: string | null;
 }
 
 export type CoworkUserMemoryStatus = 'created' | 'stale' | 'deleted';
@@ -684,6 +698,97 @@ export class CoworkStore {
     };
   }
 
+  upsertSessionSource(source: CoworkSessionSourceInput): void {
+    const sessionId = source.sessionId.trim();
+    if (!sessionId) return;
+
+    const now = Date.now();
+    this.db
+      .prepare(
+        `
+        INSERT INTO cowork_session_sources (
+          session_id, kind, priority, label, task_id, platform, conversation_id, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, kind) DO UPDATE SET
+          priority = excluded.priority,
+          label = excluded.label,
+          task_id = excluded.task_id,
+          platform = excluded.platform,
+          conversation_id = excluded.conversation_id,
+          updated_at = excluded.updated_at
+      `,
+      )
+      .run(
+        sessionId,
+        source.kind,
+        source.priority ?? 0,
+        source.label ?? null,
+        source.taskId ?? null,
+        source.platform ?? null,
+        source.conversationId ?? null,
+        now,
+        now,
+      );
+  }
+
+  getSessionSources(sessionIds: string[]): Map<string, CoworkSessionSource[]> {
+    const uniqueIds = Array.from(new Set(sessionIds.filter(Boolean)));
+    const result = new Map<string, CoworkSessionSource[]>();
+    if (uniqueIds.length === 0) return result;
+
+    const placeholders = uniqueIds.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(
+        `
+        SELECT session_id, kind, label, task_id, platform, conversation_id
+        FROM cowork_session_sources
+        WHERE session_id IN (${placeholders})
+        ORDER BY priority DESC, updated_at DESC
+      `,
+      )
+      .all(...uniqueIds) as Array<{
+        session_id: string;
+        kind: CoworkSessionSourceKindType;
+        label: string | null;
+        task_id: string | null;
+        platform: string | null;
+        conversation_id: string | null;
+      }>;
+
+    for (const row of rows) {
+      const list = result.get(row.session_id) ?? [];
+      list.push({
+        kind: row.kind,
+        ...(row.label ? { label: row.label } : {}),
+        ...(row.task_id ? { taskId: row.task_id } : {}),
+        ...(row.platform ? { platform: row.platform } : {}),
+        ...(row.conversation_id ? { conversationId: row.conversation_id } : {}),
+      });
+      result.set(row.session_id, list);
+    }
+
+    return result;
+  }
+
+  deleteSessionSource(sessionId: string, kind: CoworkSessionSourceKindType): void {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) return;
+
+    this.db
+      .prepare('DELETE FROM cowork_session_sources WHERE session_id = ? AND kind = ?')
+      .run(normalizedSessionId, kind);
+  }
+
+  deleteSessionSourcesForTask(taskId: string): void {
+    const normalizedTaskId = taskId.trim();
+    if (!normalizedTaskId) return;
+
+    this.db
+      .prepare('DELETE FROM cowork_session_sources WHERE kind = ? AND task_id = ?')
+      .run(CoworkSessionSourceKind.ScheduledTask, normalizedTaskId);
+  }
+
   getSession(id: string, messageLimit = COWORK_MESSAGE_PAGE_SIZE): CoworkSession | null {
     interface SessionRow {
       id: string;
@@ -823,6 +928,7 @@ export class CoworkStore {
   private deleteSessionRows(ids: string[]): void {
     if (ids.length === 0) return;
     const placeholders = ids.map(() => '?').join(',');
+    this.db.prepare(`DELETE FROM cowork_session_sources WHERE session_id IN (${placeholders})`).run(...ids);
     this.db.prepare(`DELETE FROM cowork_messages WHERE session_id IN (${placeholders})`).run(...ids);
     this.db.prepare(`DELETE FROM cowork_sessions WHERE id IN (${placeholders})`).run(...ids);
   }

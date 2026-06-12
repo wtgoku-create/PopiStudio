@@ -1211,11 +1211,23 @@ const setScheduledTaskSessionSource = (
   label?: string,
 ): void => {
   if (!sessionId) return;
-  sourceBySessionId.set(sessionId, {
+  const source = {
     kind: CoworkSessionSourceKind.ScheduledTask,
     taskId,
     label,
-  });
+  };
+  sourceBySessionId.set(sessionId, source);
+  try {
+    getCoworkStore().upsertSessionSource({
+      sessionId,
+      kind: CoworkSessionSourceKind.ScheduledTask,
+      priority: 20,
+      taskId,
+      label,
+    });
+  } catch {
+    // Source backfill is best-effort for sidebar rendering.
+  }
 };
 
 const annotateCoworkSessionSummaries = async (
@@ -1227,17 +1239,41 @@ const annotateCoworkSessionSummaries = async (
   const sourceBySessionId = new Map<string, CoworkSessionSource>();
 
   try {
+    const storedSources = getCoworkStore().getSessionSources([...sessionIds]);
+    for (const [sessionId, sources] of storedSources.entries()) {
+      const source = sources[0];
+      if (source) sourceBySessionId.set(sessionId, source);
+    }
+  } catch {
+    // Source metadata is optional for sidebar rendering.
+  }
+
+  try {
     const imStore = getIMGatewayManager()?.getIMStore();
     if (imStore) {
       for (const session of sessions) {
+        if (sourceBySessionId.get(session.id)?.kind === CoworkSessionSourceKind.ScheduledTask) continue;
         const mapping = imStore.getSessionMappingByCoworkSessionId(session.id);
         if (!mapping) continue;
-        sourceBySessionId.set(session.id, {
+        const source = {
           kind: CoworkSessionSourceKind.IM,
           platform: mapping.platform,
           conversationId: mapping.imConversationId,
           label: getPlatformLabelForSessionSource(mapping.platform),
-        });
+        };
+        sourceBySessionId.set(session.id, source);
+        try {
+          getCoworkStore().upsertSessionSource({
+            sessionId: session.id,
+            kind: CoworkSessionSourceKind.IM,
+            priority: 10,
+            platform: mapping.platform,
+            conversationId: mapping.imConversationId,
+            label: source.label,
+          });
+        } catch {
+          // Source backfill is best-effort for sidebar rendering.
+        }
       }
     }
   } catch {
@@ -5123,6 +5159,7 @@ if (!gotTheLock) {
       ) => getIMGatewayManager().primeConversationReplyRoute(platform as Platform, conversationId, coworkSessionId),
     }),
     getOpenClawRuntimeAdapter: () => openClawRuntimeAdapter,
+    getCoworkStore,
   });
 
   registerNimQrLoginHandlers({
