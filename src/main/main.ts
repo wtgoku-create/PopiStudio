@@ -1131,6 +1131,15 @@ const getCoworkStore = () => {
   return coworkStore;
 };
 
+const ensureDefaultAgentHomeSession = (): void => {
+  try {
+    const session = getCoworkStore().ensureAgentHomeSession(AgentId.Main);
+    console.log(`[Main] ensured default agent home session ${session.id}`);
+  } catch (error) {
+    console.error('[Main] failed to ensure default agent home session:', error);
+  }
+};
+
 let agentManager: AgentManager | null = null;
 const getAgentManager = () => {
   if (!agentManager) {
@@ -7768,6 +7777,7 @@ end tell'`, { timeout: 5000 });
     if (resetCount > 0) {
       console.log(`[Main] Reset ${resetCount} stuck cowork session(s) from running -> idle`);
     }
+    ensureDefaultAgentHomeSession();
     // Inject store getter into claudeSettings
     setStoreGetter(() => store);
     // Inject auth getters for popiai-server provider routing
