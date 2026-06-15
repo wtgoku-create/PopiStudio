@@ -102,6 +102,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
   const currentAgent = agents.find((agent) => agent.id === currentAgentId);
   const currentAgentWorkingDirectory = currentAgent?.workingDirectory?.trim() || config.workingDirectory || '';
   const currentAgentSelectedModel = useAgentSelectedModel(currentAgentId, currentAgent?.model ?? '');
+  const hasCurrentSessionMessages = Boolean(
+    currentSession && ((currentSession.totalMessages ?? 0) > 0 || currentSession.messages.length > 0),
+  );
 
   const resolveEngineStatusText = (status: OpenClawEngineStatus): string => {
     switch (status.phase) {
@@ -430,6 +433,17 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     }
   };
 
+  const handleHomeSubmit = async (
+    prompt: string,
+    skillPrompt?: string,
+    imageAttachments?: CoworkImageAttachment[],
+  ): Promise<boolean | void> => {
+    if (currentSession && !hasCurrentSessionMessages) {
+      return handleContinueSession(prompt, skillPrompt, imageAttachments);
+    }
+    return handleStartSession(prompt, skillPrompt, imageAttachments);
+  };
+
   const handleStopSession = async () => {
     if (!currentSession) return;
     if (currentSession.id.startsWith('temp-') && pendingStartRef.current) {
@@ -605,8 +619,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     );
   }
 
-  // When there's a current session, show the session detail view
-  if (currentSession) {
+  // When there's a current session with chat messages, show the session detail view.
+  // Empty agentHome sessions still use the home prompt state.
+  if (currentSession && hasCurrentSessionMessages) {
     return (
       <div className="flex-1 flex flex-col h-full">
         {engineStatusBanner}
@@ -623,7 +638,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     );
   }
 
-  // Home view - no current session
+  // Home view - no current session, or current session has no chat messages yet
   return (
     <div className="flex-1 flex flex-col bg-background h-full">
       {/* Engine status banner for error states */}
@@ -663,7 +678,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
           >
             <CoworkPromptInput
               ref={promptInputRef}
-              onSubmit={handleStartSession}
+              onSubmit={handleHomeSubmit}
               onStop={handleStopSession}
               isStreaming={isStreaming}
               disabled={!isEngineReady}

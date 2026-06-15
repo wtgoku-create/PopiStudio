@@ -4233,18 +4233,10 @@ if (!gotTheLock) {
   ipcMain.handle(CoworkIpcChannel.ListAgentSidebarSessions, async () => {
     try {
       const store = getCoworkStore();
-      const groups = store.listAgentSidebarSessionGroups();
-      const annotated = await annotateCoworkSessionSummaries(
-        groups.flatMap((group) => [group.primarySession, ...group.sourceSessions]),
-      );
-      const annotatedById = new Map(annotated.map((session) => [session.id, session]));
+      const sessions = await annotateCoworkSessionSummaries(store.listAgentSidebarSessions());
       return {
         success: true,
-        groups: groups.map((group) => ({
-          agentId: group.agentId,
-          primarySession: annotatedById.get(group.primarySession.id) ?? group.primarySession,
-          sourceSessions: group.sourceSessions.map((session) => annotatedById.get(session.id) ?? session),
-        })),
+        sessions,
       };
     } catch (error) {
       return {

@@ -12,7 +12,6 @@ import AgentCreateModal from '../agent/AgentCreateModal';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
 import { type CoworkOpenShareOptionsEventDetail, CoworkUiEvent } from '../cowork/constants';
 import AgentSessionNode from './AgentSessionNode';
-import AgentTreeNode from './AgentTreeNode';
 import MyAgentSidebarHeader from './MyAgentSidebarHeader';
 import type { AgentSidebarAgentNode, AgentSidebarTaskNode } from './types';
 import { useAgentSidebarState } from './useAgentSidebarState';
@@ -43,75 +42,29 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     agentNodes,
     removeTaskPreview,
     removeTaskPreviews,
-    removeAgentTaskPreviews,
-    retryLoadTasks,
   } = useAgentSidebarState();
 
   useEffect(() => {
     void agentService.loadAgents();
   }, []);
 
-  const getPrimaryTask = (agent: AgentSidebarAgentNode): AgentSidebarTaskNode | null => {
-    return agent.tasks.find((task) => !task.source || task.source.kind === CoworkSessionSourceKind.AgentHome) ?? null;
-  };
-
-  const getExternalTasks = (agent: AgentSidebarAgentNode): AgentSidebarTaskNode[] => {
-    return agent.tasks.filter((task) => task.source && task.source.kind !== CoworkSessionSourceKind.AgentHome);
-  };
-
   const handleSelectAgentSession = async (
     agent: AgentSidebarAgentNode,
-    task: AgentSidebarTaskNode | null,
+    task: AgentSidebarTaskNode,
   ) => {
     if (agent.id !== currentAgentId) {
       agentService.switchAgent(agent.id);
       await coworkService.loadSessions(agent.id);
     }
-    if (task) {
-      onShowCowork();
-      window.dispatchEvent(new CustomEvent(CoworkUiEvent.SelectSubagent, { detail: null }));
-      await coworkService.loadSession(task.id);
-      return;
-    }
-    coworkService.clearSession({ restoreAgentSkills: true });
     onShowCowork();
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('cowork:focus-input', {
-        detail: { clear: false },
-      }));
-    }, 0);
-  };
-
-  const handleSelectAgent = async (agent: AgentSidebarAgentNode) => {
-    await handleSelectAgentSession(agent, getPrimaryTask(agent));
-  };
-
-  const handleDeleteAgent = async (agent: AgentSidebarAgentNode) => {
-    if (isDefaultAgentId(agent.id)) return;
-    const deleted = await agentService.deleteAgent(agent.id);
-    if (deleted) {
-      removeAgentTaskPreviews(agent.id);
-    }
-    if (deleted && settingsAgentId === agent.id) {
-      setSettingsAgentId(null);
-    }
-    if (!deleted) {
-      window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentDeleteFailed') }));
-    }
-  };
-
-  const handleToggleAgentPin = async (agent: AgentSidebarAgentNode, pinned: boolean) => {
-    const updated = await agentService.updateAgent(agent.id, { pinned });
-    if (!updated) {
-      window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentPinFailed') }));
-    }
+    window.dispatchEvent(new CustomEvent(CoworkUiEvent.SelectSubagent, { detail: null }));
+    await coworkService.loadSession(task.id);
   };
 
   const handleShareAgentSession = async (
     agent: AgentSidebarAgentNode,
-    task: AgentSidebarTaskNode | null = getPrimaryTask(agent),
+    task: AgentSidebarTaskNode,
   ) => {
-    if (!task) return;
     await handleSelectAgentSession(agent, task);
     window.setTimeout(() => {
       window.dispatchEvent(new CustomEvent<CoworkOpenShareOptionsEventDetail>(
@@ -122,13 +75,36 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   };
 
   const handleDeleteSession = async (task: AgentSidebarTaskNode) => {
+    if (task.source?.kind === CoworkSessionSourceKind.AgentHome) {
+      if (isDefaultAgentId(task.agentId)) {
+        window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentDefaultCannotDelete') }));
+        return;
+      }
+
+      const deleted = await agentService.deleteAgent(task.agentId);
+      if (deleted) {
+        const deletedSessionIds = agentNodes
+          .filter((agent) => agent.id === task.agentId)
+          .flatMap((agent) => agent.tasks.map((item) => item.id));
+        removeTaskPreviews(deletedSessionIds.length > 0 ? deletedSessionIds : [task.id]);
+        if (settingsAgentId === task.agentId) {
+          setSettingsAgentId(null);
+        }
+        return;
+      }
+
+      window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentDeleteFailed') }));
+      return;
+    }
+
     const deleted = await coworkService.deleteSession(task.id);
     if (deleted) {
       removeTaskPreview(task.id);
       if (currentSessionId === task.id) {
         const agent = agentNodes.find((item) => item.id === task.agentId);
-        if (agent) {
-          await handleSelectAgentSession(agent, getPrimaryTask(agent));
+        const nextTask = agent?.tasks[0];
+        if (agent && nextTask) {
+          await handleSelectAgentSession(agent, nextTask);
         }
       }
       return;
@@ -136,47 +112,23 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('coworkDeleteSessionFailed') }));
   };
 
-  const renderAgentNode = (agent: AgentSidebarAgentNode) => {
-    const primaryTask = getPrimaryTask(agent);
-    const externalTasks = getExternalTasks(agent);
-    const displayAgent: AgentSidebarAgentNode = {
-      ...agent,
-      tasks: primaryTask ? [primaryTask] : [],
-    };
-    const isMainActive = primaryTask
-      ? primaryTask.id === currentSessionId
-      : agent.id === currentAgentId && !currentSessionId;
+  const renderSessionNode = (agent: AgentSidebarAgentNode) => {
+    const task = agent.tasks[0];
+    if (!task) return null;
 
     return (
-      <React.Fragment key={agent.id}>
-        <AgentTreeNode
-          agent={displayAgent}
-          isActive={isMainActive}
-          onEditAgent={(agent) => setSettingsAgentId(agent.id)}
-          onSelectAgent={(agent) => void handleSelectAgent(agent)}
-          onDeleteAgent={handleDeleteAgent}
-          onShareAgentSession={(agent) => handleShareAgentSession(agent)}
-          onToggleAgentPin={handleToggleAgentPin}
-          onRetryLoadTasks={(agentId) => void retryLoadTasks(agentId)}
-        />
-        {externalTasks.map((task) => (
-          <AgentSessionNode
-            key={task.id}
-            agent={agent}
-            task={task}
-            isActive={task.id === currentSessionId}
-            onSelect={(agent, task) => void handleSelectAgentSession(agent, task)}
-            onDelete={handleDeleteSession}
-            onShare={(agent, task) => handleShareAgentSession(agent, task)}
-          />
-        ))}
-      </React.Fragment>
+      <AgentSessionNode
+        key={task.id}
+        agent={agent}
+        task={task}
+        isActive={task.id === currentSessionId}
+        onSelect={(agent, task) => void handleSelectAgentSession(agent, task)}
+        onDelete={handleDeleteSession}
+        onShare={(agent, task) => handleShareAgentSession(agent, task)}
+        onEditAgent={(agent) => setSettingsAgentId(agent.id)}
+      />
     );
   };
-
-  const pinnedAgentNodes = agentNodes.filter((agent) => agent.pinned);
-  const projectAgentNodes = agentNodes.filter((agent) => !agent.pinned);
-  const hasPinnedAgents = pinnedAgentNodes.length > 0;
 
   useEffect(() => {
     if (deletedSessionIds.length === 0) return;
@@ -194,12 +146,6 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
         onSearch={onSearch}
       />
 
-      {hasPinnedAgents && (
-        <div className="space-y-1.5 pb-1.5">
-          {pinnedAgentNodes.map(renderAgentNode)}
-        </div>
-      )}
-
       {agentNodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
           <p className="text-xs font-medium text-secondary">
@@ -213,11 +159,11 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
             {i18nService.t('createNewAgent')}
           </button>
         </div>
-      ) : projectAgentNodes.length > 0 ? (
+      ) : (
         <div className="space-y-1.5 px-0">
-          {projectAgentNodes.map(renderAgentNode)}
+          {agentNodes.map(renderSessionNode)}
         </div>
-      ) : null}
+      )}
 
       <AgentCreateModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} />
       <AgentSettingsPanel

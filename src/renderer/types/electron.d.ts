@@ -549,11 +549,7 @@ interface IElectronAPI {
     }>;
     listAgentSidebarSessions: () => Promise<{
       success: boolean;
-      groups?: Array<{
-        agentId: string;
-        primarySession: CoworkSessionSummary;
-        sourceSessions: CoworkSessionSummary[];
-      }>;
+      sessions?: CoworkSessionSummary[];
       error?: string;
     }>;
     getContextUsage: (

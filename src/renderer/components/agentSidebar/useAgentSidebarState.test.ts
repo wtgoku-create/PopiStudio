@@ -8,8 +8,6 @@ import {
 import type { AgentSidebarAgentSummary } from './types';
 import {
   collapseAgentSidebarTaskList,
-  removeAgentSidebarAgentTaskPreviews,
-  removeAgentSidebarTaskPreviews,
   sortAgentSidebarAgents,
   sortAgentSidebarTasks,
 } from './useAgentSidebarState';
@@ -95,48 +93,4 @@ test('collapseAgentSidebarTaskList resets one agent history list to preview mode
   expect(collapseAgentSidebarTaskList(['agent-1', 'agent-2'], 'agent-1')).toEqual(['agent-2']);
 });
 
-test('removeAgentSidebarTaskPreviews removes selected tasks across loaded agents', () => {
-  const previews = {
-    'agent-1': [
-      makeSession('keep-1', 100),
-      makeSession('remove-1', 200),
-    ],
-    'agent-2': [
-      makeSession('remove-2', 300),
-      makeSession('keep-2', 400),
-    ],
-  };
 
-  const next = removeAgentSidebarTaskPreviews(previews, ['remove-1', 'remove-2']);
-
-  expect(next['agent-1'].map((session) => session.id)).toEqual(['keep-1']);
-  expect(next['agent-2'].map((session) => session.id)).toEqual(['keep-2']);
-});
-
-test('removeAgentSidebarTaskPreviews preserves state when nothing matches', () => {
-  const previews = {
-    'agent-1': [makeSession('keep-1', 100)],
-  };
-
-  expect(removeAgentSidebarTaskPreviews(previews, ['missing'])).toBe(previews);
-});
-
-test('removeAgentSidebarAgentTaskPreviews clears cached tasks for one agent id', () => {
-  const previews = {
-    'agent-1': [makeSession('remove-1', 100)],
-    'agent-2': [makeSession('keep-2', 200)],
-  };
-
-  const next = removeAgentSidebarAgentTaskPreviews(previews, 'agent-1');
-
-  expect(next['agent-1']).toBeUndefined();
-  expect(next['agent-2'].map((session) => session.id)).toEqual(['keep-2']);
-});
-
-test('removeAgentSidebarAgentTaskPreviews preserves state when agent cache is missing', () => {
-  const previews = {
-    'agent-1': [makeSession('keep-1', 100)],
-  };
-
-  expect(removeAgentSidebarAgentTaskPreviews(previews, 'missing-agent')).toBe(previews);
-});

@@ -245,12 +245,6 @@ export interface CoworkSessionSource {
   conversationId?: string;
 }
 
-export interface CoworkAgentSidebarSessionGroup {
-  agentId: string;
-  primarySession: CoworkSessionSummary;
-  sourceSessions: CoworkSessionSummary[];
-}
-
 // Subagent session summary for sidebar display
 export interface SubagentSessionSummary {
   id: string;
@@ -301,7 +295,7 @@ export interface CoworkSessionListResult {
 
 export interface CoworkAgentSidebarSessionListResult {
   success: boolean;
-  groups?: CoworkAgentSidebarSessionGroup[];
+  sessions?: CoworkSessionSummary[];
   error?: string;
 }
 

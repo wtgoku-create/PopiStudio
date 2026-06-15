@@ -492,8 +492,17 @@ class CoworkService {
   }
 
   async listSessionsForSearch(limit: number, offset: number): Promise<CoworkSessionListResult> {
-    const result = await window.electron?.cowork?.listSessions({ limit, offset });
-    return result ?? { success: false, error: 'Cowork IPC is unavailable' };
+    const result = await this.listAgentSidebarSessions();
+    if (!result.success) {
+      return result;
+    }
+
+    const sessions = result.sessions ?? [];
+    return {
+      success: true,
+      sessions: sessions.slice(offset, offset + limit),
+      hasMore: offset + limit < sessions.length,
+    };
   }
 
   async loadMoreSessions(): Promise<boolean> {

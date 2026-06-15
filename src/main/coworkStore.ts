@@ -455,12 +455,6 @@ export interface CoworkSessionSummary {
   updatedAt: number;
 }
 
-export interface AgentSidebarSessionGroup {
-  agentId: string;
-  primarySession: CoworkSessionSummary;
-  sourceSessions: CoworkSessionSummary[];
-}
-
 export interface CoworkSessionSource {
   kind: CoworkSessionSourceKindType;
   label?: string;
@@ -1144,20 +1138,7 @@ export class CoworkStore {
     return rows.map(row => this.mapSessionSummaryRow(row));
   }
 
-  listAgentSidebarSessionGroups(sourceLimitPerAgent = 8): AgentSidebarSessionGroup[] {
-    const agents = this.listAgents().filter(agent => agent.enabled);
-    const groups = new Map<string, AgentSidebarSessionGroup>();
-
-    for (const agent of agents) {
-      groups.set(agent.id, {
-        agentId: agent.id,
-        primarySession: this.ensureAgentHomeSession(agent.id),
-        sourceSessions: [],
-      });
-    }
-
-    if (groups.size === 0) return [];
-
+  listAgentSidebarSessions(): CoworkSessionSummary[] {
     const sourceRows = this.db
       .prepare(
         `
@@ -1165,15 +1146,15 @@ export class CoworkStore {
                src.kind, src.label, src.task_id, src.platform, src.conversation_id
         FROM cowork_sessions s
         INNER JOIN cowork_session_sources src ON src.session_id = s.id
-        WHERE src.kind IN (?, ?)
-        ORDER BY src.priority DESC,
-          s.pinned DESC,
+        WHERE src.kind IN (?, ?, ?)
+        ORDER BY s.pinned DESC,
           CASE WHEN s.pinned = 1 THEN COALESCE(s.pin_order, s.updated_at, s.created_at) END ASC,
           CASE WHEN s.pinned = 0 THEN s.updated_at END DESC,
           s.updated_at DESC
       `,
       )
       .all(
+        CoworkSessionSourceKind.AgentHome,
         CoworkSessionSourceKind.ScheduledTask,
         CoworkSessionSourceKind.IM,
       ) as Array<CoworkSessionSummaryRow & {
@@ -1184,12 +1165,9 @@ export class CoworkStore {
         conversation_id: string | null;
       }>;
 
+    const sessions: CoworkSessionSummary[] = [];
     for (const row of sourceRows) {
-      const agentId = row.agent_id || AgentId.Main;
-      const group = groups.get(agentId);
-      if (!group || group.sourceSessions.length >= sourceLimitPerAgent) continue;
-
-      group.sourceSessions.push({
+      sessions.push({
         ...this.mapSessionSummaryRow(row),
         source: {
           kind: row.kind,
@@ -1201,7 +1179,7 @@ export class CoworkStore {
       });
     }
 
-    return agents.map(agent => groups.get(agent.id)!).filter(Boolean);
+    return sessions;
   }
 
   resetRunningSessions(): number {

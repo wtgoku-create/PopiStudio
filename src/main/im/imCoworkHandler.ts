@@ -131,7 +131,8 @@ export class IMCoworkHandler extends EventEmitter {
         conversationId: mapping.imConversationId,
         label: PlatformRegistry.get(mapping.platform).label,
       });
-    } catch {
+    } catch (error) {
+      console.error(`[IMCoworkHandler] Error upserting session source for ${mapping.coworkSessionId}: ${error}`); 
       // Source metadata must not block IM session handling.
     }
   }

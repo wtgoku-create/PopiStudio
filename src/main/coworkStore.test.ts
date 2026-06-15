@@ -24,6 +24,7 @@ import os from 'os';
 import path from 'path';
 
 import { AgentAvatarSvg, DefaultAgentAvatarIcon, encodeAgentAvatarIcon } from '../shared/agent/avatar';
+import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { CoworkStore } from './coworkStore';
 
 // ---------------------------------------------------------------------------
@@ -74,6 +75,21 @@ function setupDb(): void {
       key TEXT PRIMARY KEY,
       value TEXT,
       updated_at INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_session_sources (
+      session_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 0,
+      label TEXT,
+      task_id TEXT,
+      platform TEXT,
+      conversation_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (session_id, kind)
     );
   `);
 
@@ -143,12 +159,12 @@ function setupDb(): void {
 }
 
 /** Insert a session row directly. */
-function insertSession(id: string): void {
+function insertSession(id: string, agentId = 'main', updatedAt = Date.now()): void {
   const now = Date.now();
   db.prepare(
     `INSERT INTO cowork_sessions (id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, execution_mode, active_skill_ids, agent_id, created_at, updated_at)
-     VALUES (?, 'test', NULL, 'idle', 0, NULL, '/tmp', '', 'local', '[]', 'main', ?, ?)`,
-  ).run(id, now, now);
+     VALUES (?, 'test', NULL, 'idle', 0, NULL, '/tmp', '', 'local', '[]', ?, ?, ?)`,
+  ).run(id, agentId, now, updatedAt);
 }
 
 /** Insert a message row directly, bypassing CoworkStore.addMessage. */
@@ -173,6 +189,43 @@ function insertMessage(
 
 beforeEach(() => {
   setupDb();
+});
+
+test('listAgentSidebarSessions returns only sessions registered in source table', () => {
+  insertSession('plain-session', 'main', 4000);
+  insertSession('home-session', 'main', 3000);
+  insertSession('im-session', 'main', 2000);
+  insertSession('task-session', 'agent-2', 1000);
+
+  store.upsertSessionSource({
+    sessionId: 'home-session',
+    kind: CoworkSessionSourceKind.AgentHome,
+    label: 'Home',
+  });
+  store.upsertSessionSource({
+    sessionId: 'im-session',
+    kind: CoworkSessionSourceKind.IM,
+    platform: 'popo',
+    conversationId: 'conversation-1',
+  });
+  store.upsertSessionSource({
+    sessionId: 'task-session',
+    kind: CoworkSessionSourceKind.ScheduledTask,
+    taskId: 'task-1',
+  });
+
+  const sessions = store.listAgentSidebarSessions();
+
+  expect(sessions.map((session) => session.id)).toEqual([
+    'home-session',
+    'im-session',
+    'task-session',
+  ]);
+  expect(sessions.map((session) => session.source?.kind)).toEqual([
+    CoworkSessionSourceKind.AgentHome,
+    CoworkSessionSourceKind.IM,
+    CoworkSessionSourceKind.ScheduledTask,
+  ]);
 });
 
 test('getSession returns all messages when one has corrupt metadata', () => {
