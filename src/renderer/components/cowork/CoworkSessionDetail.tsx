@@ -123,6 +123,38 @@ const waitForNextFrame = (): Promise<void> =>
     window.requestAnimationFrame(() => resolve());
   });
 
+const decodeArtifactDataUrl = async (dataUrl: string, isTextType: boolean): Promise<string> => {
+  if (!isTextType) return dataUrl;
+  try {
+    const base64 = dataUrl.split(',')[1] || '';
+    const chunkSize = 32 * 1024;
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+
+    for (let offset = 0; offset < base64.length; offset += chunkSize) {
+      await waitForNextFrame();
+      const binary = atob(base64.slice(offset, offset + chunkSize));
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      chunks.push(bytes);
+      byteLength += bytes.length;
+    }
+
+    const merged = new Uint8Array(byteLength);
+    let writeOffset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, writeOffset);
+      writeOffset += chunk.length;
+    }
+
+    return new TextDecoder('utf-8').decode(merged);
+  } catch {
+    return dataUrl;
+  }
+};
+
 const loadImageFromBase64 = (pngBase64: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
     const img = new Image();
@@ -1221,6 +1253,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
       const loadFiles = async () => {
         for (const artifact of toLoad) {
+          await waitForNextFrame();
           let rawPath = artifact.filePath!;
           if (rawPath.startsWith('file:///')) {
             rawPath = rawPath.slice(7);
@@ -1264,16 +1297,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             if (result?.success && result.dataUrl) {
               const isTextType = artifact.type !== 'image'
                 && artifact.type !== 'document';
-              let content = result.dataUrl;
-              if (isTextType) {
-                try {
-                  const base64 = result.dataUrl.split(',')[1] || '';
-                  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-                  content = new TextDecoder('utf-8').decode(bytes);
-                } catch {
-                  content = result.dataUrl;
-                }
-              }
+              const content = await decodeArtifactDataUrl(result.dataUrl, isTextType);
               loadedFileIdsRef.current.add(artifact.id);
               dispatch(addArtifact({
                 sessionId,
@@ -1329,6 +1353,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       const loadFiles = async () => {
         for (const artifact of toLoad) {
           if (loadedFileIdsRef.current.has(artifact.id)) continue;
+          await waitForNextFrame();
           let rawPath = artifact.filePath!;
           if (rawPath.startsWith('file:///')) {
             rawPath = rawPath.slice(7);
@@ -1362,16 +1387,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             const result = await window.electron.dialog.readFileAsDataUrl(absPath);
             if (result?.success && result.dataUrl) {
               const isTextType = artifact.type !== 'image' && artifact.type !== 'document';
-              let content = result.dataUrl;
-              if (isTextType) {
-                try {
-                  const base64 = result.dataUrl.split(',')[1] || '';
-                  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-                  content = new TextDecoder('utf-8').decode(bytes);
-                } catch {
-                  content = result.dataUrl;
-                }
-              }
+              const content = await decodeArtifactDataUrl(result.dataUrl, isTextType);
               loadedFileIdsRef.current.add(artifact.id);
               dispatch(addArtifact({
                 sessionId,
