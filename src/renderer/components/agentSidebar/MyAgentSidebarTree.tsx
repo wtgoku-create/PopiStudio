@@ -54,7 +54,6 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   ) => {
     if (agent.id !== currentAgentId) {
       agentService.switchAgent(agent.id);
-      await coworkService.loadSessions(agent.id);
     }
     onShowCowork();
     window.dispatchEvent(new CustomEvent(CoworkUiEvent.SelectSubagent, { detail: null }));

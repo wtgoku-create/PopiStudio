@@ -12,11 +12,11 @@
   --lobster-foreground: #333333;
   --lobster-surface: #FFFFFF;
   --lobster-surface-foreground: #333333;
-  --lobster-surface-raised: #F9F9F9;
+  --lobster-surface-raised: #F2F2F2;
   --lobster-surface-overlay: rgba(255,255,255,0.94);
   --lobster-chat-user: rgba(120,143,234,0.12);
   --lobster-chat-user-foreground: #374CB8;
-  --lobster-chat-bot: #F9F9F9;
+  --lobster-chat-bot: #F2F2F2;
   --lobster-chat-bot-foreground: #333333;
   --lobster-text-primary: #333333;
   --lobster-text-secondary: #666666;
@@ -33,7 +33,7 @@
   --lobster-success: #22c55e;
   --lobster-warning: #f59e0b;
   --lobster-gray-1: #FFFFFF;
-  --lobster-gray-2: #F9F9F9;
+  --lobster-gray-2: #F2F2F2;
   --lobster-gray-3: #F0F0F0;
   --lobster-gray-4: #D1D1D1;
   --lobster-gray-5: #999999;

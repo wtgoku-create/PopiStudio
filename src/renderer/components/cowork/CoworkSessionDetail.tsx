@@ -22,6 +22,7 @@ import {
   activateArtifactFileListTab,
   activateArtifactPreviewTab,
   addArtifact,
+  type ArtifactPreviewTab,
   ArtifactSpecialTab,
   closeArtifactPreviewTab,
   closePanel,
@@ -512,6 +513,7 @@ const toAbsolutePathFromCwd = (filePath: string, cwd: string): string => {
 };
 
 const EMPTY_ARTIFACTS: Artifact[] = [];
+const EMPTY_ARTIFACT_PREVIEW_TABS: ArtifactPreviewTab[] = [];
 
 const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   onManageSkills,
@@ -691,7 +693,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     sessionId ? selectSessionArtifacts(state, sessionId) : EMPTY_ARTIFACTS
   );
   const artifactPreviewTabs = useSelector((state: RootState) =>
-    sessionId ? selectPreviewTabs(state, sessionId) : []
+    sessionId ? selectPreviewTabs(state, sessionId) : EMPTY_ARTIFACT_PREVIEW_TABS
   );
   const activeArtifactPreviewTab = useSelector((state: RootState) =>
     sessionId ? selectActivePreviewTab(state, sessionId) : null

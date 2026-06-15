@@ -84,7 +84,6 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
     const agentId = session.agentId?.trim() || AgentId.Main;
     if (agentId !== currentAgentId) {
       agentService.switchAgent(agentId);
-      await coworkService.loadSessions(agentId);
     }
     onShowCowork();
     await coworkService.loadSession(session.id);

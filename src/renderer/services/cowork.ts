@@ -6,7 +6,7 @@ import {
 } from '../../common/coworkSystemMessages';
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
 import { AgentId } from '../../shared/agent';
-import { COWORK_SESSION_PAGE_SIZE } from '../../shared/cowork/constants';
+import { COWORK_SESSION_PAGE_SIZE, CoworkSessionSourceKind } from '../../shared/cowork/constants';
 import { CoworkUiEvent } from '../components/cowork/constants';
 import { store } from '../store';
 import {
@@ -96,6 +96,7 @@ class CoworkService {
 
     // Load sessions list
     await this.loadSessions();
+    await this.loadDefaultAgentHomeSession();
 
     // Set up stream listeners
     this.setupStreamListeners();
@@ -105,6 +106,21 @@ class CoworkService {
     await this.loadOpenClawEngineStatus();
 
     this.initialized = true;
+  }
+
+  private async loadDefaultAgentHomeSession(): Promise<void> {
+    if (store.getState().cowork.currentSessionId) return;
+
+    const result = await this.listAgentSidebarSessions();
+    if (!result.success) return;
+
+    const mainHomeSession = result.sessions?.find((session) => (
+      (session.agentId?.trim() || AgentId.Main) === AgentId.Main
+      && session.source?.kind === CoworkSessionSourceKind.AgentHome
+    ));
+    if (!mainHomeSession) return;
+
+    await this.loadSession(mainHomeSession.id);
   }
 
   private setupStreamListeners(): void {
@@ -804,10 +820,11 @@ class CoworkService {
       store.dispatch(setStreaming(result.session.status === 'running'));
       this.refreshContextUsageForSessionEntry(sessionId);
 
-      const imResult = await cowork.remoteManaged(sessionId);
-      if (requestId === this.latestLoadSessionRequestId) {
-        store.dispatch(setRemoteManaged(imResult?.remoteManaged ?? false));
-      }
+      void cowork.remoteManaged(sessionId).then((imResult) => {
+        if (requestId === this.latestLoadSessionRequestId) {
+          store.dispatch(setRemoteManaged(imResult?.remoteManaged ?? false));
+        }
+      });
 
       return result.session;
     }
