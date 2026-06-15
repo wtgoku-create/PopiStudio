@@ -8,6 +8,7 @@ import {
 import type { AgentSidebarAgentSummary } from './types';
 import {
   collapseAgentSidebarTaskList,
+  mergeAgentSidebarSession,
   sortAgentSidebarAgents,
   sortAgentSidebarTasks,
 } from './useAgentSidebarState';
@@ -93,4 +94,23 @@ test('collapseAgentSidebarTaskList resets one agent history list to preview mode
   expect(collapseAgentSidebarTaskList(['agent-1', 'agent-2'], 'agent-1')).toEqual(['agent-2']);
 });
 
+test('mergeAgentSidebarSession preserves existing source when a plain session update arrives', () => {
+  const existing: CoworkSessionSummary = {
+    ...makeSession('home-session', 100, 200),
+    source: { kind: 'agentHome', label: 'Main' },
+  };
+  const plainUpdate: CoworkSessionSummary = {
+    ...makeSession('home-session', 100, 300),
+    title: 'Updated title',
+  };
+
+  expect(mergeAgentSidebarSession(existing, plainUpdate)).toEqual({
+    ...plainUpdate,
+    source: existing.source,
+  });
+});
+
+test('mergeAgentSidebarSession rejects sidebar sessions without any source', () => {
+  expect(mergeAgentSidebarSession(undefined, makeSession('plain-session', 100))).toBeNull();
+});
 

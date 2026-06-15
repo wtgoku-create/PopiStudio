@@ -42,6 +42,19 @@ const hasSessionChanged = (
     || normalizeAgentId(previous.agentId) !== normalizeAgentId(next.agentId);
 };
 
+export const mergeAgentSidebarSession = (
+  existing: CoworkSessionSummary | undefined,
+  next: CoworkSessionSummary,
+): CoworkSessionSummary | null => {
+  const source = next.source ?? existing?.source;
+  if (!source) return null;
+
+  return {
+    ...next,
+    source,
+  };
+};
+
 export const deriveAgentSidebarIndicator = (
   session: CoworkSessionSummary,
   unreadSessionIds: Set<string>,
@@ -177,7 +190,9 @@ export const useAgentSidebarState = () => {
       }
 
       const sessions = sortSidebarSessions(result.sessions ?? []);
-      setSidebarSessions(sessions.filter((session) => activeAgentIds.has(normalizeAgentId(session.agentId))));
+      setSidebarSessions(sessions.filter((session) => (
+        session.source && activeAgentIds.has(normalizeAgentId(session.agentId))
+      )));
     } finally {
       setLoadingAgentIds([]);
     }
@@ -265,9 +280,10 @@ export const useAgentSidebarState = () => {
       const byId = new Map(previous.map((session) => [session.id, session]));
       sessions.forEach((session) => {
         const existing = byId.get(session.id);
-        if (!existing && !session.source) return;
-        if (!existing || hasSessionChanged(existing, session)) {
-          byId.set(session.id, session);
+        const merged = mergeAgentSidebarSession(existing, session);
+        if (!merged) return;
+        if (!existing || hasSessionChanged(existing, merged)) {
+          byId.set(session.id, merged);
           changed = true;
         }
       });
@@ -328,6 +344,7 @@ export const useAgentSidebarState = () => {
   const agentNodes = useMemo<AgentSidebarAgentNode[]>(() => {
     const agentsById = new Map(sortedEnabledAgents.map((agent) => [agent.id, agent]));
     return sidebarSessions
+      .filter((session) => session.source)
       .map((session) => {
         const agentId = normalizeAgentId(session.agentId);
         const agent = agentsById.get(agentId);
