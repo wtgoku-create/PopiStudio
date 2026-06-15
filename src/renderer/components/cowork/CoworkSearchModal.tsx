@@ -50,7 +50,9 @@ const CoworkSearchModal: React.FC<CoworkSearchModalProps> = ({
     if (!trimmedQuery) return searchSessions;
     return searchSessions.filter((session) => {
       const agentName = agentNameBySessionId.get(session.id) ?? '';
+      const lastMessagePreview = session.lastMessagePreview ?? '';
       return session.title.toLowerCase().includes(trimmedQuery)
+        || lastMessagePreview.toLowerCase().includes(trimmedQuery)
         || agentName.toLowerCase().includes(trimmedQuery);
     });
   }, [agentNameBySessionId, searchQuery, searchSessions]);
@@ -143,12 +145,13 @@ const CoworkSearchModal: React.FC<CoworkSearchModalProps> = ({
                 const agentName = agentNameBySessionId.get(session.id) ?? getSessionAgentId(session);
                 const isSelected = session.id === currentSessionId;
                 const isRunning = session.status === CoworkSessionStatusValue.Running;
+                const subtitle = session.lastMessagePreview;
                 return (
                   <button
                     key={session.id}
                     type="button"
                     onClick={() => void handleSelectSession(session)}
-                    className={`group flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors ${
+                    className={`group flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors ${
                       isSelected
                         ? 'bg-black/[0.06] text-foreground dark:bg-white/[0.07]'
                         : 'text-secondary hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]'
@@ -177,8 +180,15 @@ const CoworkSearchModal: React.FC<CoworkSearchModalProps> = ({
                         </svg>
                       </span>
                     )}
-                    <span className="min-w-0 flex-1 truncate font-medium">
-                      {session.title}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">
+                        {session.title}
+                      </span>
+                      {subtitle && (
+                        <span className="block truncate text-[12px] leading-4 text-secondary/75">
+                          {subtitle}
+                        </span>
+                      )}
                     </span>
                     <span className="max-w-[136px] shrink-0 truncate text-[12px] text-secondary/75">
                       {agentName}

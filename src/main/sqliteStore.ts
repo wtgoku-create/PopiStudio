@@ -78,6 +78,7 @@ export class SqliteStore {
       CREATE TABLE IF NOT EXISTS cowork_sessions (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
+        last_message_preview TEXT,
         claude_session_id TEXT,
         status TEXT NOT NULL DEFAULT 'idle',
         pinned INTEGER NOT NULL DEFAULT 0,
@@ -319,6 +320,11 @@ export class SqliteStore {
         this.didRunMigration = true;
       }
 
+      if (!colNames.includes('last_message_preview')) {
+        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN last_message_preview TEXT;');
+        this.didRunMigration = true;
+      }
+
       // Migration: Add sequence column to cowork_messages
       const msgColumns = this.db.pragma('table_info(cowork_messages)') as Array<{ name: string }>;
       const msgColNames = msgColumns.map(c => c.name);
@@ -338,6 +344,24 @@ export class SqliteStore {
           )
           UPDATE cowork_messages
           SET sequence = (SELECT seq FROM numbered WHERE numbered.id = cowork_messages.id)
+        `);
+      }
+
+      if (!colNames.includes('last_message_preview')) {
+        this.db.exec(`
+          UPDATE cowork_sessions
+          SET last_message_preview = (
+            SELECT substr(replace(replace(trim(m.content), char(13), ' '), char(10), ' '), 1, 120)
+            FROM cowork_messages m
+            WHERE m.session_id = cowork_sessions.id
+              AND m.type IN ('user', 'assistant')
+              AND TRIM(COALESCE(m.content, '')) != ''
+              AND COALESCE(m.metadata, '') NOT LIKE '%"isThinking":true%'
+              AND COALESCE(m.metadata, '') NOT LIKE '%"isThinking": true%'
+            ORDER BY COALESCE(m.sequence, 0) DESC, m.created_at DESC, m.ROWID DESC
+            LIMIT 1
+          )
+          WHERE last_message_preview IS NULL
         `);
       }
     } catch {

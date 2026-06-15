@@ -95,17 +95,6 @@ const markSessionUnread = (state: CoworkState, sessionId: string) => {
   state.unreadSessionIds.push(sessionId);
 };
 
-const toSessionSummary = (session: CoworkSession): CoworkSessionSummary => ({
-  id: session.id,
-  title: session.title,
-  status: session.status,
-  pinned: session.pinned ?? false,
-  pinOrder: session.pinOrder ?? null,
-  agentId: session.agentId,
-  createdAt: session.createdAt,
-  updatedAt: session.updatedAt,
-});
-
 const shouldUseMessageAsPreview = (message: CoworkMessage): boolean => {
   return (message.type === 'user' || message.type === 'assistant')
     && message.metadata?.isThinking !== true
@@ -116,6 +105,28 @@ const toMessagePreview = (content: string): string => {
   const normalized = content.replace(/\s+/g, ' ').trim();
   return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 };
+
+const getLatestMessagePreview = (messages: CoworkMessage[]): string | undefined => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (shouldUseMessageAsPreview(message)) {
+      return toMessagePreview(message.content);
+    }
+  }
+  return undefined;
+};
+
+const toSessionSummary = (session: CoworkSession): CoworkSessionSummary => ({
+  id: session.id,
+  title: session.title,
+  lastMessagePreview: getLatestMessagePreview(session.messages),
+  status: session.status,
+  pinned: session.pinned ?? false,
+  pinOrder: session.pinOrder ?? null,
+  agentId: session.agentId,
+  createdAt: session.createdAt,
+  updatedAt: session.updatedAt,
+});
 
 const coworkSlice = createSlice({
   name: 'cowork',

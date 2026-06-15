@@ -31,9 +31,9 @@ function countRows(db: Database, table: string, where = '1=1', params: (string |
 
 /** Mirror of listSessions(limit, offset) */
 function listSessions(db: Database, limit: number, offset: number) {
-  return getAll<{ id: string; title: string; status: string; pinned: number; pin_order: number | null; updated_at: number }>(
+  return getAll<{ id: string; title: string; last_message_preview: string | null; status: string; pinned: number; pin_order: number | null; updated_at: number }>(
     db,
-    `SELECT id, title, status, pinned, pin_order, updated_at
+    `SELECT id, title, last_message_preview, status, pinned, pin_order, updated_at
      FROM cowork_sessions
      ORDER BY pinned DESC,
        CASE WHEN pinned = 1 THEN COALESCE(pin_order, updated_at, created_at) END ASC,
@@ -81,6 +81,7 @@ const SESSION_SCHEMA = `
   CREATE TABLE IF NOT EXISTS cowork_sessions (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
+    last_message_preview TEXT,
     claude_session_id TEXT,
     status TEXT NOT NULL DEFAULT 'idle',
     pinned INTEGER NOT NULL DEFAULT 0,

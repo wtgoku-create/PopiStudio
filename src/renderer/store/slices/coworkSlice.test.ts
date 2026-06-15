@@ -131,6 +131,35 @@ test('setCurrentSession preserves the agent id when inserting a summary', () => 
   expect(state.sessions[0].agentId).toBe('agent-3');
 });
 
+test('setCurrentSession stores the latest user or assistant message preview', () => {
+  const state = coworkReducer(undefined, setCurrentSession(makeSession({
+    id: 'session-preview',
+    messages: [
+      {
+        id: 'msg-user',
+        type: 'user',
+        content: 'question',
+        timestamp: 1,
+      },
+      {
+        id: 'msg-thinking',
+        type: 'assistant',
+        content: 'internal reasoning',
+        timestamp: 2,
+        metadata: { isThinking: true },
+      },
+      {
+        id: 'msg-tool',
+        type: 'tool_result',
+        content: 'tool output',
+        timestamp: 3,
+      },
+    ],
+  })));
+
+  expect(state.sessions[0].lastMessagePreview).toBe('question');
+});
+
 test('updateSessionStatus marks completed inactive sessions unread', () => {
   const state = coworkReducer(undefined, setSessions([{
     id: 'session-1',

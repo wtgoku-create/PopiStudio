@@ -42,6 +42,7 @@ function setupDb(): void {
     CREATE TABLE IF NOT EXISTS cowork_sessions (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      last_message_preview TEXT,
       claude_session_id TEXT,
       status TEXT NOT NULL DEFAULT 'idle',
       pinned INTEGER NOT NULL DEFAULT 0,
@@ -162,8 +163,8 @@ function setupDb(): void {
 function insertSession(id: string, agentId = 'main', updatedAt = Date.now()): void {
   const now = Date.now();
   db.prepare(
-    `INSERT INTO cowork_sessions (id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, execution_mode, active_skill_ids, agent_id, created_at, updated_at)
-     VALUES (?, 'test', NULL, 'idle', 0, NULL, '/tmp', '', 'local', '[]', ?, ?, ?)`,
+    `INSERT INTO cowork_sessions (id, title, last_message_preview, claude_session_id, status, pinned, pin_order, cwd, system_prompt, execution_mode, active_skill_ids, agent_id, created_at, updated_at)
+     VALUES (?, 'test', NULL, NULL, 'idle', 0, NULL, '/tmp', '', 'local', '[]', ?, ?, ?)`,
   ).run(id, agentId, now, updatedAt);
 }
 
@@ -226,6 +227,70 @@ test('listAgentSidebarSessions returns only sessions registered in source table'
     CoworkSessionSourceKind.IM,
     CoworkSessionSourceKind.ScheduledTask,
   ]);
+});
+
+test('listAgentSidebarSessions returns cached last message previews from sessions', () => {
+  insertSession('home-session', 'main', 1000);
+  db.prepare('UPDATE cowork_sessions SET last_message_preview = ? WHERE id = ?')
+    .run('cached preview', 'home-session');
+  insertMessage('newer-message', 'home-session', 'assistant', 'newer message from message table', null, 1, 2000);
+  store.upsertSessionSource({
+    sessionId: 'home-session',
+    kind: CoworkSessionSourceKind.AgentHome,
+    label: 'Home',
+  });
+
+  const sessions = store.listAgentSidebarSessions();
+
+  expect(sessions[0]?.lastMessagePreview).toBe('cached preview');
+});
+
+test('addMessage stores the latest user or assistant message preview on the session', () => {
+  const sid = 'sess-preview-add';
+  insertSession(sid);
+
+  store.addMessage(sid, { type: 'tool_result', content: 'tool output' });
+  expect(store.listSessions(10, 0)[0]?.lastMessagePreview).toBeUndefined();
+
+  store.addMessage(sid, { type: 'assistant', content: ' assistant reply\nwith spaces ' });
+
+  expect(store.listSessions(10, 0)[0]?.lastMessagePreview).toBe('assistant reply with spaces');
+});
+
+test('updateMessage refreshes the cached session preview', () => {
+  const sid = 'sess-preview-update';
+  insertSession(sid);
+  const message = store.addMessage(sid, { type: 'assistant', content: 'draft' });
+
+  store.updateMessage(sid, message.id, { content: 'final answer' });
+
+  expect(store.listSessions(10, 0)[0]?.lastMessagePreview).toBe('final answer');
+});
+
+test('deleteMessage falls back to the previous latest preview', () => {
+  const sid = 'sess-preview-delete';
+  insertSession(sid);
+  store.addMessage(sid, { type: 'user', content: 'first' }, 1000);
+  const second = store.addMessage(sid, { type: 'assistant', content: 'second' }, 2000);
+
+  expect(store.listSessions(10, 0)[0]?.lastMessagePreview).toBe('second');
+
+  store.deleteMessage(sid, second.id);
+
+  expect(store.listSessions(10, 0)[0]?.lastMessagePreview).toBe('first');
+});
+
+test('replaceConversationMessages stores the latest authoritative message preview', () => {
+  const sid = 'sess-preview-replace';
+  insertSession(sid);
+  store.addMessage(sid, { type: 'assistant', content: 'old' }, 1000);
+
+  store.replaceConversationMessages(sid, [
+    { role: 'user', text: 'question', timestamp: 2000 },
+    { role: 'assistant', text: 'answer', timestamp: 3000 },
+  ]);
+
+  expect(store.listSessions(10, 0)[0]?.lastMessagePreview).toBe('answer');
 });
 
 test('getSession returns all messages when one has corrupt metadata', () => {
