@@ -1,4 +1,7 @@
-import React, { useCallback, useRef, useState } from 'react';
+import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import React from 'react';
+
+import { cn } from '@/lib/utils';
 
 export const TooltipPosition = {
   Top: 'top',
@@ -29,7 +32,7 @@ interface TooltipProps {
 const Tooltip: React.FC<TooltipProps> = ({
   content,
   children,
-  className = '',
+  className,
   position = TooltipPosition.Bottom,
   align = TooltipAlign.Center,
   delay = 400,
@@ -38,57 +41,44 @@ const Tooltip: React.FC<TooltipProps> = ({
   disabled = false,
   multiline = false,
 }) => {
-  const [isVisible, setIsVisible] = useState(false);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const positionClassName = position === TooltipPosition.Top
-    ? 'bottom-full mb-2'
-    : 'top-full mt-2';
-  const alignClassName = align === TooltipAlign.Start
-    ? 'left-0'
-    : align === TooltipAlign.End
-      ? 'right-0'
-      : 'left-1/2 -translate-x-1/2';
-
-  const showTooltip = useCallback(() => {
-    if (disabled) return;
-    timeoutRef.current = setTimeout(() => {
-      setIsVisible(true);
-    }, delay);
-  }, [delay, disabled]);
-
-  const hideTooltip = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    setIsVisible(false);
-  }, []);
+  if (disabled || !content) {
+    return <span className={className}>{children}</span>;
+  }
 
   return (
-    <div
-      className={`relative ${className}`}
-      onMouseEnter={showTooltip}
-      onMouseLeave={hideTooltip}
-    >
-      {children}
-      {isVisible && content && (
-        <div
-          role="tooltip"
-          style={{
-            minWidth: `min(${minWidth}, calc(100vw - 2rem))`,
-            maxWidth: `min(${maxWidth}, calc(100vw - 2rem))`,
-          }}
-          className={`absolute z-[100] pointer-events-none rounded-md border border-border
-            bg-surface-overlay px-2 py-1 text-[11px] leading-4 text-foreground shadow-lg
-            ${multiline ? 'whitespace-pre-wrap break-words' : 'whitespace-nowrap'}
-            backdrop-blur-sm ${positionClassName} ${alignClassName}`}
-        >
-          {content}
-        </div>
-      )}
-    </div>
+    <TooltipPrimitive.Provider delayDuration={delay} skipDelayDuration={120}>
+      <TooltipPrimitive.Root>
+        <TooltipPrimitive.Trigger asChild>
+          <span className={cn('inline-flex', className)}>
+            {children}
+          </span>
+        </TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content
+            side={position}
+            align={align}
+            sideOffset={8}
+            role="tooltip"
+            style={{
+              minWidth: `min(${minWidth}, calc(100vw - 2rem))`,
+              maxWidth: `min(${maxWidth}, calc(100vw - 2rem))`,
+            }}
+            className={cn(
+              'z-[100] overflow-hidden rounded-md border border-border bg-surface-overlay px-2 py-1 text-[11px] leading-4 text-foreground shadow-popover backdrop-blur-sm',
+              'animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
+              multiline ? 'whitespace-pre-wrap break-words' : 'whitespace-nowrap',
+            )}
+          >
+            {content}
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
   );
+};
+
+export {
+  TooltipPrimitive,
 };
 
 export default Tooltip;

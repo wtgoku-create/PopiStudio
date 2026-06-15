@@ -31,6 +31,7 @@ import SearchIcon from '../icons/SearchIcon';
 import SkillIcon from '../icons/SkillIcon';
 import TrashIcon from '../icons/TrashIcon';
 import UploadIcon from '../icons/UploadIcon';
+import Switch from '../ui/Switch';
 import SkillSecurityReport from './SkillSecurityReport';
 
 type SkillTab = 'installed' | 'marketplace';
@@ -189,15 +190,14 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
         setMarketplaceCurrentPage(1);
       }
     } finally {
-      if (requestId !== marketplaceRequestIdRef.current) {
-        return;
-      }
-      if (mode === 'loadMore') {
-        setIsLoadingMoreMarketplace(false);
-      } else if (mode === 'refresh') {
-        setIsRefreshingMarketplace(false);
-      } else {
-        setIsLoadingMarketplace(false);
+      if (requestId === marketplaceRequestIdRef.current) {
+        if (mode === 'loadMore') {
+          setIsLoadingMoreMarketplace(false);
+        } else if (mode === 'refresh') {
+          setIsRefreshingMarketplace(false);
+        } else {
+          setIsLoadingMarketplace(false);
+        }
       }
     }
   }, [activeMarketTag, debouncedMarketplaceQuery]);
@@ -1029,20 +1029,13 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                       <TrashIcon className="h-4 w-4" />
                     </button>
                   )}
-                  <div
-                    className={`w-9 h-5 rounded-full flex items-center transition-colors flex-shrink-0 ${
-                      readOnly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                    } ${
-                      skill.enabled ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                    }`}
+                  <Switch
+                    checked={skill.enabled}
+                    disabled={readOnly}
+                    size="sm"
+                    ariaLabel={skill.name}
                     onClick={(e) => { e.stopPropagation(); if (!readOnly) handleToggleSkill(skill.id); }}
-                  >
-                    <div
-                      className={`w-3.5 h-3.5 rounded-full bg-white shadow-md transform transition-transform ${
-                        skill.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                      }`}
-                    />
-                  </div>
+                  />
                 </div>
               </div>
 
@@ -1152,7 +1145,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                           type="button"
                           onClick={(e) => { e.stopPropagation(); handleInstallMarketplaceSkill(skill); }}
                           disabled={installingSkillId !== null}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg bg-primary text-white hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-lg bg-gradient-to-r from-[#F0F0F0] to-[#D6CEEF] text-[#333] hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <ArrowDownTrayIcon className="h-3.5 w-3.5" />
                           {installingSkillId === skill.id ? i18nService.t('skillInstalling') : i18nService.t('skillInstall')}
@@ -1300,7 +1293,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                   type="button"
                   onClick={() => handleInstallMarketplaceSkill(selectedMarketplaceSkill)}
                   disabled={installingSkillId !== null}
-                  className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#F0F0F0] to-[#D6CEEF] text-[#333] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                 >
                   <ArrowDownTrayIcon className="h-4 w-4" />
                   {installingSkillId === selectedMarketplaceSkill.id ? i18nService.t('skillInstalling') : i18nService.t('skillInstall')}
@@ -1397,24 +1390,17 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
               ) : (
                 <div />
               )}
-              <div
-                className={`w-9 h-5 rounded-full flex items-center transition-colors flex-shrink-0 ${
-                  readOnly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                } ${
-                  selectedSkill.enabled ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-                }`}
+              <Switch
+                checked={selectedSkill.enabled}
+                disabled={readOnly}
+                size="sm"
+                ariaLabel={selectedSkill.name}
                 onClick={() => {
                   if (readOnly) return;
                   handleToggleSkill(selectedSkill.id);
                   setSelectedSkill({ ...selectedSkill, enabled: !selectedSkill.enabled });
                 }}
-              >
-                <div
-                  className={`w-3.5 h-3.5 rounded-full bg-white shadow-md transform transition-transform ${
-                    selectedSkill.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                  }`}
-                />
-              </div>
+              />
             </div>
         </Modal>
       , document.body)}

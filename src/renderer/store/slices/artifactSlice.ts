@@ -39,6 +39,9 @@ interface ArtifactState {
   panelWidth: number;
 }
 
+const EMPTY_ARTIFACTS: Artifact[] = [];
+const EMPTY_ARTIFACT_PREVIEW_TABS: ArtifactPreviewTab[] = [];
+
 const initialState: ArtifactState = {
   artifactsBySession: {},
   previewTabsBySession: {},
@@ -296,7 +299,7 @@ export const {
 } = artifactSlice.actions;
 
 export const selectSessionArtifacts = (state: RootState, sessionId: string): Artifact[] =>
-  state.artifact.artifactsBySession[sessionId] ?? [];
+  state.artifact.artifactsBySession[sessionId] ?? EMPTY_ARTIFACTS;
 
 export const selectSelectedArtifact = (state: RootState): Artifact | null => {
   const id = state.artifact.selectedArtifactId;
@@ -317,7 +320,7 @@ export const selectIsPanelOpen = (state: RootState, sessionId?: string | null): 
 export const selectPanelWidth = (state: RootState): number => state.artifact.panelWidth;
 
 export const selectPreviewTabs = (state: RootState, sessionId: string): ArtifactPreviewTab[] =>
-  state.artifact.previewTabsBySession[sessionId] ?? [];
+  state.artifact.previewTabsBySession[sessionId] ?? EMPTY_ARTIFACT_PREVIEW_TABS;
 
 export const selectActivePreviewTab = (state: RootState, sessionId: string): ArtifactPreviewTab | null => {
   const activeTabId = state.artifact.activePreviewTabIdBySession[sessionId];

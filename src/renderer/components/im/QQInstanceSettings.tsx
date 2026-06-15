@@ -10,6 +10,7 @@ import React, { useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
 import type { IMConnectivityTestResult,QQInstanceConfig, QQInstanceStatus, QQOpenClawConfig } from '../../types/im';
+import Switch from '../ui/Switch';
 
 const PairingSection: React.FC<{
   platform: string;
@@ -429,21 +430,16 @@ const QQInstanceSettings: React.FC<QQInstanceSettingsProps> = ({
             <label className="text-xs font-medium text-secondary">
               Markdown Support
             </label>
-            <button
-              type="button"
+            <Switch
+              checked={instance.markdownSupport}
+              size="sm"
+              ariaLabel="Markdown Support"
               onClick={() => {
                 const update = { markdownSupport: !instance.markdownSupport };
                 onConfigChange(update);
                 void onSave(update);
               }}
-              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                instance.markdownSupport ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
-              }`}
-            >
-              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                instance.markdownSupport ? 'translate-x-4' : 'translate-x-0'
-              }`} />
-            </button>
+            />
           </div>
 
           {/* Image Server Base URL */}

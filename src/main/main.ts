@@ -6,6 +6,7 @@ import path from 'path';
 
 import type { OpenClawSessionPatch } from '../common/openclawSession';
 import { buildSessionTitleFromInput } from '../common/sessionTitle';
+import { BindingKind } from '../scheduledTask/constants';
 import { buildScheduledTaskEnginePrompt } from '../scheduledTask/enginePrompt';
 import { migrateScheduledTaskRunsToOpenclaw, migrateScheduledTasksToOpenclaw } from '../scheduledTask/migrate';
 import { AgentId, AgentIpcChannel } from '../shared/agent/constants';
@@ -21,16 +22,19 @@ import {
   normalizeBrowserWebAccessConfig,
 } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
-import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
+import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
+import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
+import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import { PlatformRegistry } from '../shared/platform';
 // PopiArt CLI 登录态同步与 IPC 处理
 import { ProviderName, ProviderRegistry } from '../shared/providers';
 import { AgentManager } from './agentManager';
+import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 import { APP_NAME } from './appConstants';
 import { getAutoLaunchEnabled, isAutoLaunched, setAutoLaunchEnabled } from './autoLaunchManager';
-import { CoworkStore } from './coworkStore';
+import { type CoworkSessionSource, type CoworkSessionSummary, CoworkStore } from './coworkStore';
 import { setLanguage, t } from './i18n';
 import { IMGatewayConfig, IMGatewayManager } from './im';
 import {
@@ -76,6 +80,8 @@ import { parsePrimaryModelRef, resolveQualifiedAgentModelRef } from './libs/open
 import {
   buildManagedSessionKey,
   DEFAULT_MANAGED_AGENT_ID,
+  extractCronJobIdFromSessionKey,
+  isCronSessionKey,
   OpenClawChannelSessionSync,
 } from './libs/openclawChannelSessionSync';
 import {
@@ -1137,7 +1143,10 @@ const resolveAgentDefaultWorkingDirectory = (agentId?: string): string => {
   const resolvedAgentId = agentId?.trim() || 'main';
   const agentWorkingDirectory = getAgentManager().getAgent(resolvedAgentId)?.workingDirectory?.trim();
   if (agentWorkingDirectory) return agentWorkingDirectory;
-  return getCoworkStore().getConfig().workingDirectory.trim();
+  const configuredWorkingDirectory = getCoworkStore().getConfig().workingDirectory.trim();
+  return resolvedAgentId === AgentId.Main
+    ? resolveMainAgentWorkingDirectory(configuredWorkingDirectory)
+    : configuredWorkingDirectory;
 };
 
 const resolveSessionWorkingDirectory = (options: { cwd?: string; agentId?: string }): string => {
@@ -1172,6 +1181,151 @@ const shouldRefreshServerQuotaForSession = (sessionId: string): boolean => {
 
   const apiConfig = resolveCurrentApiConfig();
   return apiConfig.providerMetadata?.providerName === ProviderName.PopiaiServer;
+};
+
+const getPlatformLabelForSessionSource = (platform: string): string => {
+  const platformId = platform.split(':')[0] as Platform;
+  try {
+    return PlatformRegistry.get(platformId).label;
+  } catch {
+    return platform;
+  }
+};
+
+const parseScheduledTaskBinding = (value: string): { kind?: string; sessionId?: string } | null => {
+  try {
+    const parsed = JSON.parse(value) as { kind?: unknown; sessionId?: unknown };
+    return {
+      kind: typeof parsed.kind === 'string' ? parsed.kind : undefined,
+      sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const setScheduledTaskSessionSource = (
+  sourceBySessionId: Map<string, CoworkSessionSource>,
+  sessionId: string | null | undefined,
+  taskId: string,
+  label?: string,
+): void => {
+  if (!sessionId) return;
+  const source = {
+    kind: CoworkSessionSourceKind.ScheduledTask,
+    taskId,
+    label,
+  };
+  sourceBySessionId.set(sessionId, source);
+  try {
+    getCoworkStore().upsertSessionSource({
+      sessionId,
+      kind: CoworkSessionSourceKind.ScheduledTask,
+      priority: 20,
+      taskId,
+      label,
+    });
+  } catch {
+    // Source backfill is best-effort for sidebar rendering.
+  }
+};
+
+const annotateCoworkSessionSummaries = async (
+  sessions: CoworkSessionSummary[],
+): Promise<CoworkSessionSummary[]> => {
+  if (sessions.length === 0) return sessions;
+
+  const sessionIds = new Set(sessions.map(session => session.id));
+  const sourceBySessionId = new Map<string, CoworkSessionSource>();
+
+  try {
+    const storedSources = getCoworkStore().getSessionSources([...sessionIds]);
+    for (const [sessionId, sources] of storedSources.entries()) {
+      const source = sources[0];
+      if (source) sourceBySessionId.set(sessionId, source);
+    }
+  } catch {
+    // Source metadata is optional for sidebar rendering.
+  }
+
+  try {
+    const imStore = getIMGatewayManager()?.getIMStore();
+    if (imStore) {
+      for (const session of sessions) {
+        if (sourceBySessionId.has(session.id)) continue;
+        const mapping = imStore.getSessionMappingByCoworkSessionId(session.id);
+        if (!mapping) continue;
+        const source = {
+          kind: CoworkSessionSourceKind.IM,
+          platform: mapping.platform,
+          conversationId: mapping.imConversationId,
+          label: getPlatformLabelForSessionSource(mapping.platform),
+        };
+        sourceBySessionId.set(session.id, source);
+        try {
+          getCoworkStore().upsertSessionSource({
+            sessionId: session.id,
+            kind: CoworkSessionSourceKind.IM,
+            priority: 10,
+            platform: mapping.platform,
+            conversationId: mapping.imConversationId,
+            label: source.label,
+          });
+        } catch {
+          // Source backfill is best-effort for sidebar rendering.
+        }
+      }
+    }
+  } catch {
+    // IM metadata is optional for sidebar rendering.
+  }
+
+  try {
+    if (!openClawRuntimeAdapter?.getGatewayClient()) {
+      throw new Error('OpenClaw gateway client is not connected.');
+    }
+    const runs = await getCronJobService().listAllRuns(200, 0);
+    for (const run of runs) {
+      if (!run.sessionId || !sessionIds.has(run.sessionId)) continue;
+      setScheduledTaskSessionSource(sourceBySessionId, run.sessionId, run.taskId, run.taskName);
+    }
+  } catch {
+    // Gateway may not be ready; fall back to plain session summaries.
+  }
+
+  try {
+    const rows = getStore().getDatabase()
+      .prepare('SELECT task_id, binding FROM scheduled_task_meta')
+      .all() as Array<{ task_id: string; binding: string }>;
+    for (const row of rows) {
+      const binding = parseScheduledTaskBinding(row.binding);
+      if (!binding?.sessionId || !sessionIds.has(binding.sessionId)) continue;
+      if (binding.kind !== BindingKind.IMSession && binding.kind !== BindingKind.UISession) continue;
+      const taskName = getCronJobService().getJobNameSync(row.task_id) ?? undefined;
+      setScheduledTaskSessionSource(sourceBySessionId, binding.sessionId, row.task_id, taskName);
+    }
+  } catch {
+    // Metadata table may be absent on first launch.
+  }
+
+  try {
+    for (const session of sessions) {
+      if (sourceBySessionId.get(session.id)?.kind === CoworkSessionSourceKind.ScheduledTask) continue;
+      const sessionKeys = openClawRuntimeAdapter?.getSessionKeysForSession(session.id) ?? [];
+      const cronSessionKey = sessionKeys.find(isCronSessionKey);
+      if (!cronSessionKey) continue;
+      const taskId = extractCronJobIdFromSessionKey(cronSessionKey);
+      const taskName = getCronJobService().getJobNameSync(taskId) ?? undefined;
+      setScheduledTaskSessionSource(sourceBySessionId, session.id, taskId, taskName);
+    }
+  } catch {
+    // Runtime session-key metadata is optional for sidebar rendering.
+  }
+
+  return sessions.map(session => {
+    const source = sourceBySessionId.get(session.id);
+    return source ? { ...session, source } : session;
+  });
 };
 
 const resolveCoworkAgentEngine = (): CoworkAgentEngine => {
@@ -4064,13 +4218,29 @@ if (!gotTheLock) {
       const offset = options?.offset ?? 0;
       const agentId = options?.agentId;
       const store = getCoworkStore();
-      const sessions = store.listSessions(limit, offset, agentId);
+      const sessions = await annotateCoworkSessionSummaries(store.listSessions(limit, offset, agentId));
       const total = store.countSessions(agentId);
       return { success: true, sessions, hasMore: offset + sessions.length < total };
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to list sessions',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.ListAgentSidebarSessions, async () => {
+    try {
+      const store = getCoworkStore();
+      const sessions = await annotateCoworkSessionSummaries(store.listAgentSidebarSessions());
+      return {
+        success: true,
+        sessions,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list agent sidebar sessions',
       };
     }
   });
@@ -4826,10 +4996,21 @@ if (!gotTheLock) {
       const previousWorkingDir = previousConfig.workingDirectory;
       getCoworkStore().setConfig(normalizedConfig);
       if (normalizedConfig.workingDirectory !== undefined && normalizedConfig.workingDirectory !== previousWorkingDir) {
+        const mainAgent = getAgentManager().getAgent(AgentId.Main);
+        const previousMainAgentWorkingDirectory = resolveMainAgentWorkingDirectory(previousWorkingDir);
+        const nextMainAgentWorkingDirectory = resolveMainAgentWorkingDirectory(normalizedConfig.workingDirectory);
+        if (
+          mainAgent
+          && (
+            !mainAgent.workingDirectory.trim()
+            || mainAgent.workingDirectory.trim() === previousMainAgentWorkingDirectory
+          )
+        ) {
+          getAgentManager().updateAgent(AgentId.Main, {
+            workingDirectory: nextMainAgentWorkingDirectory,
+          });
+        }
         getSkillManager().handleWorkingDirectoryChange();
-        // Main agent workspace is decoupled from workingDirectory — no MEMORY.md
-        // or IDENTITY.md sync needed here. The workspace is always at
-        // {STATE_DIR}/workspace-main/ regardless of the user's working directory.
       }
 
       const nextConfig = getCoworkStore().getConfig();
@@ -4993,6 +5174,7 @@ if (!gotTheLock) {
       ) => getIMGatewayManager().primeConversationReplyRoute(platform as Platform, conversationId, coworkSessionId),
     }),
     getOpenClawRuntimeAdapter: () => openClawRuntimeAdapter,
+    getCoworkStore,
   });
 
   registerNimQrLoginHandlers({
@@ -6413,6 +6595,138 @@ if (!gotTheLock) {
         };
       }
     }
+  );
+
+  const MAX_FOLDER_SIZE_ENTRIES = 4000;
+  const calculateDirectorySize = async (dirPath: string): Promise<number> => {
+    let totalSize = 0;
+    let visitedEntries = 0;
+    const pending = [dirPath];
+
+    while (pending.length > 0 && visitedEntries < MAX_FOLDER_SIZE_ENTRIES) {
+      const current = pending.pop()!;
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (visitedEntries >= MAX_FOLDER_SIZE_ENTRIES) break;
+        visitedEntries += 1;
+        const entryPath = path.join(current, entry.name);
+        try {
+          if (entry.isDirectory()) {
+            pending.push(entryPath);
+          } else if (entry.isFile()) {
+            const stat = await fs.promises.stat(entryPath);
+            totalSize += stat.size;
+          }
+        } catch {
+          // Skip entries that are removed or inaccessible while scanning.
+        }
+      }
+    }
+
+    return totalSize;
+  };
+
+  const getFolderTreeEntry = async (
+    entryPath: string,
+    name = path.basename(entryPath),
+  ): Promise<FolderTreeEntry | null> => {
+    try {
+      const stat = await fs.promises.stat(entryPath);
+      const isDirectory = stat.isDirectory();
+      let childCount: number | undefined;
+      if (isDirectory) {
+        try {
+          childCount = (await fs.promises.readdir(entryPath)).filter((childName) => !childName.startsWith('.')).length;
+        } catch {
+          childCount = 0;
+        }
+      }
+
+      return {
+        id: entryPath,
+        name,
+        path: entryPath,
+        isDirectory,
+        size: isDirectory ? await calculateDirectorySize(entryPath) : stat.size,
+        modifiedAt: stat.mtimeMs,
+        childCount,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  ipcMain.handle(
+    FolderIpc.GetEntries,
+    async (_event, entries?: Array<{ path?: string; name?: string; id?: string }>): Promise<{ success: boolean; entries?: FolderTreeEntry[]; error?: string }> => {
+      try {
+        if (!Array.isArray(entries)) {
+          return { success: false, error: 'Missing folder entries' };
+        }
+        const resultEntries = await Promise.all(entries.map(async (entry) => {
+          if (typeof entry.path !== 'string' || !entry.path.trim()) return null;
+          const resolvedPath = path.resolve(entry.path.trim());
+          const result = await getFolderTreeEntry(resolvedPath, entry.name?.trim() || path.basename(resolvedPath));
+          return result ? { ...result, id: entry.id?.trim() || result.id } : null;
+        }));
+
+        return {
+          success: true,
+          entries: resultEntries.filter((entry): entry is FolderTreeEntry => entry !== null),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to read folder entries',
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    FolderIpc.ListChildren,
+    async (_event, folderPath?: string): Promise<{ success: boolean; entries?: FolderTreeEntry[]; error?: string }> => {
+      try {
+        if (typeof folderPath !== 'string' || !folderPath.trim()) {
+          return { success: false, error: 'Missing folder path' };
+        }
+        const resolvedPath = path.resolve(folderPath.trim());
+        const rootStat = await fs.promises.stat(resolvedPath);
+        if (!rootStat.isDirectory()) {
+          return { success: false, error: 'Not a directory' };
+        }
+
+        const dirents = await fs.promises.readdir(resolvedPath, { withFileTypes: true });
+        const visibleDirents = dirents.filter((entry) => !entry.name.startsWith('.'));
+        const entries = await Promise.all(
+          visibleDirents.map(async (entry): Promise<FolderTreeEntry | null> => {
+            const entryPath = path.join(resolvedPath, entry.name);
+            return getFolderTreeEntry(entryPath, entry.name);
+          }),
+        );
+
+        return {
+          success: true,
+          entries: entries
+            .filter((entry): entry is FolderTreeEntry => entry !== null)
+            .sort((a, b) => {
+              if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+              return a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
+            }),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to list folder',
+        };
+      }
+    },
   );
 
   ipcMain.handle(

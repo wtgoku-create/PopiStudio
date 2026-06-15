@@ -5,7 +5,9 @@ import {
   CoworkSystemMessageKind,
 } from '../../common/coworkSystemMessages';
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
-import { COWORK_SESSION_PAGE_SIZE } from '../../shared/cowork/constants';
+import { AgentId } from '../../shared/agent';
+import { COWORK_SESSION_PAGE_SIZE, CoworkSessionSourceKind } from '../../shared/cowork/constants';
+import { CoworkUiEvent } from '../components/cowork/constants';
 import { store } from '../store';
 import {
   addMessage,
@@ -70,6 +72,10 @@ const restoreCurrentAgentDefaultSkills = (): void => {
   }
 };
 
+const resolveCurrentAgentId = (): string => {
+  return store.getState().agent.currentAgentId?.trim() || AgentId.Main;
+};
+
 class CoworkService {
   private streamListenerCleanups: Array<() => void> = [];
   private initialized = false;
@@ -90,6 +96,7 @@ class CoworkService {
 
     // Load sessions list
     await this.loadSessions();
+    await this.loadDefaultAgentHomeSession();
 
     // Set up stream listeners
     this.setupStreamListeners();
@@ -99,6 +106,21 @@ class CoworkService {
     await this.loadOpenClawEngineStatus();
 
     this.initialized = true;
+  }
+
+  private async loadDefaultAgentHomeSession(): Promise<void> {
+    if (store.getState().cowork.currentSessionId) return;
+
+    const result = await this.listAgentSidebarSessions();
+    if (!result.success) return;
+
+    const mainHomeSession = result.sessions?.find((session) => (
+      (session.agentId?.trim() || AgentId.Main) === AgentId.Main
+      && session.source?.kind === CoworkSessionSourceKind.AgentHome
+    ));
+    if (!mainHomeSession) return;
+
+    await this.loadSession(mainHomeSession.id);
   }
 
   private setupStreamListeners(): void {
@@ -235,10 +257,10 @@ class CoworkService {
 
     // Sessions changed listener (new channel sessions discovered by polling,
     // or reconcileWithHistory replaced messages for a channel session)
-    const sessionsChangedCleanup = cowork.onSessionsChanged(() => {
+    const sessionsChangedCleanup = cowork.onSessionsChanged((event) => {
       const beforeState = store.getState().cowork;
       console.log('[CoworkService] onSessionsChanged: received IPC event, before sessions:', beforeState.sessions.length, 'sessionIds:', beforeState.sessions.map(s => s.id).slice(0, 5));
-      void this.loadSessions().then(() => {
+      void this.loadSessionSummaryForChangedSession(event?.sessionId).then(() => this.loadSessions()).then(() => {
         const state = store.getState().cowork;
         console.log('[CoworkService] onSessionsChanged: loadSessions complete, total sessions:', state.sessions.length, 'sessionIds:', state.sessions.map(s => s.id).slice(0, 5));
 
@@ -256,6 +278,27 @@ class CoworkService {
       });
     });
     this.streamListenerCleanups.push(sessionsChangedCleanup);
+  }
+
+  private async loadSessionSummaryForChangedSession(sessionId?: string): Promise<void> {
+    if (!sessionId) return;
+
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSession) return;
+
+    const result = await cowork.getSession(sessionId);
+    if (!result?.success || !result.session) return;
+
+    if (store.getState().cowork.currentSessionId === sessionId) {
+      store.dispatch(setCurrentSession(result.session));
+    }
+    const summaryAgentId = result.session.agentId?.trim() || AgentId.Main;
+    window.dispatchEvent(new CustomEvent(CoworkUiEvent.SessionSummaryChanged, {
+      detail: {
+        sessionId: result.session.id,
+        agentId: summaryAgentId,
+      },
+    }));
   }
 
   private isStillRunningError(error: string): boolean {
@@ -437,7 +480,8 @@ class CoworkService {
 
   async loadSessions(agentId?: string): Promise<void> {
     const requestId = ++this.latestLoadSessionsRequestId;
-    const result = await window.electron?.cowork?.listSessions({ limit: COWORK_SESSION_PAGE_SIZE, offset: 0, agentId });
+    const resolvedAgentId = agentId?.trim() || resolveCurrentAgentId();
+    const result = await window.electron?.cowork?.listSessions({ limit: COWORK_SESSION_PAGE_SIZE, offset: 0, agentId: resolvedAgentId });
     if (result?.success && result.sessions) {
       // High-frequency IM traffic can trigger overlapping list refreshes.
       // Ignore stale responses so an older snapshot does not hide newer sessions.
@@ -458,9 +502,23 @@ class CoworkService {
     return result ?? { success: false, error: 'Cowork IPC is unavailable' };
   }
 
-  async listSessionsForSearch(limit: number, offset: number): Promise<CoworkSessionListResult> {
-    const result = await window.electron?.cowork?.listSessions({ limit, offset });
+  async listAgentSidebarSessions() {
+    const result = await window.electron?.cowork?.listAgentSidebarSessions();
     return result ?? { success: false, error: 'Cowork IPC is unavailable' };
+  }
+
+  async listSessionsForSearch(limit: number, offset: number): Promise<CoworkSessionListResult> {
+    const result = await this.listAgentSidebarSessions();
+    if (!result.success) {
+      return result;
+    }
+
+    const sessions = result.sessions ?? [];
+    return {
+      success: true,
+      sessions: sessions.slice(offset, offset + limit),
+      hasMore: offset + limit < sessions.length,
+    };
   }
 
   async loadMoreSessions(): Promise<boolean> {
@@ -468,7 +526,7 @@ class CoworkService {
     if (!state.hasMoreSessions) return false;
 
     const offset = state.sessions.length;
-    const result = await window.electron?.cowork?.listSessions({ limit: COWORK_SESSION_PAGE_SIZE, offset });
+    const result = await window.electron?.cowork?.listSessions({ limit: COWORK_SESSION_PAGE_SIZE, offset, agentId: resolveCurrentAgentId() });
     if (result?.success && result.sessions) {
       store.dispatch(appendSessions({ sessions: result.sessions, hasMore: result.hasMore ?? false }));
       return true;
@@ -762,10 +820,11 @@ class CoworkService {
       store.dispatch(setStreaming(result.session.status === 'running'));
       this.refreshContextUsageForSessionEntry(sessionId);
 
-      const imResult = await cowork.remoteManaged(sessionId);
-      if (requestId === this.latestLoadSessionRequestId) {
-        store.dispatch(setRemoteManaged(imResult?.remoteManaged ?? false));
-      }
+      void cowork.remoteManaged(sessionId).then((imResult) => {
+        if (requestId === this.latestLoadSessionRequestId) {
+          store.dispatch(setRemoteManaged(imResult?.remoteManaged ?? false));
+        }
+      });
 
       return result.session;
     }

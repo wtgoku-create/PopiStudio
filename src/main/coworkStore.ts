@@ -7,12 +7,28 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 import { AgentId, normalizeAgentAvatarIcon } from '../shared/agent';
-import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE } from '../shared/cowork/constants';
+import {
+  COWORK_MESSAGE_PAGE_SIZE,
+  COWORK_SESSION_PAGE_SIZE,
+  CoworkSessionSourceKind,
+  type CoworkSessionSourceKind as CoworkSessionSourceKindType,
+} from '../shared/cowork/constants';
+import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 
 
 // Default working directory for new users
 const getDefaultWorkingDirectory = (): string => {
   return path.join(os.homedir(), 'popiai', 'project');
+};
+
+const AGENT_WORKSPACE_NAME_INVALID_CHARS = /[<>:"/\\|?*\u0000-\u001F]/g;
+
+const sanitizeAgentWorkspaceName = (name: string): string => {
+  const sanitized = name
+    .replace(AGENT_WORKSPACE_NAME_INVALID_CHARS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return sanitized || 'agent';
 };
 
 const TASK_WORKSPACE_CONTAINER_DIR = '.popiai-tasks';
@@ -434,8 +450,27 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId: string;
+  source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface CoworkSessionSource {
+  kind: CoworkSessionSourceKindType;
+  label?: string;
+  taskId?: string;
+  platform?: string;
+  conversationId?: string;
+}
+
+export interface CoworkSessionSourceInput {
+  sessionId: string;
+  kind: CoworkSessionSourceKindType;
+  priority?: number;
+  label?: string | null;
+  taskId?: string | null;
+  platform?: string | null;
+  conversationId?: string | null;
 }
 
 export type CoworkUserMemoryStatus = 'created' | 'stale' | 'deleted';
@@ -583,6 +618,17 @@ interface CoworkUserMemoryRow {
   last_used_at: number | null;
 }
 
+interface CoworkSessionSummaryRow {
+  id: string;
+  title: string;
+  status: string;
+  pinned: number | null;
+  pin_order: number | null;
+  agent_id: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
 export class CoworkStore {
   private db: Database.Database;
 
@@ -608,6 +654,19 @@ export class CoworkStore {
            updated_at = excluded.updated_at`,
       )
       .run(key, value, now);
+  }
+
+  private mapSessionSummaryRow(row: CoworkSessionSummaryRow): CoworkSessionSummary {
+    return {
+      id: row.id,
+      title: row.title,
+      status: row.status as CoworkSessionStatus,
+      pinned: Boolean(row.pinned),
+      pinOrder: row.pin_order ?? null,
+      agentId: row.agent_id || AgentId.Main,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
   }
 
   createSession(
@@ -661,6 +720,169 @@ export class CoworkStore {
       createdAt: now,
       updatedAt: now,
     };
+  }
+
+  ensureAgentHomeSession(agentId: string): CoworkSessionSummary {
+    const normalizedAgentId = agentId.trim() || AgentId.Main;
+    const existingRow = this.db
+      .prepare(
+        `
+        SELECT s.id, s.title, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at
+        FROM cowork_sessions s
+        INNER JOIN cowork_session_sources src
+          ON src.session_id = s.id AND src.kind = ?
+        WHERE COALESCE(s.agent_id, ?) = ?
+        ORDER BY src.updated_at DESC
+        LIMIT 1
+      `,
+      )
+      .get(
+        CoworkSessionSourceKind.AgentHome,
+        AgentId.Main,
+        normalizedAgentId,
+      ) as {
+        id: string;
+        title: string;
+        status: string;
+        pinned: number | null;
+        pin_order: number | null;
+        agent_id: string | null;
+        created_at: number;
+        updated_at: number;
+      } | undefined;
+
+    if (existingRow) {
+      return this.mapSessionSummaryRow(existingRow);
+    }
+
+    const agent = this.getAgent(normalizedAgentId);
+    const config = this.getConfig();
+    const cwd =
+      agent?.workingDirectory?.trim()
+      || config.workingDirectory.trim()
+      || getDefaultWorkingDirectory();
+    const title = agent?.name?.trim() || 'Popiai';
+    const session = this.createSession(
+      title,
+      cwd,
+      agent?.systemPrompt || config.systemPrompt,
+      config.executionMode || 'local',
+      agent?.skillIds || [],
+      normalizedAgentId,
+      agent?.model || '',
+    );
+    this.upsertSessionSource({
+      sessionId: session.id,
+      kind: CoworkSessionSourceKind.AgentHome,
+      priority: 100,
+      label: title,
+    });
+
+    return {
+      id: session.id,
+      title: session.title,
+      status: session.status,
+      pinned: session.pinned,
+      pinOrder: session.pinOrder ?? null,
+      agentId: session.agentId,
+      source: {
+        kind: CoworkSessionSourceKind.AgentHome,
+        label: title,
+      },
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    };
+  }
+
+  upsertSessionSource(source: CoworkSessionSourceInput): void {
+    const sessionId = source.sessionId.trim();
+    if (!sessionId) return;
+
+    const now = Date.now();
+    this.db
+      .prepare(
+        `
+        INSERT INTO cowork_session_sources (
+          session_id, kind, priority, label, task_id, platform, conversation_id, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, kind) DO UPDATE SET
+          priority = excluded.priority,
+          label = excluded.label,
+          task_id = excluded.task_id,
+          platform = excluded.platform,
+          conversation_id = excluded.conversation_id,
+          updated_at = excluded.updated_at
+      `,
+      )
+      .run(
+        sessionId,
+        source.kind,
+        source.priority ?? 0,
+        source.label ?? null,
+        source.taskId ?? null,
+        source.platform ?? null,
+        source.conversationId ?? null,
+        now,
+        now,
+      );
+  }
+
+  getSessionSources(sessionIds: string[]): Map<string, CoworkSessionSource[]> {
+    const uniqueIds = Array.from(new Set(sessionIds.filter(Boolean)));
+    const result = new Map<string, CoworkSessionSource[]>();
+    if (uniqueIds.length === 0) return result;
+
+    const placeholders = uniqueIds.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(
+        `
+        SELECT session_id, kind, label, task_id, platform, conversation_id
+        FROM cowork_session_sources
+        WHERE session_id IN (${placeholders})
+        ORDER BY priority DESC, updated_at DESC
+      `,
+      )
+      .all(...uniqueIds) as Array<{
+        session_id: string;
+        kind: CoworkSessionSourceKindType;
+        label: string | null;
+        task_id: string | null;
+        platform: string | null;
+        conversation_id: string | null;
+      }>;
+
+    for (const row of rows) {
+      const list = result.get(row.session_id) ?? [];
+      list.push({
+        kind: row.kind,
+        ...(row.label ? { label: row.label } : {}),
+        ...(row.task_id ? { taskId: row.task_id } : {}),
+        ...(row.platform ? { platform: row.platform } : {}),
+        ...(row.conversation_id ? { conversationId: row.conversation_id } : {}),
+      });
+      result.set(row.session_id, list);
+    }
+
+    return result;
+  }
+
+  deleteSessionSource(sessionId: string, kind: CoworkSessionSourceKindType): void {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) return;
+
+    this.db
+      .prepare('DELETE FROM cowork_session_sources WHERE session_id = ? AND kind = ?')
+      .run(normalizedSessionId, kind);
+  }
+
+  deleteSessionSourcesForTask(taskId: string): void {
+    const normalizedTaskId = taskId.trim();
+    if (!normalizedTaskId) return;
+
+    this.db
+      .prepare('DELETE FROM cowork_session_sources WHERE kind = ? AND task_id = ?')
+      .run(CoworkSessionSourceKind.ScheduledTask, normalizedTaskId);
   }
 
   getSession(id: string, messageLimit = COWORK_MESSAGE_PAGE_SIZE): CoworkSession | null {
@@ -802,6 +1024,7 @@ export class CoworkStore {
   private deleteSessionRows(ids: string[]): void {
     if (ids.length === 0) return;
     const placeholders = ids.map(() => '?').join(',');
+    this.db.prepare(`DELETE FROM cowork_session_sources WHERE session_id IN (${placeholders})`).run(...ids);
     this.db.prepare(`DELETE FROM cowork_messages WHERE session_id IN (${placeholders})`).run(...ids);
     this.db.prepare(`DELETE FROM cowork_sessions WHERE id IN (${placeholders})`).run(...ids);
   }
@@ -882,20 +1105,9 @@ export class CoworkStore {
   }
 
   listSessions(limit = COWORK_SESSION_PAGE_SIZE, offset = 0, agentId?: string): CoworkSessionSummary[] {
-    interface SessionSummaryRow {
-      id: string;
-      title: string;
-      status: string;
-      pinned: number | null;
-      pin_order: number | null;
-      agent_id: string | null;
-      created_at: number;
-      updated_at: number;
-    }
-
-    let rows: SessionSummaryRow[];
+    let rows: CoworkSessionSummaryRow[];
     if (agentId) {
-      rows = this.getAll<SessionSummaryRow>(
+      rows = this.getAll<CoworkSessionSummaryRow>(
         `
         SELECT id, title, status, pinned, pin_order, agent_id, created_at, updated_at
         FROM cowork_sessions
@@ -909,7 +1121,7 @@ export class CoworkStore {
         [agentId, limit, offset],
       );
     } else {
-      rows = this.getAll<SessionSummaryRow>(
+      rows = this.getAll<CoworkSessionSummaryRow>(
         `
         SELECT id, title, status, pinned, pin_order, agent_id, created_at, updated_at
         FROM cowork_sessions
@@ -923,16 +1135,51 @@ export class CoworkStore {
       );
     }
 
-    return rows.map(row => ({
-      id: row.id,
-      title: row.title,
-      status: row.status as CoworkSessionStatus,
-      pinned: Boolean(row.pinned),
-      pinOrder: row.pin_order ?? null,
-      agentId: row.agent_id || 'main',
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return rows.map(row => this.mapSessionSummaryRow(row));
+  }
+
+  listAgentSidebarSessions(): CoworkSessionSummary[] {
+    const sourceRows = this.db
+      .prepare(
+        `
+        SELECT s.id, s.title, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at,
+               src.kind, src.label, src.task_id, src.platform, src.conversation_id
+        FROM cowork_sessions s
+        INNER JOIN cowork_session_sources src ON src.session_id = s.id
+        WHERE src.kind IN (?, ?, ?)
+        ORDER BY s.pinned DESC,
+          CASE WHEN s.pinned = 1 THEN COALESCE(s.pin_order, s.updated_at, s.created_at) END ASC,
+          CASE WHEN s.pinned = 0 THEN s.updated_at END DESC,
+          s.updated_at DESC
+      `,
+      )
+      .all(
+        CoworkSessionSourceKind.AgentHome,
+        CoworkSessionSourceKind.ScheduledTask,
+        CoworkSessionSourceKind.IM,
+      ) as Array<CoworkSessionSummaryRow & {
+        kind: CoworkSessionSourceKindType;
+        label: string | null;
+        task_id: string | null;
+        platform: string | null;
+        conversation_id: string | null;
+      }>;
+
+    const sessions: CoworkSessionSummary[] = [];
+    for (const row of sourceRows) {
+      sessions.push({
+        ...this.mapSessionSummaryRow(row),
+        source: {
+          kind: row.kind,
+          ...(row.label ? { label: row.label } : {}),
+          ...(row.task_id ? { taskId: row.task_id } : {}),
+          ...(row.platform ? { platform: row.platform } : {}),
+          ...(row.conversation_id ? { conversationId: row.conversation_id } : {}),
+        },
+      });
+    }
+
+    return sessions;
   }
 
   resetRunningSessions(): number {
@@ -2054,6 +2301,17 @@ export class CoworkStore {
       return this.createAgent({ ...request, id: `${id}-${Date.now()}` });
     }
 
+    const requestedWorkingDirectory = request.workingDirectory?.trim() || '';
+    const configWorkingDirectory = this.getConfig().workingDirectory.trim() || getDefaultWorkingDirectory();
+    const workingDirectory =
+      requestedWorkingDirectory ||
+      (id === AgentId.Main
+        ? resolveMainAgentWorkingDirectory(configWorkingDirectory)
+        : path.join(configWorkingDirectory, sanitizeAgentWorkspaceName(request.name)));
+    if (!requestedWorkingDirectory) {
+      fs.mkdirSync(workingDirectory, { recursive: true });
+    }
+
     let removedOrphanSessionCount = 0;
     const createAgent = this.db.transaction(() => {
       removedOrphanSessionCount = this.deleteSessionsForAgent(id).length;
@@ -2072,7 +2330,7 @@ export class CoworkStore {
           request.systemPrompt || '',
           request.identity || '',
           request.model || '',
-          request.workingDirectory || '',
+          workingDirectory,
           normalizeAgentAvatarIcon(request.icon),
           JSON.stringify(request.skillIds || []),
           request.source || 'custom',
@@ -2086,7 +2344,9 @@ export class CoworkStore {
       this.markOrphanImplicitMemoriesStale();
     }
 
-    return this.getAgent(id)!;
+    const agent = this.getAgent(id)!;
+    this.ensureAgentHomeSession(agent.id);
+    return agent;
   }
 
   backfillEmptyAgentModels(modelId: string): number {

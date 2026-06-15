@@ -19,8 +19,12 @@ vi.mock('electron', () => ({
 // Now import the class under test
 // ---------------------------------------------------------------------------
 import BetterSqlite3 from 'better-sqlite3';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 import { AgentAvatarSvg, DefaultAgentAvatarIcon, encodeAgentAvatarIcon } from '../shared/agent/avatar';
+import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { CoworkStore } from './coworkStore';
 
 // ---------------------------------------------------------------------------
@@ -69,7 +73,23 @@ function setupDb(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS cowork_config (
       key TEXT PRIMARY KEY,
-      value TEXT
+      value TEXT,
+      updated_at INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_session_sources (
+      session_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 0,
+      label TEXT,
+      task_id TEXT,
+      platform TEXT,
+      conversation_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (session_id, kind)
     );
   `);
 
@@ -135,15 +155,16 @@ function setupDb(): void {
 
   // CoworkStore only needs (db)
   store = new CoworkStore(db);
+  store.setConfig({ workingDirectory: fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-cowork-project-')) });
 }
 
 /** Insert a session row directly. */
-function insertSession(id: string): void {
+function insertSession(id: string, agentId = 'main', updatedAt = Date.now()): void {
   const now = Date.now();
   db.prepare(
     `INSERT INTO cowork_sessions (id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, execution_mode, active_skill_ids, agent_id, created_at, updated_at)
-     VALUES (?, 'test', NULL, 'idle', 0, NULL, '/tmp', '', 'local', '[]', 'main', ?, ?)`,
-  ).run(id, now, now);
+     VALUES (?, 'test', NULL, 'idle', 0, NULL, '/tmp', '', 'local', '[]', ?, ?, ?)`,
+  ).run(id, agentId, now, updatedAt);
 }
 
 /** Insert a message row directly, bypassing CoworkStore.addMessage. */
@@ -168,6 +189,43 @@ function insertMessage(
 
 beforeEach(() => {
   setupDb();
+});
+
+test('listAgentSidebarSessions returns only sessions registered in source table', () => {
+  insertSession('plain-session', 'main', 4000);
+  insertSession('home-session', 'main', 3000);
+  insertSession('im-session', 'main', 2000);
+  insertSession('task-session', 'agent-2', 1000);
+
+  store.upsertSessionSource({
+    sessionId: 'home-session',
+    kind: CoworkSessionSourceKind.AgentHome,
+    label: 'Home',
+  });
+  store.upsertSessionSource({
+    sessionId: 'im-session',
+    kind: CoworkSessionSourceKind.IM,
+    platform: 'popo',
+    conversationId: 'conversation-1',
+  });
+  store.upsertSessionSource({
+    sessionId: 'task-session',
+    kind: CoworkSessionSourceKind.ScheduledTask,
+    taskId: 'task-1',
+  });
+
+  const sessions = store.listAgentSidebarSessions();
+
+  expect(sessions.map((session) => session.id)).toEqual([
+    'home-session',
+    'im-session',
+    'task-session',
+  ]);
+  expect(sessions.map((session) => session.source?.kind)).toEqual([
+    CoworkSessionSourceKind.AgentHome,
+    CoworkSessionSourceKind.IM,
+    CoworkSessionSourceKind.ScheduledTask,
+  ]);
 });
 
 test('getSession returns all messages when one has corrupt metadata', () => {
@@ -367,6 +425,28 @@ test('agent CRUD stores working directory independently', () => {
 
   expect(updated?.workingDirectory).toBe('/tmp/docs-next');
   expect(store.getAgent(agent.id)?.workingDirectory).toBe('/tmp/docs-next');
+});
+
+test('createAgent creates default working directory under cowork config directory', () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-agent-project-'));
+  store.setConfig({ workingDirectory: projectRoot });
+
+  const agent = store.createAgent({ name: 'Docs Agent' });
+  const expectedWorkingDirectory = path.join(projectRoot, 'Docs Agent');
+
+  expect(agent.workingDirectory).toBe(expectedWorkingDirectory);
+  expect(fs.existsSync(expectedWorkingDirectory)).toBe(true);
+});
+
+test('createAgent creates main agent working directory under cowork config main directory', () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-main-agent-project-'));
+  store.setConfig({ workingDirectory: projectRoot });
+
+  const agent = store.createAgent({ id: 'main', name: 'Popiai' });
+  const expectedWorkingDirectory = path.join(projectRoot, 'main');
+
+  expect(agent.workingDirectory).toBe(expectedWorkingDirectory);
+  expect(fs.existsSync(expectedWorkingDirectory)).toBe(true);
 });
 
 test('deleteAgent removes its task history before an agent with the same name is recreated', () => {

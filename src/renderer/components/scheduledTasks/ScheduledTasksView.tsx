@@ -26,13 +26,13 @@ type TabType = 'tasks' | 'history';
 
 const pageGutterClass = 'px-6 sm:px-8 lg:px-10';
 const pageContentClass = 'mx-auto flex w-full max-w-[760px] items-center justify-between';
-
-const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
-  isSidebarCollapsed,
-  onToggleSidebar,
-  onNewChat,
-  updateBadge,
-}) => {
+// {
+//   isSidebarCollapsed,
+//   onToggleSidebar,
+//   onNewChat,
+//   updateBadge,
+// }
+const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = () => {
   const dispatch = useDispatch();
   const isMac = window.electron.platform === 'darwin';
   const viewMode = useSelector((state: RootState) => state.scheduledTask.viewMode);
@@ -117,7 +117,7 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
       {/* Header */}
       <div className="draggable flex h-12 items-center justify-between px-4 border-b border-border shrink-0">
         <div className="flex items-center space-x-3 h-8">
-          {isSidebarCollapsed && (
+          {/* {isSidebarCollapsed && (
             <div className={`non-draggable flex items-center gap-1 ${isMac ? 'pl-[68px]' : ''}`}>
               <button
                 type="button"
@@ -135,7 +135,7 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = ({
               </button>
               {updateBadge}
             </div>
-          )}
+          )} */}
           {viewMode !== 'list' && (
             <button
               onClick={handleBackToList}

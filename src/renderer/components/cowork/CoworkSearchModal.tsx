@@ -76,6 +76,7 @@ const CoworkSearchModal: React.FC<CoworkSearchModalProps> = ({
     if (!isOpen) return;
     let cancelled = false;
     setIsLoading(true);
+    setSearchSessions([]);
     void coworkService.listSessionsForSearch(SEARCH_SESSION_LIMIT, 0)
       .then((result) => {
         if (cancelled || !result.success || !result.sessions) return;

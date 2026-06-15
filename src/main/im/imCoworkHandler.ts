@@ -8,6 +8,8 @@ import fs from 'fs';
 import path from 'path';
 
 import { buildScheduledTaskEnginePrompt } from '../../scheduledTask/enginePrompt';
+import { CoworkSessionSourceKind } from '../../shared/cowork/constants';
+import { PlatformRegistry } from '../../shared/platform';
 import type { CoworkMessage,CoworkStore } from '../coworkStore';
 import { t } from '../i18n';
 import type { CoworkRuntime, PermissionRequest, PermissionResult } from '../libs/agentEngine/types';
@@ -120,6 +122,19 @@ export class IMCoworkHandler extends EventEmitter {
       conversationId: mapping.imConversationId,
       platform: mapping.platform,
     });
+    try {
+      this.coworkStore.upsertSessionSource({
+        sessionId: mapping.coworkSessionId,
+        kind: CoworkSessionSourceKind.IM,
+        priority: 10,
+        platform: mapping.platform,
+        conversationId: mapping.imConversationId,
+        label: PlatformRegistry.get(mapping.platform).label,
+      });
+    } catch (error) {
+      console.error(`[IMCoworkHandler] Error upserting session source for ${mapping.coworkSessionId}: ${error}`); 
+      // Source metadata must not block IM session handling.
+    }
   }
 
   private ensureTrackedSession(sessionId: string): boolean {

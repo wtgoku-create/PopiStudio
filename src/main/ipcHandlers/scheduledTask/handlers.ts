@@ -7,7 +7,11 @@ import {
   SessionTarget as STSessionTarget,
 } from '../../../scheduledTask/constants';
 import type { CronJobService } from '../../../scheduledTask/cronJobService';
+import type { ScheduledTask } from '../../../scheduledTask/types';
+import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { PlatformRegistry } from '../../../shared/platform';
+import type { CoworkStore } from '../../coworkStore';
+import { parseManagedSessionKey } from '../../libs/openclawChannelSessionSync';
 import { listScheduledTaskChannels } from './helpers';
 
 export interface ScheduledTaskHandlerDeps {
@@ -45,6 +49,29 @@ export interface ScheduledTaskHandlerDeps {
     getGatewayClient: () => unknown;
     fetchSessionByKey: (sessionKey: string) => Promise<unknown>;
   } | null;
+  getCoworkStore?: () => CoworkStore;
+}
+
+function syncScheduledTaskSessionSource(
+  task: ScheduledTask | null | undefined,
+  getCoworkStore?: ScheduledTaskHandlerDeps['getCoworkStore'],
+): void {
+  if (!task || !getCoworkStore) return;
+
+  const coworkStore = getCoworkStore();
+  const parsed = parseManagedSessionKey(task.sessionKey);
+  if (!parsed?.sessionId) {
+    coworkStore.deleteSessionSourcesForTask(task.id);
+    return;
+  }
+
+  coworkStore.upsertSessionSource({
+    sessionId: parsed.sessionId,
+    kind: CoworkSessionSourceKind.ScheduledTask,
+    priority: 20,
+    taskId: task.id,
+    label: task.name,
+  });
 }
 
 /**
@@ -100,7 +127,7 @@ async function applyAnnounceDeliveryNormalization(
 }
 
 export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): void {
-  const { getCronJobService, getIMGatewayManager, getOpenClawRuntimeAdapter } = deps;
+  const { getCronJobService, getIMGatewayManager, getOpenClawRuntimeAdapter, getCoworkStore } = deps;
 
   ipcMain.handle(ScheduledTaskIpc.List, async () => {
     try {
@@ -139,6 +166,7 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
       await applyAnnounceDeliveryNormalization(normalizedInput, getIMGatewayManager);
 
       const task = await getCronJobService().addJob(normalizedInput);
+      syncScheduledTaskSessionSource(task, getCoworkStore);
       console.log('[IPC][scheduledTask:create] result task id:', task?.id, 'name:', task?.name);
       return { success: true, task };
     } catch (error) {
@@ -160,6 +188,7 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
       await applyAnnounceDeliveryNormalization(normalizedInput, getIMGatewayManager);
 
       const task = await getCronJobService().updateJob(id, normalizedInput);
+      syncScheduledTaskSessionSource(task, getCoworkStore);
       console.log('[IPC][scheduledTask:update] result task id:', task?.id, 'name:', task?.name);
       return { success: true, task };
     } catch (error) {
@@ -173,6 +202,7 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
   ipcMain.handle(ScheduledTaskIpc.Delete, async (_event, id: string) => {
     try {
       await getCronJobService().removeJob(id);
+      getCoworkStore?.().deleteSessionSourcesForTask(id);
       return { success: true, result: true };
     } catch (error) {
       return {

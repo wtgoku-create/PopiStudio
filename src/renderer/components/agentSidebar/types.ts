@@ -1,4 +1,4 @@
-import type { CoworkSessionStatus } from '../../types/cowork';
+import type { CoworkSessionSource, CoworkSessionStatus } from '../../types/cowork';
 import type { SubagentSessionSummary } from '../../types/cowork';
 import type { AgentSidebarIndicator } from './constants';
 
@@ -18,6 +18,7 @@ export interface AgentSidebarTaskNode {
   status: CoworkSessionStatus;
   pinned: boolean;
   pinOrder?: number | null;
+  source?: CoworkSessionSource;
   updatedAt: number;
   createdAt: number;
   indicator: AgentSidebarIndicator;

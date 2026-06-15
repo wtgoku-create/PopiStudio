@@ -22,6 +22,7 @@ import {
   activateArtifactFileListTab,
   activateArtifactPreviewTab,
   addArtifact,
+  type ArtifactPreviewTab,
   ArtifactSpecialTab,
   closeArtifactPreviewTab,
   closePanel,
@@ -39,8 +40,11 @@ import type { Artifact } from '../../types/artifact';
 import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import { CoworkSessionStatusValue } from '../../types/cowork';
+import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
+import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload } from '../artifacts';
 import ComposeIcon from '../icons/ComposeIcon';
+import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
 import SidebarToggleIcon from '../icons/SidebarToggleIcon';
 import WindowTitleBar from '../window/WindowTitleBar';
@@ -89,6 +93,28 @@ const formatExportTimestamp = (value: Date): string => {
 
 type CaptureRect = { x: number; y: number; width: number; height: number };
 
+interface HeaderAgent {
+  id: string;
+  name?: string;
+  icon?: string;
+}
+
+const HeaderAgentAvatar: React.FC<{ agent: HeaderAgent }> = ({ agent }) => {
+  if (shouldUseDefaultAgentIcon(agent)) {
+    return <DefaultAgentIcon className="h-4 w-4" />;
+  }
+
+  return (
+    <AgentAvatarIcon
+      value={agent.icon}
+      className="h-8 w-8"
+      iconClassName="h-4 w-4"
+      legacyClassName="text-[16px]"
+      fallbackText={getAgentDisplayName(agent).trim().slice(0, 1).toUpperCase() || 'A'}
+    />
+  );
+};
+
 const MAX_EXPORT_CANVAS_HEIGHT = 32760;
 const MAX_EXPORT_SEGMENTS = 240;
 
@@ -96,6 +122,38 @@ const waitForNextFrame = (): Promise<void> =>
   new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
+
+const decodeArtifactDataUrl = async (dataUrl: string, isTextType: boolean): Promise<string> => {
+  if (!isTextType) return dataUrl;
+  try {
+    const base64 = dataUrl.split(',')[1] || '';
+    const chunkSize = 32 * 1024;
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+
+    for (let offset = 0; offset < base64.length; offset += chunkSize) {
+      await waitForNextFrame();
+      const binary = atob(base64.slice(offset, offset + chunkSize));
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      chunks.push(bytes);
+      byteLength += bytes.length;
+    }
+
+    const merged = new Uint8Array(byteLength);
+    let writeOffset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, writeOffset);
+      writeOffset += chunk.length;
+    }
+
+    return new TextDecoder('utf-8').decode(merged);
+  } catch {
+    return dataUrl;
+  }
+};
 
 const loadImageFromBase64 = (pngBase64: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
@@ -487,6 +545,7 @@ const toAbsolutePathFromCwd = (filePath: string, cwd: string): string => {
 };
 
 const EMPTY_ARTIFACTS: Artifact[] = [];
+const EMPTY_ARTIFACT_PREVIEW_TABS: ArtifactPreviewTab[] = [];
 
 const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   onManageSkills,
@@ -505,6 +564,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const lastMessageContent = useSelector(selectLastMessageContent);
   const messagesLength = useSelector(selectCurrentMessagesLength);
   const skills = useSelector((state: RootState) => state.skill.skills);
+  const agents = useSelector((state: RootState) => state.agent.agents);
   const contextUsage = useSelector((state: RootState) =>
     currentSession?.id ? state.cowork.contextUsageBySessionId[currentSession.id] : undefined
   );
@@ -516,6 +576,15 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   );
   const isContextBusy = isContextCompacting || isContextMaintenance;
   const isSessionBusy = isStreaming || isContextMaintenance;
+  const headerAgent = useMemo<HeaderAgent>(() => {
+    const agentId = currentSession?.agentId?.trim() || 'main';
+    return agents.find((agent) => agent.id === agentId) ?? {
+      id: agentId,
+      name: agentId,
+      icon: '',
+    };
+  }, [agents, currentSession?.agentId]);
+  const headerAgentName = getAgentDisplayName(headerAgent);
   const detailRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
@@ -656,7 +725,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     sessionId ? selectSessionArtifacts(state, sessionId) : EMPTY_ARTIFACTS
   );
   const artifactPreviewTabs = useSelector((state: RootState) =>
-    sessionId ? selectPreviewTabs(state, sessionId) : []
+    sessionId ? selectPreviewTabs(state, sessionId) : EMPTY_ARTIFACT_PREVIEW_TABS
   );
   const activeArtifactPreviewTab = useSelector((state: RootState) =>
     sessionId ? selectActivePreviewTab(state, sessionId) : null
@@ -1184,6 +1253,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
       const loadFiles = async () => {
         for (const artifact of toLoad) {
+          await waitForNextFrame();
           let rawPath = artifact.filePath!;
           if (rawPath.startsWith('file:///')) {
             rawPath = rawPath.slice(7);
@@ -1227,16 +1297,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             if (result?.success && result.dataUrl) {
               const isTextType = artifact.type !== 'image'
                 && artifact.type !== 'document';
-              let content = result.dataUrl;
-              if (isTextType) {
-                try {
-                  const base64 = result.dataUrl.split(',')[1] || '';
-                  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-                  content = new TextDecoder('utf-8').decode(bytes);
-                } catch {
-                  content = result.dataUrl;
-                }
-              }
+              const content = await decodeArtifactDataUrl(result.dataUrl, isTextType);
               loadedFileIdsRef.current.add(artifact.id);
               dispatch(addArtifact({
                 sessionId,
@@ -1292,6 +1353,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       const loadFiles = async () => {
         for (const artifact of toLoad) {
           if (loadedFileIdsRef.current.has(artifact.id)) continue;
+          await waitForNextFrame();
           let rawPath = artifact.filePath!;
           if (rawPath.startsWith('file:///')) {
             rawPath = rawPath.slice(7);
@@ -1325,16 +1387,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             const result = await window.electron.dialog.readFileAsDataUrl(absPath);
             if (result?.success && result.dataUrl) {
               const isTextType = artifact.type !== 'image' && artifact.type !== 'document';
-              let content = result.dataUrl;
-              if (isTextType) {
-                try {
-                  const base64 = result.dataUrl.split(',')[1] || '';
-                  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-                  content = new TextDecoder('utf-8').decode(bytes);
-                } catch {
-                  content = result.dataUrl;
-                }
-              }
+              const content = await decodeArtifactDataUrl(result.dataUrl, isTextType);
               loadedFileIdsRef.current.add(artifact.id);
               dispatch(addArtifact({
                 sessionId,
@@ -2011,7 +2064,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       <div className="draggable flex h-12 items-center justify-between px-4 border-b border-border bg-background shrink-0">
         {/* Left side: Toggle buttons (when collapsed) + Title */}
         <div className="flex h-full flex-1 items-center gap-2 min-w-0">
-          {isSidebarCollapsed && (
+          {/* {isSidebarCollapsed && (
             <div className={`non-draggable flex items-center gap-1 ${isMac ? 'pl-[68px]' : ''}`}>
               <button
                 type="button"
@@ -2029,10 +2082,20 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               </button>
               {updateBadge}
             </div>
-          )}
-          <h1 className="text-sm leading-none font-medium text-foreground truncate max-w-[360px]">
-            {currentSession.title || i18nService.t('coworkNewSession')}
-          </h1>
+          )} */}
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-transparent leading-none text-foreground dark:border-white/[0.12]">
+              <HeaderAgentAvatar agent={headerAgent} />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium leading-4 text-foreground max-w-[360px]">
+                {headerAgentName}
+              </div>
+              <div className="mt-0.5 truncate text-[12px] leading-4 text-secondary max-w-[360px]">
+                {currentSession.title || i18nService.t('coworkNewSession')}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Right side: Artifact toggle */}
@@ -2579,7 +2642,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             showReadOnlyContext={true}
             readOnlyContextTrailingText={i18nService.t('aiGeneratedDisclaimer')}
             workingDirectory={currentSession?.cwd ?? ''}
-            contextAgentId={currentSession?.agentId}
             sessionId={currentSession?.id}
             contextUsageControl={(
               <div ref={compactConfirmRef} className="relative inline-flex flex-shrink-0">

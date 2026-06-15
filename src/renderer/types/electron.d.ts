@@ -4,6 +4,7 @@ import type {
   BrowserDiagnosticResult,
   BrowserRuntimeProfile,
 } from '../../shared/browserWebAccess/constants';
+import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
 interface ApiResponse {
   ok: boolean;
@@ -57,6 +58,13 @@ interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId?: string;
+  source?: {
+    kind: 'agentHome' | 'scheduledTask' | 'im';
+    label?: string;
+    taskId?: string;
+    platform?: string;
+    conversationId?: string;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -539,6 +547,11 @@ interface IElectronAPI {
       hasMore?: boolean;
       error?: string;
     }>;
+    listAgentSidebarSessions: () => Promise<{
+      success: boolean;
+      sessions?: CoworkSessionSummary[];
+      error?: string;
+    }>;
     getContextUsage: (
       sessionId: string,
     ) => Promise<{ success: boolean; usage?: CoworkContextUsage | null; error?: string }>;
@@ -663,7 +676,7 @@ interface IElectronAPI {
       callback: (data: { sessionId: string; claudeSessionId: string | null }) => void,
     ) => () => void;
     onStreamError: (callback: (data: { sessionId: string; error: string }) => void) => () => void;
-    onSessionsChanged: (callback: () => void) => () => void;
+    onSessionsChanged: (callback: (data?: { sessionId?: string }) => void) => () => void;
   };
   dialog: {
     selectDirectory: () => Promise<{ success: boolean; path: string | null }>;
@@ -683,6 +696,10 @@ interface IElectronAPI {
     openHtmlInBrowser: (htmlContent: string) => Promise<{ success: boolean; error?: string }>;
     getAppsForFile: (filePath: string) => Promise<{ success: boolean; apps: Array<{ name: string; path: string; isDefault: boolean; icon?: string }>; error?: string }>;
     openPathWithApp: (filePath: string, appPath: string) => Promise<{ success: boolean; error?: string }>;
+  };
+  folder: {
+    getEntries: (entries: Array<{ path: string; name?: string; id?: string }>) => Promise<FolderListChildrenResult>;
+    listChildren: (folderPath: string) => Promise<FolderListChildrenResult>;
   };
   clipboard: {
     writeImageFromFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;

@@ -8,6 +8,7 @@ import { ArrowLeftIcon, CheckCircleIcon, CheckIcon, ChevronDownIcon, ChevronRigh
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import type { Platform } from '@shared/platform';
 import { PlatformRegistry } from '@shared/platform';
+import { HIDDEN_IM_PLATFORMS } from '@shared/platform/constants';
 import WecomAIBotSDK from '@wecom/wecom-aibot-sdk';
 import { QRCodeSVG } from 'qrcode.react';
 import React, { useEffect, useMemo, useRef,useState } from 'react';
@@ -24,6 +25,7 @@ import Modal from '../common/Modal';
 import ComposeIcon from '../icons/ComposeIcon';
 import EditIcon from '../icons/EditIcon';
 import TrashIcon from '../icons/TrashIcon';
+import Switch from '../ui/Switch';
 import DingTalkInstanceSettings from './DingTalkInstanceSettings';
 import DiscordInstanceSettings from './DiscordInstanceSettings';
 import FeishuInstanceSettings from './FeishuInstanceSettings';
@@ -34,7 +36,6 @@ import QQInstanceSettings from './QQInstanceSettings';
 import type { UiHint } from './SchemaForm';
 import TelegramInstanceSettings from './TelegramInstanceSettings';
 import WecomInstanceSettings from './WecomInstanceSettings';
-import { HIDDEN_IM_PLATFORMS } from '@shared/platform/constants';
 
 
 
@@ -925,15 +926,6 @@ const IMSettings: React.FC = () => {
     return 'bg-gray-500/15 text-gray-500 dark:text-gray-400';
   };
 
-  const getPlatformSwitchColorClass = (platform: Platform): string => {
-    const displayState = getPlatformDisplayState(platform);
-    if (displayState === IMRuntimeDisplayState.Connected) return 'bg-green-500';
-    if (displayState === IMRuntimeDisplayState.Connecting || displayState === IMRuntimeDisplayState.Starting) return 'bg-sky-500';
-    if (displayState === IMRuntimeDisplayState.Failed) return 'bg-red-500';
-    if (displayState === IMRuntimeDisplayState.PendingSave) return 'bg-yellow-500';
-    return 'bg-gray-300 dark:bg-gray-600';
-  };
-
   const getPlatformStatusDotClass = (platform: Platform): string | null => {
     const displayState = getPlatformDisplayState(platform);
     if (displayState === IMRuntimeDisplayState.Connected) return 'bg-green-500';
@@ -1554,27 +1546,19 @@ const IMSettings: React.FC = () => {
     if (enabled) dispatch(clearError());
   };
 
-  const renderInstanceToggle = (platform: Platform, instance: IMInstanceConfigCard, connected: boolean) => {
+  const renderInstanceToggle = (platform: Platform, instance: IMInstanceConfigCard) => {
     const canEnable = instance.enabled || hasInstanceCredentials(platform, instance);
     return (
-      <button
-        type="button"
+      <Switch
+        checked={instance.enabled}
+        disabled={!canEnable}
+        size="sm"
         onClick={(event) => {
           event.stopPropagation();
           void toggleInstanceFromCard(platform, instance);
         }}
-        disabled={!canEnable}
-        className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-          instance.enabled
-            ? (connected ? 'bg-green-500' : 'bg-yellow-500')
-            : 'bg-gray-300 dark:bg-gray-600'
-        } ${canEnable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}
-        aria-label={instance.enabled ? i18nService.t('stop') : i18nService.t('start')}
-      >
-        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-          instance.enabled ? 'translate-x-4' : 'translate-x-0'
-        }`} />
-      </button>
+        ariaLabel={instance.enabled ? i18nService.t('stop') : i18nService.t('start')}
+      />
     );
   };
 
@@ -1727,7 +1711,7 @@ const IMSettings: React.FC = () => {
                     )}
                   </div>
                   <div className="flex flex-shrink-0 items-center gap-1 pl-1">
-                    {renderInstanceToggle(platform, instance, connected)}
+                    {renderInstanceToggle(platform, instance)}
                     <button
                       type="button"
                       onPointerDown={(event) => event.stopPropagation()}
@@ -1830,21 +1814,17 @@ const IMSettings: React.FC = () => {
                 </span>
               </div>
               {!isMultiInstancePlatform(platform) && (
-                <span
-                  className={`ml-2 flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${
-                    isEnabled ? getPlatformSwitchColorClass(platform) : 'bg-gray-300 dark:bg-gray-600'
-                  } ${(!canToggle || togglingPlatform === platform) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                <Switch
+                  checked={isEnabled}
+                  disabled={!canToggle || togglingPlatform === platform}
+                  size="sm"
+                  className="ml-2"
+                  ariaLabel={isEnabled ? i18nService.t('stop') : i18nService.t('start')}
                   onClick={(event) => {
                     event.stopPropagation();
                     handlePlatformToggle(platform);
                   }}
-                >
-                  <span
-                    className={`h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
-                      isEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
-                    }`}
-                  />
-                </span>
+                />
               )}
             </button>
           );
@@ -2045,9 +2025,10 @@ const IMSettings: React.FC = () => {
                 </div>
 
                 {/* Enable toggle */}
-                <button
-                  type="button"
+                <Switch
+                  checked={inst.enabled}
                   disabled={emailToggleLoading === inst.instanceId}
+                  size="sm"
                   onClick={async () => {
                     const newEnabled = !inst.enabled;
 
@@ -2085,23 +2066,8 @@ const IMSettings: React.FC = () => {
                       setEmailToggleLoading(null);
                     }
                   }}
-                  className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                    emailToggleLoading === inst.instanceId
-                      ? 'cursor-wait bg-gray-400 dark:bg-gray-600'
-                      : inst.enabled
-                        ? `cursor-pointer ${instStatus?.connected ? 'bg-green-500' : 'bg-yellow-500'}`
-                        : 'cursor-pointer bg-gray-400 dark:bg-gray-600'
-                  }`}
                   title={inst.enabled ? i18nService.t('imQQDisableInstance') : i18nService.t('imQQEnableInstance')}
-                >
-                  <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full shadow ring-0 transition duration-200 ease-in-out ${
-                    emailToggleLoading === inst.instanceId
-                      ? 'translate-x-0 bg-gray-300 dark:bg-gray-500 animate-pulse'
-                      : inst.enabled
-                        ? 'translate-x-4 bg-white'
-                        : 'translate-x-0 bg-white'
-                  }`} />
-                </button>
+                />
 
                 {/* Delete button */}
                 <button
@@ -2261,21 +2227,16 @@ const IMSettings: React.FC = () => {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium text-secondary">{i18nService.t('emailA2aEnabled')}</span>
-                      <button
-                        type="button"
+                      <Switch
+                        checked={inst.a2aEnabled ?? true}
+                        size="sm"
+                        ariaLabel={i18nService.t('emailA2aEnabled')}
                         onClick={() => {
                           const a2aEnabled = !(inst.a2aEnabled ?? true);
                           dispatch(setEmailInstanceConfig({ instanceId: inst.instanceId, config: { a2aEnabled } }));
                           void imService.persistEmailInstanceConfig(inst.instanceId, { a2aEnabled });
                         }}
-                        className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out cursor-pointer ${
-                          (inst.a2aEnabled ?? true) ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'
-                        }`}
-                      >
-                        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                          (inst.a2aEnabled ?? true) ? 'translate-x-4' : 'translate-x-0'
-                        }`} />
-                      </button>
+                      />
                     </div>
                     <div>
                       <label className={labelClass}>{i18nService.t('emailA2aAgentDomains')}</label>

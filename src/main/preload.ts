@@ -6,7 +6,9 @@ import { AppUpdateIpc } from '../shared/appUpdate/constants';
 import { ArtifactPreviewIpc } from '../shared/artifactPreview/constants';
 import { BrowserIpc, type BrowserRuntimeProfile } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
+import { CoworkIpcChannel } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
+import { FolderIpc } from '../shared/folder/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../shared/localWebServices/constants';
 import { LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import type { Platform } from '../shared/platform';
@@ -273,6 +275,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('cowork:session:remoteManaged', sessionId),
     listSessions: (options?: { limit?: number; offset?: number; agentId?: string }) =>
       ipcRenderer.invoke('cowork:session:list', options),
+    listAgentSidebarSessions: () =>
+      ipcRenderer.invoke(CoworkIpcChannel.ListAgentSidebarSessions),
     getSessionMessages: (options: { sessionId: string; limit?: number; offset?: number }) =>
       ipcRenderer.invoke('cowork:session:getMessages', options),
     getContextUsage: (sessionId: string) =>
@@ -395,8 +399,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('cowork:stream:error', handler);
       return () => ipcRenderer.removeListener('cowork:stream:error', handler);
     },
-    onSessionsChanged: (callback: () => void) => {
-      const handler = () => callback();
+    onSessionsChanged: (callback: (data?: { sessionId?: string }) => void) => {
+      const handler = (_event: any, data?: { sessionId?: string }) => callback(data);
       ipcRenderer.on('cowork:sessions:changed', handler);
       return () => ipcRenderer.removeListener('cowork:sessions:changed', handler);
     },
@@ -435,6 +439,11 @@ contextBridge.exposeInMainWorld('electron', {
     openHtmlInBrowser: (htmlContent: string) => ipcRenderer.invoke('shell:openHtmlInBrowser', htmlContent),
     getAppsForFile: (filePath: string) => ipcRenderer.invoke('shell:getAppsForFile', filePath),
     openPathWithApp: (filePath: string, appPath: string) => ipcRenderer.invoke('shell:openPathWithApp', filePath, appPath),
+  },
+  folder: {
+    getEntries: (entries: Array<{ path: string; name?: string; id?: string }>) =>
+      ipcRenderer.invoke(FolderIpc.GetEntries, entries),
+    listChildren: (folderPath: string) => ipcRenderer.invoke(FolderIpc.ListChildren, folderPath),
   },
   clipboard: {
     writeImageFromFile: (filePath: string) =>

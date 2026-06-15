@@ -143,7 +143,14 @@ class AgentService {
       if (wasCurrentAgent) {
         this.switchAgent(AgentId.Main);
         const { coworkService } = await import('./cowork');
-        coworkService.loadSessions(AgentId.Main);
+        await coworkService.loadSessions(AgentId.Main);
+        const mainSession = await coworkService.listSessionsForAgentPreview(AgentId.Main, 1, 0);
+        const boundSession = mainSession.success ? mainSession.sessions?.[0] : null;
+        if (boundSession) {
+          await coworkService.loadSession(boundSession.id);
+        } else {
+          coworkService.clearSession({ restoreAgentSkills: true });
+        }
       }
       return true;
     } catch (error) {

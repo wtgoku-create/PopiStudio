@@ -9,10 +9,12 @@ import {
   type AppUpdateRuntimeState,
   AppUpdateStatus,
 } from '../shared/appUpdate/constants';
+import AgentSidebarPanel from './components/agentSidebar/AgentSidebarPanel';
 import { CoworkView } from './components/cowork';
 import CoworkPermissionModal from './components/cowork/CoworkPermissionModal';
 import CoworkQuestionWizard from './components/cowork/CoworkQuestionWizard';
 import EngineStartupOverlay from './components/cowork/EngineStartupOverlay';
+import { FolderView } from './components/folder';
 import LoginDialog from './components/LoginDialog';
 import { McpView } from './components/mcp';
 import PrivacyDialog from './components/PrivacyDialog';
@@ -52,13 +54,13 @@ const INIT_STEP_TIMEOUT_MS_DEFAULT = 16_000;
 const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState<SettingsOpenOptions>({});
-  const [mainView, setMainView] = useState<'cowork' | 'skills' | 'scheduledTasks' | 'mcp'>('cowork');
+  const [mainView, setMainView] = useState<'cowork' | 'skills' | 'scheduledTasks' | 'mcp' | 'folder'>('cowork');
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showLoginDialog, setShowLoginDialog] = useState(false);
   const [, forceLanguageRefresh] = useState(0);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isAgentPanelCollapsed, setIsAgentPanelCollapsed] = useState(false);
   const [appUpdateState, setAppUpdateState] = useState<AppUpdateRuntimeState>({
     status: AppUpdateStatus.Idle,
     source: null,
@@ -283,8 +285,16 @@ const App: React.FC = () => {
     setMainView('scheduledTasks');
   }, []);
 
+  const handleShowFolder = useCallback(() => {
+    setMainView('folder');
+  }, []);
+
   const handleToggleSidebar = useCallback(() => {
-    setIsSidebarCollapsed((prev) => !prev);
+    setIsAgentPanelCollapsed((prev) => !prev);
+  }, []);
+
+  const handleCollapseAgentPanel = useCallback(() => {
+    setIsAgentPanelCollapsed(true);
   }, []);
 
   const handleNewChat = useCallback(() => {
@@ -732,45 +742,57 @@ const App: React.FC = () => {
           onShowCowork={handleShowCowork}
           onShowScheduledTasks={handleShowScheduledTasks}
           onNewChat={handleNewChat}
-          isCollapsed={isSidebarCollapsed}
+          isCollapsed={false}
+          onShowFolder={handleShowFolder}
           onToggleCollapse={handleToggleSidebar}
-          updateBadge={!isSidebarCollapsed ? updateBadge : null}
+          isAgentPanelCollapsed={isAgentPanelCollapsed}
+          onToggleAgentPanel={handleToggleSidebar}
+          onCollapseAgentPanel={handleCollapseAgentPanel}
+          updateBadge={updateBadge}
           hideLogin={enterpriseConfig?.ui?.login === 'hide'}
         />
-        <div className={`flex-1 min-w-0 transition-[padding] duration-200 ease-out ${isSidebarCollapsed ? 'pl-1.5' : ''}`}>
+        <AgentSidebarPanel
+          isCollapsed={isAgentPanelCollapsed}
+          onShowCowork={handleShowCowork}
+        />
+        <div className={`flex-1 min-w-0 transition-[padding] duration-200 ease-out`}>
           <div className="relative h-full min-h-0 rounded-xl border border-border bg-background overflow-hidden">
             <EngineStartupOverlay />
             {mainView === 'skills' ? (
               <SkillsView
-                isSidebarCollapsed={isSidebarCollapsed}
+                isSidebarCollapsed={isAgentPanelCollapsed}
                 onToggleSidebar={handleToggleSidebar}
                 onNewChat={handleNewChat}
                 onCreateSkillByChat={handleCreateSkillByChat}
-                updateBadge={isSidebarCollapsed ? updateBadge : null}
+                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
                 readOnly={enterpriseConfig?.ui?.skills === 'readonly'}
               />
             ) : mainView === 'scheduledTasks' ? (
               <ScheduledTasksView
-                isSidebarCollapsed={isSidebarCollapsed}
+                isSidebarCollapsed={isAgentPanelCollapsed}
                 onToggleSidebar={handleToggleSidebar}
                 onNewChat={handleNewChat}
-                updateBadge={isSidebarCollapsed ? updateBadge : null}
+                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
               />
             ) : mainView === 'mcp' ? (
               <McpView
-                isSidebarCollapsed={isSidebarCollapsed}
+                isSidebarCollapsed={isAgentPanelCollapsed}
                 onToggleSidebar={handleToggleSidebar}
                 onNewChat={handleNewChat}
-                updateBadge={isSidebarCollapsed ? updateBadge : null}
+                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
+              />
+            ) : mainView === 'folder' ? (
+              <FolderView
+                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
               />
             ) : (
               <CoworkView
                 onRequestAppSettings={privacyAgreed === true && !showWelcome ? handleShowSettings : undefined}
                 onShowSkills={handleShowSkills}
-                isSidebarCollapsed={isSidebarCollapsed}
+                isSidebarCollapsed={isAgentPanelCollapsed}
                 onToggleSidebar={handleToggleSidebar}
                 onNewChat={handleNewChat}
-                updateBadge={isSidebarCollapsed ? updateBadge : null}
+                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
               />
             )}
           </div>

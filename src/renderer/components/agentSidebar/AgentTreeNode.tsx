@@ -1,52 +1,35 @@
+import { ShareIcon } from '@heroicons/react/20/solid';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
-import type { SubagentSessionSummary } from '../../types/cowork';
 import { getAgentDisplayName, isDefaultAgentId, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import { AgentConfirmDialogVariant } from '../agent/constants';
-import ComposeIcon from '../icons/ComposeIcon';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import EditIcon from '../icons/EditIcon';
 import EllipsisHorizontalIcon from '../icons/EllipsisHorizontalIcon';
+import LoadingIcon from '../icons/LoadingIcon';
 import PushPinIcon from '../icons/PushPinIcon';
 import TrashIcon from '../icons/TrashIcon';
-import AgentTaskRow from './AgentTaskRow';
-import ExpandAgentTasksRow from './ExpandAgentTasksRow';
-import SubagentTaskRow from './SubagentTaskRow';
-import type { AgentSidebarAgentNode, AgentSidebarTaskNode } from './types';
+import { AgentSidebarIndicator } from './constants';
+import { formatAgentTaskRelativeTime } from './time';
+import type { AgentSidebarAgentNode } from './types';
 
 interface AgentTreeNodeProps {
   agent: AgentSidebarAgentNode;
-  isBatchMode: boolean;
-  batchAgentId: string | null;
-  selectedIds: Set<string>;
-  showBatchOption?: boolean;
-  subagentsBySessionId?: Record<string, SubagentSessionSummary[]>;
-  selectedSubagentId?: string | null;
-  onSelectSubagent?: (subagent: SubagentSessionSummary) => void;
-  onToggleExpanded: (agentId: string) => void;
+  isActive: boolean;
   onEditAgent: (agent: AgentSidebarAgentNode) => void;
-  onCreateTask: (agent: AgentSidebarAgentNode) => void;
+  onSelectAgent: (agent: AgentSidebarAgentNode) => void;
   onDeleteAgent: (agent: AgentSidebarAgentNode) => Promise<void>;
+  onShareAgentSession: (agent: AgentSidebarAgentNode) => Promise<void>;
   onToggleAgentPin: (agent: AgentSidebarAgentNode, pinned: boolean) => Promise<void>;
   onRetryLoadTasks: (agentId: string) => void;
-  onLoadMoreTasks: (agentId: string) => void;
-  onCollapseTasks: (agentId: string) => void;
-  onSelectTask: (task: AgentSidebarTaskNode) => void;
-  onDeleteTask: (task: AgentSidebarTaskNode) => Promise<void>;
-  onShareTask: (task: AgentSidebarTaskNode) => Promise<void>;
-  onToggleTaskPin: (task: AgentSidebarTaskNode, pinned: boolean) => Promise<void>;
-  onRenameTask: (task: AgentSidebarTaskNode, title: string) => Promise<void>;
-  onToggleSelection: (sessionId: string, agentId: string) => void;
-  onEnterBatchMode: (task: AgentSidebarTaskNode) => void;
 }
 
 const ACTION_MENU_VIEWPORT_PADDING = 8;
 const ACTION_MENU_VERTICAL_GAP = 4;
-const ACTION_MENU_HEIGHT = 104;
-const AGENT_TASKS_TRANSITION_MS = 200;
+const ACTION_MENU_HEIGHT = 136;
 
 const AgentAvatar: React.FC<{ agent: AgentSidebarAgentNode }> = ({ agent }) => {
   if (shouldUseDefaultAgentIcon(agent)) {
@@ -56,9 +39,9 @@ const AgentAvatar: React.FC<{ agent: AgentSidebarAgentNode }> = ({ agent }) => {
   return (
     <AgentAvatarIcon
       value={agent.icon}
-      className="h-4 w-4"
+      className="h-8 w-8"
       iconClassName="h-4 w-4"
-      legacyClassName="text-[14px]"
+      legacyClassName="text-[16px]"
       fallbackText={getAgentDisplayName(agent).trim().slice(0, 1).toUpperCase() || 'A'}
     />
   );
@@ -66,42 +49,30 @@ const AgentAvatar: React.FC<{ agent: AgentSidebarAgentNode }> = ({ agent }) => {
 
 const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
   agent,
-  isBatchMode,
-  batchAgentId,
-  selectedIds,
-  showBatchOption = false,
-  subagentsBySessionId,
-  selectedSubagentId,
-  onSelectSubagent,
-  onToggleExpanded,
+  isActive,
   onEditAgent,
-  onCreateTask,
+  onSelectAgent,
   onDeleteAgent,
+  onShareAgentSession,
   onToggleAgentPin,
   onRetryLoadTasks,
-  onLoadMoreTasks,
-  onCollapseTasks,
-  onSelectTask,
-  onDeleteTask,
-  onShareTask,
-  onToggleTaskPin,
-  onRenameTask,
-  onToggleSelection,
-  onEnterBatchMode,
 }) => {
   const [menuPosition, setMenuPosition] = useState<{ right: number; top: number } | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-  const [shouldRenderTasks, setShouldRenderTasks] = useState(agent.isExpanded);
-  const [isTaskGroupVisible, setIsTaskGroupVisible] = useState(agent.isExpanded);
-  const [isTaskGroupTransitioning, setIsTaskGroupTransitioning] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const previousExpandedRef = useRef(agent.isExpanded);
   const isMenuOpen = menuPosition !== null;
   const isMainAgent = isDefaultAgentId(agent.id);
-  const isBatchAgent = isBatchMode && batchAgentId === agent.id;
-  const isOutsideBatchAgent = isBatchMode && batchAgentId !== null && batchAgentId !== agent.id;
   const agentName = getAgentDisplayName(agent);
+  const boundTask = agent.tasks[0] ?? null;
+  const indicator = boundTask?.indicator ?? AgentSidebarIndicator.None;
+  const showRunningIndicator = indicator === AgentSidebarIndicator.Running;
+  const showUnreadIndicator = indicator === AgentSidebarIndicator.CompletedUnread;
+  const relativeTime = boundTask ? formatAgentTaskRelativeTime(boundTask.updatedAt || boundTask.createdAt) : null;
+  const subtitle = agent.hasLoadError && agent.tasks.length === 0
+    ? i18nService.t('myAgentSidebarLoadFailed')
+    : boundTask?.title ?? i18nService.t('myAgentSidebarNoTasks');
+  const trailingMetaClassName = isMenuOpen ? 'opacity-0' : 'group-hover:opacity-0';
   const menuItemClassName =
     'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
   const dangerMenuItemClassName =
@@ -109,9 +80,7 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
   const disabledMenuItemClassName =
     'flex w-full cursor-not-allowed items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-secondary/40';
   const rowActionButtonClassName =
-    'inline-flex h-5 w-5 items-center justify-center rounded text-foreground opacity-[0.3] transition-opacity hover:opacity-[0.46]';
-  const rowEditActionButtonClassName =
-    'inline-flex h-5 w-5 items-center justify-center rounded text-foreground opacity-[0.3] transition-opacity hover:opacity-[0.46]';
+    'inline-flex h-7 w-7 items-center justify-center rounded-lg text-foreground opacity-[0.46] transition-colors hover:bg-black/[0.06] hover:opacity-[0.7] dark:hover:bg-white/[0.06]';
   const menuIconClassName = 'h-3.5 w-3.5';
 
   const calculateMenuPosition = useCallback(() => {
@@ -173,63 +142,20 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
     };
   }, [calculateMenuPosition, closeMenu, isMenuOpen]);
 
-  useEffect(() => {
-    let animationFrame: number | undefined;
-    let transitionTimeout: number | undefined;
-    const wasExpanded = previousExpandedRef.current;
-
-    previousExpandedRef.current = agent.isExpanded;
-
-    if (wasExpanded === agent.isExpanded) {
-      return undefined;
-    }
-
-    if (agent.isExpanded) {
-      setShouldRenderTasks(true);
-      setIsTaskGroupVisible(false);
-      setIsTaskGroupTransitioning(true);
-      animationFrame = window.requestAnimationFrame(() => {
-        animationFrame = window.requestAnimationFrame(() => {
-          setIsTaskGroupVisible(true);
-          transitionTimeout = window.setTimeout(() => {
-            setIsTaskGroupTransitioning(false);
-          }, AGENT_TASKS_TRANSITION_MS);
-        });
-      });
-    } else {
-      setIsTaskGroupTransitioning(true);
-      setIsTaskGroupVisible(false);
-      transitionTimeout = window.setTimeout(() => {
-        setShouldRenderTasks(false);
-        setIsTaskGroupTransitioning(false);
-      }, AGENT_TASKS_TRANSITION_MS);
-    }
-
-    return () => {
-      if (animationFrame !== undefined) {
-        window.cancelAnimationFrame(animationFrame);
-      }
-      if (transitionTimeout !== undefined) {
-        window.clearTimeout(transitionTimeout);
-      }
-    };
-  }, [agent.isExpanded]);
-
   const handleEditAgent = (event: React.MouseEvent) => {
     event.stopPropagation();
     closeMenu();
     onEditAgent(agent);
   };
 
-  const handleCreateTask = (event: React.MouseEvent) => {
+  const handleAgentClick = (event: React.MouseEvent) => {
     event.stopPropagation();
     closeMenu();
-    onCreateTask(agent);
-  };
-
-  const handleAgentClick = (event: React.MouseEvent) => {
-    onToggleExpanded(agent.id);
-    handleCreateTask(event);
+    if (agent.hasLoadError && agent.tasks.length === 0) {
+      onRetryLoadTasks(agent.id);
+      return;
+    }
+    onSelectAgent(agent);
   };
 
   const handleDeleteMenuClick = (event: React.MouseEvent) => {
@@ -245,28 +171,72 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
     void onToggleAgentPin(agent, !agent.pinned);
   };
 
+  const handleShareSession = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!boundTask) return;
+    closeMenu();
+    void onShareAgentSession(agent);
+  };
+
   return (
-    <div className="space-y-0.5">
-      <div className={`group sticky top-10 ${isMenuOpen ? 'z-50' : 'z-20'} -ml-[6px] h-7 w-[calc(100%+12px)] bg-surface-raised`}>
+    <div>
+      <div className={`group relative ${isMenuOpen ? 'z-50' : 'z-20'} h-[58px] w-full rounded-lg transition-colors hover:bg-[#f0edf9] dark:hover:bg-white/[0.06] ${
+        isActive ? 'bg-[#f0edf9] dark:bg-white/[0.06]' : 'bg-white dark:bg-transparent'
+      }`}
+      >
         <button
           type="button"
           onClick={handleAgentClick}
-          className="flex h-full w-full items-center gap-2 rounded-md py-0 pl-3.5 pr-12 text-left text-[14px] font-normal text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+          className="flex h-full w-full items-center gap-2 rounded-lg bg-transparent px-3 text-left"
           role="treeitem"
           aria-level={1}
-          aria-expanded={agent.isExpanded}
+          aria-current={isActive ? 'page' : undefined}
         >
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center leading-none text-foreground">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-transparent leading-none text-foreground dark:border-white/[0.12]">
             <AgentAvatar agent={agent} />
           </span>
-          <span className="min-w-0 flex-1 truncate opacity-[0.76]">
-            {agentName}
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 truncate text-[14px] font-medium leading-[18px] text-[#333] dark:text-foreground">
+                {agentName}
+              </span>
+              {agent.pinned && (
+                <PushPinIcon className="h-3 w-3 shrink-0 text-[#333]/70 dark:text-foreground/60" />
+              )}
+            </span>
+            <span className={`mt-0.5 block min-w-0 truncate text-[12px] leading-4 ${
+              agent.hasLoadError && agent.tasks.length === 0 ? 'text-red-500' : 'text-[#999] dark:text-secondary'
+            }`}
+            >
+              {subtitle}
+            </span>
           </span>
+          {agent.isLoadingTasks && agent.tasks.length === 0 && (
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-secondary/50" />
+          )}
+          {showRunningIndicator && (
+            <LoadingIcon
+              className={`h-3 w-3 shrink-0 animate-spin text-secondary transition-opacity ${trailingMetaClassName}`}
+              aria-label={i18nService.t('myAgentSidebarRunning')}
+            />
+          )}
+          {showUnreadIndicator && (
+            <span
+              className={`h-2 w-2 shrink-0 rounded-full bg-primary transition-opacity ${trailingMetaClassName}`}
+              title={i18nService.t('myAgentSidebarUnreadResult')}
+              aria-label={i18nService.t('myAgentSidebarUnreadResult')}
+            />
+          )}
+          {relativeTime && !showRunningIndicator && !showUnreadIndicator && (
+            <span className={`shrink-0 text-[12px] leading-4 text-[#999] transition-opacity dark:text-secondary ${trailingMetaClassName}`}>
+              {relativeTime.compact}
+            </span>
+          )}
         </button>
 
         <div
-          className={`absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 transition-opacity ${
-            isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+          className={`absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-0.5 transition-opacity ${
+            isMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           }`}
         >
           <button
@@ -283,18 +253,10 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
                 setMenuPosition(position);
               }
             }}
-            className={rowActionButtonClassName}
+            className={`${rowActionButtonClassName} ${isMenuOpen ? 'bg-black/[0.06] opacity-[0.7] dark:bg-white/[0.06]' : 'bg-transparent'}`}
             aria-label={i18nService.t('coworkSessionActions')}
           >
-            <EllipsisHorizontalIcon className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={handleCreateTask}
-            className={rowEditActionButtonClassName}
-            aria-label={i18nService.t('myAgentSidebarNewTask')}
-          >
-            <ComposeIcon className="h-3.5 w-3.5" />
+            <EllipsisHorizontalIcon className="h-4 w-4" />
           </button>
         </div>
 
@@ -322,6 +284,16 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
             >
               <PushPinIcon slashed={agent.pinned} className={menuIconClassName} />
               {agent.pinned ? i18nService.t('agentUnpin') : i18nService.t('agentPin')}
+            </button>
+            <button
+              type="button"
+              onClick={handleShareSession}
+              disabled={!boundTask}
+              className={boundTask ? menuItemClassName : disabledMenuItemClassName}
+              role="menuitem"
+            >
+              <ShareIcon className={menuIconClassName} />
+              {i18nService.t('coworkShareSession')}
             </button>
             {isMainAgent ? (
               <button
@@ -363,99 +335,6 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
           />
         )}
       </div>
-
-      {shouldRenderTasks && (
-        <div
-          className={`grid w-full min-w-0 max-w-full transition-all duration-200 ease-out motion-reduce:transition-none ${
-            isTaskGroupVisible ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-          }`}
-        >
-          <div
-            className={`min-h-0 min-w-0 max-w-full ${
-              isTaskGroupVisible && !isTaskGroupTransitioning ? 'overflow-visible' : 'overflow-hidden'
-            } ${isTaskGroupVisible ? '' : 'pointer-events-none'}`}
-            role="group"
-            aria-hidden={!agent.isExpanded}
-          >
-            <div className="min-w-0 max-w-full space-y-0.5">
-              {agent.hasLoadError && agent.tasks.length === 0 && (
-                <button
-                  type="button"
-                  onClick={() => onRetryLoadTasks(agent.id)}
-                  className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center rounded-md pl-[38px] pr-2.5 text-left text-[13px] text-red-500 transition-colors hover:bg-red-500/10"
-                >
-                  {i18nService.t('myAgentSidebarLoadFailed')}
-                </button>
-              )}
-
-              {agent.isLoadingTasks && agent.tasks.length === 0 && (
-                <div className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center pl-[38px] pr-2.5 text-[13px] text-secondary">
-                  {i18nService.t('loading')}
-                </div>
-              )}
-
-              {!agent.isLoadingTasks && !agent.hasLoadError && agent.tasks.length === 0 && (
-                <div className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center pl-[38px] pr-2.5 text-[13px] text-foreground opacity-[0.28]">
-                  {i18nService.t('myAgentSidebarNoTasks')}
-                </div>
-              )}
-
-              {agent.tasks.map((task) => (
-                <React.Fragment key={task.id}>
-                  <AgentTaskRow
-                    task={task}
-                    isBatchMode={isBatchAgent}
-                    isSelected={selectedIds.has(task.id)}
-                    isSelectionDisabled={isOutsideBatchAgent}
-                    showBatchOption={showBatchOption && !isBatchMode}
-                    hasActiveSubagent={task.isSelected && selectedSubagentId != null}
-                    onSelect={() => onSelectTask(task)}
-                    onDelete={() => onDeleteTask(task)}
-                    onShare={() => onShareTask(task)}
-                    onTogglePin={(pinned) => onToggleTaskPin(task, pinned)}
-                    onRename={(title) => onRenameTask(task, title)}
-                    onToggleSelection={() => onToggleSelection(task.id, task.agentId)}
-                    onEnterBatchMode={() => onEnterBatchMode(task)}
-                  />
-                  {task.isSelected && subagentsBySessionId?.[task.id]?.map((sub) => (
-                    <SubagentTaskRow
-                      key={sub.id}
-                      subagent={sub}
-                      isSelected={sub.id === selectedSubagentId}
-                      onSelect={() => onSelectSubagent?.(sub)}
-                    />
-                  ))}
-                </React.Fragment>
-              ))}
-
-              {agent.hasLoadError && agent.tasks.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => onRetryLoadTasks(agent.id)}
-                  className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center rounded-md pl-[38px] pr-2.5 text-left text-[13px] text-red-500 transition-colors hover:bg-red-500/10"
-                >
-                  {i18nService.t('myAgentSidebarLoadFailed')}
-                </button>
-              )}
-
-              {agent.canExpandTasks && (
-                <ExpandAgentTasksRow
-                  isLoading={agent.isLoadingTasks}
-                  label={i18nService.t('myAgentSidebarExpandMore')}
-                  onClick={() => onLoadMoreTasks(agent.id)}
-                />
-              )}
-              {agent.canCollapseTasks && (
-                <ExpandAgentTasksRow
-                  isLoading={false}
-                  label={i18nService.t('myAgentSidebarCollapse')}
-                  onClick={() => onCollapseTasks(agent.id)}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

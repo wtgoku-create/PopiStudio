@@ -14,6 +14,7 @@ import { RootState } from '../../store';
 import { selectTask, setViewMode } from '../../store/slices/scheduledTaskSlice';
 import EditIcon from '../icons/EditIcon';
 import TrashIcon from '../icons/TrashIcon';
+import Switch from '../ui/Switch';
 import {
   formatNextRunRelative,
   formatScheduleLabel,
@@ -141,22 +142,14 @@ const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete }) =>
 
       <div className="flex items-center justify-between gap-2">
         <span className={`text-xs font-medium ${statusTone}`}>{statusLabel}</span>
-        <button
-          type="button"
+        <Switch
+          checked={task.enabled}
+          size="sm"
           onClick={event => {
             event.stopPropagation();
             void scheduledTaskService.toggleTask(task.id, !task.enabled);
           }}
-          className={`relative shrink-0 w-7 h-4 rounded-full transition-colors ${
-            task.enabled ? 'bg-primary' : 'bg-gray-400 dark:bg-gray-600'
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform shadow-sm ${
-              task.enabled ? 'translate-x-3' : 'translate-x-0'
-            }`}
-          />
-        </button>
+        />
       </div>
 
       <div className="flex justify-center">

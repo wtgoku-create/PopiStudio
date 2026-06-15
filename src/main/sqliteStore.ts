@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { AgentId, DefaultAgentAvatarIcon, DefaultAgentProfile, LegacyAgentName, normalizeAgentAvatarIcon } from '../shared/agent';
+import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 import { DB_FILENAME } from './appConstants';
 import {
   openSqliteDatabaseWithRecovery,
@@ -105,6 +106,27 @@ export class SqliteStore {
 
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_cowork_messages_session_id ON cowork_messages(session_id);
+    `);
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS cowork_session_sources (
+        session_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        label TEXT,
+        task_id TEXT,
+        platform TEXT,
+        conversation_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (session_id, kind),
+        FOREIGN KEY (session_id) REFERENCES cowork_sessions(id) ON DELETE CASCADE
+      );
+    `);
+
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_cowork_session_sources_session_id
+      ON cowork_session_sources(session_id);
     `);
 
     this.db.exec(`
@@ -388,9 +410,16 @@ export class SqliteStore {
 
     // Migration: Ensure default agent exists and legacy display values are upgraded.
     try {
+      const cwdRow = this.db
+        .prepare("SELECT value FROM cowork_config WHERE key = 'workingDirectory'")
+        .get() as { value: string } | undefined;
+      const configuredWorkingDirectory = cwdRow?.value?.trim() || '';
+      const mainAgentWorkingDirectory = configuredWorkingDirectory
+        ? resolveMainAgentWorkingDirectory(configuredWorkingDirectory)
+        : '';
       const mainAgent = this.db
-        .prepare('SELECT id, name, icon FROM agents WHERE id = ?')
-        .get(AgentId.Main) as { id: string; name: string; icon: string } | undefined;
+        .prepare('SELECT id, name, icon, working_directory FROM agents WHERE id = ?')
+        .get(AgentId.Main) as { id: string; name: string; icon: string; working_directory: string } | undefined;
       if (!mainAgent) {
         const now = Date.now();
         // Read existing systemPrompt from cowork_config to inherit into main agent
@@ -408,18 +437,36 @@ export class SqliteStore {
         this.db
           .prepare(
             `
-          INSERT INTO agents (id, name, description, system_prompt, identity, model, icon, skill_ids, enabled, is_default, source, preset_id, created_at, updated_at)
-          VALUES (?, ?, '', ?, '', '', ?, '[]', 1, 1, 'custom', '', ?, ?)
+          INSERT INTO agents (id, name, description, system_prompt, identity, model, working_directory, icon, skill_ids, enabled, is_default, source, preset_id, created_at, updated_at)
+          VALUES (?, ?, '', ?, '', '', ?, ?, '[]', 1, 1, 'custom', '', ?, ?)
         `,
           )
-          .run(AgentId.Main, DefaultAgentProfile.Name, existingSystemPrompt, DefaultAgentAvatarIcon, now, now);
+          .run(
+            AgentId.Main,
+            DefaultAgentProfile.Name,
+            existingSystemPrompt,
+            mainAgentWorkingDirectory,
+            DefaultAgentAvatarIcon,
+            now,
+            now,
+          );
       } else {
         const normalizedName = mainAgent.name.trim();
         const shouldUpgradeName = !normalizedName || normalizedName.toLowerCase() === LegacyAgentName.Main;
+        const shouldUpgradeWorkingDirectory = mainAgentWorkingDirectory
+          && (!mainAgent.working_directory.trim()
+            || mainAgent.working_directory.trim() === configuredWorkingDirectory);
+        const now = Date.now();
         if (shouldUpgradeName) {
           this.db
             .prepare('UPDATE agents SET name = ?, updated_at = ? WHERE id = ?')
-            .run(DefaultAgentProfile.Name, Date.now(), AgentId.Main);
+            .run(DefaultAgentProfile.Name, now, AgentId.Main);
+          this.didRunMigration = true;
+        }
+        if (shouldUpgradeWorkingDirectory) {
+          this.db
+            .prepare('UPDATE agents SET working_directory = ?, updated_at = ? WHERE id = ?')
+            .run(mainAgentWorkingDirectory, now, AgentId.Main);
           this.didRunMigration = true;
         }
       }
@@ -459,14 +506,22 @@ export class SqliteStore {
           .get() as { value: string } | undefined;
         const legacyWorkingDirectory = cwdRow?.value?.trim() || '';
         if (legacyWorkingDirectory) {
+          const mainAgentWorkingDirectory = resolveMainAgentWorkingDirectory(legacyWorkingDirectory);
+          const mainResult = this.db
+            .prepare(
+              `UPDATE agents
+               SET working_directory = ?, updated_at = ?
+               WHERE id = ? AND TRIM(COALESCE(working_directory, '')) = ''`,
+            )
+            .run(mainAgentWorkingDirectory, Date.now(), AgentId.Main);
           const result = this.db
             .prepare(
               `UPDATE agents
                SET working_directory = ?, updated_at = ?
-               WHERE TRIM(COALESCE(working_directory, '')) = ''`,
+               WHERE id <> ? AND TRIM(COALESCE(working_directory, '')) = ''`,
             )
-            .run(legacyWorkingDirectory, Date.now());
-          if (result.changes > 0) {
+            .run(legacyWorkingDirectory, Date.now(), AgentId.Main);
+          if (mainResult.changes > 0 || result.changes > 0) {
             this.didRunMigration = true;
           }
         }

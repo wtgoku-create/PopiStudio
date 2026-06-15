@@ -5,6 +5,7 @@ import { HIDDEN_IM_PLATFORMS, PlatformRegistry } from '@shared/platform';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
+import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -17,6 +18,7 @@ import { getAgentDisplayNameById } from '../../utils/agentDisplay';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import Modal from '../common/Modal';
+import Switch from '../ui/Switch';
 import AgentAvatarIcon from './AgentAvatarIcon';
 import AgentAvatarPicker from './AgentAvatarPicker';
 import AgentConfirmDialog from './AgentConfirmDialog';
@@ -59,8 +61,6 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
   const [activeTab, setActiveTab] = useState<AgentDetailTab>(AgentDetailTab.Identity);
   const globalSelectedModel = useSelector((state: RootState) => state.model.defaultSelectedModel);
   const agents = useSelector((state: RootState) => state.agent.agents);
-  const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
-  const coworkConfig = useSelector((state: RootState) => state.cowork.config);
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
   const initialWorkingDirectoryRef = useRef('');
   const initialModelRef = useRef('');
@@ -100,12 +100,10 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     setUserInfo('');
     initialUserInfoRef.current = '';
     setIcon(DefaultAgentAvatarIcon);
-    const currentAgent = agents.find((agent) => agent.id === currentAgentId);
-    const defaultWorkingDirectory = currentAgent?.workingDirectory?.trim() || coworkConfig.workingDirectory || '';
-    initialWorkingDirectoryRef.current = defaultWorkingDirectory;
+    initialWorkingDirectoryRef.current = '';
     initialModelRef.current = globalSelectedModel ? toOpenClawModelRef(globalSelectedModel) : '';
     setModel(globalSelectedModel ?? null);
-    setWorkingDirectory(defaultWorkingDirectory);
+    setWorkingDirectory('');
     setSkillIds([]);
     setActiveTab(AgentDetailTab.Identity);
     setShowUnsavedConfirm(false);
@@ -122,7 +120,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     agentService.getPresetTemplates()
       .then(setPresetTemplates)
       .finally(() => setTemplatesLoading(false));
-  }, [agents, coworkConfig.workingDirectory, currentAgentId, globalSelectedModel, isOpen]);
+  }, [globalSelectedModel, isOpen]);
 
   useEffect(() => {
     if (!isOpen || model || !globalSelectedModel) return;
@@ -209,6 +207,17 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
           await imService.saveAndSyncConfig();
         }
         agentService.switchAgent(agent.id);
+        const sidebarSessionsResult = await coworkService.listAgentSidebarSessions();
+        const homeSession = sidebarSessionsResult.success
+          ? sidebarSessionsResult.sessions?.find((session) => (
+            session.agentId === agent.id && session.source?.kind === CoworkSessionSourceKind.AgentHome
+          ))
+          : null;
+        if (homeSession) {
+          await coworkService.loadSession(homeSession.id);
+        } else {
+          await coworkService.loadSessions(agent.id);
+        }
         onClose();
         resetForm();
       } else {
@@ -254,17 +263,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
   };
 
   const renderToggle = (isOn: boolean) => (
-    <div
-      className={`relative w-9 h-5 rounded-full transition-colors ${
-        isOn ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
-      }`}
-    >
-      <div
-        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-          isOn ? 'translate-x-4' : 'translate-x-0.5'
-        }`}
-      />
-    </div>
+    <Switch checked={isOn} size="sm" className="pointer-events-none" />
   );
 
   const tabs: { key: AgentDetailTab; label: string }[] = [

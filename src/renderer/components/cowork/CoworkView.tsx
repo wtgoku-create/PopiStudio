@@ -3,7 +3,6 @@ import React, { useEffect, useRef,useState } from 'react';
 import { useDispatch,useSelector } from 'react-redux';
 
 import { buildSessionTitleFromInput } from '../../../common/sessionTitle';
-import { agentService } from '../../services/agent';
 import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -21,8 +20,6 @@ import { clearSelection,selectAction, setActions } from '../../store/slices/quic
 import { clearActiveSkills, setActiveSkillIds } from '../../store/slices/skillSlice';
 import type { CoworkImageAttachment, CoworkSession, OpenClawEngineStatus, SubagentSessionSummary } from '../../types/cowork';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
-import ComposeIcon from '../icons/ComposeIcon';
-import SidebarToggleIcon from '../icons/SidebarToggleIcon';
 import { PromptPanel,QuickActionBar } from '../quick-actions';
 import type { SettingsOpenOptions } from '../Settings';
 import WindowTitleBar from '../window/WindowTitleBar';
@@ -56,7 +53,6 @@ export interface CoworkViewProps {
 
 const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapsed, onToggleSidebar, onNewChat, updateBadge }) => {
   const dispatch = useDispatch();
-  const isMac = window.electron.platform === 'darwin';
   const [isInitialized, setIsInitialized] = useState(false);
   const [openClawStatus, setOpenClawStatus] = useState<OpenClawEngineStatus | null>(null);
   const [isRestartingGateway, setIsRestartingGateway] = useState(false);
@@ -106,6 +102,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
   const currentAgent = agents.find((agent) => agent.id === currentAgentId);
   const currentAgentWorkingDirectory = currentAgent?.workingDirectory?.trim() || config.workingDirectory || '';
   const currentAgentSelectedModel = useAgentSelectedModel(currentAgentId, currentAgent?.model ?? '');
+  const hasCurrentSessionMessages = Boolean(
+    currentSession && ((currentSession.totalMessages ?? 0) > 0 || currentSession.messages.length > 0),
+  );
 
   const resolveEngineStatusText = (status: OpenClawEngineStatus): string => {
     switch (status.phase) {
@@ -252,6 +251,37 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         console.error('Failed to check cowork API config:', error);
       }
 
+      // Capture active skill IDs before clearing them
+      const sessionSkillIds = [...activeSkillIds];
+      const existingSessionResult = await coworkService.listSessionsForAgentPreview(currentAgentId, 1, 0);
+      const existingSessionSummary = existingSessionResult.success
+        ? existingSessionResult.sessions?.[0]
+        : null;
+
+      if (existingSessionSummary) {
+        const loadedSession = await coworkService.loadSession(existingSessionSummary.id);
+        const popitvContextSkillIds = sessionSkillIds.length > 0
+          ? sessionSkillIds
+          : loadedSession?.activeSkillIds ?? [];
+        const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+          shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
+          sessionId: existingSessionSummary.id,
+        });
+        const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
+        const sent = await coworkService.continueSession({
+          sessionId: existingSessionSummary.id,
+          prompt,
+          systemPrompt: combinedSystemPrompt,
+          activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
+          imageAttachments,
+        });
+        if (sent && sessionSkillIds.length > 0) {
+          dispatch(clearActiveSkills());
+        }
+        dispatch(clearSelection());
+        return sent;
+      }
+
       // Create a temporary session with user message to show immediately
       const tempSessionId = `temp-${Date.now()}`;
       const fallbackTitle = buildSessionTitleFromInput(
@@ -259,9 +289,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         i18nService.t('coworkDefaultSessionTitle')
       );
       const now = Date.now();
-
-      // Capture active skill IDs before clearing them
-      const sessionSkillIds = [...activeSkillIds];
 
       const tempSession: CoworkSession = {
         id: tempSessionId,
@@ -406,6 +433,17 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     }
   };
 
+  const handleHomeSubmit = async (
+    prompt: string,
+    skillPrompt?: string,
+    imageAttachments?: CoworkImageAttachment[],
+  ): Promise<boolean | void> => {
+    if (currentSession && !hasCurrentSessionMessages) {
+      return handleContinueSession(prompt, skillPrompt, imageAttachments);
+    }
+    return handleStartSession(prompt, skillPrompt, imageAttachments);
+  };
+
   const handleStopSession = async () => {
     if (!currentSession) return;
     if (currentSession.id.startsWith('temp-') && pendingStartRef.current) {
@@ -503,7 +541,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
   const homeHeader = (
     <div className="draggable flex h-12 items-center justify-between px-4 shrink-0">
       <div className="non-draggable h-8 flex items-center">
-        {isSidebarCollapsed && (
+        {/* {isSidebarCollapsed && (
           <div className={`flex items-center gap-1 mr-2 ${isMac ? 'pl-[68px]' : ''}`}>
             <button
               type="button"
@@ -521,7 +559,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
             </button>
             {updateBadge}
           </div>
-        )}
+        )} */}
       </div>
       <div className="non-draggable flex items-center">
         <div className="flex items-center gap-1.5 mr-2 px-2.5 py-1">
@@ -581,8 +619,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     );
   }
 
-  // When there's a current session, show the session detail view
-  if (currentSession) {
+  // When there's a current session with chat messages, show the session detail view.
+  // Empty agentHome sessions still use the home prompt state.
+  if (currentSession && hasCurrentSessionMessages) {
     return (
       <div className="flex-1 flex flex-col h-full">
         {engineStatusBanner}
@@ -599,7 +638,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     );
   }
 
-  // Home view - no current session
+  // Home view - no current session, or current session has no chat messages yet
   return (
     <div className="flex-1 flex flex-col bg-background h-full">
       {/* Engine status banner for error states */}
@@ -639,16 +678,13 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
           >
             <CoworkPromptInput
               ref={promptInputRef}
-              onSubmit={handleStartSession}
+              onSubmit={handleHomeSubmit}
               onStop={handleStopSession}
               isStreaming={isStreaming}
               disabled={!isEngineReady}
               placeholder={i18nService.t('coworkPlaceholder')}
               size="large"
               workingDirectory={currentAgentWorkingDirectory}
-              onWorkingDirectoryChange={async (dir: string) => {
-                await agentService.updateAgent(currentAgentId, { workingDirectory: dir });
-              }}
               showFolderSelector={true}
               showModelSelector={true}
               showAgentSelector={true}

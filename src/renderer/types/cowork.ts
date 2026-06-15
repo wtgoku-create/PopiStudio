@@ -232,8 +232,17 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId?: string;
+  source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface CoworkSessionSource {
+  kind: 'agentHome' | 'scheduledTask' | 'im';
+  label?: string;
+  taskId?: string;
+  platform?: string;
+  conversationId?: string;
 }
 
 // Subagent session summary for sidebar display
@@ -281,6 +290,12 @@ export interface CoworkSessionListResult {
   sessions?: CoworkSessionSummary[];
   /** Whether more sessions exist beyond the currently loaded set. */
   hasMore?: boolean;
+  error?: string;
+}
+
+export interface CoworkAgentSidebarSessionListResult {
+  success: boolean;
+  sessions?: CoworkSessionSummary[];
   error?: string;
 }
 
