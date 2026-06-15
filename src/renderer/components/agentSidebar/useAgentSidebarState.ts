@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 import { coworkService } from '../../services/cowork';
@@ -19,7 +19,6 @@ import {
 import type {
   AgentSidebarAgentNode,
   AgentSidebarAgentSummary,
-  AgentSidebarPreferenceState,
   AgentSidebarTaskNode,
 } from './types';
 
@@ -28,7 +27,7 @@ const sortSidebarSessions = (sessions: CoworkSessionSummary[]): CoworkSessionSum
   sortAgentSidebarTasks(sessions)
 );
 
-const hasSessionChanged = (
+const hasSessionPreviewChanged = (
   previous: CoworkSessionSummary,
   next: CoworkSessionSummary,
 ): boolean => {
@@ -36,22 +35,28 @@ const hasSessionChanged = (
     || previous.status !== next.status
     || previous.pinned !== next.pinned
     || previous.pinOrder !== next.pinOrder
-    || JSON.stringify(previous.source ?? null) !== JSON.stringify(next.source ?? null)
+    || previous.lastMessagePreview !== next.lastMessagePreview
     || previous.updatedAt !== next.updatedAt
     || previous.createdAt !== next.createdAt
     || normalizeAgentId(previous.agentId) !== normalizeAgentId(next.agentId);
 };
 
-export const mergeAgentSidebarSession = (
+export const patchExistingAgentSidebarSession = (
   existing: CoworkSessionSummary | undefined,
   next: CoworkSessionSummary,
 ): CoworkSessionSummary | null => {
-  const source = next.source ?? existing?.source;
-  if (!source) return null;
+  if (!existing?.source) return null;
 
   return {
-    ...next,
-    source,
+    ...existing,
+    title: next.title,
+    lastMessagePreview: next.lastMessagePreview ?? existing.lastMessagePreview,
+    status: next.status,
+    pinned: next.pinned,
+    pinOrder: next.pinOrder ?? null,
+    agentId: normalizeAgentId(next.agentId),
+    createdAt: next.createdAt,
+    updatedAt: next.updatedAt,
   };
 };
 
@@ -111,6 +116,7 @@ export const toAgentSidebarTaskNode = (
     id: session.id,
     agentId: normalizeAgentId(session.agentId),
     title: session.title,
+    lastMessagePreview: session.lastMessagePreview,
     status: session.status,
     pinned: session.pinned,
     pinOrder: session.pinOrder ?? null,
@@ -122,15 +128,6 @@ export const toAgentSidebarTaskNode = (
   };
 };
 
-export const collapseAgentSidebarTaskList = (
-  expandedTaskListAgentIds: string[],
-  agentId: string,
-) => {
-  return expandedTaskListAgentIds.includes(agentId)
-    ? expandedTaskListAgentIds.filter((id) => id !== agentId)
-    : expandedTaskListAgentIds;
-};
-
 export const useAgentSidebarState = () => {
   const agents = useSelector((state: RootState) => state.agent.agents);
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
@@ -138,14 +135,10 @@ export const useAgentSidebarState = () => {
   const sessions = useSelector(selectCoworkSessions);
   const unreadSessionIds = useSelector(selectUnreadSessionIds);
 
-  const [expandedAgentIds, setExpandedAgentIds] = useState<string[]>([]);
-  const [expandedTaskListAgentIds, setExpandedTaskListAgentIds] = useState<string[]>([]);
   const [sidebarSessions, setSidebarSessions] = useState<CoworkSessionSummary[]>([]);
   const [loadingAgentIds, setLoadingAgentIds] = useState<string[]>([]);
   const [failedAgentIds, setFailedAgentIds] = useState<string[]>([]);
   const [preferenceLoaded, setPreferenceLoaded] = useState(false);
-
-  const initializedDefaultExpansionRef = useRef(false);
 
   const enabledAgents = useMemo(() => {
     return agents
@@ -165,11 +158,6 @@ export const useAgentSidebarState = () => {
   }, [enabledAgents]);
 
   const unreadSessionIdSet = useMemo(() => new Set(unreadSessionIds), [unreadSessionIds]);
-  const expandedAgentIdSet = useMemo(() => new Set(expandedAgentIds), [expandedAgentIds]);
-  const expandedTaskListAgentIdSet = useMemo(
-    () => new Set(expandedTaskListAgentIds),
-    [expandedTaskListAgentIds],
-  );
   const loadingAgentIdSet = useMemo(() => new Set(loadingAgentIds), [loadingAgentIds]);
   const failedAgentIdSet = useMemo(() => new Set(failedAgentIds), [failedAgentIds]);
 
@@ -200,12 +188,7 @@ export const useAgentSidebarState = () => {
 
   useEffect(() => {
     let cancelled = false;
-    void localStore.getItem<AgentSidebarPreferenceState>(AgentSidebarPreferenceKey.State)
-      .then((preference) => {
-        if (cancelled) return;
-        setExpandedAgentIds(preference?.expandedAgentIds ?? []);
-        setExpandedTaskListAgentIds(preference?.expandedTaskListAgentIds ?? []);
-      })
+    void localStore.getItem(AgentSidebarPreferenceKey.State)
       .finally(() => {
         if (!cancelled) {
           setPreferenceLoaded(true);
@@ -218,9 +201,7 @@ export const useAgentSidebarState = () => {
 
   useEffect(() => {
     if (!preferenceLoaded) return;
-    const preference: AgentSidebarPreferenceState = {
-      expandedAgentIds,
-      expandedTaskListAgentIds,
+    const preference = {
       selectedAgentId: currentAgentId,
       selectedTaskId: currentSessionId ?? undefined,
     };
@@ -228,21 +209,8 @@ export const useAgentSidebarState = () => {
   }, [
     currentAgentId,
     currentSessionId,
-    expandedAgentIds,
-    expandedTaskListAgentIds,
     preferenceLoaded,
   ]);
-
-  useEffect(() => {
-    if (!preferenceLoaded || initializedDefaultExpansionRef.current) return;
-    if (sortedEnabledAgents.length === 0) return;
-    initializedDefaultExpansionRef.current = true;
-    setExpandedAgentIds((previous) => {
-      if (previous.length > 0) return previous;
-      const currentAgentExists = sortedEnabledAgents.some((agent) => agent.id === currentAgentId);
-      return [currentAgentExists ? currentAgentId : sortedEnabledAgents[0].id];
-    });
-  }, [currentAgentId, preferenceLoaded, sortedEnabledAgents]);
 
   useEffect(() => {
     void refreshAgentSidebarSessions();
@@ -269,8 +237,6 @@ export const useAgentSidebarState = () => {
     setSidebarSessions((previous) => previous.filter((session) => activeAgentIds.has(normalizeAgentId(session.agentId))));
     setLoadingAgentIds((previous) => previous.filter((id) => activeAgentIds.has(id)));
     setFailedAgentIds((previous) => previous.filter((id) => activeAgentIds.has(id)));
-    setExpandedAgentIds((previous) => previous.filter((id) => activeAgentIds.has(id)));
-    setExpandedTaskListAgentIds((previous) => previous.filter((id) => activeAgentIds.has(id)));
   }, [agents.length, enabledAgents]);
 
   useEffect(() => {
@@ -280,38 +246,16 @@ export const useAgentSidebarState = () => {
       const byId = new Map(previous.map((session) => [session.id, session]));
       sessions.forEach((session) => {
         const existing = byId.get(session.id);
-        const merged = mergeAgentSidebarSession(existing, session);
-        if (!merged) return;
-        if (!existing || hasSessionChanged(existing, merged)) {
-          byId.set(session.id, merged);
+        const patched = patchExistingAgentSidebarSession(existing, session);
+        if (!patched) return;
+        if (hasSessionPreviewChanged(existing!, patched)) {
+          byId.set(session.id, patched);
           changed = true;
         }
       });
       return changed ? sortSidebarSessions(Array.from(byId.values())) : previous;
     });
   }, [sessions]);
-
-  const toggleAgentExpanded = useCallback((agentId: string) => {
-    setExpandedTaskListAgentIds((previous) => collapseAgentSidebarTaskList(previous, agentId));
-    setExpandedAgentIds((previous) => {
-      return previous.includes(agentId)
-        ? previous.filter((id) => id !== agentId)
-        : [...previous, agentId];
-    });
-  }, []);
-
-  const loadMoreTasks = useCallback((agentId: string) => {
-    setExpandedTaskListAgentIds((previous) => {
-      return previous.includes(agentId) ? previous : [...previous, agentId];
-    });
-    return refreshAgentSidebarSessions();
-  }, [refreshAgentSidebarSessions]);
-
-  const collapseTasks = useCallback((agentId: string) => {
-    setExpandedTaskListAgentIds((previous) => {
-      return collapseAgentSidebarTaskList(previous, agentId);
-    });
-  }, []);
 
   const patchTaskPreview = useCallback((
     sessionId: string,
@@ -349,15 +293,10 @@ export const useAgentSidebarState = () => {
         const agentId = normalizeAgentId(session.agentId);
         const agent = agentsById.get(agentId);
         if (!agent) return null;
-        const isTaskListExpanded = expandedTaskListAgentIdSet.has(agent.id);
         const task = toAgentSidebarTaskNode(session, currentSessionId, unreadSessionIdSet);
 
         return {
           ...agent,
-          isExpanded: expandedAgentIdSet.has(agent.id),
-          isTaskListExpanded,
-          canExpandTasks: false,
-          canCollapseTasks: false,
           isLoadingTasks: loadingAgentIdSet.has(agent.id),
           hasLoadError: failedAgentIdSet.has(agent.id),
           tasks: [task],
@@ -366,8 +305,6 @@ export const useAgentSidebarState = () => {
       .filter((agent): agent is AgentSidebarAgentNode => !!agent);
   }, [
     currentSessionId,
-    expandedAgentIdSet,
-    expandedTaskListAgentIdSet,
     failedAgentIdSet,
     loadingAgentIdSet,
     sidebarSessions,
@@ -377,12 +314,8 @@ export const useAgentSidebarState = () => {
 
   return {
     agentNodes,
-    expandedTaskListAgentIdSet,
     patchTaskPreview,
     removeTaskPreview,
     removeTaskPreviews,
-    loadMoreTasks,
-    collapseTasks,
-    toggleAgentExpanded,
   };
 };

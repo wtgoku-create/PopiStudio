@@ -88,6 +88,7 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
   const showRunningIndicator = indicator === AgentSidebarIndicator.Running;
   const showUnreadIndicator = indicator === AgentSidebarIndicator.CompletedUnread;
   const relativeTime = formatAgentTaskRelativeTime(task.updatedAt || task.createdAt);
+  const subtitle = task.lastMessagePreview || task.title;
   const trailingMetaClassName = isMenuOpen ? 'opacity-0' : 'group-hover:opacity-0';
   const menuItemClassName =
     'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
@@ -141,7 +142,9 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
   }, [closeMenu, isMenuOpen]);
 
   return (
-    <div className={`group relative ${isMenuOpen ? 'z-50' : 'z-20'} h-[58px] w-full rounded-lg transition-colors hover:bg-[#f0edf9] dark:hover:bg-white/[0.06] ${
+    <div
+      role="listitem"
+      className={`group relative ${isMenuOpen ? 'z-50' : 'z-20'} h-[58px] w-full rounded-lg transition-colors hover:bg-[#f0edf9] dark:hover:bg-white/[0.06] ${
       isActive ? 'bg-[#f0edf9] dark:bg-white/[0.06]' : 'bg-white dark:bg-transparent'
     }`}
     >
@@ -153,8 +156,6 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
           onSelect(agent, task);
         }}
         className="flex h-full w-full items-center gap-2 rounded-lg bg-transparent px-3 text-left"
-        role="treeitem"
-        aria-level={1}
         aria-current={isActive ? 'page' : undefined}
       >
         <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-transparent leading-none text-foreground dark:border-white/[0.12]">
@@ -172,7 +173,7 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
             )}
           </span>
           <span className="mt-0.5 block min-w-0 truncate text-[12px] leading-4 text-[#999] dark:text-secondary">
-            {task.title}
+            {subtitle}
           </span>
         </span>
         {showRunningIndicator && (

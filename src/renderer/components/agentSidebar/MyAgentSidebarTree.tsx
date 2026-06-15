@@ -139,7 +139,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   }, [onBatchSelectableIdsChange]);
 
   return (
-    <div className="pb-3" role="tree" aria-label={i18nService.t('myAgents')}>
+    <div className="pb-3" role="list" aria-label={i18nService.t('myAgents')}>
       <MyAgentSidebarHeader
         onCreateAgent={() => setIsCreateOpen(true)}
         onSearch={onSearch}

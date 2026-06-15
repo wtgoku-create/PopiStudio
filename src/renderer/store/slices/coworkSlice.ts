@@ -106,6 +106,17 @@ const toSessionSummary = (session: CoworkSession): CoworkSessionSummary => ({
   updatedAt: session.updatedAt,
 });
 
+const shouldUseMessageAsPreview = (message: CoworkMessage): boolean => {
+  return (message.type === 'user' || message.type === 'assistant')
+    && message.metadata?.isThinking !== true
+    && message.content.trim().length > 0;
+};
+
+const toMessagePreview = (content: string): string => {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
+};
+
 const coworkSlice = createSlice({
   name: 'cowork',
   initialState,
@@ -250,6 +261,9 @@ const coworkSlice = createSlice({
       const sessionIndex = state.sessions.findIndex(s => s.id === sessionId);
       if (sessionIndex !== -1) {
         state.sessions[sessionIndex].updatedAt = message.timestamp;
+        if (shouldUseMessageAsPreview(message)) {
+          state.sessions[sessionIndex].lastMessagePreview = toMessagePreview(message.content);
+        }
       }
 
       markSessionUnread(state, sessionId);
@@ -287,6 +301,9 @@ const coworkSlice = createSlice({
       const sessionIndex = state.sessions.findIndex(s => s.id === sessionId);
       if (sessionIndex !== -1) {
         state.sessions[sessionIndex].updatedAt = updatedAt;
+        if (metadata?.isThinking !== true && content.trim().length > 0) {
+          state.sessions[sessionIndex].lastMessagePreview = toMessagePreview(content);
+        }
       }
 
       markSessionUnread(state, sessionId);

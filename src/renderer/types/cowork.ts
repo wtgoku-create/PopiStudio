@@ -228,6 +228,7 @@ export interface CoworkPermissionResponse {
 export interface CoworkSessionSummary {
   id: string;
   title: string;
+  lastMessagePreview?: string;
   status: CoworkSessionStatus;
   pinned: boolean;
   pinOrder?: number | null;

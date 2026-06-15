@@ -318,6 +318,10 @@ function normalizeMessageTimestamp(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function normalizeMessagePreview(value: string): string {
+  return truncate(value.replace(/\s+/g, ' ').trim(), 120);
+}
+
 function shouldAutoDeleteMemoryText(text: string): boolean {
   const normalized = normalizeMemoryText(text);
   if (!normalized) return false;
@@ -446,6 +450,7 @@ export interface CoworkSession {
 export interface CoworkSessionSummary {
   id: string;
   title: string;
+  lastMessagePreview?: string;
   status: CoworkSessionStatus;
   pinned: boolean;
   pinOrder?: number | null;
@@ -621,6 +626,7 @@ interface CoworkUserMemoryRow {
 interface CoworkSessionSummaryRow {
   id: string;
   title: string;
+  last_message_preview?: string | null;
   status: string;
   pinned: number | null;
   pin_order: number | null;
@@ -660,6 +666,7 @@ export class CoworkStore {
     return {
       id: row.id,
       title: row.title,
+      ...(row.last_message_preview ? { lastMessagePreview: row.last_message_preview } : {}),
       status: row.status as CoworkSessionStatus,
       pinned: Boolean(row.pinned),
       pinOrder: row.pin_order ?? null,
@@ -1143,9 +1150,19 @@ export class CoworkStore {
       .prepare(
         `
         SELECT s.id, s.title, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at,
+               lm.content AS last_message_preview,
                src.kind, src.label, src.task_id, src.platform, src.conversation_id
         FROM cowork_sessions s
         INNER JOIN cowork_session_sources src ON src.session_id = s.id
+        LEFT JOIN cowork_messages lm ON lm.id = (
+          SELECT m.id
+          FROM cowork_messages m
+          WHERE m.session_id = s.id
+            AND m.type IN ('user', 'assistant')
+            AND TRIM(COALESCE(m.content, '')) != ''
+          ORDER BY COALESCE(m.sequence, 0) DESC, m.created_at DESC, m.ROWID DESC
+          LIMIT 1
+        )
         WHERE src.kind IN (?, ?, ?)
         ORDER BY s.pinned DESC,
           CASE WHEN s.pinned = 1 THEN COALESCE(s.pin_order, s.updated_at, s.created_at) END ASC,
@@ -1168,7 +1185,12 @@ export class CoworkStore {
     const sessions: CoworkSessionSummary[] = [];
     for (const row of sourceRows) {
       sessions.push({
-        ...this.mapSessionSummaryRow(row),
+        ...this.mapSessionSummaryRow({
+          ...row,
+          last_message_preview: row.last_message_preview
+            ? normalizeMessagePreview(row.last_message_preview)
+            : null,
+        }),
         source: {
           kind: row.kind,
           ...(row.label ? { label: row.label } : {}),

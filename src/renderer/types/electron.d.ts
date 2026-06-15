@@ -54,6 +54,7 @@ interface CoworkMessage {
 interface CoworkSessionSummary {
   id: string;
   title: string;
+  lastMessagePreview?: string;
   status: 'idle' | 'running' | 'completed' | 'error';
   pinned: boolean;
   pinOrder?: number | null;

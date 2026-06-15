@@ -7,8 +7,7 @@ import {
 } from '../../types/cowork';
 import type { AgentSidebarAgentSummary } from './types';
 import {
-  collapseAgentSidebarTaskList,
-  mergeAgentSidebarSession,
+  patchExistingAgentSidebarSession,
   sortAgentSidebarAgents,
   sortAgentSidebarTasks,
 } from './useAgentSidebarState';
@@ -90,27 +89,29 @@ test('sortAgentSidebarAgents keeps pinned agents in first-pinned-first order', (
   ]);
 });
 
-test('collapseAgentSidebarTaskList resets one agent history list to preview mode', () => {
-  expect(collapseAgentSidebarTaskList(['agent-1', 'agent-2'], 'agent-1')).toEqual(['agent-2']);
-});
-
-test('mergeAgentSidebarSession preserves existing source when a plain session update arrives', () => {
+test('patchExistingAgentSidebarSession updates preview fields while preserving source', () => {
   const existing: CoworkSessionSummary = {
     ...makeSession('home-session', 100, 200),
     source: { kind: 'agentHome', label: 'Main' },
   };
   const plainUpdate: CoworkSessionSummary = {
-    ...makeSession('home-session', 100, 300),
+    ...makeSession('home-session', 100, 300, CoworkSessionStatusValue.Running, true, 1),
     title: 'Updated title',
   };
 
-  expect(mergeAgentSidebarSession(existing, plainUpdate)).toEqual({
-    ...plainUpdate,
-    source: existing.source,
+  expect(patchExistingAgentSidebarSession(existing, plainUpdate)).toEqual({
+    ...existing,
+    title: plainUpdate.title,
+    status: plainUpdate.status,
+    pinned: plainUpdate.pinned,
+    pinOrder: plainUpdate.pinOrder,
+    agentId: plainUpdate.agentId,
+    createdAt: plainUpdate.createdAt,
+    updatedAt: plainUpdate.updatedAt,
   });
 });
 
-test('mergeAgentSidebarSession rejects sidebar sessions without any source', () => {
-  expect(mergeAgentSidebarSession(undefined, makeSession('plain-session', 100))).toBeNull();
+test('patchExistingAgentSidebarSession does not add plain sessions to the sidebar', () => {
+  expect(patchExistingAgentSidebarSession(undefined, makeSession('plain-session', 100))).toBeNull();
 });
 
