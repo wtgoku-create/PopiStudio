@@ -23,7 +23,7 @@ import Settings, { type SettingsOpenOptions } from './components/Settings';
 import Sidebar from './components/Sidebar';
 import { SkillsView } from './components/skills';
 import Toast from './components/Toast';
-import AppUpdateBadge from './components/update/AppUpdateBadge';
+import { Notification, NotificationViewport } from './components/ui/Notification';
 import AppUpdateModal from './components/update/AppUpdateModal';
 import WelcomeDialog from './components/WelcomeDialog';
 import WindowTitleBar from './components/window/WindowTitleBar';
@@ -71,6 +71,7 @@ const App: React.FC = () => {
     errorMessage: null,
   });
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [dismissedUpdateNotificationKey, setDismissedUpdateNotificationKey] = useState<string | null>(null);
   const [privacyAgreed, setPrivacyAgreed] = useState<boolean | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [enterpriseConfig, setEnterpriseConfig] = useState<{
@@ -393,11 +394,22 @@ const App: React.FC = () => {
   }, [authUser]);
 
   const updateInfo = appUpdateState.info;
+  const updateNotificationKey = updateInfo
+    ? `${updateInfo.latestVersion}:${appUpdateState.status}:${appUpdateState.readyFileHash ?? ''}:${appUpdateState.errorMessage ?? ''}`
+    : null;
+
+  const handleDismissUpdateNotification = useCallback(() => {
+    if (!updateNotificationKey) return;
+    setDismissedUpdateNotificationKey(updateNotificationKey);
+  }, [updateNotificationKey]);
 
   const handleOpenUpdateModal = useCallback(() => {
     if (!updateInfo) return;
+    if (updateNotificationKey) {
+      setDismissedUpdateNotificationKey(updateNotificationKey);
+    }
     setShowUpdateModal(true);
-  }, [updateInfo]);
+  }, [updateInfo, updateNotificationKey]);
 
   const handleUpdateFound = useCallback((_info: AppUpdateInfo) => {
     setShowUpdateModal(true);
@@ -653,17 +665,78 @@ const App: React.FC = () => {
   }, [pendingPermission, handlePermissionResponse]);
 
   const isOverlayActive = showSettings || showUpdateModal || pendingPermission !== null;
-  const shouldShowUpdateBadge =
+  const shouldShowUpdateNotification =
     updateInfo &&
+    updateNotificationKey !== dismissedUpdateNotificationKey &&
+    appUpdateState.status !== AppUpdateStatus.Idle &&
     appUpdateState.status !== AppUpdateStatus.Checking &&
-    appUpdateState.status !== AppUpdateStatus.Downloading;
-  const updateBadge = shouldShowUpdateBadge ? (
-    <AppUpdateBadge
-      latestVersion={updateInfo.latestVersion}
-      status={appUpdateState.status}
-      onClick={handleOpenUpdateModal}
-    />
-  ) : null;
+    appUpdateState.status !== AppUpdateStatus.Installing;
+  const updateNotification = shouldShowUpdateNotification && updateInfo ? (() => {
+    const isDownloading = appUpdateState.status === AppUpdateStatus.Downloading;
+    const isReady = appUpdateState.status === AppUpdateStatus.Ready;
+    const isError = appUpdateState.status === AppUpdateStatus.Error;
+    const title = isError
+      ? (appUpdateState.readyFilePath ? i18nService.t('updateInstallFailed') : i18nService.t('updateDownloadFailed'))
+      : isReady
+        ? i18nService.t('updateReadyTitle')
+        : isDownloading
+          ? i18nService.t('updateDownloadingBackground')
+          : i18nService.t('updateAvailableTitle');
+    const message = isError
+      ? appUpdateState.errorMessage
+      : isDownloading
+        ? `v${updateInfo.latestVersion}`
+        : `${i18nService.t('updateAvailableMessage')} v${updateInfo.latestVersion}`;
+    const tone = isError ? 'danger' : isReady ? 'success' : 'info';
+    const progressPercent = isDownloading && appUpdateState.progress?.percent != null
+      ? Math.round(appUpdateState.progress.percent * 100)
+      : null;
+    const icon = isError ? (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M10 5.8v5.1" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        <circle cx="10" cy="14.1" r="1" fill="currentColor" />
+      </svg>
+    ) : isReady ? (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="M4.2 10.6 8.1 14.3 15.8 6.4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      </svg>
+    ) : (
+      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="M10 3.5v8" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        <path d="m6.7 8.6 3.3 3.3 3.3-3.3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+        <path d="M5.2 14.8h9.6" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      </svg>
+    );
+    const actions = isDownloading
+      ? [{ label: i18nService.t('updateDownloadCancel'), onClick: handleCancelDownload }]
+      : isError
+        ? [
+          { label: i18nService.t('updateAvailableCancel'), onClick: handleDismissUpdateNotification },
+          { label: i18nService.t('updateRetry'), onClick: handleOpenUpdateModal, variant: 'primary' as const },
+        ]
+        : [
+          { label: i18nService.t('updateAvailableCancel'), onClick: handleDismissUpdateNotification },
+          {
+            label: isReady ? i18nService.t('updateReadyConfirm') : i18nService.t('updateAvailableConfirm'),
+            onClick: handleOpenUpdateModal,
+            variant: 'primary' as const,
+          },
+        ];
+
+    return (
+      <Notification
+        title={title}
+        message={message || undefined}
+        tone={tone}
+        icon={icon}
+        progressPercent={progressPercent}
+        actions={actions}
+        closeLabel={i18nService.t('updateAvailableCancel')}
+        onClose={isDownloading ? undefined : handleDismissUpdateNotification}
+      />
+    );
+  })() : null;
   const windowsStandaloneTitleBar = isWindows ? (
     <div className="draggable relative h-9 shrink-0 bg-surface-raised">
       <WindowTitleBar isOverlayActive={isOverlayActive} />
@@ -733,6 +806,9 @@ const App: React.FC = () => {
       {toastMessage && (
         <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
       )}
+      <NotificationViewport placement="bottom-right">
+        {updateNotification}
+      </NotificationViewport>
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           onShowLogin={handleShowLogin}
@@ -748,7 +824,6 @@ const App: React.FC = () => {
           isAgentPanelCollapsed={isAgentPanelCollapsed}
           onToggleAgentPanel={handleToggleSidebar}
           onCollapseAgentPanel={handleCollapseAgentPanel}
-          updateBadge={updateBadge}
           hideLogin={enterpriseConfig?.ui?.login === 'hide'}
         />
         <AgentSidebarPanel
@@ -764,7 +839,6 @@ const App: React.FC = () => {
                 onToggleSidebar={handleToggleSidebar}
                 onNewChat={handleNewChat}
                 onCreateSkillByChat={handleCreateSkillByChat}
-                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
                 readOnly={enterpriseConfig?.ui?.skills === 'readonly'}
               />
             ) : mainView === 'scheduledTasks' ? (
@@ -772,19 +846,15 @@ const App: React.FC = () => {
                 isSidebarCollapsed={isAgentPanelCollapsed}
                 onToggleSidebar={handleToggleSidebar}
                 onNewChat={handleNewChat}
-                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
               />
             ) : mainView === 'mcp' ? (
               <McpView
                 isSidebarCollapsed={isAgentPanelCollapsed}
                 onToggleSidebar={handleToggleSidebar}
                 onNewChat={handleNewChat}
-                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
               />
             ) : mainView === 'folder' ? (
-              <FolderView
-                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
-              />
+              <FolderView />
             ) : (
               <CoworkView
                 onRequestAppSettings={privacyAgreed === true && !showWelcome ? handleShowSettings : undefined}
@@ -792,7 +862,6 @@ const App: React.FC = () => {
                 isSidebarCollapsed={isAgentPanelCollapsed}
                 onToggleSidebar={handleToggleSidebar}
                 onNewChat={handleNewChat}
-                updateBadge={isAgentPanelCollapsed ? updateBadge : null}
               />
             )}
           </div>
