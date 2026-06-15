@@ -13,7 +13,7 @@ import { app } from 'electron';
 import fs from 'fs';
 import path from 'path';
 
-import { PopiArtMcp } from '../../shared/popiart/constants';
+import { getServerApiBaseUrl } from '../libs/endpoints';
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
 
@@ -98,7 +98,7 @@ export function buildPopiArtEnv(extra?: Record<string, string | undefined>): Nod
   return {
     ...process.env,
     POPIART_CONFIG_DIR: configDir,
-    POPIART_ENDPOINT: PopiArtMcp.Endpoint,
+    POPIART_ENDPOINT: getServerApiBaseUrl(),
     ...(extra || {}),
   };
 }
@@ -138,7 +138,7 @@ export async function runPopiArtCli<T = unknown>(
   } = {},
 ): Promise<PopiArtCommandResult<T>> {
   const cliPath = resolvePopiArtCliPath();
-  const endpoint = options.endpoint?.trim() || PopiArtMcp.Endpoint;
+  const endpoint = options.endpoint?.trim() || getServerApiBaseUrl();
   const finalArgs = ['--endpoint', endpoint, ...args];
 
   const env = buildPopiArtEnv({

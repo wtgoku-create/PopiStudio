@@ -12,7 +12,7 @@
  * 登录流程：
  * 1. 确认 CLI 可用
  * 2. 确保 POPIART_CONFIG_DIR 存在
- * 3. 调用 auth login（key 通过命令行参数传入；cli 会写入 config.json）
+ * 3. 调用 auth login（token 通过命令行参数传入；cli 会写入 config.json）
  * 4. 调用 whoami 验证
  * 5. 可选：设置当前 project
  * 6. 更新 SQLite 中的非敏感状态
@@ -21,19 +21,16 @@
 
 import fs from 'fs';
 
-import { PopiArtAuthStatus, PopiArtMcp } from '../../shared/popiart/constants';
+import { PopiArtAuthStatus } from '../../shared/popiart/constants';
+import { getServerApiBaseUrl } from '../libs/endpoints';
 import type { SqliteStore } from '../sqliteStore';
 import { clearPopiArtConfig, popiArtCliExists, resolvePopiArtCliPath, resolvePopiArtConfigDir, runPopiArtCli } from './popiartCliManager';
 import { PopiArtStore } from './popiartStore';
 import type { PopiArtLoginInput, PopiArtStatus } from './types';
 
-type FetchWithAuth = (url: string, options?: RequestInit) => Promise<Response>;
-
 interface PopiArtServiceOptions {
-  /** 使用当前 popiai 登录态发起鉴权请求。 */
-  fetchWithAuth: FetchWithAuth;
-  /** 获取当前服务器基础地址。 */
-  getServerBaseUrl: () => string;
+  /** 获取当前应用鉴权 token。 */
+  getAuthToken: () => string | null;
 }
 
 /**
@@ -63,30 +60,34 @@ export class PopiArtService {
     };
   }
 
+  private getDefaultEndpoint(): string {
+    return getServerApiBaseUrl();
+  }
+
   /**
    * 登录 PopiArt：
-   * 1. 验证 key 非空
+   * 1. 验证 token 非空
    * 2. 确保配置目录存在（权限 0o700）
-   * 3. 调用 auth login — key 写入 POPIART_CONFIG_DIR/config.json
+   * 3. 调用 auth login — token 写入 POPIART_CONFIG_DIR/config.json
    * 4. 可选：设置当前 project
    * 5. 调用 verify 验证登录
    *
-   * @throws key 为空或 auth login 失败
+   * @throws token 为空或 auth login 失败
    */
   async login(input: PopiArtLoginInput): Promise<PopiArtStatus> {
-    const key = input.key.trim();
-    if (!key) {
-      throw new Error('PopiArt key is required.');
+    const token = input.token.trim();
+    if (!token) {
+      throw new Error('PopiArt token is required.');
     }
 
-    const endpoint = input.endpoint?.trim() || PopiArtMcp.Endpoint;
+    const endpoint = input.endpoint?.trim() || this.getDefaultEndpoint();
     // 确保配置目录存在，权限 0o700 保护 auth token
     fs.mkdirSync(resolvePopiArtConfigDir(), { recursive: true, mode: 0o700 });
 
-    // 调用 popiart auth login，key 通过命令行传递
-    // 注意：key 不会进入 prompt 或 tool 输入，只出现在 CLI 进程参数中
+    // 调用 popiart auth login，token 通过命令行传递。
+    // 实际 CLI 命令格式为：popiart --endpoint https://www.popi.art auth login --key <token>
     console.log(`[PopiArt] login: running popiart auth login, configDir=${resolvePopiArtConfigDir()}`);
-    const result = await runPopiArtCli(['auth', 'login', '--key', key, '--output', 'json', '--quiet', '--non-interactive'], {
+    const result = await runPopiArtCli(['auth', 'login', '--key', token, '--output', 'json', '--quiet', '--non-interactive'], {
       endpoint,
       timeoutMs: 60_000,
     });
@@ -122,7 +123,7 @@ export class PopiArtService {
    * 然后更新状态。
    */
   async logout(): Promise<PopiArtStatus> {
-    const endpoint = this.getStatus().endpoint || PopiArtMcp.Endpoint;
+    const endpoint = this.getStatus().endpoint || this.getDefaultEndpoint();
     await runPopiArtCli(['auth', 'logout', '--output', 'json', '--quiet', '--non-interactive'], {
       endpoint,
       timeoutMs: 30_000,
@@ -139,45 +140,39 @@ export class PopiArtService {
   }
 
   /**
-   * 使用当前 popiai 登录 token，从网关接口拉取 PopiArt 专用 API key。
+   * 读取当前应用鉴权 token。
    *
-   * 该 key 与用户登录态绑定，只在主进程中短暂使用，
-   * 不会被长期存入 popiai 自己的 SQLite。
+   * PopiArt CLI 现在直接复用应用登录态里的鉴权 token，
+   * 不再额外请求网关 key。
    */
-  async fetchGatewayPopiArtKey(): Promise<string | null> {
-    const serverBaseUrl = this.options.getServerBaseUrl().replace(/\/+$/, '');
-    const response = await this.options.fetchWithAuth(`${serverBaseUrl}/api_client/gateway/apikey/list`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch PopiArt API key: HTTP ${response.status}`);
-    }
-
-    const payload = await response.json() as unknown;
-    return this.extractGatewayPopiArtKey(payload);
+  private getAuthToken(): string | null {
+    const token = this.options.getAuthToken()?.trim();
+    return token || null;
   }
 
   /**
    * 根据当前 popiai 登录态，自动同步 PopiArt 登录状态。
    *
    * 流程：
-   * 1. 调网关接口获取 PopiArt key
-   * 2. 用该 key 自动登录 popiartcli
+   * 1. 读取当前应用鉴权 token
+   * 2. 用该 token 自动登录 popiartcli
    * 3. 验证登录成功后写入本地 CLI 配置
    *
-   * 如果当前没有可用 key，则会确保 PopiArt 处于不可用状态。
+   * 如果当前没有可用 token，则会确保 PopiArt 处于不可用状态。
    */
   async ensureAuthenticatedFromGatewayKey(): Promise<PopiArtStatus> {
     try {
-      console.log('[PopiArt] fetching gateway PopiArt key...');
-      const key = await this.fetchGatewayPopiArtKey();
-      if (!key) {
-        console.log('[PopiArt] no gateway key available');
-        return this.markUnavailable('PopiArt API key is not available for the current user.');
+      console.log('[PopiArt] reading auth token for CLI login...');
+      const token = this.getAuthToken();
+      if (!token) {
+        console.log('[PopiArt] no auth token available');
+        return this.markUnavailable('PopiArt auth token is not available for the current user.');
       }
 
-      console.log('[PopiArt] gateway key received, logging in CLI...');
+      console.log('[PopiArt] auth token available, logging in CLI...');
       return await this.login({
-        endpoint: this.getStatus().endpoint || PopiArtMcp.Endpoint,
-        key,
+        endpoint: this.getStatus().endpoint || this.getDefaultEndpoint(),
+        token,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to sync PopiArt authentication.';
@@ -187,7 +182,7 @@ export class PopiArtService {
   }
 
   /**
-   * 在用户未登录、用户登出，或拉取 PopiArt key 失败时，
+   * 在用户未登录、用户登出，或读取 PopiArt auth token 失败时，
    * 统一将 PopiArt 置为不可用状态。
    */
   async ensureUnavailable(): Promise<PopiArtStatus> {
@@ -196,7 +191,7 @@ export class PopiArtService {
     } catch {
       clearPopiArtConfig();
       return this.popiArtStore.saveStatus({
-        endpoint: this.getStatus().endpoint || PopiArtMcp.Endpoint,
+        endpoint: this.getStatus().endpoint || this.getDefaultEndpoint(),
         authStatus: PopiArtAuthStatus.Unauthenticated,
         user: undefined,
         project: undefined,
@@ -210,7 +205,7 @@ export class PopiArtService {
    * 查询当前登录用户信息。
    */
   async whoami(): Promise<unknown> {
-    const endpoint = this.getStatus().endpoint || PopiArtMcp.Endpoint;
+    const endpoint = this.getStatus().endpoint || this.getDefaultEndpoint();
     const result = await runPopiArtCli(['auth', 'whoami', '--output', 'json', '--quiet', '--non-interactive'], {
       endpoint,
       timeoutMs: 30_000,
@@ -229,7 +224,7 @@ export class PopiArtService {
    * @note 登录成功后由 login() 调用，登出后由 logout() 调用，
    *       外部不应直接调用此方法；应通过 login/logout 间接触发。
    */
-  async verify(endpoint = this.getStatus().endpoint || PopiArtMcp.Endpoint): Promise<PopiArtStatus> {
+  async verify(endpoint = this.getStatus().endpoint || this.getDefaultEndpoint()): Promise<PopiArtStatus> {
     const result = await runPopiArtCli(['auth', 'whoami', '--output', 'json', '--quiet', '--non-interactive'], {
       endpoint,
       timeoutMs: 30_000,
@@ -268,84 +263,11 @@ export class PopiArtService {
   }
 
   /**
-   * 从网关返回结构中提取 PopiArt API key。
-   *
-   * 兼容以下几种常见返回形式：
-   * - { data: [{ provider: 'popiart', apiKey: '...' }] }
-   * - { data: { list: [...] } }
-   * - { data: { apiKey: '...' } }
-   */
-  private extractGatewayPopiArtKey(payload: unknown): string | null {
-    const candidates = this.collectApiKeyCandidates(payload);
-    if (candidates.length === 0) return null;
-
-    // 优先选择明确标记为 PopiArt 的记录。
-    const preferred = candidates.find((candidate) => this.isPopiArtCandidate(candidate.record));
-    if (preferred?.key) {
-      return preferred.key;
-    }
-
-    // 如果接口只返回单个 key，则直接使用第一个候选值。
-    return candidates[0]?.key || null;
-  }
-
-  /**
-   * 递归收集结构中所有可能的 key 记录。
-   */
-  private collectApiKeyCandidates(payload: unknown): Array<{ key: string; record: Record<string, unknown> }> {
-    const results: Array<{ key: string; record: Record<string, unknown> }> = [];
-    const visit = (value: unknown): void => {
-      if (Array.isArray(value)) {
-        value.forEach(visit);
-        return;
-      }
-      if (!value || typeof value !== 'object') {
-        return;
-      }
-
-      const record = value as Record<string, unknown>;
-      const key = this.readKeyField(record);
-      if (key) {
-        results.push({ key, record });
-      }
-
-      Object.values(record).forEach(visit);
-    };
-
-    visit(payload);
-    return results;
-  }
-
-  /**
-   * 判断某条 key 记录是否明确指向 PopiArt。
-   */
-  private isPopiArtCandidate(record: Record<string, unknown>): boolean {
-    const joined = Object.values(record)
-      .filter((value): value is string => typeof value === 'string')
-      .join(' ')
-      .toLowerCase();
-    return joined.includes('popiart') || joined.includes('popi art');
-  }
-
-  /**
-   * 从单条记录中读取可能的 key 字段。
-   */
-  private readKeyField(record: Record<string, unknown>): string | null {
-    for (const field of ['apiKey', 'apikey', 'key', 'value', 'secret']) {
-      const raw = record[field];
-      if (typeof raw === 'string' && raw.trim()) {
-        return raw.trim();
-      }
-    }
-    return null;
-  }
-
-  /**
    * 统一记录错误状态。
    */
   private markError(message: string): PopiArtStatus {
     return this.popiArtStore.saveStatus({
-      endpoint: this.getStatus().endpoint || PopiArtMcp.Endpoint,
+      endpoint: this.getStatus().endpoint || this.getDefaultEndpoint(),
       authStatus: PopiArtAuthStatus.Error,
       user: undefined,
       project: undefined,
@@ -360,7 +282,7 @@ export class PopiArtService {
   private markUnavailable(message: string): PopiArtStatus {
     clearPopiArtConfig();
     return this.popiArtStore.saveStatus({
-      endpoint: this.getStatus().endpoint || PopiArtMcp.Endpoint,
+      endpoint: this.getStatus().endpoint || this.getDefaultEndpoint(),
       authStatus: PopiArtAuthStatus.Unauthenticated,
       user: undefined,
       project: undefined,

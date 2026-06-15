@@ -2731,8 +2731,7 @@ if (!gotTheLock) {
   const getPopiArtService = (): PopiArtService => {
     if (!popiArtService) {
       popiArtService = new PopiArtService(getStore(), {
-        fetchWithAuth,
-        getServerBaseUrl: getServerApiBaseUrl,
+        getAuthToken: () => getAuthTokens()?.accessToken || null,
       });
     }
     return popiArtService;

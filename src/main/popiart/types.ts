@@ -4,15 +4,15 @@ import type { PopiArtAuthStatus } from '../../shared/popiart/constants';
 export interface PopiArtLoginInput {
   /** API endpoint（可选，默认使用 constants 中的默认值） */
   endpoint?: string;
-  /** API key（必填） */
-  key: string;
+  /** 登录 token（必填） */
+  token: string;
   /** 可选的 project 名称 */
   project?: string;
 }
 
 /** PopiArt 内部状态，供 main 进程同步登录态和 CLI 元数据。 */
 export interface PopiArtStatus {
-  /** API endpoint（默认 https://server.popi.art/v1） */
+  /** API endpoint（默认 https://www.popi.art） */
   endpoint: string;
   /** 配置目录路径 */
   configDir: string;

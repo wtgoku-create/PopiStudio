@@ -14,8 +14,6 @@
 export const PopiArtMcp = {
   /** 显示名称 */
   Name: 'PopiArt',
-  /** PopiArt API endpoint */
-  Endpoint: 'https://server.popi.art/v1',
 } as const;
 
 /** PopiArt 认证状态枚举 */
