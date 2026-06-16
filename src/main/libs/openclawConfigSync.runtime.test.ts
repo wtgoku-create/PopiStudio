@@ -404,6 +404,108 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(mainEntry.cwd).toBe(path.resolve(mainAgentWorkingDirectory));
   });
 
+  test('writes subagent allowlist for enabled agents', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [
+        {
+          id: 'main',
+          name: 'Main',
+          description: '',
+          systemPrompt: '',
+          identity: '',
+          model: '',
+          workingDirectory: '',
+          icon: '',
+          skillIds: [],
+          enabled: true,
+          isDefault: true,
+          source: 'custom',
+          presetId: '',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: 'writer',
+          name: 'Writer',
+          description: '',
+          systemPrompt: '',
+          identity: '',
+          model: '',
+          workingDirectory: '',
+          icon: '',
+          skillIds: [],
+          enabled: true,
+          isDefault: false,
+          source: 'custom',
+          presetId: '',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: 'planner',
+          name: 'Planner',
+          description: '',
+          systemPrompt: '',
+          identity: '',
+          model: '',
+          workingDirectory: '',
+          icon: '',
+          skillIds: [],
+          enabled: true,
+          isDefault: false,
+          source: 'custom',
+          presetId: '',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    const result = sync.sync('managed-subagent-allowlist');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const mainEntry = config.agents.list.find((entry: { id?: string }) => entry.id === 'main');
+    const writerEntry = config.agents.list.find((entry: { id?: string }) => entry.id === 'writer');
+
+    expect(mainEntry.subagents.allowAgents).toEqual(['main', 'writer', 'planner']);
+    expect(writerEntry.subagents.allowAgents).toEqual(['main', 'writer', 'planner']);
+  });
+
   test('merges all server models into existing popiai provider and updates image input', async () => {
     mockRuntimeState.proxyPort = 56646;
     mockRuntimeState.serverModels = [
@@ -1214,6 +1316,47 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(agentsMd).toContain('For every `browser` tool call, set `target="host"` explicitly.');
   });
 
+  test('writes gateway auth token directly into config for child subagents', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+        ensureGatewayAuthToken: () => 'gateway-token-from-manager',
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getPopoInstances: () => [],
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    } as never);
+
+    const result = sync.sync('gateway-auth-token');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.gateway.auth).toEqual({
+      mode: 'token',
+      token: 'gateway-token-from-manager',
+    });
+  });
+
   test('writes browser and web fetch access settings', async () => {
     const { setSystemProxyEnabled } = await import('./systemProxy');
     const {
@@ -1323,6 +1466,96 @@ describe('OpenClawConfigSync runtime config output', () => {
       ssrfPolicy: { allowRfc2544BenchmarkRange: true },
     });
     expect(config.tools.web.fetch.useEnvProxy).toBeUndefined();
+  });
+
+  test('writes default persona files for managed agents without custom prompt or identity', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [
+        {
+          id: 'main',
+          name: 'Popiai',
+          description: '',
+          systemPrompt: '',
+          identity: '',
+          model: '',
+          workingDirectory: '',
+          icon: '',
+          skillIds: [],
+          enabled: true,
+          isDefault: true,
+          source: 'custom',
+          presetId: '',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: 'writer-agent',
+          name: 'Writer Agent',
+          description: '',
+          systemPrompt: '',
+          identity: '',
+          model: '',
+          workingDirectory: '',
+          icon: '',
+          skillIds: [],
+          enabled: true,
+          isDefault: false,
+          source: 'custom',
+          presetId: '',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    const result = sync.sync('managed-agent-default-persona');
+    expect(result.ok).toBe(true);
+
+    const workspaceDir = path.join(stateDir, 'workspace-writer-agent');
+    const soul = fs.readFileSync(path.join(workspaceDir, 'SOUL.md'), 'utf8');
+    const identity = fs.readFileSync(path.join(workspaceDir, 'IDENTITY.md'), 'utf8');
+    const user = fs.readFileSync(path.join(workspaceDir, 'USER.md'), 'utf8');
+    const memory = fs.readFileSync(path.join(workspaceDir, 'MEMORY.md'), 'utf8');
+
+    expect(soul).toContain('You are Writer Agent');
+    expect(identity).toContain('Name: Writer Agent');
+    expect(identity).toContain('Role: Collaborating specialist for multi-agent sessions.');
+    expect(user).toBe('');
+    expect(memory).toBe('');
   });
 
   test('writes built-in popitv stdio MCP server into mcp.servers', async () => {

@@ -20,7 +20,7 @@ import {
 } from '../../store/slices/coworkSlice';
 import type { Model } from '../../store/slices/modelSlice';
 import { setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
-import { CoworkImageAttachment } from '../../types/cowork';
+import { CoworkImageAttachment, CoworkSessionModeValue, type CoworkSessionMode } from '../../types/cowork';
 import { Skill } from '../../types/skill';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
@@ -140,8 +140,18 @@ export interface CoworkPromptInputRef {
   focus: () => void;
 }
 
+export interface CoworkPromptSubmitOptions {
+  mode: CoworkSessionMode;
+  selectedAgentIds: string[];
+}
+
 interface CoworkPromptInputProps {
-  onSubmit: (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]) => boolean | void | Promise<boolean | void>;
+  onSubmit: (
+    prompt: string,
+    skillPrompt?: string,
+    imageAttachments?: CoworkImageAttachment[],
+    submitOptions?: CoworkPromptSubmitOptions,
+  ) => boolean | void | Promise<boolean | void>;
   onStop?: () => void;
   isStreaming?: boolean;
   placeholder?: string;
@@ -196,6 +206,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [isAddingFile, setIsAddingFile] = useState(false);
     const [imageVisionHint, setImageVisionHint] = useState(false);
     const [isPatchingModel, setIsPatchingModel] = useState(false);
+    const [sessionMode, setSessionMode] = useState<CoworkSessionMode>(CoworkSessionModeValue.Single);
+    const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>(() => [currentAgentId]);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const dragDepthRef = useRef(0);
@@ -303,6 +315,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const isLarge = size === 'large';
   const useHomeContextLayout = isLarge && showAgentSelector;
+  const isHomeComposer = useHomeContextLayout && !sessionId;
   const useCompactSendButton = isLarge && (useHomeContextLayout || showReadOnlyContext);
   const minHeight = isLarge
     ? useHomeContextLayout
@@ -373,6 +386,22 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     modelPatchRequestIdRef.current += 1;
     setIsPatchingModel(false);
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!isHomeComposer) return;
+    const nextMode = currentSession && currentSession.messages.length === 0
+      ? currentSession.mode
+      : CoworkSessionModeValue.Single;
+    const nextSelectedAgentIds = currentSession && currentSession.messages.length === 0
+      ? currentSession.selectedAgentIds
+      : [currentAgentId];
+    setSessionMode(nextMode);
+    setSelectedAgentIds(Array.from(new Set(
+      (nextSelectedAgentIds.length > 0 ? nextSelectedAgentIds : [currentAgentId])
+        .map((item) => item.trim())
+        .filter(Boolean),
+    )));
+  }, [currentAgentId, currentSession, isHomeComposer]);
 
   // Sync value from draft when sessionId changes
   useEffect(() => {
@@ -481,13 +510,33 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         })),
       });
     }
-    const result = await onSubmit(finalPrompt, skillPrompt, imageAtts.length > 0 ? imageAtts : undefined);
+    const effectiveSelectedAgentIds = sessionMode === CoworkSessionModeValue.Multi
+      ? Array.from(new Set([currentAgentId, ...selectedAgentIds]))
+      : [currentAgentId];
+    if (sessionMode === CoworkSessionModeValue.Multi && effectiveSelectedAgentIds.length === 0) {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkSelectedAgentsEmpty'),
+      }));
+      return;
+    }
+
+    const result = await onSubmit(
+      finalPrompt,
+      skillPrompt,
+      imageAtts.length > 0 ? imageAtts : undefined,
+      isHomeComposer
+        ? {
+          mode: sessionMode,
+          selectedAgentIds: effectiveSelectedAgentIds,
+        }
+        : undefined,
+    );
     if (result === false) return;
     setValue('');
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
     setImageVisionHint(false);
-  }, [value, isStreaming, disabled, isPatchingModel, onSubmit, activeSkillIds, skills, attachments, dispatch, draftKey, effectiveSelectedModel?.id, modelSupportsImage]);
+  }, [value, isStreaming, disabled, isPatchingModel, onSubmit, activeSkillIds, skills, attachments, dispatch, draftKey, effectiveSelectedModel?.id, modelSupportsImage, currentAgentId, selectedAgentIds, sessionMode, isHomeComposer]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     dispatch(toggleActiveSkill(skill.id));
@@ -1046,6 +1095,82 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   ) : null;
   const textareaPlaceholder = placeholder;
 
+  const selectableAgents = agents.filter((agent) => agent.enabled);
+  const handleToggleSelectedAgent = useCallback((agentId: string) => {
+    setSelectedAgentIds((currentIds) => {
+      if (currentIds.includes(agentId)) {
+        if (currentIds.length <= 1) {
+          return currentIds;
+        }
+        return currentIds.filter((id) => id !== agentId);
+      }
+      return [...currentIds, agentId];
+    });
+  }, []);
+
+  const homeSessionModeControls = isHomeComposer ? (
+    <div className="flex flex-col gap-3 px-4 pt-4">
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] font-medium text-secondary">
+          {i18nService.t('coworkSessionModeLabel')}
+        </span>
+        <div className="inline-flex rounded-xl border border-border bg-background p-1">
+          {[
+            { value: CoworkSessionModeValue.Single, label: i18nService.t('coworkSessionModeSingle') },
+            { value: CoworkSessionModeValue.Multi, label: i18nService.t('coworkSessionModeMulti') },
+          ].map((option) => {
+            const active = sessionMode === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setSessionMode(option.value)}
+                className={`rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  active
+                    ? 'bg-foreground text-background'
+                    : 'text-secondary hover:text-foreground'
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {sessionMode === CoworkSessionModeValue.Multi && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[12px] font-medium text-secondary">
+              {i18nService.t('coworkSelectedAgentsLabel')}
+            </span>
+            <span className="text-[11px] text-muted">
+              {i18nService.t('coworkSelectedAgentsHint')}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {selectableAgents.map((agent) => {
+              const isSelected = selectedAgentIds.includes(agent.id);
+              return (
+                <button
+                  key={agent.id}
+                  type="button"
+                  onClick={() => handleToggleSelectedAgent(agent.id)}
+                  className={`rounded-full border px-3 py-1.5 text-[12px] transition-colors ${
+                    isSelected
+                      ? 'border-foreground bg-foreground text-background'
+                      : 'border-border bg-surface text-secondary hover:text-foreground'
+                  }`}
+                >
+                  {agent.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null;
+
   const readOnlyContextRow = isLarge && showReadOnlyContext && !useHomeContextLayout ? (
     <div className="mt-2 grid min-h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4">
       <div aria-hidden="true" />
@@ -1102,6 +1227,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           useHomeContextLayout ? (
             <>
               <div className="relative z-10 rounded-2xl border border-border bg-surface shadow-card">
+                {homeSessionModeControls}
                 {activeSkillContextRow}
                 <textarea
                   ref={textareaRef}

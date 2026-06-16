@@ -55,6 +55,8 @@ export const patchExistingAgentSidebarSession = (
     pinned: next.pinned,
     pinOrder: next.pinOrder ?? null,
     agentId: normalizeAgentId(next.agentId),
+    mode: next.mode,
+    selectedAgentIds: next.selectedAgentIds,
     createdAt: next.createdAt,
     updatedAt: next.updatedAt,
   };

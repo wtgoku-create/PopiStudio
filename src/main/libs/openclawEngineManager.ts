@@ -85,6 +85,14 @@ const ensureDir = (dirPath: string): void => {
   fs.mkdirSync(dirPath, { recursive: true });
 };
 
+const chmodPrivateFile = (filePath: string): void => {
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best-effort only. Some platforms/filesystems may ignore chmod semantics.
+  }
+};
+
 const findPath = (candidates: string[]): string | null => {
   for (const candidate of candidates) {
     if (candidate && fs.existsSync(candidate)) {
@@ -1136,6 +1144,7 @@ export class OpenClawEngineManager extends EventEmitter {
     try {
       const existing = fs.readFileSync(this.gatewayTokenPath, 'utf8').trim();
       if (existing) {
+        chmodPrivateFile(this.gatewayTokenPath);
         return existing;
       }
     } catch {
@@ -1144,12 +1153,17 @@ export class OpenClawEngineManager extends EventEmitter {
 
     const token = crypto.randomBytes(24).toString('hex');
     ensureDir(path.dirname(this.gatewayTokenPath));
-    fs.writeFileSync(this.gatewayTokenPath, token, 'utf8');
+    fs.writeFileSync(this.gatewayTokenPath, token, { encoding: 'utf8', mode: 0o600 });
+    chmodPrivateFile(this.gatewayTokenPath);
     return token;
   }
 
   getGatewayToken(): string | null {
     return this.readGatewayToken();
+  }
+
+  ensureGatewayAuthToken(): string {
+    return this.ensureGatewayToken();
   }
 
   private readGatewayToken(): string | null {
@@ -1164,19 +1178,68 @@ export class OpenClawEngineManager extends EventEmitter {
   private ensureConfigFile(): void {
     ensureDir(path.dirname(this.configPath));
     if (!fs.existsSync(this.configPath)) {
-      fs.writeFileSync(this.configPath, JSON.stringify({ gateway: { mode: 'local' } }, null, 2) + '\n', 'utf8');
-      return;
+      fs.writeFileSync(
+        this.configPath,
+        JSON.stringify({ gateway: { mode: 'local' } }, null, 2) + '\n',
+        { encoding: 'utf8', mode: 0o600 },
+      );
+      chmodPrivateFile(this.configPath);
     }
-    // Ensure gateway.mode is set even if config already exists
+
+    const gatewayToken = this.ensureGatewayToken();
+
+    // Ensure gateway.mode is set even if config already exists, and self-heal
+    // older Popiai-managed configs that still persist
+    // `${OPENCLAW_GATEWAY_TOKEN}`. OpenClaw child subagent processes sanitize
+    // inherited env vars, so the placeholder can become unreadable at runtime
+    // and lead to `pairing required` on local loopback reconnects.
     try {
       const raw = fs.readFileSync(this.configPath, 'utf8');
       const config = JSON.parse(raw);
-      if (!config.gateway?.mode) {
-        config.gateway = { ...config.gateway, mode: 'local' };
-        fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+      const nextGateway = {
+        ...(config.gateway ?? {}),
+        mode: config.gateway?.mode || 'local',
+      } as Record<string, unknown>;
+      const existingAuth = typeof nextGateway.auth === 'object' && nextGateway.auth !== null
+        ? nextGateway.auth as Record<string, unknown>
+        : {};
+      const existingToken = typeof existingAuth.token === 'string' ? existingAuth.token.trim() : '';
+      const shouldRepairToken = (
+        existingToken === '${OPENCLAW_GATEWAY_TOKEN}'
+        || (existingAuth.mode === 'token' && !existingToken)
+      );
+
+      if (!existingAuth.mode || shouldRepairToken) {
+        nextGateway.auth = {
+          ...existingAuth,
+          mode: 'token',
+          token: shouldRepairToken || !existingToken ? gatewayToken : existingToken,
+        };
       }
+
+      const nextConfig = {
+        ...config,
+        gateway: nextGateway,
+      };
+
+      if (JSON.stringify(config) !== JSON.stringify(nextConfig)) {
+        fs.writeFileSync(
+          this.configPath,
+          JSON.stringify(nextConfig, null, 2) + '\n',
+          { encoding: 'utf8', mode: 0o600 },
+        );
+      }
+      chmodPrivateFile(this.configPath);
     } catch {
       // ignore parse errors
+    }
+  }
+
+  repairGatewayAuthTokenInConfig(): void {
+    try {
+      this.ensureConfigFile();
+    } catch {
+      // Best-effort repair only.
     }
   }
 

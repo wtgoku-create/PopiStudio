@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 
+import { SubagentLifecycleStatus } from '../../../common/coworkSystemMessages';
 import type { SubagentMessageStore } from '../../subagentMessageStore';
 import type { SubagentRunStore } from '../../subagentRunStore';
 import {
@@ -62,6 +63,27 @@ export type GatewayClientLike = {
   ) => Promise<T>;
 };
 
+export interface SubagentLifecycleEvent {
+  runId: string;
+  parentSessionId: string;
+  agentId: string;
+  label: string | null;
+  task: string | null;
+  sessionKey?: string | null;
+  status: typeof SubagentLifecycleStatus[keyof typeof SubagentLifecycleStatus];
+  error?: string | null;
+}
+
+type SubagentRunInfo = {
+  id: string;
+  parentSessionId: string;
+  sessionKey: string | null;
+  agentId: string;
+  task: string | null;
+  label: string | null;
+  createdAt: number;
+};
+
 /**
  * Encapsulates all subagent (child session) tracking logic:
  * state maps, lifecycle detection, history fetching, and persistence.
@@ -88,6 +110,8 @@ export class SubagentTracker {
     parentSessionId: string;
     createdAt: number;
   }>();
+  private readonly runInfoById = new Map<string, SubagentRunInfo>();
+  private readonly lifecycleListeners = new Set<(event: SubagentLifecycleEvent) => void>();
 
   constructor(
     private readonly store: SubagentRunStore,
@@ -136,6 +160,24 @@ export class SubagentTracker {
         parentSessionId: sessionId,
         createdAt: Date.now(),
       });
+      this.runInfoById.set(toolCallId, {
+        id: toolCallId,
+        parentSessionId: sessionId,
+        sessionKey: null,
+        agentId,
+        task: task || null,
+        label: label ?? null,
+        createdAt: Date.now(),
+      });
+      this.emitLifecycleEvent({
+        runId: toolCallId,
+        parentSessionId: sessionId,
+        agentId,
+        label: label ?? null,
+        task: task || null,
+        sessionKey: null,
+        status: SubagentLifecycleStatus.Spawned,
+      });
     }
   }
 
@@ -177,6 +219,7 @@ export class SubagentTracker {
       if (this.subagentStatus.get(tcId) === 'running') {
         this.subagentStatus.set(tcId, 'done');
         this.store.updateSubagentRunStatus(tcId, 'done', Date.now());
+        this.emitLifecycleEventForRun(tcId, SubagentLifecycleStatus.Completed);
         // Persist cached messages now that completion is confirmed
         this.tryPersistCachedMessages(tcId);
       }
@@ -198,6 +241,7 @@ export class SubagentTracker {
           this.subagentStatus.set(toolCallId, 'done');
           this.store.updateSubagentRunStatus(toolCallId, 'done', Date.now());
           console.log('[SubagentTracker] marked subagent as done via announce:', toolCallId);
+          this.emitLifecycleEventForRun(toolCallId, SubagentLifecycleStatus.Completed);
           // Persist cached messages now that completion is confirmed
           this.tryPersistCachedMessages(toolCallId);
         }
@@ -206,6 +250,13 @@ export class SubagentTracker {
     }
     console.debug('[SubagentTracker] announce runId detected but no matching subagent:', runId);
     return true;
+  }
+
+  onLifecycle(listener: (event: SubagentLifecycleEvent) => void): () => void {
+    this.lifecycleListeners.add(listener);
+    return () => {
+      this.lifecycleListeners.delete(listener);
+    };
   }
 
   /**
@@ -222,6 +273,7 @@ export class SubagentTracker {
     this.subagentToolCallIdToAgentId.clear();
     this.agentIdToToolCallIds.clear();
     this.pendingSpawnInfo.clear();
+    this.runInfoById.clear();
   }
 
   // ── Public query API ───────────────────────────────────────────────────
@@ -344,10 +396,18 @@ export class SubagentTracker {
     const childSessionKey = typeof parsed?.childSessionKey === 'string' ? parsed.childSessionKey : '';
     const isError = parsed?.status === 'error';
     const status = isError ? 'error' : 'running';
+    const errorMessage = typeof parsed?.error === 'string' ? parsed.error.trim() : '';
 
     // Store session key in memory
     if (childSessionKey) {
       this.subagentSessionKeys.set(toolCallId, childSessionKey);
+      const runInfo = this.runInfoById.get(toolCallId);
+      if (runInfo) {
+        this.runInfoById.set(toolCallId, {
+          ...runInfo,
+          sessionKey: childSessionKey,
+        });
+      }
     }
 
     // If already committed (e.g., onSpawnResult fired then backfill also fires), just update
@@ -356,6 +416,11 @@ export class SubagentTracker {
       if (childSessionKey && !this.subagentSessionKeys.has(toolCallId)) {
         this.store.updateSubagentRunSessionKey(toolCallId, childSessionKey);
       }
+      this.emitLifecycleEventForRun(
+        toolCallId,
+        isError ? SubagentLifecycleStatus.Error : SubagentLifecycleStatus.Running,
+        errorMessage || null,
+      );
       return;
     }
 
@@ -376,7 +441,106 @@ export class SubagentTracker {
       this.pendingSpawnInfo.delete(toolCallId);
       console.log('[SubagentTracker] committed spawn result:', toolCallId, status,
         isError ? parsed.error : '');
+      this.emitLifecycleEvent({
+        runId: toolCallId,
+        parentSessionId: pending.parentSessionId,
+        agentId: pending.agentId,
+        label: pending.label,
+        task: pending.task,
+        sessionKey: childSessionKey || null,
+        status: isError ? SubagentLifecycleStatus.Error : SubagentLifecycleStatus.Running,
+        error: errorMessage || null,
+      });
     }
+  }
+
+  private emitLifecycleEventForRun(
+    runId: string,
+    status: typeof SubagentLifecycleStatus[keyof typeof SubagentLifecycleStatus],
+    error?: string | null,
+  ): void {
+    const pending = this.pendingSpawnInfo.get(runId);
+    if (pending) {
+      this.emitLifecycleEvent({
+        runId,
+        parentSessionId: pending.parentSessionId,
+        agentId: pending.agentId,
+        label: pending.label,
+        task: pending.task,
+        sessionKey: this.subagentSessionKeys.get(runId) ?? null,
+        status,
+        error: error ?? null,
+      });
+      return;
+    }
+
+    const run = this.findRunById(runId);
+    if (!run?.parentSessionId || !run.agentId) {
+      return;
+    }
+
+    this.emitLifecycleEvent({
+      runId,
+      parentSessionId: run.parentSessionId,
+      agentId: run.agentId,
+      label: run.label,
+      task: run.task,
+      sessionKey: this.subagentSessionKeys.get(runId) ?? run.sessionKey ?? null,
+      status,
+      error: error ?? null,
+    });
+  }
+
+  private emitLifecycleEvent(event: SubagentLifecycleEvent): void {
+    const existingRunInfo = this.runInfoById.get(event.runId);
+    this.runInfoById.set(event.runId, {
+      id: event.runId,
+      parentSessionId: event.parentSessionId,
+      sessionKey: event.sessionKey ?? existingRunInfo?.sessionKey ?? null,
+      agentId: event.agentId,
+      task: event.task,
+      label: event.label,
+      createdAt: existingRunInfo?.createdAt ?? Date.now(),
+    });
+    for (const listener of this.lifecycleListeners) {
+      listener(event);
+    }
+  }
+
+  private findRunById(runId: string): {
+    id: string;
+    parentSessionId: string;
+    sessionKey: string | null;
+    agentId: string | null;
+    task: string | null;
+    label: string | null;
+    status: 'running' | 'done' | 'error';
+    createdAt: number;
+  } | null {
+    const cached = this.runInfoById.get(runId);
+    if (cached) {
+      return {
+        ...cached,
+        status: (this.subagentStatus.get(runId) ?? 'running') as 'running' | 'done' | 'error',
+        sessionKey: this.subagentSessionKeys.get(runId) ?? cached.sessionKey,
+      };
+    }
+
+    const pending = this.pendingSpawnInfo.get(runId);
+    if (pending) {
+      return {
+        id: runId,
+        parentSessionId: pending.parentSessionId,
+        sessionKey: this.subagentSessionKeys.get(runId) ?? null,
+        agentId: pending.agentId,
+        task: pending.task,
+        label: pending.label,
+        status: 'running',
+        createdAt: pending.createdAt,
+      };
+    }
+
+    return null;
   }
 
   private async discoverSubagentSessionKey(runId: string): Promise<string | null> {

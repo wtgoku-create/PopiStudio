@@ -23,7 +23,7 @@ import {
 } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
-import { CoworkSessionSourceKind } from '../shared/cowork/constants';
+import { CoworkSessionModeValue, CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
@@ -2151,6 +2151,27 @@ function mergeCoworkSystemPrompt(
   return sections.length > 0 ? sections.join('\n\n') : undefined;
 }
 
+function buildSelectedAgentSystemPrompt(options: {
+  mode?: import('../shared/cowork/constants').CoworkSessionMode;
+  selectedAgents: Array<{ id: string; name: string }>;
+}): string | undefined {
+  if (options.mode !== CoworkSessionModeValue.Multi || options.selectedAgents.length === 0) {
+    return undefined;
+  }
+
+  const roster = options.selectedAgents
+    .map((agent) => `- ${agent.name} (${agent.id})`)
+    .join('\n');
+
+  return [
+    '## Multi-agent session',
+    'Only collaborate with the user-selected agents listed below.',
+    'Do not spawn, route to, or reference any other subagent outside this list.',
+    'Selected agents:',
+    roster,
+  ].join('\n');
+}
+
 // 获取正确的预加载脚本路径
 const PRELOAD_PATH = app.isPackaged
   ? path.join(__dirname, 'preload.js')
@@ -3917,6 +3938,8 @@ if (!gotTheLock) {
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
     agentId?: string;
     modelOverride?: string;
+    mode?: import('../shared/cowork/constants').CoworkSessionMode;
+    selectedAgentIds?: string[];
   }) => {
     try {
       const engineStatus = await ensureOpenClawRunningForCowork();
@@ -3926,12 +3949,39 @@ if (!gotTheLock) {
 
       const coworkStoreInstance = getCoworkStore();
       const config = coworkStoreInstance.getConfig();
+      const normalizedAgentId = options.agentId?.trim() || AgentId.Main;
+      const normalizedMode = options.mode === CoworkSessionModeValue.Multi
+        ? CoworkSessionModeValue.Multi
+        : CoworkSessionModeValue.Single;
+      const rawSelectedAgentIds = normalizedMode === CoworkSessionModeValue.Multi
+        ? (options.selectedAgentIds ?? [])
+        : [normalizedAgentId];
+      const selectedAgentIds = Array.from(
+        new Set(
+          rawSelectedAgentIds
+            .map((item) => item.trim())
+            .filter(Boolean),
+        ),
+      );
+      const effectiveSelectedAgentIds = selectedAgentIds.length > 0
+        ? selectedAgentIds
+        : [normalizedAgentId];
+      const selectedAgents = effectiveSelectedAgentIds
+        .map((id) => getAgentManager().getAgent(id))
+        .filter((agent): agent is NonNullable<typeof agent> => agent !== null)
+        .map((agent) => ({ id: agent.id, name: agent.name?.trim() || agent.id }));
+      const selectedAgentSystemPrompt = buildSelectedAgentSystemPrompt({
+        mode: normalizedMode,
+        selectedAgents,
+      });
       const systemPrompt = mergeCoworkSystemPrompt(
-        options.systemPrompt ?? config.systemPrompt,
+        [options.systemPrompt ?? config.systemPrompt, selectedAgentSystemPrompt]
+          .filter(Boolean)
+          .join('\n\n'),
       );
       const selectedTaskDirectory = resolveSessionWorkingDirectory({
         cwd: options.cwd,
-        agentId: options.agentId,
+        agentId: normalizedAgentId,
       });
 
       if (!selectedTaskDirectory) {
@@ -3954,8 +4004,10 @@ if (!gotTheLock) {
         systemPrompt,
         config.executionMode || 'local',
         options.activeSkillIds || [],
-        options.agentId || 'main',
-        options.modelOverride || ''
+        normalizedAgentId,
+        options.modelOverride || '',
+        normalizedMode,
+        effectiveSelectedAgentIds,
       );
 
       if (options.modelOverride) {
@@ -4001,7 +4053,9 @@ if (!gotTheLock) {
         workspaceRoot: taskWorkingDirectory,
         confirmationMode: 'modal',
         imageAttachments: options.imageAttachments,
-        agentId: options.agentId,
+        agentId: normalizedAgentId,
+        mode: normalizedMode,
+        selectedAgentIds: effectiveSelectedAgentIds,
       }).catch(error => {
         console.error('[Cowork] session error:', error);
         try {
@@ -4319,7 +4373,10 @@ if (!gotTheLock) {
       const agent = getAgentManager().createAgent(request, resolveDefaultAgentModelRef());
       // Sync config so workspace files (SOUL.md, IDENTITY.md, USER.md) are written
       // before OpenClaw scaffolds default templates for the new agent.
-      syncOpenClawConfig({ reason: 'agent-created' }).catch((err) => {
+      syncOpenClawConfig({
+        reason: 'agent-created',
+        restartGatewayIfRunning: true,
+      }).catch((err) => {
         console.error('[OpenClaw] config sync after agent-created failed:', err);
       });
       return { success: true, agent };
@@ -4344,7 +4401,7 @@ if (!gotTheLock) {
       if (shouldSyncOpenClawConfig) {
         syncOpenClawConfig({
           reason: workingDirectoryChanged ? 'agent-working-directory-updated' : 'agent-updated',
-          restartGatewayIfRunning: workingDirectoryChanged,
+          restartGatewayIfRunning: true,
         }).catch((err) => {
           console.error('[OpenClaw] config sync after agent update failed:', err);
         });
@@ -4405,7 +4462,10 @@ if (!gotTheLock) {
         }
       }
 
-      syncOpenClawConfig({ reason: 'agent-deleted' }).catch((err) => {
+      syncOpenClawConfig({
+        reason: 'agent-deleted',
+        restartGatewayIfRunning: true,
+      }).catch((err) => {
         console.error('[OpenClaw] config sync after agent-deleted failed:', err);
       });
       return { success: true, deleted: result, deletedSessionIds: result ? deletedSessionIds : [] };
@@ -4435,7 +4495,10 @@ if (!gotTheLock) {
   ipcMain.handle(AgentIpcChannel.AddPreset, async (_event, presetId: string) => {
     try {
       const agent = getAgentManager().addPresetAgent(presetId, resolveDefaultAgentModelRef());
-      syncOpenClawConfig({ reason: 'agent-preset-added' }).catch((err) => {
+      syncOpenClawConfig({
+        reason: 'agent-preset-added',
+        restartGatewayIfRunning: true,
+      }).catch((err) => {
         console.error('[OpenClaw] config sync after agent-preset-added failed:', err);
       });
       return { success: true, agent };

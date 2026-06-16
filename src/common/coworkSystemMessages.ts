@@ -1,8 +1,25 @@
 export const CoworkSystemMessageKind = {
   ContextCompaction: 'context_compaction',
+  SubagentLifecycle: 'subagent_lifecycle',
 } as const;
 export type CoworkSystemMessageKind =
   typeof CoworkSystemMessageKind[keyof typeof CoworkSystemMessageKind];
+
+export const SubagentLifecycleStatus = {
+  Spawned: 'spawned',
+  Running: 'running',
+  Completed: 'completed',
+  Error: 'error',
+} as const;
+export type SubagentLifecycleStatus =
+  typeof SubagentLifecycleStatus[keyof typeof SubagentLifecycleStatus];
+
+export const isSubagentLifecycleStatus = (value: unknown): value is SubagentLifecycleStatus => {
+  return value === SubagentLifecycleStatus.Spawned
+    || value === SubagentLifecycleStatus.Running
+    || value === SubagentLifecycleStatus.Completed
+    || value === SubagentLifecycleStatus.Error;
+};
 
 export const ContextCompactionMode = {
   Auto: 'auto',

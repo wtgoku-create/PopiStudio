@@ -2,7 +2,7 @@ import { ArrowPathIcon,XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useCallback,useEffect, useMemo, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
-import type { CoworkSession } from '../../types/cowork';
+import { CoworkSessionModeValue, type CoworkSession } from '../../types/cowork';
 import AssistantTurnBlock from '../cowork/AssistantTurnBlock';
 import {
   buildConversationTurns,
@@ -43,6 +43,8 @@ const RunSessionModal: React.FC<RunSessionModalProps> = ({ sessionId, sessionKey
           const s = result.session;
           loadedSession = {
             ...s,
+            mode: s.mode ?? CoworkSessionModeValue.Single,
+            selectedAgentIds: s.selectedAgentIds ?? [s.agentId || 'main'],
             messagesOffset: s.messagesOffset ?? 0,
             totalMessages: s.totalMessages ?? s.messages?.length ?? 0,
           };
@@ -56,6 +58,8 @@ const RunSessionModal: React.FC<RunSessionModalProps> = ({ sessionId, sessionKey
           const s = result.session;
           loadedSession = {
             ...s,
+            mode: s.mode ?? CoworkSessionModeValue.Single,
+            selectedAgentIds: s.selectedAgentIds ?? [s.agentId || 'main'],
             messagesOffset: s.messagesOffset ?? 0,
             totalMessages: s.totalMessages ?? s.messages?.length ?? 0,
           };

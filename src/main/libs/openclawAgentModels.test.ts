@@ -140,6 +140,34 @@ describe('buildAgentEntry', () => {
     expect(identity.name).toBe('Designer');
     expect(identity.emoji).toBeUndefined();
   });
+
+  test('writes subagent allowlist when provided', () => {
+    const result = buildAgentEntry({
+      id: 'main',
+      name: 'Main',
+      description: '',
+      systemPrompt: '',
+      identity: '',
+      model: '',
+      workingDirectory: '',
+      icon: '',
+      skillIds: [],
+      enabled: true,
+      isDefault: true,
+      source: 'custom',
+      presetId: '',
+      createdAt: 0,
+      updatedAt: 0,
+    }, 'anthropic/claude-sonnet-4', {
+      subagentAllowAgents: ['main', 'writer', 'planner'],
+    });
+
+    expect(result).toMatchObject({
+      subagents: {
+        allowAgents: ['main', 'writer', 'planner'],
+      },
+    });
+  });
 });
 
 describe('buildManagedAgentEntries', () => {
@@ -232,6 +260,39 @@ describe('buildManagedAgentEntries', () => {
     expect(result[0]).toMatchObject({
       id: 'crab-boss',
       workspace: expect.stringContaining('workspace-crab-boss'),
+    });
+  });
+
+  test('propagates shared subagent allowlist to managed agents', () => {
+    const result = buildManagedAgentEntries({
+      agents: [
+        {
+          id: 'writer',
+          name: 'Writer',
+          description: '',
+          systemPrompt: '',
+          identity: '',
+          model: '',
+          workingDirectory: '',
+          icon: '',
+          skillIds: [],
+          enabled: true,
+          isDefault: false,
+          source: 'custom',
+          presetId: '',
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+      fallbackPrimaryModel: 'anthropic/claude-sonnet-4',
+      subagentAllowAgents: ['main', 'writer', 'planner'],
+    });
+
+    expect(result[0]).toMatchObject({
+      id: 'writer',
+      subagents: {
+        allowAgents: ['main', 'writer', 'planner'],
+      },
     });
   });
 });

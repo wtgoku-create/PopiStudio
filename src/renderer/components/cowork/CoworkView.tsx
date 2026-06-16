@@ -18,14 +18,14 @@ import {
 import { addMessage, setCurrentSession, setStreaming, updateSessionStatus } from '../../store/slices/coworkSlice';
 import { clearSelection,selectAction, setActions } from '../../store/slices/quickActionSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../../store/slices/skillSlice';
-import type { CoworkImageAttachment, CoworkSession, OpenClawEngineStatus, SubagentSessionSummary } from '../../types/cowork';
+import { CoworkSessionModeValue, type CoworkImageAttachment, type CoworkSession, type OpenClawEngineStatus, type SubagentSessionSummary } from '../../types/cowork';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { PromptPanel,QuickActionBar } from '../quick-actions';
 import type { SettingsOpenOptions } from '../Settings';
 import WindowTitleBar from '../window/WindowTitleBar';
 import { useAgentSelectedModel } from './agentModelSelection';
 import { CoworkUiEvent } from './constants';
-import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInput';
+import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
 import CoworkSessionDetail from './CoworkSessionDetail';
 import { buildCoworkContinuationSystemPrompt, buildCoworkSystemPrompt } from './skillSystemPrompt';
 import SubagentSessionDetail from './SubagentSessionDetail';
@@ -206,7 +206,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     });
   }, []);
 
-  const handleStartSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]): Promise<boolean | void> => {
+  const handleStartSession = async (
+    prompt: string,
+    skillPrompt?: string,
+    imageAttachments?: CoworkImageAttachment[],
+    submitOptions?: CoworkPromptSubmitOptions,
+  ): Promise<boolean | void> => {
     console.log('[CoworkView] handleStartSession: imageAttachments diagnosis', {
       hasImageAttachments: !!imageAttachments,
       count: imageAttachments?.length ?? 0,
@@ -253,7 +258,14 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
 
       // Capture active skill IDs before clearing them
       const sessionSkillIds = [...activeSkillIds];
-      const existingSessionResult = await coworkService.listSessionsForAgentPreview(currentAgentId, 1, 0);
+      const requestedMode = submitOptions?.mode ?? CoworkSessionModeValue.Single;
+      const selectedAgentIds = submitOptions?.selectedAgentIds?.length
+        ? submitOptions.selectedAgentIds
+        : [currentAgentId];
+      const shouldReuseLatestSession = requestedMode === CoworkSessionModeValue.Single;
+      const existingSessionResult = shouldReuseLatestSession
+        ? await coworkService.listSessionsForAgentPreview(currentAgentId, 1, 0)
+        : { success: true as const, sessions: [] };
       const existingSessionSummary = existingSessionResult.success
         ? existingSessionResult.sessions?.[0]
         : null;
@@ -304,6 +316,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         executionMode: config.executionMode || 'local',
         activeSkillIds: sessionSkillIds,
         agentId: currentAgentId,
+        mode: requestedMode,
+        selectedAgentIds,
         messages: [
           {
             id: `msg-${now}`,
@@ -352,6 +366,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         activeSkillIds: sessionSkillIds,
         agentId: currentAgentId,
         modelOverride: sessionModelOverride,
+        mode: requestedMode,
+        selectedAgentIds,
         imageAttachments,
       });
 
@@ -437,11 +453,13 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     prompt: string,
     skillPrompt?: string,
     imageAttachments?: CoworkImageAttachment[],
+    submitOptions?: CoworkPromptSubmitOptions,
   ): Promise<boolean | void> => {
-    if (currentSession && !hasCurrentSessionMessages) {
+    const requestedMode = submitOptions?.mode ?? CoworkSessionModeValue.Single;
+    if (currentSession && !hasCurrentSessionMessages && requestedMode === CoworkSessionModeValue.Single) {
       return handleContinueSession(prompt, skillPrompt, imageAttachments);
     }
-    return handleStartSession(prompt, skillPrompt, imageAttachments);
+    return handleStartSession(prompt, skillPrompt, imageAttachments, submitOptions);
   };
 
   const handleStopSession = async () => {

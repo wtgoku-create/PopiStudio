@@ -22,6 +22,8 @@ const runtimeDir = process.argv[2]
   : path.join(rootDir, 'vendor', 'openclaw-runtime', 'current');
 
 const bundleOutPath = path.join(runtimeDir, 'gateway-bundle.mjs');
+const distDir = path.join(runtimeDir, 'dist');
+const forceBundle = process.env.OPENCLAW_FORCE_BUNDLE === '1';
 
 // Prefer gateway-entry.js (dedicated gateway entry, skips CLI overhead).
 // Fall back to entry.js (full CLI entry) if gateway-entry.js doesn't exist.
@@ -36,10 +38,30 @@ if (!fs.existsSync(entryPath)) {
 }
 
 // Skip if bundle is already up-to-date (newer than the entry point).
-if (fs.existsSync(bundleOutPath)) {
+const getLatestMtimeMs = (targetPath) => {
+  if (!fs.existsSync(targetPath)) {
+    return 0;
+  }
+
+  const stat = fs.statSync(targetPath);
+  if (!stat.isDirectory()) {
+    return stat.mtimeMs;
+  }
+
+  let latest = stat.mtimeMs;
+  for (const entry of fs.readdirSync(targetPath, { withFileTypes: true })) {
+    latest = Math.max(latest, getLatestMtimeMs(path.join(targetPath, entry.name)));
+  }
+  return latest;
+};
+
+if (!forceBundle && fs.existsSync(bundleOutPath)) {
   const bundleStat = fs.statSync(bundleOutPath);
-  const entryStat = fs.statSync(entryPath);
-  if (bundleStat.mtimeMs > entryStat.mtimeMs) {
+  const latestSourceMtimeMs = Math.max(
+    fs.statSync(entryPath).mtimeMs,
+    getLatestMtimeMs(distDir),
+  );
+  if (bundleStat.mtimeMs > latestSourceMtimeMs) {
     console.log(`[bundle-openclaw-gateway] Bundle is up-to-date, skipping.`);
     process.exit(0);
   }
@@ -47,6 +69,9 @@ if (fs.existsSync(bundleOutPath)) {
 
 console.log(`[bundle-openclaw-gateway] Bundling: ${path.relative(runtimeDir, entryPath)}`);
 console.log(`[bundle-openclaw-gateway] Output:   ${path.relative(runtimeDir, bundleOutPath)}`);
+if (forceBundle) {
+  console.log('[bundle-openclaw-gateway] Force rebundle enabled via OPENCLAW_FORCE_BUNDLE=1');
+}
 
 // Native addons and heavy optional deps that must NOT be bundled.
 // These are resolved at runtime from node_modules/.

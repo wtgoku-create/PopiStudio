@@ -68,6 +68,8 @@ export type CoworkStartOptions = {
   confirmationMode?: 'modal' | 'text';
   imageAttachments?: CoworkImageAttachment[];
   agentId?: string;
+  mode?: import('../../../shared/cowork/constants').CoworkSessionMode;
+  selectedAgentIds?: string[];
 };
 
 export type CoworkContinueOptions = {

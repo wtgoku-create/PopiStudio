@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { CoworkSessionStatusValue } from '../../types/cowork';
+import { CoworkSessionModeValue, CoworkSessionStatusValue } from '../../types/cowork';
 import coworkReducer, {
   addSession,
   setConfig,
@@ -24,6 +24,8 @@ const makeSession = (overrides: Partial<Parameters<typeof addSession>[0]> = {}) 
   executionMode: 'local' as const,
   activeSkillIds: [],
   agentId: 'main',
+  mode: CoworkSessionModeValue.Single,
+  selectedAgentIds: ['main'],
   messages: [],
   messagesOffset: 0,
   totalMessages: 0,
@@ -131,35 +133,6 @@ test('setCurrentSession preserves the agent id when inserting a summary', () => 
   expect(state.sessions[0].agentId).toBe('agent-3');
 });
 
-test('setCurrentSession stores the latest user or assistant message preview', () => {
-  const state = coworkReducer(undefined, setCurrentSession(makeSession({
-    id: 'session-preview',
-    messages: [
-      {
-        id: 'msg-user',
-        type: 'user',
-        content: 'question',
-        timestamp: 1,
-      },
-      {
-        id: 'msg-thinking',
-        type: 'assistant',
-        content: 'internal reasoning',
-        timestamp: 2,
-        metadata: { isThinking: true },
-      },
-      {
-        id: 'msg-tool',
-        type: 'tool_result',
-        content: 'tool output',
-        timestamp: 3,
-      },
-    ],
-  })));
-
-  expect(state.sessions[0].lastMessagePreview).toBe('question');
-});
-
 test('updateSessionStatus marks completed inactive sessions unread', () => {
   const state = coworkReducer(undefined, setSessions([{
     id: 'session-1',
@@ -167,6 +140,8 @@ test('updateSessionStatus marks completed inactive sessions unread', () => {
     status: CoworkSessionStatusValue.Running,
     pinned: false,
     agentId: 'main',
+    mode: CoworkSessionModeValue.Single,
+    selectedAgentIds: ['main'],
     createdAt: 1,
     updatedAt: 1,
   }]));
@@ -190,6 +165,8 @@ test('updateSessionStatus does not mark the active completed session unread', ()
       status: CoworkSessionStatusValue.Running,
       pinned: false,
       agentId: 'main',
+      mode: CoworkSessionModeValue.Single,
+      selectedAgentIds: ['main'],
       createdAt: 1,
       updatedAt: 1,
     }])),

@@ -4,7 +4,7 @@ import { store } from '../store';
 import { setAgents, setCurrentAgentId } from '../store/slices/agentSlice';
 import { setCurrentSession } from '../store/slices/coworkSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../store/slices/skillSlice';
-import { type CoworkSession,CoworkSessionStatusValue } from '../types/cowork';
+import { CoworkSessionModeValue, type CoworkSession,CoworkSessionStatusValue } from '../types/cowork';
 import { coworkService } from './cowork';
 
 const makeSession = (): CoworkSession => ({
@@ -20,6 +20,8 @@ const makeSession = (): CoworkSession => ({
   executionMode: 'local',
   activeSkillIds: [],
   agentId: 'agent-1',
+  mode: CoworkSessionModeValue.Single,
+  selectedAgentIds: ['agent-1'],
   messages: [],
   messagesOffset: 0,
   totalMessages: 0,

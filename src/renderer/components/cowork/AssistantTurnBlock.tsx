@@ -9,6 +9,7 @@ import { ArtifactPreviewCard } from '../artifacts';
 import ExclamationTriangleIcon from '../icons/ExclamationTriangleIcon';
 import InformationCircleIcon from '../icons/InformationCircleIcon';
 import AssistantMessageItem from './AssistantMessageItem';
+import SubagentLifecycleCard, { isSubagentLifecycleMessage } from './SubagentLifecycleCard';
 import {
   type ConversationTurn,
   COWORK_DETAIL_CONTENT_CLASS,
@@ -125,6 +126,10 @@ const AssistantTurnBlock: React.FC<{
           active={status === ContextCompactionStatus.Running}
         />
       );
+    }
+
+    if (isSubagentLifecycleMessage(message)) {
+      return <SubagentLifecycleCard message={message} />;
     }
 
     return (

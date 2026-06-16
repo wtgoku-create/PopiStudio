@@ -10,7 +10,9 @@ import { AgentId, normalizeAgentAvatarIcon } from '../shared/agent';
 import {
   COWORK_MESSAGE_PAGE_SIZE,
   COWORK_SESSION_PAGE_SIZE,
+  CoworkSessionModeValue,
   CoworkSessionSourceKind,
+  type CoworkSessionMode,
   type CoworkSessionSourceKind as CoworkSessionSourceKindType,
 } from '../shared/cowork/constants';
 import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
@@ -322,16 +324,6 @@ function normalizeMessagePreview(value: string): string {
   return truncate(value.replace(/\s+/g, ' ').trim(), 120);
 }
 
-function shouldUseMessageAsSessionPreview(message: {
-  type: CoworkMessageType | 'user' | 'assistant';
-  content: string;
-  metadata?: CoworkMessageMetadata | Record<string, unknown>;
-}): boolean {
-  return (message.type === 'user' || message.type === 'assistant')
-    && message.metadata?.isThinking !== true
-    && message.content.trim().length > 0;
-}
-
 function shouldAutoDeleteMemoryText(text: string): boolean {
   const normalized = normalizeMemoryText(text);
   if (!normalized) return false;
@@ -448,6 +440,8 @@ export interface CoworkSession {
   executionMode: CoworkExecutionMode;
   activeSkillIds: string[];
   agentId: string;
+  mode: CoworkSessionMode;
+  selectedAgentIds: string[];
   messages: CoworkMessage[];
   /** Offset of the first loaded message in the full message history. */
   messagesOffset: number;
@@ -465,6 +459,8 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId: string;
+  mode: CoworkSessionMode;
+  selectedAgentIds: string[];
   source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
@@ -641,9 +637,30 @@ interface CoworkSessionSummaryRow {
   pinned: number | null;
   pin_order: number | null;
   agent_id: string | null;
+  mode: string | null;
+  selected_agent_ids: string | null;
   created_at: number;
   updated_at: number;
 }
+
+const normalizeSessionMode = (value: string | null | undefined): CoworkSessionMode => {
+  return value === CoworkSessionModeValue.Multi ? CoworkSessionModeValue.Multi : CoworkSessionModeValue.Single;
+};
+
+const parseSelectedAgentIds = (value: string | null | undefined, fallbackAgentId: string): string[] => {
+  if (!value) return [fallbackAgentId];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [fallbackAgentId];
+    const normalized = parsed
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return normalized.length > 0 ? Array.from(new Set(normalized)) : [fallbackAgentId];
+  } catch {
+    return [fallbackAgentId];
+  }
+};
 
 export class CoworkStore {
   private db: Database.Database;
@@ -673,6 +690,7 @@ export class CoworkStore {
   }
 
   private mapSessionSummaryRow(row: CoworkSessionSummaryRow): CoworkSessionSummary {
+    const agentId = row.agent_id || AgentId.Main;
     return {
       id: row.id,
       title: row.title,
@@ -680,44 +698,12 @@ export class CoworkStore {
       status: row.status as CoworkSessionStatus,
       pinned: Boolean(row.pinned),
       pinOrder: row.pin_order ?? null,
-      agentId: row.agent_id || AgentId.Main,
+      agentId,
+      mode: normalizeSessionMode(row.mode),
+      selectedAgentIds: parseSelectedAgentIds(row.selected_agent_ids, agentId),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
-  }
-
-  private updateSessionPreviewFromMessage(
-    sessionId: string,
-    message: {
-      type: CoworkMessageType | 'user' | 'assistant';
-      content: string;
-      metadata?: CoworkMessageMetadata | Record<string, unknown>;
-    },
-  ): void {
-    if (!shouldUseMessageAsSessionPreview(message)) return;
-    this.db
-      .prepare('UPDATE cowork_sessions SET last_message_preview = ? WHERE id = ?')
-      .run(normalizeMessagePreview(message.content), sessionId);
-  }
-
-  private refreshSessionPreviewFromMessages(sessionId: string): void {
-    const row = this.getOne<{ content: string }>(
-      `
-      SELECT content
-      FROM cowork_messages
-      WHERE session_id = ?
-        AND type IN ('user', 'assistant')
-        AND TRIM(COALESCE(content, '')) != ''
-        AND COALESCE(metadata, '') NOT LIKE '%"isThinking":true%'
-        AND COALESCE(metadata, '') NOT LIKE '%"isThinking": true%'
-      ORDER BY COALESCE(sequence, 0) DESC, created_at DESC, ROWID DESC
-      LIMIT 1
-      `,
-      [sessionId],
-    );
-    this.db
-      .prepare('UPDATE cowork_sessions SET last_message_preview = ? WHERE id = ?')
-      .run(row?.content ? normalizeMessagePreview(row.content) : null, sessionId);
   }
 
   createSession(
@@ -727,16 +713,27 @@ export class CoworkStore {
     executionMode: CoworkExecutionMode = 'local',
     activeSkillIds: string[] = [],
     agentId: string = 'main',
-    modelOverride: string = ''
+    modelOverride: string = '',
+    mode: CoworkSessionMode = CoworkSessionModeValue.Single,
+    selectedAgentIds: string[] = [agentId]
   ): CoworkSession {
     const id = uuidv4();
     const now = Date.now();
+    const normalizedAgentId = agentId.trim() || AgentId.Main;
+    const normalizedMode = mode === CoworkSessionModeValue.Multi
+      ? CoworkSessionModeValue.Multi
+      : CoworkSessionModeValue.Single;
+    const normalizedSelectedAgentIds = Array.from(new Set(
+      (selectedAgentIds.length > 0 ? selectedAgentIds : [normalizedAgentId])
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ));
 
     this.db
       .prepare(
         `
-      INSERT INTO cowork_sessions (id, title, claude_session_id, status, cwd, system_prompt, model_override, execution_mode, active_skill_ids, agent_id, pinned, created_at, updated_at)
-      VALUES (?, ?, NULL, 'idle', ?, ?, ?, ?, ?, ?, 0, ?, ?)
+      INSERT INTO cowork_sessions (id, title, claude_session_id, status, cwd, system_prompt, model_override, execution_mode, active_skill_ids, agent_id, mode, selected_agent_ids, pinned, created_at, updated_at)
+      VALUES (?, ?, NULL, 'idle', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
     `,
       )
       .run(
@@ -747,7 +744,9 @@ export class CoworkStore {
         modelOverride,
         executionMode,
         JSON.stringify(activeSkillIds),
-        agentId,
+        normalizedAgentId,
+        normalizedMode,
+        JSON.stringify(normalizedSelectedAgentIds),
         now,
         now,
       );
@@ -764,7 +763,9 @@ export class CoworkStore {
       modelOverride,
       executionMode,
       activeSkillIds,
-      agentId,
+      agentId: normalizedAgentId,
+      mode: normalizedMode,
+      selectedAgentIds: normalizedSelectedAgentIds,
       messages: [],
       messagesOffset: 0,
       totalMessages: 0,
@@ -778,7 +779,7 @@ export class CoworkStore {
     const existingRow = this.db
       .prepare(
         `
-        SELECT s.id, s.title, s.last_message_preview, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at
+        SELECT s.id, s.title, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at
         FROM cowork_sessions s
         INNER JOIN cowork_session_sources src
           ON src.session_id = s.id AND src.kind = ?
@@ -798,6 +799,8 @@ export class CoworkStore {
         pinned: number | null;
         pin_order: number | null;
         agent_id: string | null;
+        mode: string | null;
+        selected_agent_ids: string | null;
         created_at: number;
         updated_at: number;
       } | undefined;
@@ -836,6 +839,8 @@ export class CoworkStore {
       pinned: session.pinned,
       pinOrder: session.pinOrder ?? null,
       agentId: session.agentId,
+      mode: session.mode,
+      selectedAgentIds: session.selectedAgentIds,
       source: {
         kind: CoworkSessionSourceKind.AgentHome,
         label: title,
@@ -950,13 +955,15 @@ export class CoworkStore {
       execution_mode?: string | null;
       active_skill_ids?: string | null;
       agent_id?: string | null;
+      mode?: string | null;
+      selected_agent_ids?: string | null;
       created_at: number;
       updated_at: number;
     }
 
     const row = this.getOne<SessionRow>(
       `
-      SELECT id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, model_override, execution_mode, active_skill_ids, agent_id, created_at, updated_at
+      SELECT id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, model_override, execution_mode, active_skill_ids, agent_id, mode, selected_agent_ids, created_at, updated_at
       FROM cowork_sessions
       WHERE id = ?
     `,
@@ -981,6 +988,9 @@ export class CoworkStore {
         activeSkillIds = [];
       }
     }
+    const agentId = row.agent_id || AgentId.Main;
+    const mode = normalizeSessionMode(row.mode);
+    const selectedAgentIds = parseSelectedAgentIds(row.selected_agent_ids, agentId);
 
     return {
       id: row.id,
@@ -994,7 +1004,9 @@ export class CoworkStore {
       modelOverride: row.model_override || '',
       executionMode: (row.execution_mode as CoworkExecutionMode) || 'local',
       activeSkillIds,
-      agentId: row.agent_id || 'main',
+      agentId,
+      mode,
+      selectedAgentIds,
       messages,
       messagesOffset: messageOffset,
       totalMessages,
@@ -1160,7 +1172,7 @@ export class CoworkStore {
     if (agentId) {
       rows = this.getAll<CoworkSessionSummaryRow>(
         `
-        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, created_at, updated_at
+        SELECT id, title, status, pinned, pin_order, agent_id, mode, selected_agent_ids, created_at, updated_at
         FROM cowork_sessions
         WHERE agent_id = ?
         ORDER BY pinned DESC,
@@ -1174,7 +1186,7 @@ export class CoworkStore {
     } else {
       rows = this.getAll<CoworkSessionSummaryRow>(
         `
-        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, created_at, updated_at
+        SELECT id, title, status, pinned, pin_order, agent_id, mode, selected_agent_ids, created_at, updated_at
         FROM cowork_sessions
         ORDER BY pinned DESC,
           CASE WHEN pinned = 1 THEN COALESCE(pin_order, updated_at, created_at) END ASC,
@@ -1193,10 +1205,20 @@ export class CoworkStore {
     const sourceRows = this.db
       .prepare(
         `
-        SELECT s.id, s.title, s.last_message_preview, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at,
+        SELECT s.id, s.title, s.status, s.pinned, s.pin_order, s.agent_id, s.mode, s.selected_agent_ids, s.created_at, s.updated_at,
+               lm.content AS last_message_preview,
                src.kind, src.label, src.task_id, src.platform, src.conversation_id
         FROM cowork_sessions s
         INNER JOIN cowork_session_sources src ON src.session_id = s.id
+        LEFT JOIN cowork_messages lm ON lm.id = (
+          SELECT m.id
+          FROM cowork_messages m
+          WHERE m.session_id = s.id
+            AND m.type IN ('user', 'assistant')
+            AND TRIM(COALESCE(m.content, '')) != ''
+          ORDER BY COALESCE(m.sequence, 0) DESC, m.created_at DESC, m.ROWID DESC
+          LIMIT 1
+        )
         WHERE src.kind IN (?, ?, ?)
         ORDER BY s.pinned DESC,
           CASE WHEN s.pinned = 1 THEN COALESCE(s.pin_order, s.updated_at, s.created_at) END ASC,
@@ -1219,7 +1241,12 @@ export class CoworkStore {
     const sessions: CoworkSessionSummary[] = [];
     for (const row of sourceRows) {
       sessions.push({
-        ...this.mapSessionSummaryRow(row),
+        ...this.mapSessionSummaryRow({
+          ...row,
+          last_message_preview: row.last_message_preview
+            ? normalizeMessagePreview(row.last_message_preview)
+            : null,
+        }),
         source: {
           kind: row.kind,
           ...(row.label ? { label: row.label } : {}),
@@ -1378,7 +1405,6 @@ export class CoworkStore {
       );
 
     this.db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(now, sessionId);
-    this.updateSessionPreviewFromMessage(sessionId, message);
 
     return {
       id,
@@ -1440,7 +1466,6 @@ export class CoworkStore {
         );
 
       this.db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(now, sessionId);
-      this.refreshSessionPreviewFromMessages(sessionId);
     })();
 
     return {
@@ -1460,9 +1485,6 @@ export class CoworkStore {
     const result = this.db
       .prepare('DELETE FROM cowork_messages WHERE id = ? AND session_id = ?')
       .run(messageId, sessionId);
-    if (result.changes > 0) {
-      this.refreshSessionPreviewFromMessages(sessionId);
-    }
     return result.changes > 0;
   }
 
@@ -1550,7 +1572,6 @@ export class CoworkStore {
         ? insertedTimestamps[insertedTimestamps.length - 1]
         : now;
       this.db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(updatedAt, sessionId);
-      this.refreshSessionPreviewFromMessages(sessionId);
     })();
   }
 
@@ -1587,7 +1608,6 @@ export class CoworkStore {
       .run(...values);
     if (result.changes > 0) {
       this.db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(now, sessionId);
-      this.refreshSessionPreviewFromMessages(sessionId);
     }
   }
 

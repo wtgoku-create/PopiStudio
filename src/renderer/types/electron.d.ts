@@ -36,6 +36,8 @@ interface CoworkSession {
   executionMode: 'auto' | 'local' | 'sandbox';
   activeSkillIds: string[];
   agentId: string;
+  mode: import('../../shared/cowork/constants').CoworkSessionMode;
+  selectedAgentIds: string[];
   messages: CoworkMessage[];
   messagesOffset: number;
   totalMessages: number;
@@ -59,6 +61,8 @@ interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId?: string;
+  mode: import('../../shared/cowork/constants').CoworkSessionMode;
+  selectedAgentIds: string[];
   source?: {
     kind: 'agentHome' | 'scheduledTask' | 'im';
     label?: string;
@@ -504,6 +508,9 @@ interface IElectronAPI {
       title?: string;
       activeSkillIds?: string[];
       agentId?: string;
+      modelOverride?: string;
+      mode?: import('../../shared/cowork/constants').CoworkSessionMode;
+      selectedAgentIds?: string[];
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
     }) => Promise<{
       success: boolean;

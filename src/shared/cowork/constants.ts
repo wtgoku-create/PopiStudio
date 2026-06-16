@@ -13,6 +13,14 @@ export const CoworkSessionSourceKind = {
 export type CoworkSessionSourceKind =
   typeof CoworkSessionSourceKind[keyof typeof CoworkSessionSourceKind];
 
+export const CoworkSessionModeValue = {
+  Single: 'single',
+  Multi: 'multi',
+} as const;
+
+export type CoworkSessionMode =
+  typeof CoworkSessionModeValue[keyof typeof CoworkSessionModeValue];
+
 export const CoworkIpcChannel = {
   ListAgentSidebarSessions: 'cowork:session:listAgentSidebar',
 } as const;

@@ -198,6 +198,27 @@ const MANAGED_TOOL_DENY = ['web_search'] as const;
 const EMAIL_PLUGIN_ID = 'email';
 const NIM_CHANNEL_PLUGIN_ID = 'nimsuite-openclaw-nim-channel';
 
+const buildDefaultManagedAgentSoul = (agent: Pick<Agent, 'id' | 'name'>): string => {
+  const agentName = agent.name?.trim() || agent.id;
+  return `You are ${agentName}, a collaborating subagent in the Popiai workspace.\n`;
+};
+
+const buildDefaultManagedAgentIdentity = (agent: Pick<Agent, 'id' | 'name'>): string => {
+  const agentName = agent.name?.trim() || agent.id;
+  return [
+    `Name: ${agentName}`,
+    'Role: Collaborating specialist for multi-agent sessions.',
+  ].join('\n').concat('\n');
+};
+
+const buildManagedSubagentAllowAgents = (agents: Agent[]): string[] => {
+  const enabledAgentIds = agents
+    .filter((agent) => agent.enabled)
+    .map((agent) => agent.id.trim())
+    .filter(Boolean);
+  return Array.from(new Set(enabledAgentIds));
+};
+
 const MANAGED_SKILL_ENTRY_OVERRIDES: Record<string, { enabled: boolean }> = {
   // QQ plugin ships a legacy reminder skill that steers the model toward a
   // channel-specific cron wrapper/subagent flow. Hide that path so native IM
@@ -1451,17 +1472,29 @@ export class OpenClawConfigSync {
 
     const managedConfig: Record<string, unknown> = {
       gateway: {
+        // Keep a stable plaintext token in config so subagent child processes
+        // can re-connect to the loopback gateway even when their inherited env
+        // is sanitized and OPENCLAW_GATEWAY_TOKEN is unavailable.
+        ...(() => {
+          const gatewayToken = typeof (this.engineManager as OpenClawEngineManager & {
+            ensureGatewayAuthToken?: () => string;
+          }).ensureGatewayAuthToken === 'function'
+            ? (this.engineManager as OpenClawEngineManager & {
+                ensureGatewayAuthToken: () => string;
+              }).ensureGatewayAuthToken()
+            : (this.engineManager.getGatewayToken?.() ?? null);
+          return gatewayToken
+            ? { auth: { mode: 'token', token: gatewayToken } }
+            : { auth: { mode: 'token', token: '${OPENCLAW_GATEWAY_TOKEN}' } };
+        })(),
         // Preserve ALL existing gateway fields so runtime-seeded values
         // survive config rewrites.  Our managed fields below override
         // any stale values.
         ...existingGateway,
         mode: 'local',
         // Explicitly declare auth and tailscale to match the runtime
-        // in-memory state.  The gateway sets auth.mode='token' when
-        // --token / OPENCLAW_GATEWAY_TOKEN is provided.  Without
-        // matching values here, ANY file change triggers
-        // "config change requires gateway restart (gateway.auth.token)".
-        auth: { mode: 'token', token: '${OPENCLAW_GATEWAY_TOKEN}' },
+        // in-memory state so unrelated config writes do not look like
+        // gateway.auth drift and force unnecessary restarts.
         tailscale: { mode: 'off' },
         ...(hasAnyChannel
           ? {
@@ -2797,10 +2830,9 @@ export class OpenClawConfigSync {
    * Build the `agents.list` config array for openclaw.json.
    *
    * The main agent uses the user's configured workspace directory (via
-   * `agents.defaults.workspace`).  Non-main agents omit `workspace` so
-   * OpenClaw falls back to its default: `{STATE_DIR}/workspace-{agentId}/`.
-   * This keeps custom agent workspaces under the openclaw state directory
-   * rather than coupling them to the user's working directory.
+   * `agents.defaults.workspace`). Non-main agents use dedicated managed
+   * workspaces under `{STATE_DIR}/workspace-{agentId}/` so each selected
+   * subagent has stable memory and bootstrap files.
    *
    * Per-agent `identity` (name, emoji) is set from the agent database so
    * OpenClaw picks it up natively.
@@ -2813,15 +2845,22 @@ export class OpenClawConfigSync {
   ): { list?: Array<Record<string, unknown>> } {
     const agents = agentsOverride ?? this.getAgents?.() ?? [];
     const mainAgent = agents.find(agent => agent.id === AgentId.Main);
+    const subagentAllowAgents = buildManagedSubagentAllowAgents(agents);
 
     const list: Array<Record<string, unknown>> = [
       mainAgent
-        ? buildAgentEntry(mainAgent, defaultPrimaryModel, { availableProviders })
+        ? buildAgentEntry(mainAgent, defaultPrimaryModel, {
+          availableProviders,
+          subagentAllowAgents,
+        })
         : {
             id: AgentId.Main,
             default: true,
             identity: {
               name: DefaultAgentProfile.Name,
+            },
+            subagents: {
+              allowAgents: [AgentId.Main],
             },
             model: {
               primary: defaultPrimaryModel,
@@ -2829,10 +2868,11 @@ export class OpenClawConfigSync {
           },
       ...buildManagedAgentEntries({
         agents,
-        fallbackPrimaryModel: defaultPrimaryModel,
-        stateDir,
-        availableProviders,
-      }),
+      fallbackPrimaryModel: defaultPrimaryModel,
+      stateDir,
+      availableProviders,
+      subagentAllowAgents,
+    }),
     ];
 
     return list.length > 0 ? { list } : {};
@@ -2954,12 +2994,18 @@ export class OpenClawConfigSync {
         // Sync SOUL.md — agent's system prompt
         const soulPath = path.join(agentWorkspace, 'SOUL.md');
         const soulContent = (agent.systemPrompt || '').trim();
-        this.syncFileIfChanged(soulPath, soulContent ? `${soulContent}\n` : '');
+        this.syncFileIfChanged(
+          soulPath,
+          soulContent ? `${soulContent}\n` : buildDefaultManagedAgentSoul(agent),
+        );
 
         // Sync IDENTITY.md — agent's identity description
         const identityPath = path.join(agentWorkspace, 'IDENTITY.md');
         const identityContent = (agent.identity || '').trim();
-        this.syncFileIfChanged(identityPath, identityContent ? `${identityContent}\n` : '');
+        this.syncFileIfChanged(
+          identityPath,
+          identityContent ? `${identityContent}\n` : buildDefaultManagedAgentIdentity(agent),
+        );
 
         // Sync USER.md — shared user profile from the main Agent settings
         const userPath = path.join(agentWorkspace, 'USER.md');

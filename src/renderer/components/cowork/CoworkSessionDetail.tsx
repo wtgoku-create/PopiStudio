@@ -39,14 +39,12 @@ import { setActiveSkillIds } from '../../store/slices/skillSlice';
 import type { Artifact } from '../../types/artifact';
 import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
-import { CoworkSessionStatusValue } from '../../types/cowork';
+import { CoworkSessionModeValue, CoworkSessionStatusValue } from '../../types/cowork';
 import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload } from '../artifacts';
-import ComposeIcon from '../icons/ComposeIcon';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
-import SidebarToggleIcon from '../icons/SidebarToggleIcon';
 import WindowTitleBar from '../window/WindowTitleBar';
 import AssistantTurnBlock, { ContextCompactionDivider } from './AssistantTurnBlock';
 import { type CoworkOpenShareOptionsEventDetail,CoworkUiEvent } from './constants';
@@ -551,13 +549,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   onManageSkills,
   onContinue,
   onStop,
-  isSidebarCollapsed,
-  onToggleSidebar,
-  onNewChat,
-  updateBadge,
 }) => {
   const dispatch = useDispatch();
-  const isMac = window.electron.platform === 'darwin';
   const currentSession = useSelector(selectCurrentSession);
   const isStreaming = useSelector(selectIsStreaming);
   const remoteManaged = useSelector(selectRemoteManaged);
@@ -585,6 +578,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     };
   }, [agents, currentSession?.agentId]);
   const headerAgentName = getAgentDisplayName(headerAgent);
+  const selectedSessionAgents = useMemo(() => {
+    const selectedIds = currentSession?.selectedAgentIds ?? [];
+    return selectedIds.map((agentId) => {
+      return agents.find((agent) => agent.id === agentId) ?? {
+        id: agentId,
+        name: agentId,
+        icon: '',
+      };
+    });
+  }, [agents, currentSession?.selectedAgentIds]);
   const detailRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
@@ -2094,6 +2097,21 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               <div className="mt-0.5 truncate text-[12px] leading-4 text-secondary max-w-[360px]">
                 {currentSession.title || i18nService.t('coworkNewSession')}
               </div>
+              {currentSession.mode === CoworkSessionModeValue.Multi && selectedSessionAgents.length > 0 && (
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] leading-4 text-muted">
+                    {i18nService.t('coworkSelectedAgentsSummary')}
+                  </span>
+                  {selectedSessionAgents.map((agent) => (
+                    <span
+                      key={agent.id}
+                      className="rounded-full border border-border bg-surface px-2 py-0.5 text-[11px] leading-4 text-secondary"
+                    >
+                      {getAgentDisplayName(agent)}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

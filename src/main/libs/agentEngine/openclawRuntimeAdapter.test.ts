@@ -16,7 +16,9 @@ import {
   ContextCompactionStatus,
   CoworkSystemMessageKind,
 } from '../../../common/coworkSystemMessages';
+import { CoworkSessionModeValue } from '../../../shared/cowork/constants';
 import { OpenClawRuntimeAdapter, pickPersistedAssistantSegment } from './openclawRuntimeAdapter';
+import { SubagentTracker } from './subagentTracker';
 
 test('pickPersistedAssistantSegment: stream authority keeps previous when same length or longer', () => {
   expect(pickPersistedAssistantSegment('aa', 'a', true)).toEqual({
@@ -180,6 +182,173 @@ test('usage metadata falls back to latest assistant when preferred id was replac
     model: 'qwen-portal/qwen3.6-plus',
     agentName: 'main',
   });
+});
+
+test('subagent lifecycle events are emitted into the parent session as system messages', () => {
+  const { session, store } = createReconcileStore([]);
+  const subagentRuns = new Map<string, {
+    id: string;
+    parentSessionId: string;
+    sessionKey: string | null;
+    agentId: string | null;
+    task: string | null;
+    label: string | null;
+    status: 'running' | 'done' | 'error';
+    createdAt: number;
+    endedAt?: number | null;
+  }>();
+  const subagentRunStore = {
+    insertSubagentRun: (run: {
+      id: string;
+      parentSessionId: string;
+      sessionKey: string | null;
+      agentId: string | null;
+      task: string | null;
+      label: string | null;
+      status: 'running' | 'done' | 'error';
+      createdAt: number;
+    }) => {
+      subagentRuns.set(run.id, { ...run, endedAt: null });
+    },
+    updateSubagentRunStatus: (id: string, status: 'running' | 'done' | 'error', endedAt?: number) => {
+      const existing = subagentRuns.get(id);
+      if (!existing) return;
+      subagentRuns.set(id, { ...existing, status, endedAt: endedAt ?? existing.endedAt ?? null });
+    },
+    updateSubagentRunSessionKey: (id: string, sessionKey: string) => {
+      const existing = subagentRuns.get(id);
+      if (!existing) return;
+      subagentRuns.set(id, { ...existing, sessionKey });
+    },
+    listSubagentRuns: (parentSessionId: string) => {
+      return Array.from(subagentRuns.values()).filter((run) => run.parentSessionId === parentSessionId);
+    },
+    markMessagesPersisted: () => {},
+    isMessagesPersisted: () => false,
+    getRunStatus: (id: string) => subagentRuns.get(id)?.status ?? null,
+    deleteSubagentRunsByParent: (parentSessionId: string) => {
+      for (const [id, run] of subagentRuns.entries()) {
+        if (run.parentSessionId === parentSessionId) {
+          subagentRuns.delete(id);
+        }
+      }
+    },
+  };
+  const adapter = new OpenClawRuntimeAdapter(store as never, {} as never, {}, subagentRunStore as never);
+  const tracker = (adapter as unknown as { subagentTracker: SubagentTracker }).subagentTracker;
+
+  tracker.onToolStart('run-1', {
+    agentId: 'video-agent',
+    label: '视频 Agent',
+    task: '生成一版产品视频',
+  }, session.id);
+  tracker.onSpawnResult('run-1', JSON.stringify({
+    childSessionKey: 'announce:v1:agent:main:subagent:abc',
+    status: 'ok',
+  }), {});
+  tracker.onResumeOrReadResult({ agentId: 'video-agent' });
+
+  const lifecycleMessages = session.messages.filter((message) => (
+    message.type === 'system'
+    && message.metadata?.kind === CoworkSystemMessageKind.SubagentLifecycle
+  ));
+
+  expect(lifecycleMessages).toHaveLength(3);
+  expect(lifecycleMessages.map((message) => message.metadata?.subagentStatus)).toEqual([
+    'spawned',
+    'running',
+    'completed',
+  ]);
+  expect(lifecycleMessages[0].content).toContain('视频 Agent');
+  expect(lifecycleMessages[1].content).toContain('生成一版产品视频');
+  expect(lifecycleMessages[2].metadata).toMatchObject({
+    parentSessionId: session.id,
+    subagentRunId: 'run-1',
+    agentId: 'video-agent',
+  });
+});
+
+test('multi-agent session blocks sessions_spawn for unselected agents', () => {
+  const { session, store } = createReconcileStore([]);
+  session.mode = CoworkSessionModeValue.Multi;
+  session.selectedAgentIds = ['main', 'writer-agent'];
+
+  const adapter = new OpenClawRuntimeAdapter(store as never, {} as never);
+  const turn = {
+    sessionId: session.id,
+    sessionKey: `agent:main:popiai:${session.id}`,
+    runId: 'run-1',
+    turnToken: 1,
+    knownRunIds: new Set(['run-1']),
+    assistantMessageId: null,
+    committedAssistantText: '',
+    currentAssistantSegmentText: '',
+    currentText: '',
+    agentAssistantTextLength: 0,
+    hasSeenAgentAssistantStream: false,
+    currentContentText: '',
+    currentContentBlocks: [],
+    sawNonTextContentBlocks: false,
+    textStreamMode: 'unknown',
+    toolUseMessageIdByToolCallId: new Map(),
+    toolResultMessageIdByToolCallId: new Map(),
+    toolResultTextByToolCallId: new Map(),
+    contextMaintenanceToolCallIds: new Set(),
+    startedAtMs: Date.now(),
+    stopRequested: false,
+    thinkingMessageId: null,
+    currentThinkingText: '',
+    pendingUserSync: false,
+    bufferedChatPayloads: [],
+    bufferedAgentPayloads: [],
+  };
+
+  expect(() => {
+    (adapter as unknown as {
+      handleAgentToolEvent: (sessionId: string, turn: Record<string, unknown>, data: Record<string, unknown>) => void;
+    }).handleAgentToolEvent(session.id, turn, {
+      phase: 'start',
+      toolCallId: 'tool-1',
+      name: 'sessions_spawn',
+      args: {
+        agentId: 'video-agent',
+        task: 'make a video',
+      },
+    });
+  }).toThrow(/Blocked subagent: video-agent/);
+});
+
+test('multi-agent session injects selected agent roster into outbound prompt', async () => {
+  const { session, store } = createReconcileStore([]);
+  session.mode = CoworkSessionModeValue.Multi;
+  session.selectedAgentIds = ['main', 'writer-agent'];
+
+  const adapter = new OpenClawRuntimeAdapter({
+    ...store,
+    getAgent: (agentId: string) => {
+      if (agentId === 'main') return { id: 'main', name: 'Main Agent', model: '' };
+      if (agentId === 'writer-agent') return { id: 'writer-agent', name: 'Writer Agent', model: '' };
+      return null;
+    },
+  } as never, {} as never);
+  adapter.gatewayClient = {
+    request: async () => ({ messages: [{ id: 'm1' }] }),
+  } as never;
+
+  const prompt = await (adapter as unknown as {
+    buildOutboundPrompt: (
+      sessionId: string,
+      prompt: string,
+      systemPrompt?: string,
+      agentId?: string,
+    ) => Promise<string>;
+  }).buildOutboundPrompt(session.id, 'Write the plan', 'System prompt', 'main');
+
+  expect(prompt).toContain('[Multi-agent roster]');
+  expect(prompt).toContain('Main Agent (main)');
+  expect(prompt).toContain('Writer Agent (writer-agent)');
+  expect(prompt).toContain('prefer sessions_spawn with mode="run"');
+  expect(prompt).toContain('Use mode="session" only when you also set thread=true.');
 });
 
 // ==================== Session patch tests ====================
@@ -418,6 +587,7 @@ function createRunTurnAdapter(options: {
   return {
     adapter,
     requests,
+    session,
     releaseFirstModelPatch: () => firstModelPatchRelease?.(),
     firstModelPatchStarted,
   };

@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  CoworkSessionModeValue,
   type CoworkSessionStatus,
   CoworkSessionStatusValue,
   type CoworkSessionSummary,
@@ -26,6 +27,8 @@ const makeSession = (
   pinned,
   pinOrder,
   agentId: 'main',
+  mode: CoworkSessionModeValue.Single,
+  selectedAgentIds: ['main'],
   createdAt,
   updatedAt,
 });
@@ -114,4 +117,3 @@ test('patchExistingAgentSidebarSession updates preview fields while preserving s
 test('patchExistingAgentSidebarSession does not add plain sessions to the sidebar', () => {
   expect(patchExistingAgentSidebarSession(undefined, makeSession('plain-session', 100))).toBeNull();
 });
-

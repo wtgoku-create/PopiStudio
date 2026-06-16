@@ -349,6 +349,10 @@ export const isContextCompactionMessage = (message: CoworkMessage): boolean => (
   message.type === 'system' && message.metadata?.kind === CoworkSystemMessageKind.ContextCompaction
 );
 
+export const isSubagentLifecycleMessage = (message: CoworkMessage): boolean => (
+  message.type === 'system' && message.metadata?.kind === CoworkSystemMessageKind.SubagentLifecycle
+);
+
 export const isLegacyInternalCompactionSystemMessage = (message: CoworkMessage): boolean => (
   message.type === 'system'
   && !message.metadata?.kind
@@ -399,6 +403,36 @@ const orderAssistantItemsForDisplay = (items: AssistantTurnItem[]): AssistantTur
     ...thinkingItems,
     ...items.filter(item => !isThinkingAssistantItem(item)),
   ];
+};
+
+const dedupeSubagentLifecycleItems = (items: AssistantTurnItem[]): AssistantTurnItem[] => {
+  const latestIndexByRunId = new Map<string, number>();
+
+  items.forEach((item, index) => {
+    if (item.type !== 'system' || !isSubagentLifecycleMessage(item.message)) {
+      return;
+    }
+    const runId = typeof item.message.metadata?.subagentRunId === 'string'
+      ? item.message.metadata.subagentRunId
+      : '';
+    if (!runId) return;
+    latestIndexByRunId.set(runId, index);
+  });
+
+  if (latestIndexByRunId.size === 0) {
+    return items;
+  }
+
+  return items.filter((item, index) => {
+    if (item.type !== 'system' || !isSubagentLifecycleMessage(item.message)) {
+      return true;
+    }
+    const runId = typeof item.message.metadata?.subagentRunId === 'string'
+      ? item.message.metadata.subagentRunId
+      : '';
+    if (!runId) return true;
+    return latestIndexByRunId.get(runId) === index;
+  });
 };
 
 // ── Build pipeline ───────────────────────────────────────────────────────────
@@ -524,7 +558,7 @@ export const buildConversationTurns = (items: DisplayItem[]): ConversationTurn[]
 
   return turns.map(turn => ({
     ...turn,
-    assistantItems: orderAssistantItemsForDisplay(turn.assistantItems),
+    assistantItems: orderAssistantItemsForDisplay(dedupeSubagentLifecycleItems(turn.assistantItems)),
   }));
 };
 
@@ -564,4 +598,3 @@ export const getContextCompactionMessageLabel = (message: CoworkMessage, fallbac
         : i18nService.t('coworkContextCompactionCompleted');
   }
 };
-

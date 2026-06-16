@@ -8,8 +8,10 @@ import {
   ContextCompactionMode,
   ContextCompactionStatus,
   CoworkSystemMessageKind,
+  SubagentLifecycleStatus,
 } from '../../../common/coworkSystemMessages';
 import type { OpenClawSessionPatch } from '../../../common/openclawSession';
+import { CoworkSessionModeValue } from '../../../shared/cowork/constants';
 import type { CoworkExecutionMode, CoworkMessage, CoworkMessageMetadata, CoworkSession, CoworkSessionStatus, CoworkStore } from '../../coworkStore';
 import { t } from '../../i18n';
 import type { SubagentMessageStore } from '../../subagentMessageStore';
@@ -43,7 +45,7 @@ import {
 } from '../openclawHistory';
 import { buildOpenClawLocalTimeContextPrompt } from '../openclawLocalTimeContextPrompt';
 import { AgentLifecyclePhase, type AgentLifecyclePhase as AgentLifecyclePhaseValue } from './constants';
-import { SubagentTracker } from './subagentTracker';
+import { SubagentTracker, type SubagentLifecycleEvent } from './subagentTracker';
 import type {
   CoworkContextUsage,
   CoworkContinueOptions,
@@ -168,6 +170,8 @@ type GatewayClientCtor = new (options: Record<string, unknown>) => GatewayClient
 type OpenClawRuntimeAdapterOptions = {
   normalizeModelRef?: (modelRef: string) => string;
 };
+
+const SUBAGENT_SUMMARY_MAX_LENGTH = 160;
 
 type ChatEventState = 'delta' | 'final' | 'aborted' | 'error';
 
@@ -1638,6 +1642,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // Fallback: create a no-op tracker (should not happen in production)
       this.subagentTracker = new SubagentTracker(null as unknown as SubagentRunStore, null, () => this.gatewayClient);
     }
+    this.subagentTracker.onLifecycle((event) => {
+      this.emitSubagentLifecycleMessage(event);
+    });
   }
 
   private normalizeModelRef(modelRef: string): string {
@@ -1729,6 +1736,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         activeSkillIds: [],
         messages,
         agentId: 'main',
+        mode: CoworkSessionModeValue.Single,
+        selectedAgentIds: ['main'],
         createdAt: now,
         updatedAt: now,
         messagesOffset: 0,
@@ -1828,6 +1837,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         modelOverride: '',
         executionMode: 'local' as CoworkExecutionMode,
         activeSkillIds: [],
+        mode: CoworkSessionModeValue.Single,
+        selectedAgentIds: [agentId],
         messages,
         messagesOffset: 0,
         totalMessages: messages.length,
@@ -2470,6 +2481,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (shouldInjectSystemPrompt) {
       sections.push(this.buildSystemPromptPrefix(normalizedSystemPrompt));
     }
+    const selectedAgentPrompt = this.buildSelectedAgentPrompt(session);
+    if (selectedAgentPrompt) {
+      sections.push(selectedAgentPrompt);
+    }
     sections.push(buildOpenClawLocalTimeContextPrompt());
     if (currentModel) {
       sections.push(`[Session info]\nCurrent model: ${currentModel}`);
@@ -2518,6 +2533,38 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       'Apply the instructions below as the highest-priority guidance for this session.',
       'If earlier Popiai system instructions exist, replace them with this version.',
       systemPrompt,
+    ].join('\n');
+  }
+
+  private buildSelectedAgentPrompt(session: CoworkSession | null): string | null {
+    if (!session || session.mode !== CoworkSessionModeValue.Multi) {
+      return null;
+    }
+
+    const selectedAgents = session.selectedAgentIds
+      .map((id) => {
+        const normalizedId = id.trim();
+        if (!normalizedId) return null;
+        const agent = this.store.getAgent(normalizedId);
+        return {
+          id: normalizedId,
+          name: agent?.name?.trim() || normalizedId,
+        };
+      })
+      .filter((agent): agent is { id: string; name: string } => agent !== null);
+
+    if (selectedAgents.length === 0) {
+      return null;
+    }
+
+    return [
+      '[Multi-agent roster]',
+      'This session is restricted to the following selected agents only.',
+      'Delegate work only to these agents via sessions_spawn.',
+      'For normal chat delegation, prefer sessions_spawn with mode="run".',
+      'Use mode="session" only when you also set thread=true.',
+      'Do not use, mention, or route work to any unselected agent.',
+      ...selectedAgents.map((agent) => `- ${agent.name} (${agent.id})`),
     ].join('\n');
   }
 
@@ -3872,6 +3919,66 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     return session?.messages.find((message) => message.id === messageId) ?? null;
   }
 
+  private formatSubagentLifecycleAgentName(event: SubagentLifecycleEvent): string {
+    return event.label?.trim() || event.agentId.trim() || 'Subagent';
+  }
+
+  private formatSubagentLifecycleSummary(value: string | null | undefined): string {
+    const summary = value?.replace(/\s+/g, ' ').trim() || '';
+    if (!summary) {
+      return 'done';
+    }
+    return summary.length <= SUBAGENT_SUMMARY_MAX_LENGTH
+      ? summary
+      : `${summary.slice(0, SUBAGENT_SUMMARY_MAX_LENGTH - 3)}...`;
+  }
+
+  private getSubagentLifecycleContent(event: SubagentLifecycleEvent): string {
+    const agent = this.formatSubagentLifecycleAgentName(event);
+    switch (event.status) {
+      case SubagentLifecycleStatus.Spawned:
+        return t('subagentLifecycleSpawned', { agent });
+      case SubagentLifecycleStatus.Running:
+        return t('subagentLifecycleRunning', {
+          agent,
+          task: this.formatSubagentLifecycleSummary(event.task ?? event.label ?? agent),
+        });
+      case SubagentLifecycleStatus.Completed:
+        return t('subagentLifecycleCompleted', {
+          agent,
+          summary: this.formatSubagentLifecycleSummary(event.task ?? event.label ?? 'done'),
+        });
+      case SubagentLifecycleStatus.Error:
+      default:
+        return t('subagentLifecycleError', {
+          agent,
+          error: this.formatSubagentLifecycleSummary(event.error ?? event.task ?? 'unknown error'),
+        });
+    }
+  }
+
+  private emitSubagentLifecycleMessage(event: SubagentLifecycleEvent): void {
+    const content = this.getSubagentLifecycleContent(event);
+    const metadata: CoworkMessageMetadata = {
+      kind: CoworkSystemMessageKind.SubagentLifecycle,
+      parentSessionId: event.parentSessionId,
+      subagentRunId: event.runId,
+      subagentStatus: event.status,
+      agentName: this.formatSubagentLifecycleAgentName(event),
+      agentId: event.agentId,
+      label: event.label ?? undefined,
+      task: event.task ?? undefined,
+      sessionKey: event.sessionKey ?? undefined,
+      error: event.error ?? undefined,
+    };
+    const message = this.store.addMessage(event.parentSessionId, {
+      type: 'system',
+      content,
+      metadata,
+    });
+    this.emit('message', event.parentSessionId, message);
+  }
+
   private buildContextCompactionMetadata(
     turn: ActiveTurn,
     status: ContextCompactionStatus,
@@ -4121,6 +4228,30 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     const toolNameRaw = typeof data.name === 'string' ? data.name.trim() : '';
     const toolName = toolNameRaw || 'Tool';
+    const toolInput = toToolInputRecord(data.args);
+
+    if (phase === 'start' && toolNameRaw.toLowerCase() === 'sessions_spawn') {
+      const blockedAgentId = this.resolveBlockedSelectedAgentId(sessionId, toolInput);
+      if (blockedAgentId) {
+        const errorMessage = `Multi-agent session can only use selected agents. Blocked subagent: ${blockedAgentId}`;
+        const resultMessage = this.store.addMessage(sessionId, {
+          type: 'tool_result',
+          content: errorMessage,
+          metadata: {
+            toolResult: errorMessage,
+            toolUseId: toolCallId,
+            error: errorMessage,
+            isError: true,
+            isStreaming: false,
+            isFinal: true,
+          },
+        });
+        turn.toolResultMessageIdByToolCallId.set(toolCallId, resultMessage.id);
+        turn.toolResultTextByToolCallId.set(toolCallId, errorMessage);
+        this.emit('message', sessionId, resultMessage);
+        throw new Error(errorMessage);
+      }
+    }
 
     if (toolNameRaw.toLowerCase() === 'browser') {
       const isError = Boolean(data.isError);
@@ -4171,7 +4302,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         content: `Using tool: ${toolName}`,
         metadata: {
           toolName,
-          toolInput: toToolInputRecord(data.args),
+          toolInput,
           toolUseId: toolCallId,
         },
       });
@@ -4180,7 +4311,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
       // Track sessions_spawn tool calls for subagent visualization
       if (toolNameRaw.toLowerCase() === 'sessions_spawn') {
-        this.subagentTracker.onToolStart(toolCallId, toToolInputRecord(data.args), sessionId);
+        this.subagentTracker.onToolStart(toolCallId, toolInput, sessionId);
       }
     }
 
@@ -4268,12 +4399,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
       // Track subagent session keys from sessions_spawn results
       if (toolNameRaw.toLowerCase() === 'sessions_spawn' && finalContent) {
-        this.subagentTracker.onSpawnResult(toolCallId, finalContent, toToolInputRecord(data.args));
+        this.subagentTracker.onSpawnResult(toolCallId, finalContent, toolInput);
       }
 
       // Mark subagent as done when parent retrieves result via sessions_resume/sessions_read
       if (toolNameRaw.toLowerCase() === 'sessions_resume' || toolNameRaw.toLowerCase() === 'sessions_read') {
-        this.subagentTracker.onResumeOrReadResult(toToolInputRecord(data.args));
+        this.subagentTracker.onResumeOrReadResult(toolInput);
       }
 
       // Schedule incremental backfill if the result text is empty (gateway stripped it).
@@ -4282,6 +4413,27 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         this.scheduleIncrementalBackfill(sessionId, toolCallId);
       }
     }
+  }
+
+  private resolveBlockedSelectedAgentId(sessionId: string, toolInput: Record<string, unknown>): string | null {
+    const session = this.store.getSession(sessionId);
+    if (!session || session.mode !== CoworkSessionModeValue.Multi) {
+      return null;
+    }
+
+    const requestedAgentId = typeof toolInput.agentId === 'string'
+      ? toolInput.agentId.trim()
+      : '';
+    if (!requestedAgentId) {
+      return null;
+    }
+
+    const selectedAgentIds = new Set(
+      session.selectedAgentIds
+        .map((agentId) => agentId.trim())
+        .filter(Boolean),
+    );
+    return selectedAgentIds.has(requestedAgentId) ? null : requestedAgentId;
   }
 
   private handleChatEvent(payload: unknown, seq?: number): void {

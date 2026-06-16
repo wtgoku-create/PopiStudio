@@ -12,6 +12,7 @@ import {
   openSqliteDatabaseWithRecovery,
   SqliteBackupManager,
 } from './libs/sqliteBackup/sqliteBackupManager';
+import { CoworkSessionModeValue } from '../shared/cowork/constants';
 
 type ChangePayload<T = unknown> = {
   key: string;
@@ -78,7 +79,6 @@ export class SqliteStore {
       CREATE TABLE IF NOT EXISTS cowork_sessions (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
-        last_message_preview TEXT,
         claude_session_id TEXT,
         status TEXT NOT NULL DEFAULT 'idle',
         pinned INTEGER NOT NULL DEFAULT 0,
@@ -87,6 +87,10 @@ export class SqliteStore {
         system_prompt TEXT NOT NULL DEFAULT '',
         model_override TEXT NOT NULL DEFAULT '',
         execution_mode TEXT,
+        active_skill_ids TEXT,
+        agent_id TEXT NOT NULL DEFAULT 'main',
+        mode TEXT NOT NULL DEFAULT 'single',
+        selected_agent_ids TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -310,18 +314,13 @@ export class SqliteStore {
         this.didRunMigration = true;
       }
 
-      if (!colNames.includes('active_skill_ids')) {
-        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN active_skill_ids TEXT;');
-        this.didRunMigration = true;
-      }
-
       if (!colNames.includes('model_override')) {
         this.db.exec("ALTER TABLE cowork_sessions ADD COLUMN model_override TEXT NOT NULL DEFAULT '';");
         this.didRunMigration = true;
       }
 
-      if (!colNames.includes('last_message_preview')) {
-        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN last_message_preview TEXT;');
+      if (!colNames.includes('active_skill_ids')) {
+        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN active_skill_ids TEXT;');
         this.didRunMigration = true;
       }
 
@@ -344,24 +343,6 @@ export class SqliteStore {
           )
           UPDATE cowork_messages
           SET sequence = (SELECT seq FROM numbered WHERE numbered.id = cowork_messages.id)
-        `);
-      }
-
-      if (!colNames.includes('last_message_preview')) {
-        this.db.exec(`
-          UPDATE cowork_sessions
-          SET last_message_preview = (
-            SELECT substr(replace(replace(trim(m.content), char(13), ' '), char(10), ' '), 1, 120)
-            FROM cowork_messages m
-            WHERE m.session_id = cowork_sessions.id
-              AND m.type IN ('user', 'assistant')
-              AND TRIM(COALESCE(m.content, '')) != ''
-              AND COALESCE(m.metadata, '') NOT LIKE '%"isThinking":true%'
-              AND COALESCE(m.metadata, '') NOT LIKE '%"isThinking": true%'
-            ORDER BY COALESCE(m.sequence, 0) DESC, m.created_at DESC, m.ROWID DESC
-            LIMIT 1
-          )
-          WHERE last_message_preview IS NULL
         `);
       }
     } catch {
@@ -393,8 +374,55 @@ export class SqliteStore {
         );
         this.didRunMigration = true;
       }
+      if (!sessionColNames.includes('mode')) {
+        this.db.exec(
+          `ALTER TABLE cowork_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT '${CoworkSessionModeValue.Single}';`,
+        );
+        this.didRunMigration = true;
+      }
+      if (!sessionColNames.includes('selected_agent_ids')) {
+        this.db.exec(
+          "ALTER TABLE cowork_sessions ADD COLUMN selected_agent_ids TEXT NOT NULL DEFAULT '[]';",
+        );
+        this.didRunMigration = true;
+      }
     } catch {
       // Column already exists or migration not needed.
+    }
+
+    try {
+      const modeResult = this.db
+        .prepare(
+          `UPDATE cowork_sessions
+           SET mode = ?
+           WHERE TRIM(COALESCE(mode, '')) = ''`,
+        )
+        .run(CoworkSessionModeValue.Single);
+      const selectedAgentIdsResult = this.db
+        .prepare(
+          `UPDATE cowork_sessions
+           SET selected_agent_ids = json_array(COALESCE(NULLIF(TRIM(agent_id), ''), 'main'))
+           WHERE TRIM(COALESCE(selected_agent_ids, '')) = '' OR selected_agent_ids = '[]'`,
+        )
+        .run();
+      if (modeResult.changes > 0 || selectedAgentIdsResult.changes > 0) {
+        this.didRunMigration = true;
+      }
+    } catch {
+      try {
+        const fallbackResult = this.db
+          .prepare(
+            `UPDATE cowork_sessions
+             SET selected_agent_ids = '["' || REPLACE(COALESCE(NULLIF(TRIM(agent_id), ''), 'main'), '"', '\"') || '"]'
+             WHERE TRIM(COALESCE(selected_agent_ids, '')) = '' OR selected_agent_ids = '[]'`,
+          )
+          .run();
+        if (fallbackResult.changes > 0) {
+          this.didRunMigration = true;
+        }
+      } catch {
+        // Column might not exist yet.
+      }
     }
 
     // Migration: Add working_directory column to agents

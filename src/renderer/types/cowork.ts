@@ -22,6 +22,8 @@ export type CoworkMessageType = 'user' | 'assistant' | 'tool_use' | 'tool_result
 // Cowork execution mode
 export type CoworkExecutionMode = 'auto' | 'local' | 'sandbox';
 export type CoworkAgentEngine = 'openclaw';
+export { CoworkSessionModeValue } from '../../shared/cowork/constants';
+export type { CoworkSessionMode } from '../../shared/cowork/constants';
 
 export const OpenClawSessionKeepAlive = {
   OneDay: '1d',
@@ -99,6 +101,8 @@ export interface CoworkSession {
   executionMode: CoworkExecutionMode;
   activeSkillIds: string[];
   agentId: string;
+  mode: import('../../shared/cowork/constants').CoworkSessionMode;
+  selectedAgentIds: string[];
   messages: CoworkMessage[];
   /** Offset of the first loaded message in the full message history. 0 means loaded from the beginning. */
   messagesOffset: number;
@@ -233,6 +237,8 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId?: string;
+  mode: import('../../shared/cowork/constants').CoworkSessionMode;
+  selectedAgentIds: string[];
   source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
@@ -267,6 +273,8 @@ export interface CoworkStartOptions {
   activeSkillIds?: string[];
   agentId?: string;
   modelOverride?: string;
+  mode?: import('../../shared/cowork/constants').CoworkSessionMode;
+  selectedAgentIds?: string[];
   imageAttachments?: CoworkImageAttachment[];
 }
 

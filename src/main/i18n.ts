@@ -258,6 +258,10 @@ const translations: Record<LanguageType, Record<string, string>> = {
     testConnection: '测试连接',
     emailTestSuccess: '连接测试成功！',
     emailTestFailed: '连接测试失败：{error}',
+    subagentLifecycleSpawned: '{agent} 已接手任务。',
+    subagentLifecycleRunning: '{agent} 开始执行：{task}',
+    subagentLifecycleCompleted: '{agent} 已完成：{summary}',
+    subagentLifecycleError: '{agent} 执行失败：{error}',
 
     'enterprise.updateBlocked': '版本更新由企业统一管理',
   },
@@ -545,6 +549,10 @@ const translations: Record<LanguageType, Record<string, string>> = {
     testConnection: 'Test Connection',
     emailTestSuccess: 'Connection test successful!',
     emailTestFailed: 'Connection test failed: {error}',
+    subagentLifecycleSpawned: '{agent} picked up the task.',
+    subagentLifecycleRunning: '{agent} started: {task}',
+    subagentLifecycleCompleted: '{agent} completed: {summary}',
+    subagentLifecycleError: '{agent} failed: {error}',
 
     'enterprise.updateBlocked': 'Updates are managed by enterprise',
   },

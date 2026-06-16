@@ -8,6 +8,7 @@ type BuildManagedAgentEntriesInput = {
   fallbackPrimaryModel: string;
   stateDir?: string;
   availableProviders?: ProviderModelCatalog;
+  subagentAllowAgents?: string[];
 };
 
 type ProviderModelCatalog = Record<string, { models: Array<{ id: string }> }>;
@@ -174,7 +175,11 @@ export function resolveQualifiedAgentModelRef(options: {
 export function buildAgentEntry(
   agent: Agent,
   fallbackPrimaryModel: string,
-  options?: { workspace?: string; availableProviders?: ProviderModelCatalog },
+  options?: {
+    workspace?: string;
+    availableProviders?: ProviderModelCatalog;
+    subagentAllowAgents?: string[];
+  },
 ): Record<string, unknown> {
   const qualified = resolveQualifiedAgentModelRef({
     agentModel: agent.model,
@@ -195,6 +200,13 @@ export function buildAgentEntry(
     ...(agent.skillIds && agent.skillIds.length > 0 ? { skills: agent.skillIds } : {}),
     ...(options?.workspace ? { workspace: options.workspace } : {}),
     ...(agent.workingDirectory?.trim() ? { cwd: path.resolve(agent.workingDirectory.trim()) } : {}),
+    ...(options?.subagentAllowAgents && options.subagentAllowAgents.length > 0
+      ? {
+        subagents: {
+          allowAgents: options.subagentAllowAgents,
+        },
+      }
+      : {}),
     model: {
       primary: primaryModel,
     },
@@ -206,11 +218,12 @@ export function buildManagedAgentEntries({
   fallbackPrimaryModel,
   stateDir,
   availableProviders,
+  subagentAllowAgents,
 }: BuildManagedAgentEntriesInput): Array<Record<string, unknown>> {
   return agents
     .filter((agent) => agent.id !== 'main' && agent.enabled)
     .map((agent) => buildAgentEntry(agent, fallbackPrimaryModel, stateDir
-      ? { workspace: path.join(stateDir, `workspace-${agent.id}`), availableProviders }
-      : { availableProviders },
+      ? { workspace: path.join(stateDir, `workspace-${agent.id}`), availableProviders, subagentAllowAgents }
+      : { availableProviders, subagentAllowAgents },
     ));
 }
