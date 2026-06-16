@@ -1,9 +1,13 @@
 import { ChevronRightIcon } from '@heroicons/react/24/outline';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 
 import { i18nService } from '../../services/i18n';
+import type { RootState } from '../../store';
 import type { CoworkMessage, CoworkSessionStatus, SubagentSessionStatus, SubagentSessionSummary } from '../../types/cowork';
 import { CoworkSessionStatusValue, SubagentSessionStatusValue } from '../../types/cowork';
+import { getAgentDisplayName } from '../../utils/agentDisplay';
+import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import ConversationTurnsView from './ConversationTurnsView';
 import {
   COWORK_DETAIL_CONTENT_CLASS,
@@ -41,18 +45,13 @@ const getStatusClassName = (status: SubagentSessionStatus): string => {
   return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
 };
 
-const getDotClassName = (status: SubagentSessionStatus): string => {
-  if (status === SubagentSessionStatusValue.Done) return 'bg-green-500';
-  if (status === SubagentSessionStatusValue.Error) return 'bg-red-500';
-  return 'bg-blue-500 animate-pulse';
-};
-
 const SubagentRunsInlinePanel: React.FC<SubagentRunsInlinePanelProps> = ({
   parentSessionId,
   parentSessionStatus,
   runs: providedRuns,
   compact = false,
 }) => {
+  const agents = useSelector((state: RootState) => state.agent.agents);
   const [runs, setRuns] = useState<SubagentSessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(() => new Set());
@@ -185,24 +184,17 @@ const SubagentRunsInlinePanel: React.FC<SubagentRunsInlinePanelProps> = ({
     <div className={compact ? 'mt-2 animate-message-in' : `${COWORK_DETAIL_GUTTER_CLASS} animate-message-in`}>
       <div className={compact ? '' : COWORK_DETAIL_CONTENT_CLASS}>
         <section className={`${compact ? 'mb-2' : 'my-4'} overflow-hidden rounded-lg border border-border bg-surface/50`}>
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <div className="min-w-0">
-              <h3 className="truncate text-sm font-medium text-foreground">
-                {i18nService.t('subagentInlineTitle')}
-              </h3>
-              {visibleRuns.length > 0 && (
-                <p className="mt-0.5 text-xs text-secondary">
-                  {visibleRuns.length} {i18nService.t('subagentInlineRuns')}
-                </p>
-              )}
-            </div>
-            {loading && (
-              <div className="h-4 w-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-            )}
-          </div>
-
           <div className="divide-y divide-border">
+            {loading && visibleRuns.length === 0 && (
+              <div className="flex items-center justify-center px-3 py-3">
+                <div className="h-4 w-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+              </div>
+            )}
             {visibleRuns.map((run) => {
+              const agent = run.agentId
+                ? agents.find((item) => item.id === run.agentId)
+                : undefined;
+              const title = agent ? getAgentDisplayName(agent) : getRunTitle(run);
               const isExpanded = expandedRunIds.has(run.id);
               const messages = messagesByRunId[run.id] ?? [];
               const effectiveMessages = messages.length > 0 || !run.task
@@ -237,9 +229,15 @@ const SubagentRunsInlinePanel: React.FC<SubagentRunsInlinePanelProps> = ({
                     <ChevronRightIcon
                       className={`h-4 w-4 shrink-0 text-secondary transition-transform ${isExpanded ? 'rotate-90' : ''}`}
                     />
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${getDotClassName(run.status)}`} />
+                    <AgentAvatarIcon
+                      value={agent?.icon}
+                      className="h-7 w-7 border border-border/70 bg-background"
+                      iconClassName="h-4 w-4"
+                      legacyClassName="text-sm"
+                      fallbackText={title.trim().slice(0, 1).toUpperCase() || 'A'}
+                    />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                      {getRunTitle(run)}
+                      {title}
                     </span>
                     {messages.length > 0 && (
                       <span className="shrink-0 text-xs text-secondary">
