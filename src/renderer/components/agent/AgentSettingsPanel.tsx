@@ -9,7 +9,7 @@ import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { imService } from '../../services/im';
 import { RootState } from '../../store';
-import type { Agent } from '../../types/agent';
+import type { Agent, AgentSubagentConfig } from '../../types/agent';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, FeishuInstanceConfig, IMGatewayConfig, NimInstanceConfig, PopoInstanceConfig, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from '../../types/im';
 import { getAgentDisplayName, getAgentDisplayNameById, isDefaultAgentId } from '../../utils/agentDisplay';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
@@ -19,6 +19,7 @@ import Switch from '../ui/Switch';
 import AgentAvatarPicker from './AgentAvatarPicker';
 import AgentConfirmDialog from './AgentConfirmDialog';
 import AgentSkillSelector from './AgentSkillSelector';
+import AgentSubagentSelector from './AgentSubagentSelector';
 import { AgentConfirmDialogVariant, AgentDetailTab } from './constants';
 
 type MultiInstancePlatform = 'dingtalk' | 'feishu' | 'qq' | 'wecom' | 'nim' | 'telegram' | 'discord' | 'popo';
@@ -44,6 +45,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
   const [userInfo, setUserInfo] = useState('');
   const [icon, setIcon] = useState('');
   const [skillIds, setSkillIds] = useState<string[]>([]);
+  const [subagents, setSubagents] = useState<AgentSubagentConfig[]>([]);
   const [nameTouched, setNameTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -65,6 +67,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     userInfo: '',
     icon: '',
     skillIds: [] as string[],
+    subagents: [] as AgentSubagentConfig[],
   });
 
   useEffect(() => {
@@ -101,6 +104,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
       setUserInfo(nextUserInfo);
       setIcon(a.icon);
       setSkillIds(a.skillIds ?? []);
+      setSubagents(a.subagents ?? []);
       initialValuesRef.current = {
         name: a.name,
         description: a.description,
@@ -109,6 +113,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
         userInfo: nextUserInfo,
         icon: a.icon,
         skillIds: a.skillIds ?? [],
+        subagents: a.subagents ?? [],
       };
     })();
 
@@ -141,9 +146,10 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     if (userInfo !== init.userInfo) return true;
     if (icon !== init.icon) return true;
     if (skillIds.length !== init.skillIds.length || skillIds.some((id, i) => id !== init.skillIds[i])) return true;
+    if (JSON.stringify(subagents) !== JSON.stringify(init.subagents)) return true;
     if (boundKeys.size !== initialBoundKeys.size || [...boundKeys].some((k) => !initialBoundKeys.has(k))) return true;
     return false;
-  }, [name, description, systemPrompt, identity, userInfo, icon, skillIds, boundKeys, initialBoundKeys]);
+  }, [name, description, systemPrompt, identity, userInfo, icon, skillIds, subagents, boundKeys, initialBoundKeys]);
 
   if (!agentId) return null;
 
@@ -171,6 +177,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
         identity: identity.trim(),
         icon: icon.trim(),
         skillIds,
+        subagents,
       });
       if (!result) {
         window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentSaveFailed') }));
@@ -283,6 +290,7 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     { key: AgentDetailTab.Prompt, label: i18nService.t('coworkBootstrapSoulTitle') },
     { key: AgentDetailTab.User, label: i18nService.t('coworkBootstrapUserTitle') },
     { key: AgentDetailTab.Skills, label: i18nService.t('agentTabSkills') },
+    { key: AgentDetailTab.Subagents, label: i18nService.t('agentTabSubagents') },
     { key: AgentDetailTab.Im, label: i18nService.t('agentTabIM') },
   ];
 
@@ -535,6 +543,14 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
 
           {activeTab === AgentDetailTab.Skills && (
             <AgentSkillSelector selectedSkillIds={skillIds} onChange={setSkillIds} />
+          )}
+
+          {activeTab === AgentDetailTab.Subagents && (
+            <AgentSubagentSelector
+              agentId={agentId}
+              selectedSubagents={subagents}
+              onChange={setSubagents}
+            />
           )}
 
           {activeTab === AgentDetailTab.Im && (

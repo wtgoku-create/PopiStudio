@@ -182,6 +182,9 @@ export function buildAgentEntry(
   });
   const primaryModel = qualified.status === 'qualified' ? qualified.primaryModel : fallbackPrimaryModel;
   const legacyIcon = isDesignedAgentAvatarIcon(agent.icon) ? '' : agent.icon;
+  const allowedSubagentIds = (agent.subagents ?? [])
+    .filter((subagent) => subagent.enabled)
+    .map((subagent) => subagent.agentId);
 
   return {
     id: agent.id,
@@ -193,6 +196,7 @@ export function buildAgentEntry(
       },
     } : {}),
     ...(agent.skillIds && agent.skillIds.length > 0 ? { skills: agent.skillIds } : {}),
+    ...(allowedSubagentIds.length > 0 ? { subagents: { allowAgents: allowedSubagentIds } } : {}),
     ...(options?.workspace ? { workspace: options.workspace } : {}),
     ...(agent.workingDirectory?.trim() ? { cwd: path.resolve(agent.workingDirectory.trim()) } : {}),
     model: {

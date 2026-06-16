@@ -43,6 +43,36 @@ const normalizeRecentWorkspacePath = (cwd: string): string => {
   return resolved;
 };
 
+const normalizeAgentSubagents = (value: unknown): AgentSubagentConfig[] => {
+  if (!Array.isArray(value)) return [];
+
+  const seen = new Set<string>();
+  const subagents: AgentSubagentConfig[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const agentId = typeof record.agentId === 'string' ? record.agentId.trim() : '';
+    if (!agentId || seen.has(agentId)) continue;
+    seen.add(agentId);
+    subagents.push({
+      agentId,
+      label: typeof record.label === 'string' ? record.label.trim() : '',
+      description: typeof record.description === 'string' ? record.description.trim() : '',
+      enabled: record.enabled !== false,
+    });
+  }
+  return subagents;
+};
+
+const parseAgentSubagents = (value?: string | null): AgentSubagentConfig[] => {
+  if (!value) return [];
+  try {
+    return normalizeAgentSubagents(JSON.parse(value));
+  } catch {
+    return [];
+  }
+};
+
 const DEFAULT_MEMORY_ENABLED = true;
 const DEFAULT_MEMORY_IMPLICIT_UPDATE_ENABLED = true;
 const DEFAULT_MEMORY_LLM_JUDGE_ENABLED = false;
@@ -350,6 +380,13 @@ export type CoworkAgentEngine = 'openclaw';
 
 export type AgentSource = 'custom' | 'preset';
 
+export interface AgentSubagentConfig {
+  agentId: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -360,6 +397,7 @@ export interface Agent {
   workingDirectory: string;
   icon: string;
   skillIds: string[];
+  subagents: AgentSubagentConfig[];
   enabled: boolean;
   pinned: boolean;
   pinOrder?: number | null;
@@ -380,6 +418,7 @@ export interface CreateAgentRequest {
   workingDirectory?: string;
   icon?: string;
   skillIds?: string[];
+  subagents?: AgentSubagentConfig[];
   source?: AgentSource;
   presetId?: string;
 }
@@ -393,6 +432,7 @@ export interface UpdateAgentRequest {
   workingDirectory?: string;
   icon?: string;
   skillIds?: string[];
+  subagents?: AgentSubagentConfig[];
   enabled?: boolean;
   pinned?: boolean;
 }
@@ -2299,6 +2339,7 @@ export class CoworkStore {
       working_directory?: string | null;
       icon: string;
       skill_ids: string;
+      subagents_json?: string | null;
       enabled: number;
       pinned?: number | null;
       pin_order?: number | null;
@@ -2327,6 +2368,7 @@ export class CoworkStore {
       working_directory?: string | null;
       icon: string;
       skill_ids: string;
+      subagents_json?: string | null;
       enabled: number;
       pinned?: number | null;
       pin_order?: number | null;
@@ -2377,8 +2419,8 @@ export class CoworkStore {
       this.db
         .prepare(
           `
-        INSERT INTO agents (id, name, description, system_prompt, identity, model, working_directory, icon, skill_ids, enabled, is_default, source, preset_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
+        INSERT INTO agents (id, name, description, system_prompt, identity, model, working_directory, icon, skill_ids, subagents_json, enabled, is_default, source, preset_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
       `,
         )
         .run(
@@ -2391,6 +2433,7 @@ export class CoworkStore {
           workingDirectory,
           normalizeAgentAvatarIcon(request.icon),
           JSON.stringify(request.skillIds || []),
+          JSON.stringify(normalizeAgentSubagents(request.subagents || [])),
           request.source || 'custom',
           request.presetId || '',
           now,
@@ -2458,6 +2501,10 @@ export class CoworkStore {
       setClauses.push('skill_ids = ?');
       values.push(JSON.stringify(updates.skillIds));
     }
+    if (updates.subagents !== undefined) {
+      setClauses.push('subagents_json = ?');
+      values.push(JSON.stringify(normalizeAgentSubagents(updates.subagents)));
+    }
     if (updates.enabled !== undefined) {
       setClauses.push('enabled = ?');
       values.push(updates.enabled ? 1 : 0);
@@ -2489,6 +2536,7 @@ export class CoworkStore {
         return false;
       }
 
+      this.removeSubagentReferences(agentId);
       this.deleteSessionsForAgent(agentId);
       return true;
     });
@@ -2498,6 +2546,21 @@ export class CoworkStore {
       this.markOrphanImplicitMemoriesStale();
     }
     return deleted;
+  }
+
+  private removeSubagentReferences(agentId: string): void {
+    const rows = this.getAll<{ id: string; subagents_json?: string | null }>(
+      'SELECT id, subagents_json FROM agents',
+    );
+    const update = this.db.prepare('UPDATE agents SET subagents_json = ?, updated_at = ? WHERE id = ?');
+    const now = Date.now();
+
+    for (const row of rows) {
+      const current = parseAgentSubagents(row.subagents_json);
+      const next = current.filter(subagent => subagent.agentId !== agentId);
+      if (next.length === current.length) continue;
+      update.run(JSON.stringify(next), now, row.id);
+    }
   }
 
   private mapAgentRow(row: {
@@ -2510,6 +2573,7 @@ export class CoworkStore {
     working_directory?: string | null;
     icon: string;
     skill_ids: string;
+    subagents_json?: string | null;
     enabled: number;
     pinned?: number | null;
     pin_order?: number | null;
@@ -2525,6 +2589,7 @@ export class CoworkStore {
     } catch {
       skillIds = [];
     }
+    const subagents = parseAgentSubagents(row.subagents_json);
     return {
       id: row.id,
       name: row.name,
@@ -2535,6 +2600,7 @@ export class CoworkStore {
       workingDirectory: row.working_directory || '',
       icon: row.icon,
       skillIds,
+      subagents,
       enabled: Boolean(row.enabled),
       pinned: Boolean(row.pinned),
       pinOrder: row.pinned ? (row.pin_order ?? null) : null,

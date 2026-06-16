@@ -16,6 +16,7 @@ const makeAgent = (overrides: Partial<Agent> = {}): Agent => ({
   workingDirectory: '',
   icon: '',
   skillIds: [],
+  subagents: [],
   enabled: true,
   pinned: false,
   pinOrder: null,
