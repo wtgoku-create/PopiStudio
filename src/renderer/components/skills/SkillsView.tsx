@@ -14,8 +14,7 @@ interface SkillsViewProps {
   readOnly?: boolean;
 }
 
-const SkillsView: React.FC<SkillsViewProps> = ({ isSidebarCollapsed, onToggleSidebar, onNewChat, onCreateSkillByChat, updateBadge, readOnly }) => {
-  const isMac = window.electron.platform === 'darwin';
+const SkillsView: React.FC<SkillsViewProps> = ({ onCreateSkillByChat, readOnly }) => {
   return (
     <div className="flex-1 flex flex-col bg-background h-full">
       <div className="draggable flex h-12 items-center justify-between px-4 border-b border-border shrink-0">

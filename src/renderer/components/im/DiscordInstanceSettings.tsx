@@ -503,10 +503,10 @@ const DiscordInstanceSettings: React.FC<DiscordInstanceSettingsProps> = ({
                         Require @mention
                       </label>
                       <Switch
-                        checked={guildCfg.requireMention}
+                        checked={Boolean(guildCfg.requireMention)}
                         size="sm"
                         ariaLabel="Require @mention"
-                        onClick={() => handleGuildConfigChange(guildId, { requireMention: !guildCfg.requireMention })}
+                        onClick={() => handleGuildConfigChange(guildId, { requireMention: !Boolean(guildCfg.requireMention) })}
                       />
                     </div>
                     {/* Guild-level systemPrompt */}
@@ -607,11 +607,11 @@ const DiscordInstanceSettings: React.FC<DiscordInstanceSettingsProps> = ({
               Debug
             </label>
             <Switch
-              checked={instance.debug}
+              checked={Boolean(instance.debug)}
               size="sm"
               ariaLabel="Debug"
               onClick={() => {
-                const update = { debug: !instance.debug };
+                const update = { debug: !Boolean(instance.debug) };
                 onConfigChange(update);
                 void onSave(update);
               }}
