@@ -229,11 +229,11 @@ contextBridge.exposeInMainWorld('electron', {
       const result = await ipcRenderer.invoke(AgentIpcChannel.Get, id);
       return result?.success ? result.agent : null;
     },
-    create: async (request: { id?: string; name: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; source?: string; presetId?: string }) => {
+    create: async (request: { id?: string; name: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; subagents?: Array<{ agentId: string; label: string; description: string; enabled: boolean }>; source?: string; presetId?: string }) => {
       const result = await ipcRenderer.invoke(AgentIpcChannel.Create, request);
       return result?.success ? result.agent : null;
     },
-    update: async (id: string, updates: { name?: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; enabled?: boolean; pinned?: boolean }) => {
+    update: async (id: string, updates: { name?: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; subagents?: Array<{ agentId: string; label: string; description: string; enabled: boolean }>; enabled?: boolean; pinned?: boolean }) => {
       const result = await ipcRenderer.invoke(AgentIpcChannel.Update, id, updates);
       return result?.success ? result.agent : null;
     },

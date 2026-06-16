@@ -12,7 +12,7 @@ import { i18nService } from '../../services/i18n';
 import { imService } from '../../services/im';
 import type { RootState } from '../../store';
 import type { Model } from '../../store/slices/modelSlice';
-import type { PresetAgent } from '../../types/agent';
+import type { AgentSubagentConfig, PresetAgent } from '../../types/agent';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, FeishuInstanceConfig, IMGatewayConfig, NimInstanceConfig, PopoInstanceConfig, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from '../../types/im';
 import { getAgentDisplayNameById } from '../../utils/agentDisplay';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
@@ -24,6 +24,7 @@ import AgentAvatarPicker from './AgentAvatarPicker';
 import AgentConfirmDialog from './AgentConfirmDialog';
 import AgentDetailToolbar from './AgentDetailToolbar';
 import AgentSkillSelector from './AgentSkillSelector';
+import AgentSubagentSelector from './AgentSubagentSelector';
 import { AgentConfirmDialogVariant, AgentDetailTab } from './constants';
 
 type MultiInstancePlatform = 'dingtalk' | 'feishu' | 'qq' | 'wecom' | 'nim' | 'telegram' | 'discord' | 'popo';
@@ -54,6 +55,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
   const [model, setModel] = useState<Model | null>(null);
   const [workingDirectory, setWorkingDirectory] = useState('');
   const [skillIds, setSkillIds] = useState<string[]>([]);
+  const [subagents, setSubagents] = useState<AgentSubagentConfig[]>([]);
   const [creating, setCreating] = useState(false);
   const [presetTemplates, setPresetTemplates] = useState<PresetAgent[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
@@ -82,9 +84,10 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
       || (model ? toOpenClawModelRef(model) : '') !== initialModelRef.current
       || workingDirectory !== initialWorkingDirectoryRef.current
       || skillIds.length > 0
+      || subagents.length > 0
       || boundKeys.size > 0
     );
-  }, [name, description, systemPrompt, identity, userInfo, icon, model, workingDirectory, skillIds, boundKeys]);
+  }, [name, description, systemPrompt, identity, userInfo, icon, model, workingDirectory, skillIds, subagents, boundKeys]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -105,6 +108,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     setModel(globalSelectedModel ?? null);
     setWorkingDirectory('');
     setSkillIds([]);
+    setSubagents([]);
     setActiveTab(AgentDetailTab.Identity);
     setShowUnsavedConfirm(false);
     setShowTemplatePicker(false);
@@ -143,6 +147,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     setModel(null);
     setWorkingDirectory('');
     setSkillIds([]);
+    setSubagents([]);
     setActiveTab(AgentDetailTab.Identity);
     setShowTemplatePicker(false);
     setBoundKeys(new Set());
@@ -193,6 +198,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
         workingDirectory: workingDirectory.trim(),
         icon: icon.trim() || undefined,
         skillIds,
+        subagents,
       });
       if (agent) {
         // Save IM bindings after agent is created
@@ -271,6 +277,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     { key: AgentDetailTab.Prompt, label: i18nService.t('coworkBootstrapSoulTitle') },
     { key: AgentDetailTab.User, label: i18nService.t('coworkBootstrapUserTitle') },
     { key: AgentDetailTab.Skills, label: i18nService.t('agentTabSkills') },
+    { key: AgentDetailTab.Subagents, label: i18nService.t('agentTabSubagents') },
     { key: AgentDetailTab.Im, label: i18nService.t('agentTabIM') },
   ];
 
@@ -383,6 +390,10 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
 
         {activeTab === AgentDetailTab.Skills && (
           <AgentSkillSelector selectedSkillIds={skillIds} onChange={setSkillIds} />
+        )}
+
+        {activeTab === AgentDetailTab.Subagents && (
+          <AgentSubagentSelector selectedSubagents={subagents} onChange={setSubagents} />
         )}
 
         {activeTab === AgentDetailTab.Im && (

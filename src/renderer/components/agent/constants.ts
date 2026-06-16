@@ -3,6 +3,7 @@ export const AgentDetailTab = {
   Identity: 'identity',
   User: 'user',
   Skills: 'skills',
+  Subagents: 'subagents',
   Im: 'im',
 } as const;
 

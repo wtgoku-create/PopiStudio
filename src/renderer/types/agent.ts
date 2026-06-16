@@ -1,5 +1,12 @@
 export type AgentSource = 'custom' | 'preset';
 
+export interface AgentSubagentConfig {
+  agentId: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -10,6 +17,7 @@ export interface Agent {
   workingDirectory: string;
   icon: string;
   skillIds: string[];
+  subagents: AgentSubagentConfig[];
   enabled: boolean;
   pinned: boolean;
   pinOrder?: number | null;
@@ -45,6 +53,7 @@ export interface CreateAgentRequest {
   workingDirectory?: string;
   icon?: string;
   skillIds?: string[];
+  subagents?: AgentSubagentConfig[];
   source?: string;
   presetId?: string;
 }
@@ -58,6 +67,7 @@ export interface UpdateAgentRequest {
   workingDirectory?: string;
   icon?: string;
   skillIds?: string[];
+  subagents?: AgentSubagentConfig[];
   enabled?: boolean;
   pinned?: boolean;
 }

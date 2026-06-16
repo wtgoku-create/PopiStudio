@@ -23,6 +23,7 @@ describe('buildAgentEntry', () => {
       workingDirectory: '',
       icon: '',
       skillIds: [],
+      subagents: [],
       enabled: true,
       isDefault: true,
       source: 'custom',
@@ -49,6 +50,7 @@ describe('buildAgentEntry', () => {
       workingDirectory: '',
       icon: '',
       skillIds: [],
+      subagents: [],
       enabled: true,
       isDefault: true,
       source: 'custom',
@@ -78,6 +80,7 @@ describe('buildAgentEntry', () => {
       workingDirectory: '',
       icon: '',
       skillIds: [],
+      subagents: [],
       enabled: true,
       isDefault: true,
       source: 'custom',
@@ -103,6 +106,7 @@ describe('buildAgentEntry', () => {
       workingDirectory: '/tmp/docs-project',
       icon: '',
       skillIds: [],
+      subagents: [],
       enabled: true,
       isDefault: false,
       source: 'custom',
@@ -128,6 +132,7 @@ describe('buildAgentEntry', () => {
       workingDirectory: '',
       icon: DefaultAgentAvatarIcon,
       skillIds: [],
+      subagents: [],
       enabled: true,
       isDefault: false,
       source: 'custom',
@@ -139,6 +144,44 @@ describe('buildAgentEntry', () => {
     const identity = result.identity as Record<string, unknown>;
     expect(identity.name).toBe('Designer');
     expect(identity.emoji).toBeUndefined();
+  });
+
+  test('emits enabled subagent allow list for delegation', () => {
+    const result = buildAgentEntry({
+      id: 'lead',
+      name: 'Lead',
+      description: '',
+      systemPrompt: '',
+      identity: '',
+      model: '',
+      workingDirectory: '',
+      icon: '',
+      skillIds: [],
+      subagents: [
+        {
+          agentId: 'researcher',
+          label: 'Researcher',
+          description: 'Use for source gathering.',
+          enabled: true,
+        },
+        {
+          agentId: 'disabled',
+          label: 'Disabled',
+          description: '',
+          enabled: false,
+        },
+      ],
+      enabled: true,
+      isDefault: false,
+      source: 'custom',
+      presetId: '',
+      createdAt: 0,
+      updatedAt: 0,
+    }, 'anthropic/claude-sonnet-4');
+
+    expect(result.subagents).toEqual({
+      allowAgents: ['researcher'],
+    });
   });
 });
 
@@ -156,6 +199,7 @@ describe('buildManagedAgentEntries', () => {
           workingDirectory: '',
           icon: '✍️',
           skillIds: ['docx'],
+          subagents: [],
           enabled: true,
           isDefault: false,
           source: 'custom',
@@ -187,6 +231,7 @@ describe('buildManagedAgentEntries', () => {
           workingDirectory: '',
           icon: '✍️',
           skillIds: [],
+          subagents: [],
           enabled: true,
           isDefault: false,
           source: 'custom',
@@ -217,6 +262,7 @@ describe('buildManagedAgentEntries', () => {
           workingDirectory: '',
           icon: '🦀',
           skillIds: [],
+          subagents: [],
           enabled: true,
           isDefault: false,
           source: 'custom',

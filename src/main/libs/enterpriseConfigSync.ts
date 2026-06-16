@@ -33,6 +33,7 @@ export type EnterpriseAgentConfig = {
   workingDirectory?: string;
   icon: string;
   skillIds: string[];
+  subagents?: Array<{ agentId: string; label: string; description: string; enabled: boolean }>;
   enabled: boolean;
   isDefault: boolean;
 };

@@ -45,6 +45,7 @@ class AgentService {
           isDefault: a.isDefault,
           source: a.source,
           skillIds: a.skillIds ?? [],
+          subagentCount: (a.subagents ?? []).filter((subagent) => subagent.enabled).length,
         }));
         store.dispatch(setAgents(mappedAgents));
       }
@@ -64,6 +65,7 @@ class AgentService {
     workingDirectory?: string;
     icon?: string;
     skillIds?: string[];
+    subagents?: Array<{ agentId: string; label: string; description: string; enabled: boolean }>;
   }): Promise<Agent | null> {
     try {
       const agent = await window.electron?.agents?.create(request);
@@ -81,6 +83,7 @@ class AgentService {
           isDefault: agent.isDefault,
           source: agent.source,
           skillIds: agent.skillIds ?? [],
+          subagentCount: (agent.subagents ?? []).filter((subagent) => subagent.enabled).length,
         }));
         return agent;
       }
@@ -100,6 +103,7 @@ class AgentService {
     workingDirectory?: string;
     icon?: string;
     skillIds?: string[];
+    subagents?: Array<{ agentId: string; label: string; description: string; enabled: boolean }>;
     enabled?: boolean;
     pinned?: boolean;
   }): Promise<Agent | null> {
@@ -119,6 +123,7 @@ class AgentService {
             pinned: agent.pinned ?? false,
             pinOrder: agent.pinOrder ?? null,
             skillIds,
+            subagentCount: (agent.subagents ?? []).filter((subagent) => subagent.enabled).length,
           },
         }));
         syncActiveSkillsForCurrentAgent(agent.id, skillIds);
@@ -196,6 +201,7 @@ class AgentService {
           isDefault: agent.isDefault,
           source: agent.source,
           skillIds: agent.skillIds ?? [],
+          subagentCount: (agent.subagents ?? []).filter((subagent) => subagent.enabled).length,
         }));
         return agent;
       }

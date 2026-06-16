@@ -7908,6 +7908,7 @@ end tell'`, { timeout: 5000 });
               model: agent.model,
               icon: agent.icon,
               skillIds: agent.skillIds,
+              subagents: agent.subagents ?? [],
               enabled: agent.enabled,
             };
             if (existing) {
@@ -7922,6 +7923,7 @@ end tell'`, { timeout: 5000 });
                 model: agent.model,
                 icon: agent.icon,
                 skillIds: agent.skillIds,
+                subagents: agent.subagents ?? [],
                 source: 'custom',
               });
               cs.updateAgent(agent.id, { enabled: agent.enabled });

@@ -417,8 +417,8 @@ interface IElectronAPI {
   agents: {
     list: () => Promise<Agent[]>;
     get: (id: string) => Promise<Agent | null>;
-    create: (request: { id?: string; name: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; source?: string; presetId?: string }) => Promise<Agent>;
-    update: (id: string, updates: { name?: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; enabled?: boolean; pinned?: boolean }) => Promise<Agent>;
+    create: (request: { id?: string; name: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; subagents?: Array<{ agentId: string; label: string; description: string; enabled: boolean }>; source?: string; presetId?: string }) => Promise<Agent>;
+    update: (id: string, updates: { name?: string; description?: string; systemPrompt?: string; identity?: string; model?: string; workingDirectory?: string; icon?: string; skillIds?: string[]; subagents?: Array<{ agentId: string; label: string; description: string; enabled: boolean }>; enabled?: boolean; pinned?: boolean }) => Promise<Agent>;
     delete: (id: string) => Promise<boolean>;
     presets: () => Promise<PresetAgent[]>;
     presetTemplates: () => Promise<PresetAgent[]>;
