@@ -38,8 +38,8 @@ import {
 import { setActiveSkillIds } from '../../store/slices/skillSlice';
 import type { Artifact } from '../../types/artifact';
 import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
-import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
-import { CoworkSessionStatusValue } from '../../types/cowork';
+import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata, SubagentSessionSummary } from '../../types/cowork';
+import { CoworkSessionStatusValue, SubagentSessionStatusValue } from '../../types/cowork';
 import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload } from '../artifacts';
@@ -58,6 +58,7 @@ import {
   hasRenderableAssistantContent,
 } from './messageDisplayUtils';
 import PopiTVCanvasWorkspace from './PopiTVCanvasWorkspace';
+import SubagentRunsInlinePanel from './SubagentRunsInlinePanel';
 import UserMessageItem from './UserMessageItem';
 interface CoworkSessionDetailProps {
   onManageSkills?: () => void;
@@ -76,6 +77,7 @@ const ARTIFACT_PANEL_TRANSITION_MS = 200;
 const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
 const COWORK_DETAIL_MIN_WIDTH = 480;
 const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
+const SUBAGENT_RUN_POLL_INTERVAL_MS = 5000;
 const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
 
 const sanitizeExportFileName = (value: string): string => {
@@ -584,6 +586,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
   const [showCompactConfirm, setShowCompactConfirm] = useState(false);
+  const [subagentRuns, setSubagentRuns] = useState<SubagentSessionSummary[]>([]);
   const isLoadingMoreMessagesRef = useRef(false);
   const prevScrollHeightRef = useRef<number | null>(null);
 
@@ -601,6 +604,41 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   useEffect(() => {
     setShowCompactConfirm(false);
   }, [sessionId]);
+
+  const fetchSubagentRuns = useCallback(async () => {
+    if (!sessionId) {
+      setSubagentRuns([]);
+      return;
+    }
+
+    try {
+      const result = await window.electron?.cowork?.listSubagentSessions(sessionId);
+      if (result?.success && Array.isArray(result.runs)) {
+        setSubagentRuns(result.runs.map((run) => ({
+          ...run,
+          parentSessionId: run.parentSessionId ?? sessionId,
+        })));
+      }
+    } catch {
+      // Subagent runs are supplemental UI; keep the current conversation usable.
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    setSubagentRuns([]);
+    void fetchSubagentRuns();
+  }, [fetchSubagentRuns]);
+
+  useEffect(() => {
+    if (!sessionId) return undefined;
+    const hasRunningSubagent = subagentRuns.some((run) => run.status === SubagentSessionStatusValue.Running);
+    if (currentSession?.status !== CoworkSessionStatusValue.Running && !hasRunningSubagent) return undefined;
+
+    const timer = window.setInterval(() => {
+      void fetchSubagentRuns();
+    }, SUBAGENT_RUN_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [currentSession?.status, fetchSubagentRuns, sessionId, subagentRuns]);
 
   useEffect(() => {
     if (!showCompactConfirm) return undefined;
@@ -2025,6 +2063,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       const turnArtifacts = sessionArtifacts.filter(
         a => turnMessageIds.has(a.messageId) && PREVIEWABLE_ARTIFACT_TYPES.has(a.type)
       );
+      const subagentRunsByToolUseId = new Map<string, SubagentSessionSummary[]>();
+      for (const run of subagentRuns) {
+        const runsForToolUse = subagentRunsByToolUseId.get(run.id);
+        if (runsForToolUse) {
+          runsForToolUse.push(run);
+        } else {
+          subagentRunsByToolUseId.set(run.id, [run]);
+        }
+      }
+
       return (
         <LazyRenderTurn key={turn.id} turnId={turn.id} alwaysRender={alwaysRender} data-turn-index={index}>
           {turn.userMessage && (
@@ -2042,6 +2090,20 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 onOpenLocalService={handleOpenLocalServiceArtifact}
                 showTypingIndicator={showTypingIndicator}
                 showCopyButtons={!isStreaming || !isLastTurn}
+                renderAfterToolGroup={(group) => {
+                  const toolUseId = group.toolUse.metadata?.toolUseId;
+                  if (typeof toolUseId !== 'string') return null;
+                  const runsForToolUse = subagentRunsByToolUseId.get(toolUseId);
+                  if (!runsForToolUse || runsForToolUse.length === 0) return null;
+                  return (
+                    <SubagentRunsInlinePanel
+                      parentSessionId={currentSession.id}
+                      parentSessionStatus={currentSession.status}
+                      runs={runsForToolUse}
+                      compact
+                    />
+                  );
+                }}
               />
             </div>
           )}

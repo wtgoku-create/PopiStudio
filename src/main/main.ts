@@ -4592,7 +4592,10 @@ if (!gotTheLock) {
 
   ipcMain.handle('cowork:subagent:list', async (_event, options: { parentSessionId: string }) => {
     if (!openClawRuntimeAdapter) return { success: true, runs: [] };
-    const runs = openClawRuntimeAdapter.listSubagentRuns(options.parentSessionId);
+    const runs = openClawRuntimeAdapter.listSubagentRuns(options.parentSessionId).map((run) => ({
+      ...run,
+      parentSessionId: options.parentSessionId,
+    }));
     return { success: true, runs };
   });
 

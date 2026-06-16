@@ -246,6 +246,15 @@ export interface CoworkSessionSource {
   conversationId?: string;
 }
 
+export const SubagentSessionStatusValue = {
+  Running: 'running',
+  Done: 'done',
+  Error: 'error',
+} as const;
+
+export type SubagentSessionStatus =
+  typeof SubagentSessionStatusValue[keyof typeof SubagentSessionStatusValue];
+
 // Subagent session summary for sidebar display
 export interface SubagentSessionSummary {
   id: string;
@@ -254,7 +263,7 @@ export interface SubagentSessionSummary {
   label: string | null;
   sessionKey: string | null;
   parentSessionId: string;
-  status: 'running' | 'done' | 'error';
+  status: SubagentSessionStatus;
   createdAt: number;
 }
 
