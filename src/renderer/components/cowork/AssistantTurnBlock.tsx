@@ -19,6 +19,7 @@ import {
   getVisibleAssistantItems,
   hasText,
   isContextCompactionMessage,
+  type ToolGroupItem,
 } from './messageDisplayUtils';
 import ThinkingBlock from './ThinkingBlock';
 import ToolCallGroup from './ToolCallGroup';
@@ -97,6 +98,7 @@ const AssistantTurnBlock: React.FC<{
   onOpenLocalService?: (artifact: Artifact) => void;
   showTypingIndicator?: boolean;
   showCopyButtons?: boolean;
+  renderAfterToolGroup?: (group: ToolGroupItem) => React.ReactNode;
 }> = ({
   turn,
   artifacts,
@@ -105,6 +107,7 @@ const AssistantTurnBlock: React.FC<{
   onOpenLocalService,
   showTypingIndicator = false,
   showCopyButtons = true,
+  renderAfterToolGroup,
 }) => {
   const visibleAssistantItems = getVisibleAssistantItems(turn.assistantItems);
 
@@ -231,12 +234,14 @@ const AssistantTurnBlock: React.FC<{
                 const nextItem = visibleAssistantItems[index + 1];
                 const isLastInSequence = !nextItem || nextItem.type !== 'tool_group';
                 return (
-                  <ToolCallGroup
-                    key={`tool-${item.group.toolUse.id}`}
-                    group={item.group}
-                    isLastInSequence={isLastInSequence}
-                    mapDisplayText={mapDisplayText}
-                  />
+                  <React.Fragment key={`tool-${item.group.toolUse.id}`}>
+                    <ToolCallGroup
+                      group={item.group}
+                      isLastInSequence={isLastInSequence}
+                      mapDisplayText={mapDisplayText}
+                    />
+                    {renderAfterToolGroup?.(item.group)}
+                  </React.Fragment>
                 );
               }
 
