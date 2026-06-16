@@ -197,14 +197,7 @@ const SubagentRunsInlinePanel: React.FC<SubagentRunsInlinePanelProps> = ({
               const title = agent ? getAgentDisplayName(agent) : getRunTitle(run);
               const isExpanded = expandedRunIds.has(run.id);
               const messages = messagesByRunId[run.id] ?? [];
-              const effectiveMessages = messages.length > 0 || !run.task
-                ? messages
-                : [{
-                    id: `${run.id}-synthetic-task`,
-                    type: 'user' as const,
-                    content: run.task,
-                    timestamp: run.createdAt,
-                  }];
+              const effectiveMessages = messages.filter((message) => message.type !== 'user');
               const isLoadingRun = loadingRunIds.has(run.id);
 
               return (
