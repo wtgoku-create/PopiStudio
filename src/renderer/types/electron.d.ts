@@ -628,6 +628,28 @@ interface IElectronAPI {
       }>;
       error?: string;
     }>;
+    onSubagentRunsChanged: (
+      callback: (data: {
+        parentSessionId: string;
+        runs: Array<{
+          id: string;
+          agentId: string | null;
+          task: string | null;
+          label: string | null;
+          sessionKey: string | null;
+          parentSessionId: string;
+          status: 'running' | 'done' | 'error';
+          createdAt: number;
+        }>;
+      }) => void,
+    ) => () => void;
+    onSubagentMessagesChanged: (
+      callback: (data: {
+        parentSessionId: string;
+        runId: string;
+        messages: CoworkMessage[];
+      }) => void,
+    ) => () => void;
     respondToPermission: (options: {
       requestId: string;
       result: CoworkPermissionResult;

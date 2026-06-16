@@ -1,23 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type { SubagentSessionSummary } from '../../types/cowork';
 
-const POLL_INTERVAL_MS = 5_000;
-
 /**
- * Fetches and polls subagent sessions for the currently selected session.
+ * Fetches and subscribes to subagent sessions for the currently selected session.
  * Returns a map of parentSessionId → subagent summaries.
  */
 export const useSubagentSessions = (
   currentSessionId: string | null,
-  currentSessionStatus?: string,
+  _currentSessionStatus?: string,
 ) => {
   const [subagentsBySessionId, setSubagentsBySessionId] = useState<
     Record<string, SubagentSessionSummary[]>
   >({});
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastFetchedSessionIdRef = useRef<string | null>(null);
-
   const fetchSubagents = useCallback(async (sessionId: string) => {
     try {
       const result = await window.electron?.cowork?.listSubagentSessions(sessionId);
@@ -47,31 +42,20 @@ export const useSubagentSessions = (
   }, []);
 
   useEffect(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-
     if (!currentSessionId) return;
 
-    // Initial fetch
-    lastFetchedSessionIdRef.current = currentSessionId;
     void fetchSubagents(currentSessionId);
+  }, [currentSessionId, fetchSubagents]);
 
-    // Poll while parent session is running
-    if (currentSessionStatus === 'running') {
-      pollingRef.current = setInterval(() => {
-        void fetchSubagents(currentSessionId);
-      }, POLL_INTERVAL_MS);
-    }
-
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-    };
-  }, [currentSessionId, currentSessionStatus, fetchSubagents]);
+  useEffect(() => {
+    const unsubscribe = window.electron?.cowork?.onSubagentRunsChanged?.(({ parentSessionId, runs }) => {
+      setSubagentsBySessionId((prev) => ({
+        ...prev,
+        [parentSessionId]: runs,
+      }));
+    });
+    return () => unsubscribe?.();
+  }, []);
 
   return { subagentsBySessionId, refetchSubagents: fetchSubagents };
 };

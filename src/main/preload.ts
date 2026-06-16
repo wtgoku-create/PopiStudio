@@ -300,6 +300,16 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('cowork:subTask:history', options),
     listSubagentSessions: (parentSessionId: string) =>
       ipcRenderer.invoke('cowork:subagent:list', { parentSessionId }),
+    onSubagentRunsChanged: (callback: (data: { parentSessionId: string; runs: any[] }) => void) => {
+      const handler = (_event: any, data: { parentSessionId: string; runs: any[] }) => callback(data);
+      ipcRenderer.on('cowork:subagent:runsChanged', handler);
+      return () => ipcRenderer.removeListener('cowork:subagent:runsChanged', handler);
+    },
+    onSubagentMessagesChanged: (callback: (data: { parentSessionId: string; runId: string; messages: any[] }) => void) => {
+      const handler = (_event: any, data: { parentSessionId: string; runId: string; messages: any[] }) => callback(data);
+      ipcRenderer.on('cowork:subagent:messagesChanged', handler);
+      return () => ipcRenderer.removeListener('cowork:subagent:messagesChanged', handler);
+    },
 
     // Permission handling
     respondToPermission: (options: { requestId: string; result: any }) =>

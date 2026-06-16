@@ -1120,6 +1120,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private static readonly VISIBLE_FINAL_CONTINUATION_GRACE_MS = 120_000;
   private static readonly VISIBLE_FINAL_TOOL_RESULT_CHAR_THRESHOLD = 20_000;
   private static readonly VISIBLE_FINAL_SHORT_TEXT_CHAR_THRESHOLD = 600;
+  private static readonly SUBAGENT_COMPLETION_MAX_WAIT_MS = 10 * 60 * 1000;
 
   private gatewayClient: GatewayClientLike | null = null;
   private gatewayClientVersion: string | null = null;
@@ -1144,6 +1145,11 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   /** Session keys whose origin is "heartbeat" — discovered via polling, used to filter real-time events. */
   private readonly heartbeatSessionKeys = new Set<string>();
   private channelPollingTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly pendingSubagentCompletions = new Map<string, {
+    runId: string;
+    finish: () => void;
+    timeout: ReturnType<typeof setTimeout>;
+  }>();
 
   private static readonly CHANNEL_POLL_INTERVAL_MS = 10_000;
   private static readonly FULL_HISTORY_SYNC_LIMIT = 50;
@@ -1633,11 +1639,25 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.engineManager = engineManager;
     this.options = options;
     if (subagentRunStore) {
-      this.subagentTracker = new SubagentTracker(subagentRunStore, subagentMessageStore ?? null, () => this.gatewayClient);
+      this.subagentTracker = new SubagentTracker(subagentRunStore, subagentMessageStore ?? null, () => this.gatewayClient, {
+        onRunsChanged: (parentSessionId) => this.emitSubagentRunsChanged(parentSessionId),
+        onMessagesChanged: (parentSessionId, runId, messages) => {
+          this.emit('subagentMessagesChanged', parentSessionId, runId, messages as CoworkMessage[]);
+        },
+      });
     } else {
       // Fallback: create a no-op tracker (should not happen in production)
       this.subagentTracker = new SubagentTracker(null as unknown as SubagentRunStore, null, () => this.gatewayClient);
     }
+  }
+
+  private emitSubagentRunsChanged(parentSessionId: string): void {
+    const runs = this.listSubagentRuns(parentSessionId).map((run) => ({
+      ...run,
+      parentSessionId,
+    }));
+    this.emit('subagentRunsChanged', parentSessionId, runs);
+    this.flushPendingSubagentCompletion(parentSessionId);
   }
 
   private normalizeModelRef(modelRef: string): string {
@@ -2127,6 +2147,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // (e.g. from POPO/Telegram channels) don't re-create the ActiveTurn.
     this.stoppedSessions.set(sessionId, Date.now());
 
+    this.stopSubagentCompletionWatcher(sessionId);
     this.cleanupSessionTurn(sessionId);
     this.clearPendingApprovalsBySession(sessionId);
     this.store.updateSession(sessionId, { status: 'idle' });
@@ -3384,11 +3405,17 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     if (event.event === 'chat') {
+      if (!this.isKnownParentGatewayPayload(event.payload) && this.subagentTracker.handleChatEvent(event.payload)) {
+        return;
+      }
       this.handleChatEvent(event.payload, event.seq);
       return;
     }
 
     if (event.event === 'agent') {
+      if (!this.isKnownParentGatewayPayload(event.payload) && this.subagentTracker.handleAgentEvent(event.payload)) {
+        return;
+      }
       // Process assistant text updates here (before handleAgentEvent) because
       // handleAgentEvent may enqueue events when sessionId mapping isn't ready.
       this.processAgentAssistantText(event.payload);
@@ -3408,6 +3435,18 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (event.event === 'cron') {
       console.debug('[OpenClawRuntime] received cron event:', JSON.stringify(event));
     }
+  }
+
+  private isKnownParentGatewayPayload(payload: unknown): boolean {
+    if (!isRecord(payload)) return false;
+    const runId = typeof payload.runId === 'string' ? payload.runId.trim() : '';
+    if (runId && this.sessionIdByRunId.has(runId)) {
+      return true;
+    }
+
+    const sessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey.trim() : '';
+    if (!sessionKey) return false;
+    return this.resolveSessionIdBySessionKey(sessionKey) !== null;
   }
 
   private handleAgentEvent(payload: unknown, seq?: number): void {
@@ -4036,6 +4075,66 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     console.debug(`[OpenClawRuntime] canceled lifecycle end fallback because ${reason}.`);
   }
 
+  private hasRunningSubagents(sessionId: string): boolean {
+    try {
+      return this.subagentTracker
+        .listSubagentRuns(sessionId)
+        .some(run => run.status === 'running');
+    } catch {
+      return false;
+    }
+  }
+
+  private stopSubagentCompletionWatcher(sessionId: string): void {
+    const pending = this.pendingSubagentCompletions.get(sessionId);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    this.pendingSubagentCompletions.delete(sessionId);
+  }
+
+  private flushPendingSubagentCompletion(sessionId: string): void {
+    const pending = this.pendingSubagentCompletions.get(sessionId);
+    if (!pending) return;
+    if (this.manuallyStoppedSessions.has(sessionId) || !this.activeTurns.has(sessionId)) {
+      this.stopSubagentCompletionWatcher(sessionId);
+      return;
+    }
+    if (this.hasRunningSubagents(sessionId)) {
+      this.store.updateSession(sessionId, { status: 'running' });
+      this.emitSessionStatus(sessionId, 'running');
+      return;
+    }
+    this.stopSubagentCompletionWatcher(sessionId);
+    pending.finish();
+  }
+
+  private completeSessionWhenSubagentsIdle(
+    sessionId: string,
+    runId: string,
+    finish: () => void,
+  ): void {
+    if (!this.hasRunningSubagents(sessionId)) {
+      this.stopSubagentCompletionWatcher(sessionId);
+      finish();
+      return;
+    }
+
+    this.store.updateSession(sessionId, { status: 'running' });
+    this.emitSessionStatus(sessionId, 'running');
+    if (this.pendingSubagentCompletions.has(sessionId)) return;
+
+    const timeout = setTimeout(() => {
+      this.stopSubagentCompletionWatcher(sessionId);
+      finish();
+    }, OpenClawRuntimeAdapter.SUBAGENT_COMPLETION_MAX_WAIT_MS);
+    this.pendingSubagentCompletions.set(sessionId, { runId, finish, timeout });
+    console.debug(
+      '[OpenClawRuntime] delayed parent completion while subagents are running.',
+      `sessionId=${sessionId}`,
+      `runId=${runId}`,
+    );
+  }
+
   /**
    * Fallback completion for turns that never received a `chat state=final`
    * event. Called from handleAgentLifecycleEvent after a delay to give the normal
@@ -4089,10 +4188,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       turn.allowRecentlyClosedRunRetryReopenOnCleanup = true;
     }
 
-    this.store.updateSession(sessionId, { status: 'completed' });
-    this.emit('complete', sessionId, turn.runId);
-    this.cleanupSessionTurn(sessionId);
-    this.resolveTurn(sessionId);
+    this.completeSessionWhenSubagentsIdle(sessionId, turn.runId, () => {
+      this.store.updateSession(sessionId, { status: 'completed' });
+      this.emit('complete', sessionId, turn.runId);
+      this.cleanupSessionTurn(sessionId);
+      this.resolveTurn(sessionId);
+    });
   }
 
   private handleAgentToolEvent(sessionId: string, turn: ActiveTurn, data: unknown): void {
@@ -4834,10 +4935,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         turn.assistantMessageId = null;
       }
       this.finalizeThinkingMessage(sessionId, turn);
-      this.store.updateSession(sessionId, { status: 'completed' });
-      this.emit('complete', sessionId, payload.runId ?? turn.runId);
-      this.cleanupSessionTurn(sessionId);
-      this.resolveTurn(sessionId);
+      const runId = payload.runId ?? turn.runId;
+      this.completeSessionWhenSubagentsIdle(sessionId, runId, () => {
+        this.store.updateSession(sessionId, { status: 'completed' });
+        this.emit('complete', sessionId, runId);
+        this.cleanupSessionTurn(sessionId);
+        this.resolveTurn(sessionId);
+      });
       return;
     }
     if (isSilentReplyText(finalText) || isSilentReplyPrefixText(finalText)) {
@@ -4863,10 +4967,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         return;
       }
       await this.reconcileWithHistory(sessionId, turn.sessionKey);
-      this.store.updateSession(sessionId, { status: 'completed' });
-      this.emit('complete', sessionId, payload.runId ?? turn.runId);
-      this.cleanupSessionTurn(sessionId);
-      this.resolveTurn(sessionId);
+      const runId = payload.runId ?? turn.runId;
+      this.completeSessionWhenSubagentsIdle(sessionId, runId, () => {
+        this.store.updateSession(sessionId, { status: 'completed' });
+        this.emit('complete', sessionId, runId);
+        this.cleanupSessionTurn(sessionId);
+        this.resolveTurn(sessionId);
+      });
       return;
     }
     turn.currentText = finalText;
@@ -5215,10 +5322,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     turn.finalCompletionFlushOnLifecycleEnd = undefined;
     turn.finalCompletionAllowLateContinuation = undefined;
     this.clearContextMaintenanceState(sessionId, turn, 'deferred completion finished');
-    this.store.updateSession(sessionId, { status: 'completed' });
-    this.emit('complete', sessionId, runId);
-    this.cleanupSessionTurn(sessionId);
-    this.resolveTurn(sessionId);
+    this.completeSessionWhenSubagentsIdle(sessionId, runId, () => {
+      this.store.updateSession(sessionId, { status: 'completed' });
+      this.emit('complete', sessionId, runId);
+      this.cleanupSessionTurn(sessionId);
+      this.resolveTurn(sessionId);
+    });
   }
 
   private handleChatAborted(sessionId: string, turn: ActiveTurn): void {
@@ -6377,6 +6486,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   }
 
   private cleanupSessionTurn(sessionId: string): void {
+    this.stopSubagentCompletionWatcher(sessionId);
     const turn = this.activeTurns.get(sessionId);
     if (turn) {
       // Clear client-side timeout watchdog

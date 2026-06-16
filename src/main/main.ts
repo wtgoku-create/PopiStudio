@@ -1711,6 +1711,30 @@ const bindCoworkRuntimeForwarder = (): void => {
     });
   });
 
+  runtime.on('subagentRunsChanged', (parentSessionId: string, runs: unknown) => {
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach((win) => {
+      if (win.isDestroyed()) return;
+      try {
+        win.webContents.send('cowork:subagent:runsChanged', { parentSessionId, runs });
+      } catch (error) {
+        console.error('[CoworkRuntime] failed to forward subagent runs:', error);
+      }
+    });
+  });
+
+  runtime.on('subagentMessagesChanged', (parentSessionId: string, runId: string, messages: unknown) => {
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach((win) => {
+      if (win.isDestroyed()) return;
+      try {
+        win.webContents.send('cowork:subagent:messagesChanged', { parentSessionId, runId, messages });
+      } catch (error) {
+        console.error('[CoworkRuntime] failed to forward subagent messages:', error);
+      }
+    });
+  });
+
   runtime.on('permissionRequest', (sessionId: string, request: unknown) => {
     if (runtime.getSessionConfirmationMode(sessionId) === 'text') {
       return;

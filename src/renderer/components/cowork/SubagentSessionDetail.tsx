@@ -49,30 +49,29 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
     }
   }, [subagent]);
 
-  const fetchStatus = useCallback(async () => {
-    if (!subagent.parentSessionId) return;
-    try {
-      const result = await window.electron?.cowork?.listSubagentSessions(subagent.parentSessionId);
-      if (result?.success && result.runs) {
-        const run = result.runs.find((r) => r.id === subagent.id);
-        if (run?.status) setStatus(run.status);
-      }
-    } catch { /* ignore */ }
-  }, [subagent]);
-
   useEffect(() => {
     void fetchHistory();
-    void fetchStatus();
+  }, [fetchHistory]);
 
-    // Only poll while subagent is still running
-    if (status === 'running') {
-      const timer = setInterval(() => {
-        void fetchHistory();
-        void fetchStatus();
-      }, 5000);
-      return () => clearInterval(timer);
-    }
-  }, [fetchHistory, fetchStatus, status]);
+  useEffect(() => {
+    if (!subagent.parentSessionId) return undefined;
+    const unsubscribe = window.electron?.cowork?.onSubagentRunsChanged?.(({ parentSessionId, runs }) => {
+      if (parentSessionId !== subagent.parentSessionId) return;
+      const run = runs.find((item) => item.id === subagent.id);
+      if (run?.status) setStatus(run.status);
+    });
+    return () => unsubscribe?.();
+  }, [subagent.id, subagent.parentSessionId]);
+
+  useEffect(() => {
+    if (!subagent.parentSessionId) return undefined;
+    const unsubscribe = window.electron?.cowork?.onSubagentMessagesChanged?.((data) => {
+      if (data.parentSessionId !== subagent.parentSessionId || data.runId !== subagent.id) return;
+      setMessages(data.messages);
+      setLoading(false);
+    });
+    return () => unsubscribe?.();
+  }, [subagent.id, subagent.parentSessionId]);
 
   // Use agent name as title to avoid duplicating the task content shown in conversation
   const displayTitle = subagent.agentId ?? subagent.label ?? 'Subagent';
