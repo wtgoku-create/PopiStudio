@@ -4,8 +4,8 @@ import { useSelector } from 'react-redux';
 
 import { i18nService } from '../../services/i18n';
 import type { RootState } from '../../store';
-import type { CoworkMessage, CoworkSessionStatus, SubagentSessionStatus, SubagentSessionSummary } from '../../types/cowork';
-import { CoworkSessionStatusValue, SubagentSessionStatusValue } from '../../types/cowork';
+import type { CoworkMessage, SubagentSessionStatus, SubagentSessionSummary } from '../../types/cowork';
+import { SubagentSessionStatusValue } from '../../types/cowork';
 import { getAgentDisplayName } from '../../utils/agentDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import ConversationTurnsView from './ConversationTurnsView';
@@ -14,11 +14,8 @@ import {
   COWORK_DETAIL_GUTTER_CLASS,
 } from './messageDisplayUtils';
 
-const SUBAGENT_POLL_INTERVAL_MS = 5000;
-
 interface SubagentRunsInlinePanelProps {
   parentSessionId: string;
-  parentSessionStatus?: CoworkSessionStatus;
   runs?: SubagentSessionSummary[];
   compact?: boolean;
 }
@@ -47,7 +44,6 @@ const getStatusClassName = (status: SubagentSessionStatus): string => {
 
 const SubagentRunsInlinePanel: React.FC<SubagentRunsInlinePanelProps> = ({
   parentSessionId,
-  parentSessionStatus,
   runs: providedRuns,
   compact = false,
 }) => {
@@ -61,8 +57,6 @@ const SubagentRunsInlinePanel: React.FC<SubagentRunsInlinePanelProps> = ({
   const usesProvidedRuns = providedRuns !== undefined;
   const activeRuns = providedRuns ?? runs;
   const activeRunIdsKey = useMemo(() => activeRuns.map((run) => run.id).sort().join('|'), [activeRuns]);
-  const hasRunningRun = activeRuns.some((run) => run.status === SubagentSessionStatusValue.Running);
-  const shouldPollRuns = parentSessionStatus === CoworkSessionStatusValue.Running || hasRunningRun;
 
   const fetchRuns = useCallback(async () => {
     try {
@@ -140,13 +134,34 @@ const SubagentRunsInlinePanel: React.FC<SubagentRunsInlinePanelProps> = ({
   }, [activeRunIdsKey]);
 
   useEffect(() => {
-    if (usesProvidedRuns) return;
-    if (!shouldPollRuns) return;
-    const timer = window.setInterval(() => {
-      void fetchRuns();
-    }, SUBAGENT_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [fetchRuns, shouldPollRuns, usesProvidedRuns]);
+    const unsubscribe = window.electron?.cowork?.onSubagentRunsChanged?.(({ parentSessionId: changedParentSessionId, runs: nextRuns }) => {
+      if (usesProvidedRuns) return;
+      if (changedParentSessionId !== parentSessionId) return;
+      setRuns(nextRuns.map((run) => ({
+        ...run,
+        parentSessionId,
+      })));
+      setLoading(false);
+    });
+    return () => unsubscribe?.();
+  }, [parentSessionId, usesProvidedRuns]);
+
+  useEffect(() => {
+    const unsubscribe = window.electron?.cowork?.onSubagentMessagesChanged?.((data) => {
+      if (data.parentSessionId !== parentSessionId) return;
+      setMessagesByRunId((current) => ({
+        ...current,
+        [data.runId]: data.messages,
+      }));
+      setLoadingRunIds((current) => {
+        if (!current.has(data.runId)) return current;
+        const next = new Set(current);
+        next.delete(data.runId);
+        return next;
+      });
+    });
+    return () => unsubscribe?.();
+  }, [parentSessionId]);
 
   useEffect(() => {
     if (expandedRunIds.size === 0) return;
@@ -157,20 +172,6 @@ const SubagentRunsInlinePanel: React.FC<SubagentRunsInlinePanelProps> = ({
       }
     });
   }, [activeRuns, expandedRunIds, fetchHistory, messagesByRunId]);
-
-  useEffect(() => {
-    const expandedRunningRuns = activeRuns.filter(
-      (run) => expandedRunIds.has(run.id) && run.status === SubagentSessionStatusValue.Running
-    );
-    if (expandedRunningRuns.length === 0) return;
-
-    const timer = window.setInterval(() => {
-      expandedRunningRuns.forEach((run) => {
-        void fetchHistory(run);
-      });
-    }, SUBAGENT_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [activeRuns, expandedRunIds, fetchHistory]);
 
   const visibleRuns = useMemo(() => (
     activeRuns.slice().sort((a, b) => a.createdAt - b.createdAt)

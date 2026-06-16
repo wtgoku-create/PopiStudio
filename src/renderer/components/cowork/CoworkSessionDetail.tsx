@@ -39,7 +39,7 @@ import { setActiveSkillIds } from '../../store/slices/skillSlice';
 import type { Artifact } from '../../types/artifact';
 import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata, SubagentSessionSummary } from '../../types/cowork';
-import { CoworkSessionStatusValue, SubagentSessionStatusValue } from '../../types/cowork';
+import { CoworkSessionStatusValue } from '../../types/cowork';
 import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload } from '../artifacts';
@@ -80,7 +80,6 @@ const ARTIFACT_PANEL_TRANSITION_MS = 200;
 const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
 const COWORK_DETAIL_MIN_WIDTH = 480;
 const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
-const SUBAGENT_RUN_POLL_INTERVAL_MS = 5000;
 const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
 
 const sanitizeExportFileName = (value: string): string => {
@@ -638,15 +637,15 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   }, [fetchSubagentRuns]);
 
   useEffect(() => {
-    if (!sessionId) return undefined;
-    const hasRunningSubagent = subagentRuns.some((run) => run.status === SubagentSessionStatusValue.Running);
-    if (currentSession?.status !== CoworkSessionStatusValue.Running && !hasRunningSubagent) return undefined;
-
-    const timer = window.setInterval(() => {
-      void fetchSubagentRuns();
-    }, SUBAGENT_RUN_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [currentSession?.status, fetchSubagentRuns, sessionId, subagentRuns]);
+    const unsubscribe = window.electron?.cowork?.onSubagentRunsChanged?.(({ parentSessionId, runs }) => {
+      if (!sessionId || parentSessionId !== sessionId) return;
+      setSubagentRuns(runs.map((run) => ({
+        ...run,
+        parentSessionId: run.parentSessionId ?? parentSessionId,
+      })));
+    });
+    return () => unsubscribe?.();
+  }, [sessionId]);
 
   useEffect(() => {
     if (!showCompactConfirm) return undefined;
@@ -2106,7 +2105,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                   return (
                     <SubagentRunsInlinePanel
                       parentSessionId={currentSession.id}
-                      parentSessionStatus={currentSession.status}
                       runs={runsForToolUse}
                       compact
                     />

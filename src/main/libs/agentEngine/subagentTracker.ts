@@ -62,6 +62,15 @@ export type GatewayClientLike = {
   ) => Promise<T>;
 };
 
+export type SubagentTrackerCallbacks = {
+  onRunsChanged?: (parentSessionId: string) => void;
+  onMessagesChanged?: (
+    parentSessionId: string,
+    runId: string,
+    messages: SubagentCoworkMessage[],
+  ) => void;
+};
+
 /**
  * Encapsulates all subagent (child session) tracking logic:
  * state maps, lifecycle detection, history fetching, and persistence.
@@ -80,6 +89,10 @@ export class SubagentTracker {
   private readonly subagentStatus = new Map<string, 'running' | 'done' | 'error'>();
   /** Reverse map: agentId → Set of toolCallIds (for lookups from sessions_resume args) */
   private readonly agentIdToToolCallIds = new Map<string, Set<string>>();
+  /** Maps toolCallId → parent cowork session id */
+  private readonly subagentParentSessionIds = new Map<string, string>();
+  /** Tracks the live assistant message currently being streamed for each run */
+  private readonly liveAssistantMessageIds = new Map<string, string>();
   /** Pending spawn info stored at tool start, used for DB insertion when result arrives */
   private readonly pendingSpawnInfo = new Map<string, {
     agentId: string;
@@ -93,6 +106,7 @@ export class SubagentTracker {
     private readonly store: SubagentRunStore,
     private readonly messageStore: SubagentMessageStore | null,
     private readonly getGatewayClient: () => GatewayClientLike | null,
+    private readonly callbacks: SubagentTrackerCallbacks = {},
   ) {}
 
   // ── Event hooks (called by adapter at key points) ──────────────────────
@@ -136,6 +150,8 @@ export class SubagentTracker {
         parentSessionId: sessionId,
         createdAt: Date.now(),
       });
+      this.subagentParentSessionIds.set(toolCallId, sessionId);
+      this.emitRunsChanged(sessionId);
     }
   }
 
@@ -179,6 +195,7 @@ export class SubagentTracker {
         this.store.updateSubagentRunStatus(tcId, 'done', Date.now());
         // Persist cached messages now that completion is confirmed
         this.tryPersistCachedMessages(tcId);
+        this.emitRunsChangedForRun(tcId);
       }
     }
   }
@@ -200,6 +217,7 @@ export class SubagentTracker {
           console.log('[SubagentTracker] marked subagent as done via announce:', toolCallId);
           // Persist cached messages now that completion is confirmed
           this.tryPersistCachedMessages(toolCallId);
+          this.emitRunsChangedForRun(toolCallId);
         }
         return true;
       }
@@ -222,6 +240,8 @@ export class SubagentTracker {
     this.subagentToolCallIdToAgentId.clear();
     this.agentIdToToolCallIds.clear();
     this.pendingSpawnInfo.clear();
+    this.subagentParentSessionIds.clear();
+    this.liveAssistantMessageIds.clear();
   }
 
   // ── Public query API ───────────────────────────────────────────────────
@@ -301,6 +321,7 @@ export class SubagentTracker {
     if (sessionKey && !this.subagentSessionKeys.has(runId)) {
       this.subagentSessionKeys.set(runId, sessionKey);
     }
+    this.subagentParentSessionIds.set(runId, parentSessionId);
 
     // 3b. Try reading from persistent store if not in memory
     if (!key) {
@@ -334,6 +355,73 @@ export class SubagentTracker {
     return this.fetchSubagentHistory(key, runId);
   }
 
+  handleChatEvent(payload: {
+    state?: string;
+    sessionKey?: string;
+    message?: unknown;
+    errorMessage?: string;
+  }): boolean {
+    if (!isRecord(payload)) return false;
+    const sessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey.trim() : '';
+    if (!sessionKey) return false;
+    const runId = this.findRunIdBySessionKey(sessionKey);
+    if (!runId) return false;
+
+    if (payload.state === 'delta' || payload.state === 'final') {
+      const text = extractGatewayMessageText(payload.message).trim();
+      if (text && !shouldSuppressHeartbeatText('assistant', text)) {
+        this.upsertLiveAssistantMessage(runId, text, payload.state === 'final');
+      }
+      if (payload.state === 'final') {
+        this.liveAssistantMessageIds.delete(runId);
+      }
+      return true;
+    }
+
+    if (payload.state === 'error') {
+      this.subagentStatus.set(runId, 'error');
+      this.store.updateSubagentRunStatus(runId, 'error', Date.now());
+      this.liveAssistantMessageIds.delete(runId);
+      const message = payload.errorMessage?.trim();
+      if (message) {
+        this.appendMessage(runId, {
+          id: crypto.randomUUID(),
+          type: 'system',
+          content: message,
+          timestamp: Date.now(),
+          metadata: { isError: true },
+        });
+      }
+      this.emitRunsChangedForRun(runId);
+      return true;
+    }
+
+    if (payload.state === 'aborted') {
+      this.liveAssistantMessageIds.delete(runId);
+      return true;
+    }
+
+    return true;
+  }
+
+  handleAgentEvent(payload: {
+    sessionKey?: string;
+    stream?: string;
+    data?: unknown;
+  }): boolean {
+    if (!isRecord(payload)) return false;
+    const sessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey.trim() : '';
+    if (!sessionKey) return false;
+    const runId = this.findRunIdBySessionKey(sessionKey);
+    if (!runId) return false;
+
+    if (payload.stream === 'tool' && isRecord(payload.data)) {
+      this.handleSubagentToolEvent(runId, payload.data);
+    }
+
+    return true;
+  }
+
   // ── Private helpers ────────────────────────────────────────────────────
 
   /**
@@ -344,6 +432,7 @@ export class SubagentTracker {
     const childSessionKey = typeof parsed?.childSessionKey === 'string' ? parsed.childSessionKey : '';
     const isError = parsed?.status === 'error';
     const status = isError ? 'error' : 'running';
+    const previousSessionKey = this.subagentSessionKeys.get(toolCallId);
 
     // Store session key in memory
     if (childSessionKey) {
@@ -353,9 +442,10 @@ export class SubagentTracker {
     // If already committed (e.g., onSpawnResult fired then backfill also fires), just update
     if (this.subagentStatus.has(toolCallId)) {
       // Update session key in DB if newly discovered
-      if (childSessionKey && !this.subagentSessionKeys.has(toolCallId)) {
+      if (childSessionKey && previousSessionKey !== childSessionKey) {
         this.store.updateSubagentRunSessionKey(toolCallId, childSessionKey);
       }
+      this.emitRunsChangedForRun(toolCallId);
       return;
     }
 
@@ -373,10 +463,170 @@ export class SubagentTracker {
         status,
         createdAt: pending.createdAt,
       });
+      this.subagentParentSessionIds.set(toolCallId, pending.parentSessionId);
       this.pendingSpawnInfo.delete(toolCallId);
       console.log('[SubagentTracker] committed spawn result:', toolCallId, status,
         isError ? parsed.error : '');
+      this.emitRunsChanged(pending.parentSessionId);
     }
+  }
+
+  private findRunIdBySessionKey(sessionKey: string): string | null {
+    for (const [runId, key] of this.subagentSessionKeys.entries()) {
+      if (key === sessionKey) return runId;
+    }
+    const agentId = this.extractSubagentAgentIdFromSessionKey(sessionKey);
+    if (!agentId) return null;
+    const toolCallIds = this.agentIdToToolCallIds.get(agentId);
+    if (!toolCallIds) return null;
+
+    const candidates = [...toolCallIds].reverse();
+    for (const runId of candidates) {
+      const existingKey = this.subagentSessionKeys.get(runId);
+      if (existingKey && existingKey !== sessionKey) continue;
+      this.bindSessionKeyToRun(runId, sessionKey);
+      return runId;
+    }
+    return null;
+  }
+
+  private extractSubagentAgentIdFromSessionKey(sessionKey: string): string | null {
+    const match = sessionKey.match(/(?:^|:)subagent:([^:]+)/);
+    return match?.[1] || null;
+  }
+
+  private bindSessionKeyToRun(runId: string, sessionKey: string): void {
+    const previousSessionKey = this.subagentSessionKeys.get(runId);
+    if (previousSessionKey === sessionKey) return;
+    this.subagentSessionKeys.set(runId, sessionKey);
+    if (this.subagentStatus.has(runId)) {
+      this.store.updateSubagentRunSessionKey(runId, sessionKey);
+    }
+    this.emitRunsChangedForRun(runId);
+  }
+
+  private handleSubagentToolEvent(runId: string, data: Record<string, unknown>): void {
+    const rawPhase = typeof data.phase === 'string' ? data.phase.trim() : '';
+    const phase = rawPhase === 'end' ? 'result' : rawPhase;
+    if (phase !== 'start' && phase !== 'result') return;
+
+    const toolCallId = typeof data.toolCallId === 'string' ? data.toolCallId.trim() : '';
+    if (!toolCallId) return;
+
+    const toolName = typeof data.name === 'string' && data.name.trim() ? data.name.trim() : 'Tool';
+    const messages = this.subagentMessages.get(runId) ?? [];
+    const existingIndex = messages.findIndex(
+      (message) => message.type === 'tool_use' && message.metadata?.toolUseId === toolCallId,
+    );
+
+    if (phase === 'start' && existingIndex === -1) {
+      this.appendMessage(runId, {
+        id: crypto.randomUUID(),
+        type: 'tool_use',
+        content: '',
+        timestamp: Date.now(),
+        metadata: {
+          toolName,
+          toolInput: isRecord(data.args) ? data.args : {},
+          toolUseId: toolCallId,
+        },
+      });
+      return;
+    }
+
+    if (phase === 'result') {
+      const resultText = this.extractToolText(data.result);
+      if (!resultText.trim()) return;
+      this.appendMessage(runId, {
+        id: crypto.randomUUID(),
+        type: 'tool_result',
+        content: resultText,
+        timestamp: Date.now(),
+        metadata: {
+          toolName,
+          toolResult: resultText,
+          toolUseId: toolCallId,
+          isError: data.isError === true || undefined,
+        },
+      });
+    }
+  }
+
+  private extractToolText(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (value == null) return '';
+    if (isRecord(value)) {
+      const text = extractGatewayMessageText(value).trim();
+      if (text) return text;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  private upsertLiveAssistantMessage(runId: string, text: string, final: boolean): void {
+    const messages = this.subagentMessages.get(runId) ?? [];
+    const liveMessageId = this.liveAssistantMessageIds.get(runId);
+    const liveIndex = liveMessageId
+      ? messages.findIndex((message) => message.id === liveMessageId)
+      : -1;
+
+    if (liveIndex >= 0) {
+      const previous = messages[liveIndex].content;
+      const nextText = text.startsWith(previous) ? text : `${previous}${text}`;
+      const nextMessages = messages.slice();
+      nextMessages[liveIndex] = {
+        ...messages[liveIndex],
+        content: nextText,
+        metadata: final
+          ? { ...messages[liveIndex].metadata, isStreaming: false }
+          : { ...messages[liveIndex].metadata, isStreaming: true },
+      };
+      this.subagentMessages.set(runId, nextMessages);
+      this.emitMessagesChangedForRun(runId);
+      return;
+    }
+
+    const message: SubagentCoworkMessage = {
+      id: crypto.randomUUID(),
+      type: 'assistant',
+      content: text,
+      timestamp: Date.now(),
+      metadata: final ? undefined : { isStreaming: true },
+    };
+    if (!final) {
+      this.liveAssistantMessageIds.set(runId, message.id);
+    }
+    this.appendMessage(runId, message);
+  }
+
+  private appendMessage(runId: string, message: SubagentCoworkMessage): void {
+    const messages = [...(this.subagentMessages.get(runId) ?? []), message];
+    this.subagentMessages.set(runId, messages);
+    this.emitMessagesChangedForRun(runId);
+  }
+
+  private emitRunsChangedForRun(runId: string): void {
+    const parentSessionId = this.subagentParentSessionIds.get(runId);
+    if (parentSessionId) {
+      this.emitRunsChanged(parentSessionId);
+    }
+  }
+
+  private emitRunsChanged(parentSessionId: string): void {
+    this.callbacks.onRunsChanged?.(parentSessionId);
+  }
+
+  private emitMessagesChangedForRun(runId: string): void {
+    const parentSessionId = this.subagentParentSessionIds.get(runId);
+    if (!parentSessionId) return;
+    this.callbacks.onMessagesChanged?.(
+      parentSessionId,
+      runId,
+      this.subagentMessages.get(runId) ?? [],
+    );
   }
 
   private async discoverSubagentSessionKey(runId: string): Promise<string | null> {
@@ -567,6 +817,7 @@ export class SubagentTracker {
 
       // Cache locally
       this.subagentMessages.set(runId, messages);
+      this.emitMessagesChangedForRun(runId);
 
       // Only persist to database if the subagent is confirmed done/error.
       // If still running, the history may be incomplete — persist later when

@@ -26,6 +26,17 @@ export interface PermissionRequest {
   toolUseId?: string | null;
 }
 
+export interface SubagentSessionSummary {
+  id: string;
+  agentId: string | null;
+  task: string | null;
+  label: string | null;
+  sessionKey: string | null;
+  parentSessionId: string;
+  status: 'running' | 'done' | 'error';
+  createdAt: number;
+}
+
 export interface CoworkRuntimeEvents {
   message: (sessionId: string, message: CoworkMessage, beforeMessageId?: string) => void;
   messageUpdate: (sessionId: string, messageId: string, content: string, metadata?: Record<string, unknown>) => void;
@@ -36,6 +47,8 @@ export interface CoworkRuntimeEvents {
   complete: (sessionId: string, claudeSessionId: string | null) => void;
   error: (sessionId: string, error: string) => void;
   sessionStopped: (sessionId: string) => void;
+  subagentRunsChanged: (parentSessionId: string, runs: SubagentSessionSummary[]) => void;
+  subagentMessagesChanged: (parentSessionId: string, runId: string, messages: CoworkMessage[]) => void;
 }
 
 export type CoworkContextUsage = {
