@@ -57,17 +57,6 @@ const AgentSubagentSelector: React.FC<AgentSubagentSelectorProps> = ({
     ]);
   };
 
-  const updateSubagent = (
-    targetAgentId: string,
-    updates: Partial<Pick<AgentSubagentConfig, 'label' | 'description' | 'enabled'>>,
-  ) => {
-    onChange(selectedSubagents.map((subagent) => (
-      subagent.agentId === targetAgentId
-        ? { ...subagent, ...updates }
-        : subagent
-    )));
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-4 flex items-center gap-2 text-xs leading-5 text-secondary/60">
@@ -153,24 +142,6 @@ const AgentSubagentSelector: React.FC<AgentSubagentSelectorProps> = ({
                     </div>
                   </button>
 
-                  {selected && (
-                    <div className="border-t border-border-subtle px-3.5 pb-3 pt-2">
-                      <input
-                        type="text"
-                        value={selected.label}
-                        onChange={(e) => updateSubagent(agent.id, { label: e.target.value })}
-                        placeholder={i18nService.t('agentSubagentLabelPlaceholder')}
-                        className="mb-2 h-8 w-full rounded-md border border-border-subtle bg-surface px-2.5 text-xs text-foreground placeholder:text-secondary/45 focus:border-border focus:outline-none"
-                      />
-                      <textarea
-                        value={selected.description}
-                        onChange={(e) => updateSubagent(agent.id, { description: e.target.value })}
-                        placeholder={i18nService.t('agentSubagentDescriptionPlaceholder')}
-                        rows={2}
-                        className="w-full resize-none rounded-md border border-border-subtle bg-surface px-2.5 py-2 text-xs leading-5 text-foreground placeholder:text-secondary/45 focus:border-border focus:outline-none"
-                      />
-                    </div>
-                  )}
                 </div>
               );
             })}
