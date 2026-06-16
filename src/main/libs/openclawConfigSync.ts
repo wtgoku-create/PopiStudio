@@ -2870,12 +2870,23 @@ export class OpenClawConfigSync {
     if (enabledSubagents.length === 0) return '';
 
     const lines = enabledSubagents.map((subagent) => (
-      `- ${subagent.name} (${subagent.id})${subagent.description ? `: ${subagent.description}` : ''}`
+      `- agentId: ${subagent.id}\n  name: ${subagent.name}${subagent.description ? `\n  useWhen: ${subagent.description}` : ''}`
     ));
 
     return [
       '## Available Subagents',
-      'You may delegate suitable work to these subagents by spawning a child session with the listed agent id.',
+      'You have specialized subagents available. Treat this list as a routing policy, not just background information.',
+      '',
+      'Delegation rules:',
+      '- Before doing substantial work yourself, check whether the user request matches any subagent below.',
+      '- If a request clearly matches a subagent, delegate that part of the work with the sessions_spawn tool using the listed agentId.',
+      '- Prefer delegation for research, analysis, drafting, review, transformation, implementation, verification, or any task whose purpose is described by a subagent.',
+      '- Keep only coordination, final synthesis, and user-facing decisions in the parent session unless no subagent matches.',
+      '- When multiple subagents match, spawn the most specific one first. Spawn more than one only when the work is naturally separable.',
+      '- Do not ask the user for confirmation just to use an available subagent. Use the subagent when it improves fit, quality, or parallelism.',
+      '- After spawning, continue coordinating in the parent session and incorporate the subagent result into the final answer.',
+      '',
+      'Subagents:',
       ...lines,
     ].join('\n');
   }
