@@ -45,7 +45,6 @@ import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload } from '../artifacts';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
-import WindowTitleBar from '../window/WindowTitleBar';
 import AssistantTurnBlock, { ContextCompactionDivider } from './AssistantTurnBlock';
 import { type CoworkOpenShareOptionsEventDetail,CoworkUiEvent } from './constants';
 import ContextUsageIndicator from './ContextUsageIndicator';
@@ -2283,7 +2282,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             <ArtifactPanelIcon className="h-4 w-4" open={isPanelOpen} />
           </button>
 
-          <WindowTitleBar inline className="ml-1" />
         </div>
       </div>
 

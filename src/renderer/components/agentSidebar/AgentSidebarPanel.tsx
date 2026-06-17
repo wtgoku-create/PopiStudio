@@ -238,13 +238,13 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
 
   return (
     <aside
-      className={`relative shrink-0 overflow-hidden border-l border-border-subtle bg-background dark:border-white/[0.04] ${
+      className={`relative shrink-0 ${
         isResizing ? '' : 'sidebar-transition'
       }`}
       style={{ width: isCollapsed ? 0 : panelWidth }}
     >
       <div
-        className={`flex h-full flex-col transition-opacity ease-out ${
+        className={`flex h-full flex-col overflow-hidden rounded-xl bg-background transition-opacity ease-out ${
           isCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100'
         }`}
         style={{
@@ -333,9 +333,11 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
       </div>
       {!isCollapsed && (
         <div
-          className="non-draggable absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+          className="non-draggable group absolute right-[-6px] top-0 z-20 h-full w-[6px] cursor-col-resize"
           onMouseDown={handleResizeStart}
-        />
+        >
+          <div className="mx-auto h-full w-px bg-border/50 transition-colors group-hover:bg-primary/60 group-active:bg-primary" />
+        </div>
       )}
       <CoworkSearchModal
         isOpen={isSearchOpen}

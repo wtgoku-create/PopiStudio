@@ -71,13 +71,12 @@ const WindowTitleBar: React.FC<WindowTitleBarProps> = ({
     }
   };
 
-  if (window.electron.platform !== 'win32') {
+  if (window.electron.platform !== 'win32' || inline) {
     return null;
   }
 
-  const containerClassName = inline
-    ? `window-controls-floating non-draggable flex h-8 items-center gap-0.5 transition-colors ${!state.isFocused ? 'opacity-70' : 'opacity-100'} ${className}`.trim()
-    : `window-controls-floating non-draggable absolute top-0 right-0 z-[55] flex h-full items-center gap-0.5 rounded-bl-xl pl-1 pb-1 pt-0.5 transition-colors ${
+  const containerClassName =
+    `window-controls-floating non-draggable flex h-8 items-center gap-0.5 rounded-lg transition-colors ${
       !state.isFocused ? 'opacity-70' : 'opacity-100'
     } ${
       isOverlayActive

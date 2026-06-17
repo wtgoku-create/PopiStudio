@@ -3,7 +3,6 @@ import { i18nService } from '../../services/i18n';
 import SkillsManager from './SkillsManager';
 // import SidebarToggleIcon from '../icons/SidebarToggleIcon';
 // import ComposeIcon from '../icons/ComposeIcon';
-import WindowTitleBar from '../window/WindowTitleBar';
 
 interface SkillsViewProps {
   isSidebarCollapsed?: boolean;
@@ -42,7 +41,6 @@ const SkillsView: React.FC<SkillsViewProps> = ({ onCreateSkillByChat, readOnly }
             {i18nService.t('skills')}
           </h1>
         </div>
-        <WindowTitleBar inline />
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden [scrollbar-gutter:stable]">

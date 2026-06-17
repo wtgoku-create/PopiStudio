@@ -6,7 +6,6 @@ import { i18nService } from '../../services/i18n';
 import { scheduledTaskService } from '../../services/scheduledTask';
 import { RootState } from '../../store';
 import { selectTask, setViewMode } from '../../store/slices/scheduledTaskSlice';
-import WindowTitleBar from '../window/WindowTitleBar';
 import AllRunsHistory from './AllRunsHistory';
 import DeleteConfirmModal from './DeleteConfirmModal';
 import TaskDetail from './TaskDetail';
@@ -146,7 +145,6 @@ const ScheduledTasksView: React.FC<ScheduledTasksViewProps> = () => {
             {i18nService.t('scheduledTasksTitle')}
           </h1>
         </div>
-        <WindowTitleBar inline />
       </div>
 
       {/* Tabs + New Task button */}

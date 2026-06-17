@@ -1,6 +1,6 @@
 import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
-import React, { useCallback, useEffect, useMemo,useRef, useState } from 'react';
-import { useDispatch,useSelector } from 'react-redux';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 
 import {
   APP_UPDATE_HEARTBEAT_INTERVAL_MS,
@@ -54,7 +54,9 @@ const INIT_STEP_TIMEOUT_MS_DEFAULT = 16_000;
 const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState<SettingsOpenOptions>({});
-  const [mainView, setMainView] = useState<'cowork' | 'skills' | 'scheduledTasks' | 'mcp' | 'folder'>('cowork');
+  const [mainView, setMainView] = useState<
+    'cowork' | 'skills' | 'scheduledTasks' | 'mcp' | 'folder'
+  >('cowork');
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -71,7 +73,9 @@ const App: React.FC = () => {
     errorMessage: null,
   });
   const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [dismissedUpdateNotificationKey, setDismissedUpdateNotificationKey] = useState<string | null>(null);
+  const [dismissedUpdateNotificationKey, setDismissedUpdateNotificationKey] = useState<
+    string | null
+  >(null);
   const [privacyAgreed, setPrivacyAgreed] = useState<boolean | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [enterpriseConfig, setEnterpriseConfig] = useState<{
@@ -97,18 +101,18 @@ const App: React.FC = () => {
         }, timeoutMs);
 
         promise.then(
-          (value) => {
+          value => {
             window.clearTimeout(timer);
             resolve(value);
           },
-          (error) => {
+          error => {
             window.clearTimeout(timer);
             reject(error);
-          }
+          },
         );
       });
     },
-    []
+    [],
   );
 
   // 初始化应用
@@ -124,7 +128,11 @@ const App: React.FC = () => {
         const elapsed = Math.round(performance.now() - t0);
         const msg = `initializeApp: ${label} (+${elapsed}ms)`;
         console.info(`[App] ${msg}`);
-        try { window.electron?.log?.fromRenderer?.('info', 'App', msg); } catch { /* preload may not expose this yet */ }
+        try {
+          window.electron?.log?.fromRenderer?.('info', 'App', msg);
+        } catch {
+          /* preload may not expose this yet */
+        }
       };
 
       try {
@@ -163,10 +171,13 @@ const App: React.FC = () => {
 
         const allModels = store.getState().model.availableModels;
         if (allModels.length > 0) {
-          const preferredModel = allModels.find(
-            model => model.id === config.model.defaultModel
-              && (!config.model.defaultModelProvider || model.providerKey === config.model.defaultModelProvider)
-          ) ?? allModels[0];
+          const preferredModel =
+            allModels.find(
+              model =>
+                model.id === config.model.defaultModel &&
+                (!config.model.defaultModelProvider ||
+                  model.providerKey === config.model.defaultModelProvider),
+            ) ?? allModels[0];
           dispatch(setDefaultSelectedModel(preferredModel));
         }
         mark('model resolution done');
@@ -178,16 +189,21 @@ const App: React.FC = () => {
         setIsInitialized(true);
         mark('shell ready');
 
-        void waitWithTimeout(scheduledTaskService.init(), 5000, 'scheduledTaskService.init').catch((error) => {
-          console.error('[App] initializeApp: scheduledTaskService.init failed:', error);
-        });
-
+        void waitWithTimeout(scheduledTaskService.init(), 5000, 'scheduledTaskService.init').catch(
+          error => {
+            console.error('[App] initializeApp: scheduledTaskService.init failed:', error);
+          },
+        );
       } catch (error) {
         const elapsed = Math.round(performance.now() - t0);
         const msg = error instanceof Error ? error.message : String(error);
         const detail = `initializeApp FAILED after ${elapsed}ms: ${msg}`;
         console.error(`[App] ${detail}`);
-        try { window.electron?.log?.fromRenderer?.('error', 'App', detail); } catch { /* best-effort */ }
+        try {
+          window.electron?.log?.fromRenderer?.('error', 'App', detail);
+        } catch {
+          /* best-effort */
+        }
         setInitError(i18nService.t('initializationError'));
         setIsInitialized(true);
       }
@@ -198,7 +214,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const unsubscribe = i18nService.subscribe(() => {
-      forceLanguageRefresh((prev) => prev + 1);
+      forceLanguageRefresh(prev => prev + 1);
     });
     return () => {
       unsubscribe();
@@ -252,8 +268,8 @@ const App: React.FC = () => {
     if (!isInitialized || !defaultSelectedModel?.id) return;
     const config = configService.getConfig();
     if (
-      config.model.defaultModel === defaultSelectedModel.id
-      && (config.model.defaultModelProvider ?? '') === (defaultSelectedModel.providerKey ?? '')
+      config.model.defaultModel === defaultSelectedModel.id &&
+      (config.model.defaultModelProvider ?? '') === (defaultSelectedModel.providerKey ?? '')
     ) {
       return;
     }
@@ -291,7 +307,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleToggleSidebar = useCallback(() => {
-    setIsAgentPanelCollapsed((prev) => !prev);
+    setIsAgentPanelCollapsed(prev => !prev);
   }, []);
 
   const handleCollapseAgentPanel = useCallback(() => {
@@ -305,9 +321,11 @@ const App: React.FC = () => {
     dispatch(clearSelection());
     setMainView('cowork');
     window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('cowork:focus-input', {
-        detail: { clear: shouldClearInput },
-      }));
+      window.dispatchEvent(
+        new CustomEvent('cowork:focus-input', {
+          detail: { clear: shouldClearInput },
+        }),
+      );
     }, 0);
   }, [dispatch, mainView, currentSessionId]);
 
@@ -346,7 +364,7 @@ const App: React.FC = () => {
 
     void loadInitialUpdateState();
 
-    const unsubscribe = window.electron.appUpdate.onStateChanged((state) => {
+    const unsubscribe = window.electron.appUpdate.onStateChanged(state => {
       const previousStatus = previousUpdateStatusRef.current;
       previousUpdateStatusRef.current = state.status;
       setAppUpdateState(state);
@@ -354,7 +372,7 @@ const App: React.FC = () => {
       if (state.status === AppUpdateStatus.Ready && previousStatus !== AppUpdateStatus.Ready) {
         if (shouldInstallReadyUpdateRef.current && state.readyFilePath) {
           shouldInstallReadyUpdateRef.current = false;
-          void window.electron.appUpdate.installReady().then((installResult) => {
+          void window.electron.appUpdate.installReady().then(installResult => {
             if (!installResult.success) {
               showToast(installResult.error || i18nService.t('updateInstallFailed'));
             }
@@ -427,7 +445,10 @@ const App: React.FC = () => {
       return;
     }
 
-    if (appUpdateState.status === AppUpdateStatus.Error || appUpdateState.status === AppUpdateStatus.Available) {
+    if (
+      appUpdateState.status === AppUpdateStatus.Error ||
+      appUpdateState.status === AppUpdateStatus.Available
+    ) {
       const isManualUrl = updateInfo.url.includes('#') || updateInfo.url.endsWith('/download-list');
       if (!isManualUrl) {
         shouldInstallReadyUpdateRef.current = appUpdateState.status === AppUpdateStatus.Available;
@@ -489,10 +510,13 @@ const App: React.FC = () => {
     setShowWelcome(false);
     setShowLoginDialog(true);
   }, []);
-  const handlePermissionResponse = useCallback(async (result: CoworkPermissionResult) => {
-    if (!pendingPermission) return;
-    await coworkService.respondToPermission(pendingPermission.requestId, result);
-  }, [pendingPermission]);
+  const handlePermissionResponse = useCallback(
+    async (result: CoworkPermissionResult) => {
+      if (!pendingPermission) return;
+      await coworkService.respondToPermission(pendingPermission.requestId, result);
+    },
+    [pendingPermission],
+  );
 
   const handleCloseSettings = () => {
     setShowSettings(false);
@@ -501,7 +525,6 @@ const App: React.FC = () => {
       apiKey: config.api.key,
       baseUrl: config.api.baseUrl,
     });
-
   };
 
   const isShortcutInputActive = () => {
@@ -608,7 +631,9 @@ const App: React.FC = () => {
       const now = Date.now();
       if (lastCheckTime > 0 && now - lastCheckTime < APP_UPDATE_POLL_INTERVAL_MS) return;
       lastCheckTime = now;
-      console.log(`[App] auto update check triggered, reason=${reason}, at=${new Date(now).toISOString()}`);
+      console.log(
+        `[App] auto update check triggered, reason=${reason}, at=${new Date(now).toISOString()}`,
+      );
       await runUpdateCheck();
     };
 
@@ -657,10 +682,7 @@ const App: React.FC = () => {
 
     // 其他情况使用原有的权限模态框
     return (
-      <CoworkPermissionModal
-        permission={pendingPermission}
-        onRespond={handlePermissionResponse}
-      />
+      <CoworkPermissionModal permission={pendingPermission} onRespond={handlePermissionResponse} />
     );
   }, [pendingPermission, handlePermissionResponse]);
 
@@ -671,82 +693,118 @@ const App: React.FC = () => {
     appUpdateState.status !== AppUpdateStatus.Idle &&
     appUpdateState.status !== AppUpdateStatus.Checking &&
     appUpdateState.status !== AppUpdateStatus.Installing;
-  const updateNotification = shouldShowUpdateNotification && updateInfo ? (() => {
-    const isDownloading = appUpdateState.status === AppUpdateStatus.Downloading;
-    const isReady = appUpdateState.status === AppUpdateStatus.Ready;
-    const isError = appUpdateState.status === AppUpdateStatus.Error;
-    const title = isError
-      ? (appUpdateState.readyFilePath ? i18nService.t('updateInstallFailed') : i18nService.t('updateDownloadFailed'))
-      : isReady
-        ? i18nService.t('updateReadyTitle')
-        : isDownloading
-          ? i18nService.t('updateDownloadingBackground')
-          : i18nService.t('updateAvailableTitle');
-    const message = isError
-      ? appUpdateState.errorMessage
-      : isDownloading
-        ? `v${updateInfo.latestVersion}`
-        : `${i18nService.t('updateAvailableMessage')} v${updateInfo.latestVersion}`;
-    const tone = isError ? 'danger' : isReady ? 'success' : 'info';
-    const progressPercent = isDownloading && appUpdateState.progress?.percent != null
-      ? Math.round(appUpdateState.progress.percent * 100)
-      : null;
-    const icon = isError ? (
-      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.8" />
-        <path d="M10 5.8v5.1" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-        <circle cx="10" cy="14.1" r="1" fill="currentColor" />
-      </svg>
-    ) : isReady ? (
-      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <path d="M4.2 10.6 8.1 14.3 15.8 6.4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-      </svg>
-    ) : (
-      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-        <path d="M10 3.5v8" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-        <path d="m6.7 8.6 3.3 3.3 3.3-3.3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-        <path d="M5.2 14.8h9.6" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-      </svg>
-    );
-    const actions = isDownloading
-      ? [{ label: i18nService.t('updateDownloadCancel'), onClick: handleCancelDownload }]
-      : isError
-        ? [
-          { label: i18nService.t('updateAvailableCancel'), onClick: handleDismissUpdateNotification },
-          { label: i18nService.t('updateRetry'), onClick: handleOpenUpdateModal, variant: 'primary' as const },
-        ]
-        : [
-          { label: i18nService.t('updateAvailableCancel'), onClick: handleDismissUpdateNotification },
-          {
-            label: isReady ? i18nService.t('updateReadyConfirm') : i18nService.t('updateAvailableConfirm'),
-            onClick: handleOpenUpdateModal,
-            variant: 'primary' as const,
-          },
-        ];
+  const updateNotification =
+    shouldShowUpdateNotification && updateInfo
+      ? (() => {
+          const isDownloading = appUpdateState.status === AppUpdateStatus.Downloading;
+          const isReady = appUpdateState.status === AppUpdateStatus.Ready;
+          const isError = appUpdateState.status === AppUpdateStatus.Error;
+          const title = isError
+            ? appUpdateState.readyFilePath
+              ? i18nService.t('updateInstallFailed')
+              : i18nService.t('updateDownloadFailed')
+            : isReady
+              ? i18nService.t('updateReadyTitle')
+              : isDownloading
+                ? i18nService.t('updateDownloadingBackground')
+                : i18nService.t('updateAvailableTitle');
+          const message = isError
+            ? appUpdateState.errorMessage
+            : isDownloading
+              ? `v${updateInfo.latestVersion}`
+              : `${i18nService.t('updateAvailableMessage')} v${updateInfo.latestVersion}`;
+          const tone = isError ? 'danger' : isReady ? 'success' : 'info';
+          const progressPercent =
+            isDownloading && appUpdateState.progress?.percent != null
+              ? Math.round(appUpdateState.progress.percent * 100)
+              : null;
+          const icon = isError ? (
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M10 5.8v5.1" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+              <circle cx="10" cy="14.1" r="1" fill="currentColor" />
+            </svg>
+          ) : isReady ? (
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path
+                d="M4.2 10.6 8.1 14.3 15.8 6.4"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+              />
+            </svg>
+          ) : (
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M10 3.5v8" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+              <path
+                d="m6.7 8.6 3.3 3.3 3.3-3.3"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+              <path
+                d="M5.2 14.8h9.6"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+          );
+          const actions = isDownloading
+            ? [{ label: i18nService.t('updateDownloadCancel'), onClick: handleCancelDownload }]
+            : isError
+              ? [
+                  {
+                    label: i18nService.t('updateAvailableCancel'),
+                    onClick: handleDismissUpdateNotification,
+                  },
+                  {
+                    label: i18nService.t('updateRetry'),
+                    onClick: handleOpenUpdateModal,
+                    variant: 'primary' as const,
+                  },
+                ]
+              : [
+                  {
+                    label: i18nService.t('updateAvailableCancel'),
+                    onClick: handleDismissUpdateNotification,
+                  },
+                  {
+                    label: isReady
+                      ? i18nService.t('updateReadyConfirm')
+                      : i18nService.t('updateAvailableConfirm'),
+                    onClick: handleOpenUpdateModal,
+                    variant: 'primary' as const,
+                  },
+                ];
 
-    return (
-      <Notification
-        title={title}
-        message={message || undefined}
-        tone={tone}
-        icon={icon}
-        progressPercent={progressPercent}
-        actions={actions}
-        closeLabel={i18nService.t('updateAvailableCancel')}
-        onClose={isDownloading ? undefined : handleDismissUpdateNotification}
-      />
-    );
-  })() : null;
-  const windowsStandaloneTitleBar = isWindows ? (
-    <div className="draggable relative h-9 shrink-0 bg-surface-raised">
-      <WindowTitleBar isOverlayActive={isOverlayActive} />
+          return (
+            <Notification
+              title={title}
+              message={message || undefined}
+              tone={tone}
+              icon={icon}
+              progressPercent={progressPercent}
+              actions={actions}
+              closeLabel={i18nService.t('updateAvailableCancel')}
+              onClose={isDownloading ? undefined : handleDismissUpdateNotification}
+            />
+          );
+        })()
+      : null;
+  const appChromeTitleBar = (
+    <div className="draggable h-[40px] shrink-0 bg-surface-raised flex items-center justify-between">
+      <div>{isWindows && <img className="h-[30px] w-[30px] mx-[13px]" src="/logo.png" alt="" />}</div>
+      {isWindows && <WindowTitleBar isOverlayActive={isOverlayActive} />}
     </div>
-  ) : null;
+  );
 
   if (!isInitialized) {
     return (
       <div className="h-screen overflow-hidden flex flex-col">
-        {windowsStandaloneTitleBar}
+        {appChromeTitleBar}
         <div className="flex-1 flex items-center justify-center bg-background">
           <div className="flex flex-col items-center space-y-4">
             <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary to-primary-hover flex items-center justify-center shadow-glow-accent animate-pulse">
@@ -765,7 +823,7 @@ const App: React.FC = () => {
   if (initError) {
     return (
       <div className="h-screen overflow-hidden flex flex-col">
-        {windowsStandaloneTitleBar}
+        {appChromeTitleBar}
         <div className="flex-1 flex flex-col items-center justify-center bg-background">
           <div className="flex flex-col items-center space-y-6 max-w-md px-6">
             <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center shadow-lg">
@@ -803,12 +861,9 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-surface-raised">
-      {toastMessage && (
-        <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
-      )}
-      <NotificationViewport placement="bottom-right">
-        {updateNotification}
-      </NotificationViewport>
+      {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}
+      <NotificationViewport placement="bottom-right">{updateNotification}</NotificationViewport>
+      {appChromeTitleBar}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           onShowLogin={handleShowLogin}
@@ -826,44 +881,45 @@ const App: React.FC = () => {
           onCollapseAgentPanel={handleCollapseAgentPanel}
           hideLogin={enterpriseConfig?.ui?.login === 'hide'}
         />
-        <AgentSidebarPanel
-          isCollapsed={isAgentPanelCollapsed}
-          onShowCowork={handleShowCowork}
-        />
-        <div className={`flex-1 min-w-0 transition-[padding] duration-200 ease-out`}>
-          <div className="relative h-full min-h-0 rounded-xl border border-border bg-background overflow-hidden">
-            <EngineStartupOverlay />
-            {mainView === 'skills' ? (
-              <SkillsView
-                isSidebarCollapsed={isAgentPanelCollapsed}
-                onToggleSidebar={handleToggleSidebar}
-                onNewChat={handleNewChat}
-                onCreateSkillByChat={handleCreateSkillByChat}
-                readOnly={enterpriseConfig?.ui?.skills === 'readonly'}
-              />
-            ) : mainView === 'scheduledTasks' ? (
-              <ScheduledTasksView
-                isSidebarCollapsed={isAgentPanelCollapsed}
-                onToggleSidebar={handleToggleSidebar}
-                onNewChat={handleNewChat}
-              />
-            ) : mainView === 'mcp' ? (
-              <McpView
-                isSidebarCollapsed={isAgentPanelCollapsed}
-                onToggleSidebar={handleToggleSidebar}
-                onNewChat={handleNewChat}
-              />
-            ) : mainView === 'folder' ? (
-              <FolderView />
-            ) : (
-              <CoworkView
-                onRequestAppSettings={privacyAgreed === true && !showWelcome ? handleShowSettings : undefined}
-                onShowSkills={handleShowSkills}
-                isSidebarCollapsed={isAgentPanelCollapsed}
-                onToggleSidebar={handleToggleSidebar}
-                onNewChat={handleNewChat}
-              />
-            )}
+        <div className="flex min-w-0 flex-1 gap-[6px] overflow-hidden p-[10px] pt-0 pl-0">
+          <AgentSidebarPanel isCollapsed={isAgentPanelCollapsed} onShowCowork={handleShowCowork} />
+          <div className="flex-1 min-w-0 transition-[padding] duration-200 ease-out">
+            <div className="relative h-full min-h-0 overflow-hidden rounded-xl bg-background">
+              <EngineStartupOverlay />
+              {mainView === 'skills' ? (
+                <SkillsView
+                  isSidebarCollapsed={isAgentPanelCollapsed}
+                  onToggleSidebar={handleToggleSidebar}
+                  onNewChat={handleNewChat}
+                  onCreateSkillByChat={handleCreateSkillByChat}
+                  readOnly={enterpriseConfig?.ui?.skills === 'readonly'}
+                />
+              ) : mainView === 'scheduledTasks' ? (
+                <ScheduledTasksView
+                  isSidebarCollapsed={isAgentPanelCollapsed}
+                  onToggleSidebar={handleToggleSidebar}
+                  onNewChat={handleNewChat}
+                />
+              ) : mainView === 'mcp' ? (
+                <McpView
+                  isSidebarCollapsed={isAgentPanelCollapsed}
+                  onToggleSidebar={handleToggleSidebar}
+                  onNewChat={handleNewChat}
+                />
+              ) : mainView === 'folder' ? (
+                <FolderView />
+              ) : (
+                <CoworkView
+                  onRequestAppSettings={
+                    privacyAgreed === true && !showWelcome ? handleShowSettings : undefined
+                  }
+                  onShowSkills={handleShowSkills}
+                  isSidebarCollapsed={isAgentPanelCollapsed}
+                  onToggleSidebar={handleToggleSidebar}
+                  onNewChat={handleNewChat}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -882,7 +938,10 @@ const App: React.FC = () => {
         <AppUpdateModal
           updateState={appUpdateState}
           onCancel={() => {
-            if (appUpdateState.status !== AppUpdateStatus.Downloading && appUpdateState.status !== AppUpdateStatus.Installing) {
+            if (
+              appUpdateState.status !== AppUpdateStatus.Downloading &&
+              appUpdateState.status !== AppUpdateStatus.Installing
+            ) {
               setShowUpdateModal(false);
             }
           }}
@@ -893,17 +952,9 @@ const App: React.FC = () => {
       )}
       {permissionModal}
       {privacyAgreed === false && (
-        <PrivacyDialog
-          onAccept={handlePrivacyAccept}
-          onReject={handlePrivacyReject}
-        />
+        <PrivacyDialog onAccept={handlePrivacyAccept} onReject={handlePrivacyReject} />
       )}
-      {showWelcome && (
-        <WelcomeDialog
-          onLogin={handleWelcomeLogin}
-          onClose={handleWelcomeClose}
-        />
-      )}
+      {showWelcome && <WelcomeDialog onLogin={handleWelcomeLogin} onClose={handleWelcomeClose} />}
       {showLoginDialog && (
         <LoginDialog
           onClose={() => setShowLoginDialog(false)}
@@ -914,4 +965,4 @@ const App: React.FC = () => {
   );
 };
 
-export default App; 
+export default App;

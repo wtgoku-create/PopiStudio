@@ -3,7 +3,6 @@ import { i18nService } from '../../services/i18n';
 import McpManager from './McpManager';
 import SidebarToggleIcon from '../icons/SidebarToggleIcon';
 import ComposeIcon from '../icons/ComposeIcon';
-import WindowTitleBar from '../window/WindowTitleBar';
 
 interface McpViewProps {
   isSidebarCollapsed?: boolean;
@@ -41,7 +40,6 @@ const McpView: React.FC<McpViewProps> = ({ isSidebarCollapsed, onToggleSidebar, 
             {i18nService.t('mcpServers')}
           </h1>
         </div>
-        <WindowTitleBar inline />
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0 [scrollbar-gutter:stable]">

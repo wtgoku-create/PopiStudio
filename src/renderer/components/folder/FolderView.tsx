@@ -22,7 +22,6 @@ import { RootState } from '../../store';
 import type { Artifact, ArtifactType } from '../../types/artifact';
 import { ArtifactTypeValue } from '../../types/artifact';
 import ArtifactRenderer from '../artifacts/ArtifactRenderer';
-import WindowTitleBar from '../window/WindowTitleBar';
 
 interface FolderViewProps {
   updateBadge?: React.ReactNode;
@@ -407,8 +406,6 @@ const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
           </h1>
         </div>
         <div className="flex items-center gap-3">
-          {updateBadge}
-          <WindowTitleBar inline />
         </div>
       </div>
 

@@ -24,22 +24,25 @@ interface SidebarProps {
 const SIDEBAR_WIDTH = 60;
 const sidebarIconButtonClassName =
   'relative inline-flex h-10 w-10 items-center justify-center rounded-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground dark:hover:bg-white/[0.06]';
-const activeSidebarIconButtonClassName =
-  `${sidebarIconButtonClassName} bg-surface text-foreground dark:bg-white/[0.08]`;
+const activeSidebarIconButtonClassName = `${sidebarIconButtonClassName} bg-surface text-foreground dark:bg-white/[0.08]`;
 const sidebarIconClassName = 'h-[25px] w-[25px] shrink-0';
+  const isWindows = window.electron.platform === 'win32';
 
 const PopiRailLogo: React.FC = () => (
-  <img
-    src="logo.png"
-    alt="Popi"
-    className="h-[30px] w-[30px] object-contain"
-    draggable={false}
-  />
+  <img src="logo.png" alt="Popi" className="h-[30px] w-[30px] object-contain" draggable={false} />
 );
 
 const ChatRailIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} viewBox="0 0 25 25" fill="none" aria-hidden="true">
-    <rect x="5.25" y="6.25" width="14.5" height="12.5" rx="3.25" stroke="currentColor" strokeWidth="1.6" />
+    <rect
+      x="5.25"
+      y="6.25"
+      width="14.5"
+      height="12.5"
+      rx="3.25"
+      stroke="currentColor"
+      strokeWidth="1.6"
+    />
     <circle cx="9.8" cy="12.5" r="1.05" fill="currentColor" />
     <circle cx="12.5" cy="12.5" r="1.05" fill="currentColor" />
     <circle cx="15.2" cy="12.5" r="1.05" fill="currentColor" />
@@ -65,7 +68,12 @@ const FolderRailIcon: React.FC<{ className?: string }> = ({ className }) => (
       strokeLinejoin="round"
       strokeWidth="1.6"
     />
-    <path d="M4.6 8.45V7.8a1.8 1.8 0 0 1 1.8-1.8h4.05l2.25 2.45" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+    <path
+      d="M4.6 8.45V7.8a1.8 1.8 0 0 1 1.8-1.8h4.05l2.25 2.45"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeWidth="1.6"
+    />
   </svg>
 );
 
@@ -122,20 +130,25 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className="relative z-40 shrink-0 overflow-y-hidden overflow-x-visible bg-surface-raised sidebar-transition"
+      className="relative z-40 shrink-0 overflow-y-hidden overflow-x-visible mt-2 bg-surface-raised sidebar-transition"
       style={{ width: isCollapsed ? 0 : SIDEBAR_WIDTH }}
     >
       <div
-        className={`relative flex h-full flex-col transition-opacity ease-out ${isCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100'
-          }`}
+        className={`relative flex h-full flex-col transition-opacity ease-out ${
+          isCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100'
+        }`}
         style={{
           width: SIDEBAR_WIDTH,
           transitionDuration: '200ms',
         }}
       >
-        <div className={`draggable sidebar-header-drag flex h-[30px] items-center justify-center mb-2 ${isMac ? 'mt-5' : 'mt-4'}`}>
-          <PopiRailLogo />
-        </div>
+        {!isWindows && (
+          <div
+            className={`draggable sidebar-header-drag flex h-[30px] items-center justify-center mb-2`}
+          >
+            <PopiRailLogo />
+          </div>
+        )}
         <div className="non-draggable flex flex-col items-center gap-2 px-[10px] pt-0">
           <SidebarIconButton
             label={i18nService.t('cowork')}

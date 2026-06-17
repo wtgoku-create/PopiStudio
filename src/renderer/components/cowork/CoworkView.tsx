@@ -22,7 +22,6 @@ import type { CoworkImageAttachment, CoworkSession, OpenClawEngineStatus, Subage
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { PromptPanel,QuickActionBar } from '../quick-actions';
 import type { SettingsOpenOptions } from '../Settings';
-import WindowTitleBar from '../window/WindowTitleBar';
 import { useAgentSelectedModel } from './agentModelSelection';
 import { CoworkUiEvent } from './constants';
 import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInput';
@@ -523,7 +522,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     return (
       <div className="flex-1 h-full flex flex-col bg-background">
         <div className="draggable flex h-12 items-center justify-end px-4 border-b border-border shrink-0">
-          <WindowTitleBar inline />
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-secondary">
@@ -568,7 +566,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
             {i18nService.t('lobsterGuardEnabled')}
           </span>
         </div>
-        <WindowTitleBar inline />
       </div>
     </div>
   );
