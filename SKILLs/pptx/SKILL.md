@@ -1,9 +1,15 @@
 ---
 name: pptx
-description: "Presentation creation, editing, and analysis. When Claude needs to work with presentations (.pptx files) for: (1) Creating new presentations, (2) Modifying or editing content, (3) Working with layouts, (4) Adding comments or speaker notes, or any other presentation tasks"
+description: 'Presentation creation, editing, and analysis. When Claude needs to work with presentations (.pptx files) for: (1) Creating new presentations, (2) Modifying or editing content, (3) Working with layouts, (4) Adding comments or speaker notes, or any other presentation tasks'
 license: Proprietary. LICENSE.txt has complete terms
 official: true
-category: "内容创作"
+category: 内容创作
+name_i18n:
+  zh: 演示文稿
+  en: Presentations
+description_i18n:
+  zh: 创建、编辑和分析 PPTX 演示文稿，支持版式、备注、批注和内容调整。
+  en: Create, edit, and analyze PPTX presentations with layouts, speaker notes, comments, and content updates.
 ---
 
 # PPTX creation, editing, and analysis

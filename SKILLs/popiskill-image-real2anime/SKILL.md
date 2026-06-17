@@ -1,22 +1,29 @@
 ---
 name: popiskill-image-real2anime
 version: 1.0.0
-description: >
+description: |
   真人照片转动漫风格，支持多种动漫风格转换
 homepage: https://llmapitest.popi.art
 user-invocable: true
 official: true
-category: "漫剧制作"
+category: 漫剧制作
 metadata:
-  {
-    "openclaw":
-      {
-        "emoji": "🎭",
-        "requires": { "bins": ["python3"], "env": ["POPI_OPENAPI_KEY"] },
-        "primaryEnv": "POPI_OPENAPI_KEY",
-      },
-  }
+  openclaw:
+    emoji: 🎭
+    requires:
+      bins:
+        - python3
+      env:
+        - POPI_OPENAPI_KEY
+    primaryEnv: POPI_OPENAPI_KEY
+name_i18n:
+  zh: 真人转动漫图像
+  en: Real Photo to Anime Image
+description_i18n:
+  zh: 将真人照片转换为多种动漫风格图像。
+  en: Convert real photos into multiple anime-style images.
 ---
+
 # 真人照片转动漫风格
 
 将真人照片转换为多种动漫/艺术风格，支持16种风格选择。

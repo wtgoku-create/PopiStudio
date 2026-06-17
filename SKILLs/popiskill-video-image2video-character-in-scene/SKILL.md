@@ -2,8 +2,14 @@
 name: popiskill-video-image2video-character-in-scene
 version: 2.0.1
 official: true
-category: "视频制作"
+category: 视频制作
 description: Standardized local PopiartCLI skill for a staged character-in-scene workflow that preserves the original image preview, confirmation loop, batch video generation, and final concatenation path.
+name_i18n:
+  zh: 角色场景视频生成
+  en: Character-in-Scene Video Generation
+description_i18n:
+  zh: 基于角色图和场景流程批量生成视频，并输出最终拼接路径。
+  en: Generate character-in-scene videos in batches and output the final concatenation path.
 ---
 
 # Character In Scene Local Run

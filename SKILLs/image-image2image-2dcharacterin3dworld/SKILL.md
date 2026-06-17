@@ -2,8 +2,14 @@
 name: image-image2image-2dcharacterin3dworld
 version: 1.0.0
 official: true
-category: "漫剧制作"
+category: 漫剧制作
 description: Standardized local PopiartCLI skill for turning a 2D anime character reference image into selected 3D-world scene images, with full scene display, bounded retries, auth and budget precheck, and a local HTML preview after the image batch completes.
+name_i18n:
+  zh: 2D 角色转 3D 场景
+  en: 2D Character to 3D Scene
+description_i18n:
+  zh: 将 2D 动漫角色参考图转换为 3D 世界场景图，并生成本地预览。
+  en: Turn a 2D anime character reference into 3D-world scene images with a local preview.
 ---
 
 # 2D Character In 3D World Image Skill

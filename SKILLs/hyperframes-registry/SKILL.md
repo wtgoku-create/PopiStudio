@@ -2,8 +2,14 @@
 name: hyperframes-registry
 description: Install and wire registry blocks and components into HyperFrames compositions. Use when running hyperframes add, installing a block or component, wiring an installed item into index.html, or working with hyperframes.json. Covers the add command, install locations, block sub-composition wiring, component snippet merging, and registry discovery.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: HyperFrames 素材库
+  en: HyperFrames Registry
+description_i18n:
+  zh: 安装并接入 HyperFrames 的区块、组件、字幕样式、转场和效果。
+  en: Install and wire HyperFrames registry blocks, components, caption styles, transitions, and effects.
 ---
 
 # HyperFrames Registry

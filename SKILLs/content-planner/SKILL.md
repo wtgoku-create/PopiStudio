@@ -5,7 +5,13 @@ description: |
   generates differentiated topic recommendations and outputs structured content calendars. Activated when users mention
   "topic", "planning", "content calendar", "trending", or "what to write next week".
 official: true
-category: "社媒运营"
+category: 社媒运营
+name_i18n:
+  zh: 内容选题规划
+  en: Content Planner
+description_i18n:
+  zh: 基于微信文章搜索和热点分析，生成公众号选题建议和内容日历。
+  en: Generate WeChat Official Account topic ideas and content calendars from article search and trend analysis.
 ---
 
 # Topic Planning + Content Calendar

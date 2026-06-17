@@ -1,9 +1,15 @@
 ---
 name: docx
-description: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
+description: 'Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks'
 license: Proprietary. LICENSE.txt has complete terms
 official: true
-category: "内容创作"
+category: 内容创作
+name_i18n:
+  zh: Word 文档
+  en: Word Documents
+description_i18n:
+  zh: 创建、编辑和分析 DOCX 文档，支持批注、修订、格式保留和文本提取。
+  en: Create, edit, and analyze DOCX documents with comments, tracked changes, formatting preservation, and text extraction.
 ---
 
 # DOCX creation, editing, and analysis

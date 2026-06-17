@@ -2,8 +2,14 @@
 name: films-search
 description: Search cloud drives for downloadable film and TV resources (movies, TV series, anime). Use this skill when the user wants to download a specific movie or TV show. Do NOT use for general movie information, schedules, reviews, or recommendations.
 official: true
-category: "内容创作"
+category: 内容创作
 version: 1.0.2
+name_i18n:
+  zh: 影视资源搜索
+  en: Film and TV Search
+description_i18n:
+  zh: 搜索网盘中的电影、剧集和动漫下载资源。
+  en: Search cloud drives for downloadable movie, TV series, and anime resources.
 ---
 
 # Films Search Skill

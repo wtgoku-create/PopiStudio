@@ -2,9 +2,20 @@
 name: weather
 description: Get current weather and forecasts (no API key required).
 homepage: https://wttr.in/:help
-metadata: {"clawdbot":{"emoji":"🌤️","requires":{"bins":["curl"]}}}
+metadata:
+  clawdbot:
+    emoji: 🌤️
+    requires:
+      bins:
+        - curl
 official: true
-category: "内容创作"
+category: 内容创作
+name_i18n:
+  zh: 天气
+  en: Weather
+description_i18n:
+  zh: 查询当前天气和天气预报，无需 API Key。
+  en: Get current weather and forecasts without an API key.
 ---
 
 # Weather

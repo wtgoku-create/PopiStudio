@@ -2,6 +2,7 @@ import React from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { i18nService } from '../../services/i18n';
+import { skillService } from '../../services/skill';
 import { RootState } from '../../store';
 import { toggleActiveSkill } from '../../store/slices/skillSlice';
 import SkillIcon from '../icons/SkillIcon';
@@ -38,7 +39,7 @@ const ActiveSkillBadge: React.FC = () => {
             <XMarkIcon className="absolute h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100" />
           </span>
           <span className="min-w-0 truncate">
-            {skill.name}
+            {skillService.getLocalizedSkillName(skill)}
           </span>
         </button>
       ))}

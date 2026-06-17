@@ -2,8 +2,14 @@
 name: animejs
 description: Anime.js adapter patterns for HyperFrames. Use when writing Anime.js animations or timelines inside HyperFrames compositions, registering animations on window.__hfAnime, making Anime.js seek-driven and deterministic, or translating Anime.js examples into render-safe HyperFrames HTML.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: Anime.js 动画
+  en: Anime.js Animation
+description_i18n:
+  zh: 在 HyperFrames 中使用 Anime.js 动画和时间线，并保证可 seek、可复现。
+  en: Use Anime.js animations and timelines in HyperFrames with deterministic seek behavior.
 ---
 
 # Anime.js for HyperFrames

@@ -2,8 +2,14 @@
 name: three
 description: Three.js and WebGL adapter patterns for HyperFrames. Use when creating deterministic Three.js scenes, WebGL canvas layers, AnimationMixer timelines, camera motion, shader-driven visuals, or canvas renders that respond to HyperFrames hf-seek events.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: Three.js 3D
+  en: Three.js 3D
+description_i18n:
+  zh: 在 HyperFrames 中创建确定性的 Three.js/WebGL 场景、相机运动和 shader 视觉。
+  en: Create deterministic Three.js/WebGL scenes, camera motion, and shader visuals in HyperFrames.
 ---
 
 # Three.js for HyperFrames

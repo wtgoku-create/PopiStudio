@@ -185,10 +185,14 @@ interface WindowState {
   isFocused: boolean;
 }
 
+type LocalizedText = { en: string; zh: string };
+
 interface Skill {
   id: string;
   name: string;
   description: string;
+  nameI18n?: LocalizedText;
+  descriptionI18n?: LocalizedText;
   category?: string;
   enabled: boolean;
   isOfficial: boolean;

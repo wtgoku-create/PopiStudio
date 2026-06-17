@@ -40,9 +40,12 @@ const AgentSkillSelector: React.FC<AgentSkillSelectorProps> = ({ selectedSkillId
     return enabledSkills.filter((skill) => {
       if (!q) return true;
       const localizedDescription = shouldUseFallbackDescription
-        ? skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)
+        ? skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill)
         : '';
-      return skill.name.toLowerCase().includes(q) || localizedDescription.toLowerCase().includes(q);
+      const localizedName = skillService.getLocalizedSkillName(skill);
+      return localizedName.toLowerCase().includes(q)
+        || skill.name.toLowerCase().includes(q)
+        || localizedDescription.toLowerCase().includes(q);
     });
   }, [enabledSkills, search, shouldUseFallbackDescription]);
 
@@ -87,8 +90,9 @@ const AgentSkillSelector: React.FC<AgentSkillSelectorProps> = ({ selectedSkillId
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {filteredSkills.map((skill) => {
               const isSelected = selectedSkillIds.includes(skill.id);
+              const skillName = skillService.getLocalizedSkillName(skill);
               const description = shouldUseFallbackDescription
-                ? skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)
+                ? skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill)
                 : '';
 
               return (
@@ -107,7 +111,7 @@ const AgentSkillSelector: React.FC<AgentSkillSelectorProps> = ({ selectedSkillId
                   </div>
                   <div className="min-w-0 flex-1 pr-8">
                     <div className="truncate text-sm font-medium leading-5 text-foreground">
-                      {skill.name}
+                      {skillName}
                     </div>
                     {description && (
                       <div className="mt-1 line-clamp-2 text-xs leading-[18px] text-secondary/80">

@@ -2,8 +2,14 @@
 name: seedance
 description: Generate AI videos through the built-in PopiArt CLI Seedance workflow. Supports text-to-video, image-to-video, first/last-frame transitions, reference-video input, and generated audio. Use this skill when the user wants to create videos.
 official: true
-category: "视频制作"
+category: 视频制作
 version: 2.0.0
+name_i18n:
+  zh: Seedance 视频生成
+  en: Seedance Video Generation
+description_i18n:
+  zh: 通过内置 PopiArt CLI 使用 Seedance 生成 AI 视频。
+  en: Generate AI videos through the built-in PopiArt CLI Seedance workflow.
 ---
 
 # Seedance 视频生成

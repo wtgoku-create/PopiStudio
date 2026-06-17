@@ -480,6 +480,10 @@ class SkillService {
     return this.skills.find(s => s.id === id);
   }
 
+  getLocalizedSkillName(skill: Pick<Skill, 'name' | 'nameI18n'>): string {
+    return skill.nameI18n ? resolveLocalizedText(skill.nameI18n) || skill.name : skill.name;
+  }
+
   async getSkillConfig(skillId: string): Promise<Record<string, string>> {
     try {
       const result = await window.electron.skills.getConfig(skillId);
@@ -594,7 +598,11 @@ class SkillService {
     }
   }
 
-  getLocalizedSkillDescription(skillId: string, skillName: string, fallback: string): string {
+  getLocalizedSkillDescription(skillId: string, skillName: string, fallback: string, skill?: Pick<Skill, 'descriptionI18n'>): string {
+    if (skill?.descriptionI18n) {
+      const localized = resolveLocalizedText(skill.descriptionI18n);
+      if (localized) return localized;
+    }
     const localDesc = this.localSkillDescriptions.get(skillName) ?? this.localSkillDescriptions.get(skillId);
     if (localDesc != null) return resolveLocalizedText(localDesc);
     const marketDesc = this.marketplaceSkillDescriptions.get(skillId);

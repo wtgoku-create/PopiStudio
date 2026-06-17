@@ -2,8 +2,14 @@
 name: typegpu
 description: TypeGPU and raw WebGPU adapter patterns for HyperFrames. Use when creating GPU-rendered compositions with TypeGPU, raw WebGPU, WGSL fragment shaders, compute pipelines, liquid glass effects, particle systems, or any canvas layer driven by navigator.gpu that responds to HyperFrames hf-seek events.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: TypeGPU / WebGPU
+  en: TypeGPU / WebGPU
+description_i18n:
+  zh: 使用 TypeGPU、WebGPU 和 WGSL 构建 GPU 渲染的视频视觉效果。
+  en: Build GPU-rendered video visuals with TypeGPU, WebGPU, and WGSL.
 ---
 
 # TypeGPU / WebGPU for HyperFrames

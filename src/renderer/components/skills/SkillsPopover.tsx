@@ -35,10 +35,14 @@ const SkillsPopover: React.FC<SkillsPopoverProps> = ({
   // Filter enabled skills based on search query
   const filteredSkills = skills
     .filter(s => s.enabled)
-    .filter(s =>
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      skillService.getLocalizedSkillDescription(s.id, s.name, s.description).toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    .filter(s => {
+      const query = searchQuery.toLowerCase();
+      const localizedName = skillService.getLocalizedSkillName(s);
+      const localizedDescription = skillService.getLocalizedSkillDescription(s.id, s.name, s.description, s);
+      return localizedName.toLowerCase().includes(query)
+        || s.name.toLowerCase().includes(query)
+        || localizedDescription.toLowerCase().includes(query);
+    });
 
   // Calculate available height and focus search input when popover opens
   useEffect(() => {
@@ -133,6 +137,7 @@ const SkillsPopover: React.FC<SkillsPopoverProps> = ({
         ) : (
           filteredSkills.map((skill) => {
             const isActive = activeSkillIds.includes(skill.id);
+            const skillName = skillService.getLocalizedSkillName(skill);
             return (
               <button
                 key={skill.id}
@@ -157,7 +162,7 @@ const SkillsPopover: React.FC<SkillsPopoverProps> = ({
                         ? 'text-primary'
                         : 'text-foreground'
                     }`}>
-                      {skill.name}
+                      {skillName}
                     </span>
                     {skill.isOfficial && (
                       <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-primary/10 text-primary flex-shrink-0">
@@ -166,7 +171,7 @@ const SkillsPopover: React.FC<SkillsPopoverProps> = ({
                     )}
                   </div>
                   <p className="text-xs text-secondary truncate mt-0.5">
-                    {skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)}
+                    {skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill)}
                   </p>
                 </div>
                 {isActive && (

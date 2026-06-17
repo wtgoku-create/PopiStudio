@@ -2,8 +2,14 @@
 name: hyperframes-cli
 description: HyperFrames CLI dev loop — `npx hyperframes` for scaffolding (init), validation (lint, inspect), preview, render, and environment troubleshooting (doctor, browser, info, upgrade). Use when running any of these commands or troubleshooting the HyperFrames build/render environment. For asset preprocessing commands (`tts`, `transcribe`, `remove-background`), invoke the `hyperframes-media` skill instead.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: HyperFrames CLI
+  en: HyperFrames CLI
+description_i18n:
+  zh: 运行 HyperFrames 初始化、校验、预览、渲染和环境诊断命令。
+  en: Run HyperFrames init, validation, preview, render, and environment diagnostics commands.
 ---
 
 # HyperFrames CLI

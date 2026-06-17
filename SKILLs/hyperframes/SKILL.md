@@ -2,8 +2,14 @@
 name: hyperframes
 description: Create video compositions, animations, title cards, overlays, captions, voiceovers, audio-reactive visuals, and scene transitions in HyperFrames HTML. Use when asked to build any HTML-based video content, add captions or subtitles synced to audio, generate text-to-speech narration, create audio-reactive animation (beat sync, glow, pulse driven by music), add animated text highlighting (marker sweeps, hand-drawn circles, burst lines, scribble, sketchout), or add transitions between scenes (crossfades, wipes, reveals, shader transitions). Covers composition authoring, timing, media, and the full video production workflow. For dev-loop CLI commands (init, lint, inspect, preview, render) see the hyperframes-cli skill; for asset preprocessing commands (tts, transcribe, remove-background) see the hyperframes-media skill.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: HyperFrames 视频
+  en: HyperFrames Video
+description_i18n:
+  zh: 创建基于 HTML 的视频、动画、字幕、配音、音频响应视觉和场景转场。
+  en: Create HTML-based videos, animations, captions, voiceovers, audio-reactive visuals, and scene transitions.
 ---
 
 # HyperFrames

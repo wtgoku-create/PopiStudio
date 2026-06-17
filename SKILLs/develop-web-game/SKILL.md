@@ -1,8 +1,14 @@
 ---
-name: "develop-web-game"
-description: "Use when Codex is building or iterating on a web game (HTML/JS) and needs a reliable development + testing loop: implement small changes, run a Playwright-based test script with short input bursts and intentional pauses, inspect screenshots/text, and review console errors with render_game_to_text."
+name: develop-web-game
+description: 'Use when Codex is building or iterating on a web game (HTML/JS) and needs a reliable development + testing loop: implement small changes, run a Playwright-based test script with short input bursts and intentional pauses, inspect screenshots/text, and review console errors with render_game_to_text.'
 official: true
-category: "内容创作"
+category: 内容创作
+name_i18n:
+  zh: 网页游戏开发
+  en: Web Game Development
+description_i18n:
+  zh: 构建或迭代 HTML/JS 网页游戏，并用 Playwright 测试交互、截图和控制台错误。
+  en: Build or iterate HTML/JS web games with Playwright-based interaction, screenshot, and console checks.
 ---
 
 

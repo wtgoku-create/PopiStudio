@@ -368,8 +368,10 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
   const filteredSkills = useMemo(() => {
     const query = skillSearchQuery.trim().replace(/\s+/g, ' ').toLowerCase();
     return skills.filter(skill => {
-      const matchesSearch = skill.name.toLowerCase().includes(query)
-        || skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description).toLowerCase().includes(query);
+      const localizedName = skillService.getLocalizedSkillName(skill);
+      const matchesSearch = localizedName.toLowerCase().includes(query)
+        || skill.name.toLowerCase().includes(query)
+        || skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill).toLowerCase().includes(query);
       return matchesSearch;
     });
   }, [skills, skillSearchQuery]);
@@ -1015,7 +1017,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                     <SkillIcon className="h-4 w-4 text-secondary" />
                   </div>
                   <span className="text-sm font-medium text-foreground truncate">
-                    {skill.name}
+                    {skillService.getLocalizedSkillName(skill)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -1033,14 +1035,14 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                     checked={skill.enabled}
                     disabled={readOnly}
                     size="sm"
-                    ariaLabel={skill.name}
+                    ariaLabel={skillService.getLocalizedSkillName(skill)}
                     onClick={(e) => { e.stopPropagation(); if (!readOnly) handleToggleSkill(skill.id); }}
                   />
                 </div>
               </div>
 
               <p className="text-xs text-secondary line-clamp-2 mb-2">
-                {skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description)}
+                {skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill)}
               </p>
 
               <div className="flex items-center justify-between text-[10px] text-secondary">
@@ -1312,7 +1314,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 </div>
                 <div className="min-w-0">
                   <div className="text-base font-semibold text-foreground truncate">
-                    {selectedSkill.name}
+                    {skillService.getLocalizedSkillName(selectedSkill)}
                   </div>
                 </div>
               </div>
@@ -1326,7 +1328,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
             </div>
 
             <p className="text-sm text-secondary mb-4 max-h-40 overflow-y-auto whitespace-pre-wrap pr-1">
-              {skillService.getLocalizedSkillDescription(selectedSkill.id, selectedSkill.name, selectedSkill.description)}
+              {skillService.getLocalizedSkillDescription(selectedSkill.id, selectedSkill.name, selectedSkill.description, selectedSkill)}
             </p>
 
             <div className="space-y-2 mb-5">

@@ -1,10 +1,14 @@
 ---
 name: daily-trending
-description: >-
-  Fetch today's trending topics from tophub.today across multiple platforms.
-  Triggered when users ask "what's trending today", "hot topics", "今日热搜", or "微博热搜".
+description: Fetch today's trending topics from tophub.today across multiple platforms. Triggered when users ask "what's trending today", "hot topics", "今日热搜", or "微博热搜".
 official: true
-category: "社媒运营"
+category: 社媒运营
+name_i18n:
+  zh: 今日热榜
+  en: Daily Trending
+description_i18n:
+  zh: 获取今日多平台热榜、热点话题和微博热搜。
+  en: Fetch today's trending topics and hot lists across multiple platforms.
 ---
 
 # Daily Trending

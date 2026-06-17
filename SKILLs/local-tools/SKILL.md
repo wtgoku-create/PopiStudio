@@ -2,7 +2,13 @@
 name: local-tools
 description: Access local system resources including Calendar on macOS and Windows. Use this skill when you need to manage user's schedule directly on their device.
 official: true
-category: "内容创作"
+category: 内容创作
+name_i18n:
+  zh: 本地工具
+  en: Local Tools
+description_i18n:
+  zh: 访问本机系统资源，例如 macOS 和 Windows 日历。
+  en: Access local system resources such as Calendar on macOS and Windows.
 ---
 
 # Local Tools Skill

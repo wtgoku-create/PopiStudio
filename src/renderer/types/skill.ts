@@ -3,6 +3,8 @@ export interface Skill {
   id: string;
   name: string;
   description: string;
+  nameI18n?: LocalizedText;
+  descriptionI18n?: LocalizedText;
   category?: string;
   enabled: boolean;       // Whether visible in popover
   isOfficial: boolean;    // "官方" badge

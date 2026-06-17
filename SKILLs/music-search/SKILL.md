@@ -2,8 +2,14 @@
 name: music-search
 description: Search cloud drives for downloadable music resources (songs, albums, lossless audio). Use this skill when the user wants to download a specific song or album. Do NOT use for general music information, lyrics, or recommendations.
 official: true
-category: "音频创作"
+category: 音频创作
 version: 1.0.2
+name_i18n:
+  zh: 音乐资源搜索
+  en: Music Search
+description_i18n:
+  zh: 搜索网盘中的歌曲、专辑和无损音频下载资源。
+  en: Search cloud drives for downloadable songs, albums, and lossless audio resources.
 ---
 
 # Music Search Skill

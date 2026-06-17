@@ -2,8 +2,14 @@
 name: hyperframes-media
 description: Asset preprocessing for HyperFrames compositions — text-to-speech narration (Kokoro), audio/video transcription (Whisper), and background removal for transparent overlays (u2net). Use when generating voiceover from text, transcribing speech for captions, removing the background from a video or image to use as a transparent overlay, choosing a TTS voice or whisper model, or chaining these (TTS → transcribe → captions). Each command downloads its own model on first run.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: HyperFrames 媒体预处理
+  en: HyperFrames Media
+description_i18n:
+  zh: 为 HyperFrames 生成配音、转写音视频、移除背景并准备媒体素材。
+  en: Prepare HyperFrames media assets with TTS, audio/video transcription, and background removal.
 ---
 
 # HyperFrames Media Preprocessing

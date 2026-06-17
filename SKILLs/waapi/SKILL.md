@@ -2,8 +2,14 @@
 name: waapi
 description: Web Animations API adapter patterns for HyperFrames. Use when authoring element.animate() motion, Animation currentTime seeking, document.getAnimations(), KeyframeEffect timing, fill modes, or native browser animations that must render deterministically in HyperFrames.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: Web Animations API
+  en: Web Animations API
+description_i18n:
+  zh: 使用浏览器原生 Web Animations API 编写可 seek 的动画。
+  en: Author seekable animations with the browser-native Web Animations API.
 ---
 
 # Web Animations API for HyperFrames

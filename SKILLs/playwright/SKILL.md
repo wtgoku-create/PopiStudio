@@ -1,8 +1,14 @@
 ---
-name: "playwright"
-description: "Use when the task requires automating a real browser from the terminal (navigation, form filling, snapshots, screenshots, data extraction, UI-flow debugging) via `playwright-cli` or the bundled wrapper script."
+name: playwright
+description: Use when the task requires automating a real browser from the terminal (navigation, form filling, snapshots, screenshots, data extraction, UI-flow debugging) via `playwright-cli` or the bundled wrapper script.
 official: true
-category: "社媒运营"
+category: 社媒运营
+name_i18n:
+  zh: 浏览器自动化
+  en: Browser Automation
+description_i18n:
+  zh: 使用 Playwright 自动化真实浏览器，执行导航、表单、截图、抓取和 UI 调试。
+  en: Automate a real browser with Playwright for navigation, forms, screenshots, scraping, and UI debugging.
 ---
 
 

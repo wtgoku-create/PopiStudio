@@ -2,8 +2,14 @@
 name: web-search
 description: Real-time web search using Playwright-controlled browser. Use this skill when you need current information, latest documentation, recent news, or any data beyond your knowledge cutoff (January 2025).
 official: true
-category: "社媒运营"
+category: 社媒运营
 version: 1.0.2
+name_i18n:
+  zh: 网页搜索
+  en: Web Search
+description_i18n:
+  zh: 通过浏览器进行实时网页搜索，获取最新资讯、文档、新闻和知识截止日期后的信息。
+  en: Search the web in real time with a browser for current information, latest documentation, news, and data beyond the model cutoff.
 ---
 
 # Web Search Skill

@@ -2,6 +2,7 @@ import { PhotoIcon } from '@heroicons/react/24/outline';
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
+import { skillService } from '../../services/skill';
 import type { CoworkImageAttachment, CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import type { Skill } from '../../types/skill';
 import { formatMessageDateTime } from '../../utils/tokenFormat';
@@ -104,11 +105,11 @@ const UserMessageSkillBadges: React.FC<{ skills: Skill[] }> = ({ skills }) => {
         <div
           key={skill.id}
           className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground"
-          title={skill.description}
+          title={skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill)}
         >
           <SkillIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
           <span className="min-w-0 truncate">
-            {skill.name}
+            {skillService.getLocalizedSkillName(skill)}
           </span>
         </div>
       ))}

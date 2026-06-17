@@ -3,8 +3,14 @@ name: website-to-hyperframes
 description: |
   Capture a website and create a HyperFrames video from it. Use when: (1) a user provides a URL and wants a video, (2) someone says "capture this site", "turn this into a video", "make a promo from my site", (3) the user wants a social ad, product tour, or any video based on an existing website, (4) the user shares a link and asks for any kind of video content. Even if the user just pastes a URL — this is the skill to use.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: 网站转视频
+  en: Website to HyperFrames
+description_i18n:
+  zh: 抓取网站并将其制作成 HyperFrames 宣传片、产品导览或社媒视频。
+  en: Capture a website and turn it into a HyperFrames promo, product tour, or social video.
 ---
 
 # Website to HyperFrames

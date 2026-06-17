@@ -1,9 +1,15 @@
 ---
 name: popiart
-description: "Use the built-in PopiArt CLI for image, video, speech, music, jobs, artifacts, and media workflows. Use this when the user wants to generate or transform visual/audio media."
+description: Use the built-in PopiArt CLI for image, video, speech, music, jobs, artifacts, and media workflows. Use this when the user wants to generate or transform visual/audio media.
 official: true
-category: "图像制作"
+category: 图像制作
 version: 2.2.0
+name_i18n:
+  zh: PopiArt 媒体生成
+  en: PopiArt Media Generation
+description_i18n:
+  zh: 使用内置 PopiArt CLI 处理图像、视频、语音、音乐、任务和媒体工作流。
+  en: Use the built-in PopiArt CLI for image, video, speech, music, jobs, and media workflows.
 ---
 
 # PopiArt CLI

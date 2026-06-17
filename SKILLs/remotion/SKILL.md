@@ -2,9 +2,15 @@
 name: remotion-best-practices
 description: Best practices for Remotion - Video creation in React
 official: true
-category: "AI剪辑"
+category: AI剪辑
 metadata:
   tags: remotion, video, react, animation, composition
+name_i18n:
+  zh: Remotion 视频
+  en: Remotion Video
+description_i18n:
+  zh: 使用 React 和 Remotion 创建视频时的最佳实践参考。
+  en: Best practices for creating videos with React and Remotion.
 ---
 
 ## When to use

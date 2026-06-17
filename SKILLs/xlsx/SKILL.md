@@ -1,9 +1,15 @@
 ---
 name: xlsx
-description: "Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, data analysis, and visualization. When Claude needs to work with spreadsheets (.xlsx, .xlsm, .csv, .tsv, etc) for: (1) Creating new spreadsheets with formulas and formatting, (2) Reading or analyzing data, (3) Modify existing spreadsheets while preserving formulas, (4) Data analysis and visualization in spreadsheets, or (5) Recalculating formulas"
+description: 'Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, data analysis, and visualization. When Claude needs to work with spreadsheets (.xlsx, .xlsm, .csv, .tsv, etc) for: (1) Creating new spreadsheets with formulas and formatting, (2) Reading or analyzing data, (3) Modify existing spreadsheets while preserving formulas, (4) Data analysis and visualization in spreadsheets, or (5) Recalculating formulas'
 license: Proprietary. LICENSE.txt has complete terms
 official: true
-category: "电商工具"
+category: 电商工具
+name_i18n:
+  zh: 电子表格
+  en: Spreadsheets
+description_i18n:
+  zh: 创建、编辑和分析 Excel/CSV 表格，支持公式、格式、数据分析和可视化。
+  en: Create, edit, and analyze Excel/CSV spreadsheets with formulas, formatting, data analysis, and visualization.
 ---
 
 # Requirements for Outputs

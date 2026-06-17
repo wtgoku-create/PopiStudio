@@ -291,6 +291,8 @@ export type SkillRecord = {
   id: string;
   name: string;
   description: string;
+  nameI18n?: LocalizedSkillText;
+  descriptionI18n?: LocalizedSkillText;
   category?: string;
   enabled: boolean;
   isOfficial: boolean;
@@ -299,6 +301,11 @@ export type SkillRecord = {
   prompt: string;
   skillPath: string;
   version?: string;
+};
+
+type LocalizedSkillText = {
+  en?: string;
+  zh?: string;
 };
 
 const getSkillRoutingSourceLabel = (skill: Pick<SkillRecord, 'isOfficial' | 'isBuiltIn'>): string => {
@@ -418,6 +425,24 @@ const extractDescription = (content: string): string => {
     return trimmed.replace(/^#+\s*/, '');
   }
   return '';
+};
+
+const parseLocalizedSkillText = (value: unknown): LocalizedSkillText | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const source = value as Record<string, unknown>;
+  const result: LocalizedSkillText = {};
+  const en = source.en;
+  const zh = source.zh;
+  if (typeof en === 'string' && en.trim()) {
+    result.en = en.trim();
+  }
+  if (typeof zh === 'string' && zh.trim()) {
+    result.zh = zh.trim();
+  }
+  return result.en || result.zh ? result : undefined;
 };
 
 const normalizeFolderName = (name: string): string => {
@@ -2445,8 +2470,12 @@ export class SkillManager {
     try {
       const raw = fs.readFileSync(skillFile, 'utf8');
       const { frontmatter, content } = parseFrontmatter(raw);
-      const name = (String(frontmatter.name || '') || path.basename(dir)).trim() || path.basename(dir);
-      const description = (String(frontmatter.description || '') || extractDescription(content) || name).trim();
+      const nameI18n = parseLocalizedSkillText(frontmatter.name_i18n) || parseLocalizedSkillText(frontmatter.name);
+      const descriptionI18n = parseLocalizedSkillText(frontmatter.description_i18n) || parseLocalizedSkillText(frontmatter.description);
+      const rawName = typeof frontmatter.name === 'string' ? frontmatter.name : nameI18n?.en;
+      const rawDescription = typeof frontmatter.description === 'string' ? frontmatter.description : descriptionI18n?.en;
+      const name = (String(rawName || '') || nameI18n?.zh || path.basename(dir)).trim() || path.basename(dir);
+      const description = (String(rawDescription || '') || descriptionI18n?.zh || extractDescription(content) || name).trim();
       const category = typeof frontmatter.category === 'string' ? frontmatter.category.trim() : '';
       const isOfficial = isTruthy(frontmatter.official) || isTruthy(frontmatter.isOfficial);
       const meta = frontmatter.metadata as Record<string, unknown> | undefined;
@@ -2461,6 +2490,8 @@ export class SkillManager {
         id,
         name,
         description,
+        nameI18n,
+        descriptionI18n,
         category: category || undefined,
         enabled,
         isOfficial,

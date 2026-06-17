@@ -2,8 +2,14 @@
 name: contribute-catalog
 description: Author a new HyperFrames registry block (caption style, VFX block, transition, lower third) or component (text effect, overlay, snippet) and ship it as an upstream PR to the hyperframes repo. Use ONLY when the user wants to CONTRIBUTE to the public catalog — for in-project caption/transition authoring use the `hyperframes` skill, for installing existing registry items use the `hyperframes-registry` skill.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: 贡献 HyperFrames 素材
+  en: Contribute HyperFrames Catalog
+description_i18n:
+  zh: 为 HyperFrames 公共素材库创作区块、组件、转场或特效并准备贡献。
+  en: Create and prepare HyperFrames registry blocks, components, transitions, or effects for contribution.
 ---
 
 # Contribute to HyperFrames Registry

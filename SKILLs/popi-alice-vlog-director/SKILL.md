@@ -1,6 +1,12 @@
 ---
 name: popi-alice-vlog-director
 description: 把 Alice 的生活情景、情绪和普通日常整理成可发布的小红书 vlog 导演方案。适用于选题定位、XX日命名、Hook 设计、文案时间轴、镜头规划、封面方向、生图提示词起草、生视频提示词起草，以及把 Alice 人设参考转成稳定连载内容。只有在用户明确批准执行时，才把确认版 brief 交给 popi-alice-storyboard-skill。
+name_i18n:
+  zh: Alice Vlog 导演
+  en: Alice Vlog Director
+description_i18n:
+  zh: 将 Alice 的日常情景整理成可发布的小红书 vlog 导演方案。
+  en: Turn Alice daily-life scenarios into publishable Xiaohongshu vlog direction plans.
 ---
 
 # Popi Alice Vlog Director

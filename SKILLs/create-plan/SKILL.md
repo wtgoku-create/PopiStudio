@@ -2,9 +2,15 @@
 name: create-plan
 description: Create a concise plan. Use when a user explicitly asks for a plan related to a coding task.
 official: true
-category: "内容创作"
+category: 内容创作
 metadata:
   short-description: Create a plan
+name_i18n:
+  zh: 创建计划
+  en: Create Plan
+description_i18n:
+  zh: 在用户明确要求时，为编码任务生成简洁可执行的计划。
+  en: Create a concise actionable plan when the user explicitly asks for one.
 ---
 
 # Create Plan

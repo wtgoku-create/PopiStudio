@@ -2,8 +2,14 @@
 name: css-animations
 description: CSS animation adapter patterns for HyperFrames. Use when authoring CSS keyframes, animation-delay based timing, animation-fill-mode, animation-play-state, or CSS-only motion that HyperFrames must seek deterministically during preview and rendering.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: CSS 动画
+  en: CSS Animations
+description_i18n:
+  zh: 编写可被 HyperFrames 稳定 seek 和渲染的 CSS keyframes 与纯 CSS 动画。
+  en: Author CSS keyframes and CSS-only motion that HyperFrames can seek and render deterministically.
 ---
 
 # CSS Animations for HyperFrames

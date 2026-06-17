@@ -2,8 +2,14 @@
 name: lottie
 description: Lottie and dotLottie adapter patterns for HyperFrames. Use when embedding lottie-web JSON animations, .lottie files, @lottiefiles/dotlottie-web players, registering instances on window.__hfLottie, or making After Effects exports deterministic in HyperFrames.
 official: true
-category: "AI剪辑"
-version: "0.6.42"
+category: AI剪辑
+version: 0.6.42
+name_i18n:
+  zh: Lottie 动画
+  en: Lottie Animation
+description_i18n:
+  zh: 在 HyperFrames 中嵌入 Lottie/dotLottie 动画并保证渲染确定性。
+  en: Embed Lottie and dotLottie animations in HyperFrames with deterministic rendering.
 ---
 
 # Lottie for HyperFrames

@@ -4,7 +4,13 @@ description: |
   Multi-style article creation skill. Supports 5 writing styles (deep analysis, practical guide, story-driven, opinion, news brief),
   including complete workflow: material collection → outline → content → formatting. Activated when users mention "write article", "write post", "create", or "draft".
 official: true
-category: "内容创作"
+category: 内容创作
+name_i18n:
+  zh: 文章写作
+  en: Article Writer
+description_i18n:
+  zh: 按多种风格完成文章选材、提纲、正文和排版。
+  en: Write articles in multiple styles, covering material collection, outline, drafting, and formatting.
 ---
 
 # Multi-Style Article Creation

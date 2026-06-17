@@ -27,6 +27,12 @@ guide-prompt-en: Help me use it to create a new skill. First ask me what this sk
 exported-by: MiniMax-hub
 official: true
 category: 内容创作
+name_i18n:
+  zh: 技能创建器
+  en: Skill Creator
+description_i18n:
+  zh: 创建、修改、保存和安装可复用 Skill，并引导目录结构和市场安装。
+  en: Create, update, save, and install reusable Skills, including directory and marketplace guidance.
 ---
 
 # Skill Creator & Manager

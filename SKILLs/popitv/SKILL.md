@@ -1,9 +1,15 @@
 ---
 name: popitv
-description: 'Provides production-grade PopiTV canvas support for Popiai sessions, enabling visual node-based orchestration of image, video, audio, 3D, prompt engineering, batch creation, review, and final media delivery workflows.'
+description: Provides production-grade PopiTV canvas support for Popiai sessions, enabling visual node-based orchestration of image, video, audio, 3D, prompt engineering, batch creation, review, and final media delivery workflows.
 official: true
-category: '图像制作'
+category: 图像制作
 version: 1.0.0
+name_i18n:
+  zh: PopiTV 画布
+  en: PopiTV Canvas
+description_i18n:
+  zh: 提供 PopiTV 可视化节点画布，编排图像、视频、音频、3D 和批量创作流程。
+  en: Provide PopiTV visual node-canvas orchestration for image, video, audio, 3D, and batch creation workflows.
 ---
 
 # PopiTV Canvas
