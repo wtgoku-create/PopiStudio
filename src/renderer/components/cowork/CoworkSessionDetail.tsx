@@ -639,6 +639,33 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     return () => unsubscribe?.();
   }, [sessionId]);
 
+  const spawnToolUseIdsKey = useMemo(() => {
+    if (!currentSession?.messages?.length) return '';
+    return currentSession.messages
+      .filter((message) => (
+        message.type === 'tool_use'
+        && message.metadata?.toolName === 'sessions_spawn'
+        && typeof message.metadata.toolUseId === 'string'
+      ))
+      .map((message) => message.metadata?.toolUseId as string)
+      .join('|');
+  }, [currentSession?.messages]);
+
+  const subagentRunIdsKey = useMemo(() => (
+    subagentRuns.map((run) => run.id).join('|')
+  ), [subagentRuns]);
+
+  useEffect(() => {
+    if (!sessionId || !spawnToolUseIdsKey) return;
+    const spawnToolUseIds = spawnToolUseIdsKey.split('|');
+    if (spawnToolUseIds.length === 0) return;
+
+    const knownRunIds = new Set(subagentRunIdsKey ? subagentRunIdsKey.split('|') : []);
+    if (spawnToolUseIds.some((toolUseId) => !knownRunIds.has(toolUseId))) {
+      void fetchSubagentRuns();
+    }
+  }, [fetchSubagentRuns, sessionId, spawnToolUseIdsKey, subagentRunIdsKey]);
+
   useEffect(() => {
     if (!showCompactConfirm) return undefined;
 
@@ -2064,6 +2091,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       );
       const subagentRunsByToolUseId = new Map<string, SubagentSessionSummary[]>();
       for (const run of subagentRuns) {
+        if (run.status === 'error' && !run.sessionKey) {
+          continue;
+        }
         const runsForToolUse = subagentRunsByToolUseId.get(run.id);
         if (runsForToolUse) {
           runsForToolUse.push(run);

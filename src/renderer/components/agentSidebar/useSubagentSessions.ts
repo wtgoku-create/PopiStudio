@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import type { SubagentSessionSummary } from '../../types/cowork';
+import { CoworkSessionStatusValue } from '../../types/cowork';
+
+const SUBAGENT_REFRESH_INTERVAL_MS = 1500;
 
 /**
  * Fetches and subscribes to subagent sessions for the currently selected session.
@@ -8,7 +11,7 @@ import type { SubagentSessionSummary } from '../../types/cowork';
  */
 export const useSubagentSessions = (
   currentSessionId: string | null,
-  _currentSessionStatus?: string,
+  currentSessionStatus?: string,
 ) => {
   const [subagentsBySessionId, setSubagentsBySessionId] = useState<
     Record<string, SubagentSessionSummary[]>
@@ -46,6 +49,18 @@ export const useSubagentSessions = (
 
     void fetchSubagents(currentSessionId);
   }, [currentSessionId, fetchSubagents]);
+
+  useEffect(() => {
+    if (!currentSessionId || currentSessionStatus !== CoworkSessionStatusValue.Running) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      void fetchSubagents(currentSessionId);
+    }, SUBAGENT_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+  }, [currentSessionId, currentSessionStatus, fetchSubagents]);
 
   useEffect(() => {
     const unsubscribe = window.electron?.cowork?.onSubagentRunsChanged?.(({ parentSessionId, runs }) => {

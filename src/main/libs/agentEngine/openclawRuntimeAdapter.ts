@@ -2148,6 +2148,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.stoppedSessions.set(sessionId, Date.now());
 
     this.stopSubagentCompletionWatcher(sessionId);
+    this.subagentTracker.markRunningSubagentsError(sessionId);
     this.cleanupSessionTurn(sessionId);
     this.clearPendingApprovalsBySession(sessionId);
     this.store.updateSession(sessionId, { status: 'idle' });
@@ -3405,6 +3406,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     if (event.event === 'chat') {
+      if (this.isSubagentGatewayPayload(event.payload) && this.subagentTracker.handleChatEvent(event.payload)) {
+        return;
+      }
       if (!this.isKnownParentGatewayPayload(event.payload) && this.subagentTracker.handleChatEvent(event.payload)) {
         return;
       }
@@ -3413,6 +3417,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     if (event.event === 'agent') {
+      if (this.isSubagentGatewayPayload(event.payload) && this.subagentTracker.handleAgentEvent(event.payload)) {
+        return;
+      }
       if (!this.isKnownParentGatewayPayload(event.payload) && this.subagentTracker.handleAgentEvent(event.payload)) {
         return;
       }
@@ -3435,6 +3442,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (event.event === 'cron') {
       console.debug('[OpenClawRuntime] received cron event:', JSON.stringify(event));
     }
+  }
+
+  private isSubagentGatewayPayload(payload: unknown): boolean {
+    if (!isRecord(payload)) return false;
+    const sessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey.trim() : '';
+    return /(?:^|:)subagent:[^:]+/.test(sessionKey);
   }
 
   private isKnownParentGatewayPayload(payload: unknown): boolean {
@@ -4267,6 +4280,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       this.splitAssistantSegmentBeforeTool(sessionId, turn);
       turn.agentAssistantTextLength = 0;
 
+      // Track sessions_spawn before emitting the tool_use message so the
+      // renderer can mount the inline panel in the same render pass.
+      if (toolNameRaw.toLowerCase() === 'sessions_spawn') {
+        this.subagentTracker.onToolStart(toolCallId, toToolInputRecord(data.args), sessionId);
+      }
+
       const toolUseMessage = this.store.addMessage(sessionId, {
         type: 'tool_use',
         content: `Using tool: ${toolName}`,
@@ -4278,11 +4297,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       });
       turn.toolUseMessageIdByToolCallId.set(toolCallId, toolUseMessage.id);
       this.emit('message', sessionId, toolUseMessage);
-
-      // Track sessions_spawn tool calls for subagent visualization
-      if (toolNameRaw.toLowerCase() === 'sessions_spawn') {
-        this.subagentTracker.onToolStart(toolCallId, toToolInputRecord(data.args), sessionId);
-      }
     }
 
     if (phase === 'update') {
@@ -5352,6 +5366,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       this.emit('complete', sessionId, turn.runId);
     }
     const abortedSessionKey = turn.sessionKey;
+    this.subagentTracker.markRunningSubagentsError(sessionId);
     this.cleanupSessionTurn(sessionId);
     this.resolveTurn(sessionId);
     void this.reconcileWithHistory(sessionId, abortedSessionKey);

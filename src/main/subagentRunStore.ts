@@ -49,7 +49,7 @@ export class SubagentRunStore {
     }
   }
 
-  updateSubagentRunSessionKey(id: string, sessionKey: string): void {
+  updateSubagentRunSessionKey(id: string, sessionKey: string | null): void {
     this.db.prepare('UPDATE subagent_runs SET session_key = ? WHERE id = ?')
       .run(sessionKey, id);
   }
