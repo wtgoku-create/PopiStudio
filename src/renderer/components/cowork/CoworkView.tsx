@@ -652,7 +652,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
             <img
               src="popi_mcn.png"
               alt="Popiai"
-              className="mx-auto h-10 animate-fade-in-up"
+              className="mx-auto h-8 animate-fade-in-up"
             />
             <h2
               className="mt-4 text-[24px] font-semibold leading-8 tracking-normal text-foreground animate-fade-in-up"

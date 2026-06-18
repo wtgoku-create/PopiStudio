@@ -347,11 +347,11 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
           {selectedAgent ? (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-8">
               <div className="flex w-full max-w-[520px] flex-col items-center gap-4">
-                <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-transparent leading-none text-foreground dark:border-white/[0.12]">
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-transparent leading-none text-foreground dark:border-white/[0.12]">
                   <AgentAvatarIcon
                     value={selectedAgent.icon}
                     fallbackText={getAgentDisplayName(selectedAgent).slice(0, 1)}
-                    className="h-24 w-24"
+                    className="h-18 w-18"
                     iconClassName="h-10 w-10"
                     legacyClassName="text-5xl"
                   />
@@ -398,7 +398,7 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
                 className="flex flex-col items-center justify-center gap-1.5"
                 aria-label={i18nService.t('contactsDefaultBrand')}
               >
-                <img src="popi_mcn.png" className="h-10" alt="popi_mcn" />
+                <img src="popi_mcn.png" className="h-8" alt="popi_mcn" />
                 <span className="text-center text-[16px] text-secondary dark:text-white/60">
                   {i18nService.t('contactsCreateAgentHint')}
                 </span>

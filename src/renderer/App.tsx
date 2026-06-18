@@ -801,7 +801,7 @@ const App: React.FC = () => {
   const isContactsView = mainView === MainView.Contacts;
   const appChromeTitleBar = (
     <div className="draggable h-[40px] shrink-0 bg-surface-raised flex items-center justify-between pr-[10px]">
-      <div>{isWindows && <img className="h-[30px] w-[30px] mx-[13px]" src="/logo.png" alt="" />}</div>
+      <div>{isWindows && <img className="h-[30px] w-[30px] mx-[13px]" src="logo.png" alt="" />}</div>
       {isWindows && <WindowTitleBar isOverlayActive={isOverlayActive} />}
     </div>
   );
