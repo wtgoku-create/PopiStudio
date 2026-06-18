@@ -398,7 +398,7 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
                 className="flex flex-col items-center justify-center gap-1.5"
                 aria-label={i18nService.t('contactsDefaultBrand')}
               >
-                <img src="popi_mcn.png" className="h-[45px] w-[182px]" alt="popi_mcn" />
+                <img src="popi_mcn.png" className="h-10" alt="popi_mcn" />
                 <span className="text-center text-[16px] text-secondary dark:text-white/60">
                   {i18nService.t('contactsCreateAgentHint')}
                 </span>
