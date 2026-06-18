@@ -23,4 +23,5 @@ export const LegacyAgentName = {
 
 export const DefaultAgentProfile = {
   Name: 'Popiai',
+  Description: '7×24 小时帮你干活的全场景个人助理 Agent',
 } as const;

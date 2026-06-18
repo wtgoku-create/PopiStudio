@@ -10,6 +10,7 @@ import {
   AppUpdateStatus,
 } from '../shared/appUpdate/constants';
 import AgentSidebarPanel from './components/agentSidebar/AgentSidebarPanel';
+import { ContactsView } from './components/contacts';
 import { CoworkView } from './components/cowork';
 import CoworkPermissionModal from './components/cowork/CoworkPermissionModal';
 import CoworkQuestionWizard from './components/cowork/CoworkQuestionWizard';
@@ -28,6 +29,7 @@ import AppUpdateModal from './components/update/AppUpdateModal';
 import WelcomeDialog from './components/WelcomeDialog';
 import WindowTitleBar from './components/window/WindowTitleBar';
 import { defaultConfig } from './config';
+import { MainView } from './constants/navigation';
 import type { ApiConfig } from './services/api';
 import { apiService } from './services/api';
 import { authService } from './services/auth';
@@ -54,9 +56,7 @@ const INIT_STEP_TIMEOUT_MS_DEFAULT = 16_000;
 const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState<SettingsOpenOptions>({});
-  const [mainView, setMainView] = useState<
-    'cowork' | 'skills' | 'scheduledTasks' | 'mcp' | 'folder'
-  >('cowork');
+  const [mainView, setMainView] = useState<MainView>(MainView.Cowork);
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -291,19 +291,23 @@ const App: React.FC = () => {
   }, []);
 
   const handleShowSkills = useCallback(() => {
-    setMainView('skills');
+    setMainView(MainView.Skills);
   }, []);
 
   const handleShowCowork = useCallback(() => {
-    setMainView('cowork');
+    setMainView(MainView.Cowork);
   }, []);
 
   const handleShowScheduledTasks = useCallback(() => {
-    setMainView('scheduledTasks');
+    setMainView(MainView.ScheduledTasks);
   }, []);
 
   const handleShowFolder = useCallback(() => {
-    setMainView('folder');
+    setMainView(MainView.Folder);
+  }, []);
+
+  const handleShowContacts = useCallback(() => {
+    setMainView(MainView.Contacts);
   }, []);
 
   const handleToggleSidebar = useCallback(() => {
@@ -316,10 +320,10 @@ const App: React.FC = () => {
 
   const handleNewChat = useCallback(() => {
     // Only clear when already on home (no session) — preserve __home__ draft when returning from a session
-    const shouldClearInput = mainView === 'cowork' && !currentSessionId;
+    const shouldClearInput = mainView === MainView.Cowork && !currentSessionId;
     coworkService.clearSession({ restoreAgentSkills: true });
     dispatch(clearSelection());
-    setMainView('cowork');
+    setMainView(MainView.Cowork);
     window.setTimeout(() => {
       window.dispatchEvent(
         new CustomEvent('cowork:focus-input', {
@@ -333,7 +337,7 @@ const App: React.FC = () => {
     dispatch(setDraftPrompt({ sessionId: '__home__', draft: i18nService.t('skillCreatorPrompt') }));
     coworkService.clearSession();
     dispatch(clearSelection());
-    setMainView('cowork');
+    setMainView(MainView.Cowork);
   }, [dispatch]);
 
   const showToast = useCallback((message: string) => {
@@ -588,7 +592,7 @@ const App: React.FC = () => {
     const handler = (e: Event) => {
       const text = (e as CustomEvent<string>).detail;
       setShowSettings(false);
-      setMainView('cowork');
+      setMainView(MainView.Cowork);
       window.setTimeout(() => {
         window.dispatchEvent(
           new CustomEvent('cowork:focus-input', {
@@ -794,6 +798,7 @@ const App: React.FC = () => {
           );
         })()
       : null;
+  const isContactsView = mainView === MainView.Contacts;
   const appChromeTitleBar = (
     <div className="draggable h-[40px] shrink-0 bg-surface-raised flex items-center justify-between">
       <div>{isWindows && <img className="h-[30px] w-[30px] mx-[13px]" src="/logo.png" alt="" />}</div>
@@ -872,6 +877,7 @@ const App: React.FC = () => {
           onShowSkills={handleShowSkills}
           onShowCowork={handleShowCowork}
           onShowScheduledTasks={handleShowScheduledTasks}
+          onShowContacts={handleShowContacts}
           onNewChat={handleNewChat}
           isCollapsed={false}
           onShowFolder={handleShowFolder}
@@ -881,12 +887,18 @@ const App: React.FC = () => {
           onCollapseAgentPanel={handleCollapseAgentPanel}
           hideLogin={enterpriseConfig?.ui?.login === 'hide'}
         />
-        <div className="flex min-w-0 flex-1 gap-[6px] overflow-hidden p-[10px] pt-0 pl-0">
-          <AgentSidebarPanel isCollapsed={isAgentPanelCollapsed} onShowCowork={handleShowCowork} />
+        <div
+          className={`flex min-w-0 flex-1 overflow-hidden ${
+            isContactsView ? 'p-0' : 'gap-[6px] p-[10px] pt-0 pl-0'
+          }`}
+        >
+          {!isContactsView && (
+            <AgentSidebarPanel isCollapsed={isAgentPanelCollapsed} onShowCowork={handleShowCowork} />
+          )}
           <div className="flex-1 min-w-0 transition-[padding] duration-200 ease-out">
             <div className="relative h-full min-h-0 overflow-hidden rounded-xl bg-background">
               <EngineStartupOverlay />
-              {mainView === 'skills' ? (
+              {mainView === MainView.Skills ? (
                 <SkillsView
                   isSidebarCollapsed={isAgentPanelCollapsed}
                   onToggleSidebar={handleToggleSidebar}
@@ -894,20 +906,22 @@ const App: React.FC = () => {
                   onCreateSkillByChat={handleCreateSkillByChat}
                   readOnly={enterpriseConfig?.ui?.skills === 'readonly'}
                 />
-              ) : mainView === 'scheduledTasks' ? (
+              ) : mainView === MainView.ScheduledTasks ? (
                 <ScheduledTasksView
                   isSidebarCollapsed={isAgentPanelCollapsed}
                   onToggleSidebar={handleToggleSidebar}
                   onNewChat={handleNewChat}
                 />
-              ) : mainView === 'mcp' ? (
+              ) : mainView === MainView.Mcp ? (
                 <McpView
                   isSidebarCollapsed={isAgentPanelCollapsed}
                   onToggleSidebar={handleToggleSidebar}
                   onNewChat={handleNewChat}
                 />
-              ) : mainView === 'folder' ? (
+              ) : mainView === MainView.Folder ? (
                 <FolderView />
+              ) : mainView === MainView.Contacts ? (
+                <ContactsView onShowCowork={handleShowCowork} />
               ) : (
                 <CoworkView
                   onRequestAppSettings={

@@ -23,10 +23,6 @@ import type { Artifact, ArtifactType } from '../../types/artifact';
 import { ArtifactTypeValue } from '../../types/artifact';
 import ArtifactRenderer from '../artifacts/ArtifactRenderer';
 
-interface FolderViewProps {
-  updateBadge?: React.ReactNode;
-}
-
 interface FolderTreeNode {
   id: string;
   name: string;
@@ -126,7 +122,7 @@ const openPath = async (targetPath: string): Promise<void> => {
   }
 };
 
-const FolderView: React.FC<FolderViewProps> = ({ updateBadge }) => {
+const FolderView: React.FC = () => {
   const configWorkingDirectory = useSelector((state: RootState) => state.cowork.config.workingDirectory);
   const agents = useSelector((state: RootState) => state.agent.agents);
   const [nodes, setNodes] = useState<Record<string, FolderTreeNode>>(() => ({

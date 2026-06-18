@@ -5,7 +5,9 @@ import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { PlatformRegistry } from '../../../shared/platform';
 import { i18nService } from '../../services/i18n';
 import { getAgentDisplayName, isDefaultAgentId, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
+import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
+import { AgentConfirmDialogVariant } from '../agent/constants';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import EditIcon from '../icons/EditIcon';
 import EllipsisHorizontalIcon from '../icons/EllipsisHorizontalIcon';
@@ -77,6 +79,7 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
   onEditAgent,
 }) => {
   const [menuPosition, setMenuPosition] = useState<{ right: number; top: number } | null>(null);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const isMenuOpen = menuPosition !== null;
@@ -263,7 +266,7 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
               event.stopPropagation();
               if (!canDeleteSession) return;
               closeMenu();
-              void onDelete(task);
+              setShowConfirmDelete(true);
             }}
             disabled={!canDeleteSession}
             className={canDeleteSession ? menuItemClassName : disabledMenuItemClassName}
@@ -274,6 +277,27 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
             {i18nService.t('deleteSession')}
           </button>
         </div>
+      )}
+
+      {showConfirmDelete && (
+        <AgentConfirmDialog
+          variant={AgentConfirmDialogVariant.Delete}
+          title={i18nService.t(
+            isAgentHomeSession ? 'agentDeleteConfirmTitle' : 'deleteTaskConfirmTitle',
+          )}
+          message={
+            isAgentHomeSession
+              ? i18nService.t('agentDeleteConfirmMessage').replace('{name}', agentName)
+              : i18nService.t('deleteTaskConfirmMessage')
+          }
+          cancelLabel={i18nService.t('cancel')}
+          confirmLabel={i18nService.t('deleteSession')}
+          onCancel={() => setShowConfirmDelete(false)}
+          onConfirm={() => {
+            setShowConfirmDelete(false);
+            void onDelete(task);
+          }}
+        />
       )}
     </div>
   );

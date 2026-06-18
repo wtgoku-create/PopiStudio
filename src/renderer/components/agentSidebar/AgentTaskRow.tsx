@@ -1,9 +1,9 @@
 import { ShareIcon } from '@heroicons/react/20/solid';
-import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
-import Modal from '../common/Modal';
+import AgentConfirmDialog from '../agent/AgentConfirmDialog';
+import { AgentConfirmDialogVariant } from '../agent/constants';
 import EditIcon from '../icons/EditIcon';
 import EllipsisHorizontalIcon from '../icons/EllipsisHorizontalIcon';
 import ListChecksIcon from '../icons/ListChecksIcon';
@@ -376,43 +376,18 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
       )}
 
       {showConfirmDelete && (
-        <Modal
-          onClose={() => setShowConfirmDelete(false)}
-          className="w-full max-w-sm mx-4 bg-surface rounded-2xl shadow-xl overflow-hidden"
-        >
-          <div className="flex items-center gap-3 px-5 py-4">
-            <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/30">
-              <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-500" />
-            </div>
-            <h2 className="text-base font-semibold text-foreground">
-              {i18nService.t('deleteTaskConfirmTitle')}
-            </h2>
-          </div>
-          <div className="px-5 pb-4">
-            <p className="text-sm text-secondary">
-              {i18nService.t('deleteTaskConfirmMessage')}
-            </p>
-          </div>
-          <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-border">
-            <button
-              type="button"
-              onClick={() => setShowConfirmDelete(false)}
-              className="px-4 py-2 text-sm font-medium rounded-lg text-secondary hover:bg-surface-raised transition-colors"
-            >
-              {i18nService.t('cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowConfirmDelete(false);
-                void onDelete();
-              }}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-red-500 text-white transition-colors hover:bg-red-600"
-            >
-              {i18nService.t('deleteSession')}
-            </button>
-          </div>
-        </Modal>
+        <AgentConfirmDialog
+          variant={AgentConfirmDialogVariant.Delete}
+          title={i18nService.t('deleteTaskConfirmTitle')}
+          message={i18nService.t('deleteTaskConfirmMessage')}
+          cancelLabel={i18nService.t('cancel')}
+          confirmLabel={i18nService.t('deleteSession')}
+          onCancel={() => setShowConfirmDelete(false)}
+          onConfirm={() => {
+            setShowConfirmDelete(false);
+            void onDelete();
+          }}
+        />
       )}
     </div>
   );

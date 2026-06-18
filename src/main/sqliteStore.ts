@@ -442,8 +442,14 @@ export class SqliteStore {
         ? resolveMainAgentWorkingDirectory(configuredWorkingDirectory)
         : '';
       const mainAgent = this.db
-        .prepare('SELECT id, name, icon, working_directory FROM agents WHERE id = ?')
-        .get(AgentId.Main) as { id: string; name: string; icon: string; working_directory: string } | undefined;
+        .prepare('SELECT id, name, description, icon, working_directory FROM agents WHERE id = ?')
+        .get(AgentId.Main) as {
+          id: string;
+          name: string;
+          description: string;
+          icon: string;
+          working_directory: string;
+        } | undefined;
       if (!mainAgent) {
         const now = Date.now();
         // Read existing systemPrompt from cowork_config to inherit into main agent
@@ -462,12 +468,13 @@ export class SqliteStore {
           .prepare(
             `
           INSERT INTO agents (id, name, description, system_prompt, identity, model, working_directory, icon, skill_ids, enabled, is_default, source, preset_id, created_at, updated_at)
-          VALUES (?, ?, '', ?, '', '', ?, ?, '[]', 1, 1, 'custom', '', ?, ?)
+          VALUES (?, ?, ?, ?, '', '', ?, ?, '[]', 1, 1, 'custom', '', ?, ?)
         `,
           )
           .run(
             AgentId.Main,
             DefaultAgentProfile.Name,
+            DefaultAgentProfile.Description,
             existingSystemPrompt,
             mainAgentWorkingDirectory,
             DefaultAgentAvatarIcon,
@@ -477,6 +484,7 @@ export class SqliteStore {
       } else {
         const normalizedName = mainAgent.name.trim();
         const shouldUpgradeName = !normalizedName || normalizedName.toLowerCase() === LegacyAgentName.Main;
+        const shouldUpgradeDescription = !mainAgent.description.trim();
         const shouldUpgradeWorkingDirectory = mainAgentWorkingDirectory
           && (!mainAgent.working_directory.trim()
             || mainAgent.working_directory.trim() === configuredWorkingDirectory);
@@ -485,6 +493,12 @@ export class SqliteStore {
           this.db
             .prepare('UPDATE agents SET name = ?, updated_at = ? WHERE id = ?')
             .run(DefaultAgentProfile.Name, now, AgentId.Main);
+          this.didRunMigration = true;
+        }
+        if (shouldUpgradeDescription) {
+          this.db
+            .prepare('UPDATE agents SET description = ?, updated_at = ? WHERE id = ?')
+            .run(DefaultAgentProfile.Description, now, AgentId.Main);
           this.didRunMigration = true;
         }
         if (shouldUpgradeWorkingDirectory) {

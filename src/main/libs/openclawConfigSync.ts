@@ -2513,7 +2513,7 @@ export class OpenClawConfigSync {
       agentById.set(AgentId.Main, {
         id: AgentId.Main,
         name: DefaultAgentProfile.Name,
-        description: '',
+        description: DefaultAgentProfile.Description,
         systemPrompt: '',
         identity: '',
         model: '',

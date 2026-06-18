@@ -14,7 +14,6 @@ import type { DingTalkInstanceConfig, DiscordInstanceConfig, FeishuInstanceConfi
 import { getAgentDisplayName, getAgentDisplayNameById, isDefaultAgentId } from '../../utils/agentDisplay';
 import { getVisibleIMPlatforms } from '../../utils/regionFilter';
 import Modal from '../common/Modal';
-import TrashIcon from '../icons/TrashIcon';
 import Switch from '../ui/Switch';
 import AgentAvatarPicker from './AgentAvatarPicker';
 import AgentConfirmDialog from './AgentConfirmDialog';
@@ -46,7 +45,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
   const [skillIds, setSkillIds] = useState<string[]>([]);
   const [nameTouched, setNameTouched] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<AgentDetailTab>(AgentDetailTab.Prompt);
 
@@ -71,7 +69,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
     if (!agentId) return;
     let cancelled = false;
     setActiveTab(AgentDetailTab.Identity);
-    setShowDeleteConfirm(false);
     setShowUnsavedConfirm(false);
     setNameTouched(false);
 
@@ -225,14 +222,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
       window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentSaveFailed') }));
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    const success = await agentService.deleteAgent(agentId);
-    if (success) {
-      setShowDeleteConfirm(false);
-      onClose();
     }
   };
 
@@ -556,16 +545,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
 
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-end gap-2 px-5 py-3.5 border-t border-border">
-            {!isMainAgent && (
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-              >
-                <TrashIcon className="h-4 w-4" />
-                {i18nService.t('delete')}
-              </button>
-            )}
             <button
               type="button"
               onClick={handleSave}
@@ -576,18 +555,6 @@ const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({ agentId, onClos
             </button>
         </div>
       </Modal>
-
-      {showDeleteConfirm && (
-        <AgentConfirmDialog
-          variant={AgentConfirmDialogVariant.Delete}
-          title={i18nService.t('agentDeleteConfirmTitle')}
-          message={i18nService.t('agentDeleteConfirmMessage').replace('{name}', name)}
-          cancelLabel={i18nService.t('cancel')}
-          confirmLabel={i18nService.t('delete')}
-          onCancel={() => setShowDeleteConfirm(false)}
-          onConfirm={handleDelete}
-        />
-      )}
 
       {showUnsavedConfirm && (
         <AgentConfirmDialog

@@ -1,15 +1,18 @@
 import React, { useEffect } from 'react';
 
+import { MainView, type MainView as MainViewType } from '../constants/navigation';
 import { i18nService } from '../services/i18n';
 import SidebarAutomationIcon from './icons/SidebarAutomationIcon';
 import LoginButton from './LoginButton';
+import TeamOutlinedIcon from './icons/TeamOutlinedIcon';
 interface SidebarProps {
   onShowSettings: () => void;
   onShowLogin?: () => void;
-  activeView: 'cowork' | 'skills' | 'scheduledTasks' | 'mcp' | 'folder';
+  activeView: MainViewType;
   onShowSkills: () => void;
   onShowCowork: () => void;
   onShowFolder: () => void;
+  onShowContacts: () => void;
   onShowScheduledTasks: () => void;
   onNewChat: () => void;
   isCollapsed: boolean;
@@ -26,7 +29,6 @@ const sidebarIconButtonClassName =
   'relative inline-flex h-10 w-10 items-center justify-center rounded-[10px] text-muted transition-colors hover:bg-surface hover:text-foreground dark:hover:bg-white/[0.06]';
 const activeSidebarIconButtonClassName = `${sidebarIconButtonClassName} bg-surface text-foreground dark:bg-white/[0.08]`;
 const sidebarIconClassName = 'h-[25px] w-[25px] shrink-0';
-  const isWindows = window.electron.platform === 'win32';
 
 const PopiRailLogo: React.FC = () => (
   <img src="logo.png" alt="Popi" className="h-[30px] w-[30px] object-contain" draggable={false} />
@@ -108,6 +110,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onShowSkills,
   onShowCowork,
   onShowFolder,
+  onShowContacts,
   onShowScheduledTasks,
   isAgentPanelCollapsed,
   onToggleAgentPanel,
@@ -116,7 +119,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   updateBadge,
   hideLogin,
 }) => {
-  const isMac = window.electron.platform === 'darwin';
+  const isWindows = window.electron.platform === 'win32';
 
   useEffect(() => {
     const handleSearch = () => {
@@ -152,7 +155,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="non-draggable flex flex-col items-center gap-2 px-[10px] pt-0">
           <SidebarIconButton
             label={i18nService.t('cowork')}
-            active={activeView === 'cowork' && !isAgentPanelCollapsed}
+            active={activeView === MainView.Cowork && !isAgentPanelCollapsed}
             onClick={() => {
               onShowCowork();
               onToggleAgentPanel();
@@ -162,7 +165,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           </SidebarIconButton>
           <SidebarIconButton
             label={i18nService.t('scheduledTasks')}
-            active={activeView === 'scheduledTasks'}
+            active={activeView === MainView.ScheduledTasks}
             onClick={() => {
               onShowScheduledTasks();
               onCollapseAgentPanel();
@@ -172,7 +175,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           </SidebarIconButton>
           <SidebarIconButton
             label={i18nService.t('skills')}
-            active={activeView === 'skills'}
+            active={activeView === MainView.Skills}
             onClick={() => {
               onShowSkills();
               onCollapseAgentPanel();
@@ -182,13 +185,23 @@ const Sidebar: React.FC<SidebarProps> = ({
           </SidebarIconButton>
           <SidebarIconButton
             label={i18nService.t('folder')}
-            active={activeView === 'folder'}
+            active={activeView === MainView.Folder}
             onClick={() => {
               onShowFolder();
               onCollapseAgentPanel();
             }}
           >
             <FolderRailIcon className={sidebarIconClassName} />
+          </SidebarIconButton>
+          <SidebarIconButton
+            label={i18nService.t('contactsTitle')}
+            active={activeView === MainView.Contacts}
+            onClick={() => {
+              onShowContacts();
+              onCollapseAgentPanel();
+            }}
+          >
+            <TeamOutlinedIcon className={sidebarIconClassName} />
           </SidebarIconButton>
         </div>
         <div className="flex-1" />

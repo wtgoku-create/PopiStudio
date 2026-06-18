@@ -114,16 +114,17 @@ test('backfills agent working directories from legacy cowork config only once', 
   reopenedStore.close();
 });
 
-test('upgrades legacy default agent name during migration', async () => {
+test('upgrades legacy default agent profile during migration', async () => {
   const userDataPath = createTempUserDataPath();
   createLegacyDatabase(userDataPath);
 
   const store = await SqliteStore.create(userDataPath);
   const row = store.getDatabase()
-    .prepare("SELECT name FROM agents WHERE id = 'main'")
-    .get() as { name: string };
+    .prepare("SELECT name, description FROM agents WHERE id = 'main'")
+    .get() as { name: string; description: string };
 
   expect(row.name).toBe(DefaultAgentProfile.Name);
+  expect(row.description).toBe(DefaultAgentProfile.Description);
 
   store.close();
 });

@@ -1,6 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-interface AgentSummary {
+export interface AgentSummary {
   id: string;
   name: string;
   description: string;

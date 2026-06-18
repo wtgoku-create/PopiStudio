@@ -650,9 +650,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
           {/* Welcome Section - staggered entrance animation */}
           <div className="w-full max-w-3xl text-center">
             <img
-              src="logo.png"
+              src="popi_mcn.png"
               alt="Popiai"
-              className="mx-auto h-12 w-12 animate-fade-in-up"
+              className="mx-auto h-10 animate-fade-in-up"
             />
             <h2
               className="mt-4 text-[24px] font-semibold leading-8 tracking-normal text-foreground animate-fade-in-up"
