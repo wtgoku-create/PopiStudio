@@ -5,6 +5,7 @@ import {
   UserPlusIcon,
 } from '@heroicons/react/24/outline';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { i18nService } from '../../services/i18n';
 
@@ -14,12 +15,18 @@ interface MyAgentSidebarHeaderProps {
   onSearch: () => void;
 }
 
+const ADD_MENU_OFFSET_X = -10;
+const ADD_MENU_OFFSET_Y = 8;
+const ADD_MENU_VIEWPORT_PADDING = 8;
+const ADD_MENU_WIDTH = 216;
+
 const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
   onAddFriend,
   onCreateAgent,
   onSearch,
 }) => {
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuItemClassName =
@@ -30,8 +37,41 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
     setIsAddMenuOpen(false);
   }, []);
 
+  const updateMenuPosition = useCallback(() => {
+    const button = menuButtonRef.current;
+    if (!button) return;
+
+    const buttonRect = button.getBoundingClientRect();
+    const menuWidth = menuRef.current?.offsetWidth ?? ADD_MENU_WIDTH;
+    const menuHeight = menuRef.current?.offsetHeight ?? 88;
+    const maxLeft = Math.max(
+      ADD_MENU_VIEWPORT_PADDING,
+      window.innerWidth - menuWidth - ADD_MENU_VIEWPORT_PADDING,
+    );
+    const maxTop = Math.max(
+      ADD_MENU_VIEWPORT_PADDING,
+      window.innerHeight - menuHeight - ADD_MENU_VIEWPORT_PADDING,
+    );
+
+    setMenuPosition({
+      left: Math.max(
+        ADD_MENU_VIEWPORT_PADDING,
+        Math.min(buttonRect.left + ADD_MENU_OFFSET_X, maxLeft),
+      ),
+      top: Math.max(
+        ADD_MENU_VIEWPORT_PADDING,
+        Math.min(buttonRect.bottom + ADD_MENU_OFFSET_Y, maxTop),
+      ),
+    });
+  }, []);
+
   useEffect(() => {
-    if (!isAddMenuOpen) return;
+    if (!isAddMenuOpen) {
+      setMenuPosition(null);
+      return;
+    }
+
+    updateMenuPosition();
 
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
@@ -44,14 +84,21 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
         closeAddMenu();
       }
     };
+    const handleLayoutChange = () => {
+      updateMenuPosition();
+    };
 
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
+    document.addEventListener('scroll', handleLayoutChange, true);
+    window.addEventListener('resize', handleLayoutChange);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('scroll', handleLayoutChange, true);
+      window.removeEventListener('resize', handleLayoutChange);
     };
-  }, [closeAddMenu, isAddMenuOpen]);
+  }, [closeAddMenu, isAddMenuOpen, updateMenuPosition]);
 
   const handleShowContacts = () => {
     closeAddMenu();
@@ -62,6 +109,37 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
     closeAddMenu();
     onCreateAgent();
   };
+
+  const addMenu = isAddMenuOpen && typeof document !== 'undefined'
+    ? createPortal(
+      <div
+        ref={menuRef}
+        className="fixed z-50 w-[216px] max-w-[calc(100vw-16px)] overflow-hidden rounded-[12px] border border-black/[0.05] bg-white p-2 shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:border-white/[0.08] dark:bg-[#1f1f1f] dark:shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
+        style={menuPosition ?? { visibility: 'hidden' }}
+        role="menu"
+      >
+        <button
+          type="button"
+          onClick={handleShowContacts}
+          className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
+          role="menuitem"
+        >
+          <UserPlusIcon className={menuIconClassName} />
+          <span className="truncate">{i18nService.t('agentSidebarAddFriend')}</span>
+        </button>
+        <button
+          type="button"
+          onClick={handleCreateAgent}
+          className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
+          role="menuitem"
+        >
+          <BoltIcon className={menuIconClassName} />
+          <span className="truncate">{i18nService.t('createNewAgent')}</span>
+        </button>
+      </div>,
+      document.body,
+    )
+    : null;
 
   return (
     <div className="sticky top-0 z-30 w-full bg-background pb-2">
@@ -83,34 +161,9 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
           >
             <PlusCircleIcon className="h-5 w-5" />
           </button>
-          {isAddMenuOpen && (
-            <div
-              ref={menuRef}
-              className="absolute right-0 top-[32px] z-50 w-max min-w-[124px] max-w-[calc(100vw-16px)] overflow-hidden rounded-lg border border-border bg-surface py-1 shadow-lg"
-              role="menu"
-            >
-              <button
-                type="button"
-                onClick={handleShowContacts}
-                className={menuItemClassName}
-                role="menuitem"
-              >
-                <UserPlusIcon className={menuIconClassName} />
-                <span className="truncate">{i18nService.t('agentSidebarAddFriend')}</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateAgent}
-                className={menuItemClassName}
-                role="menuitem"
-              >
-                <BoltIcon className={menuIconClassName} />
-                <span className="truncate">{i18nService.t('createNewAgent')}</span>
-              </button>
-            </div>
-          )}
         </div>
       </div>
+      {addMenu}
       <button
         type="button"
         onClick={onSearch}

@@ -38,7 +38,7 @@ const DEFINITIONS = [
     channel: 'openclaw-weixin',
     channelAliases: [],
     logo: 'weixin.png',
-    guideUrl:'',
+    guideUrl:'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   {
     id: 'dingtalk',
@@ -47,7 +47,7 @@ const DEFINITIONS = [
     channel: 'dingtalk-connector',
     channelAliases: ['dingtalk'],
     logo: 'dingding.png',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   {
     id: 'feishu',
@@ -56,7 +56,7 @@ const DEFINITIONS = [
     channel: 'feishu',
     channelAliases: [],
     logo: 'feishu.png',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   {
     id: 'wecom',
@@ -65,7 +65,7 @@ const DEFINITIONS = [
     channel: 'wecom',
     channelAliases: ['wecom-openclaw-plugin'],
     logo: 'wecom.png',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   {
     id: 'qq',
@@ -74,7 +74,7 @@ const DEFINITIONS = [
     channel: 'qqbot',
     channelAliases: [],
     logo: 'qq_bot.jpeg',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   {
     id: 'nim',
@@ -83,7 +83,7 @@ const DEFINITIONS = [
     channel: 'nim',
     channelAliases: [],
     logo: 'nim.png',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   {
     id: 'netease-bee',
@@ -92,7 +92,7 @@ const DEFINITIONS = [
     channel: 'netease-bee',
     channelAliases: [],
     logo: 'netease-bee.png',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   {
     id: 'popo',
@@ -101,7 +101,7 @@ const DEFINITIONS = [
     channel: 'moltbot-popo',
     channelAliases: ['popo'],
     logo: 'popo.png',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   // ── Global ──
   {
@@ -111,7 +111,7 @@ const DEFINITIONS = [
     channel: 'telegram',
     channelAliases: [],
     logo: 'telegram.svg',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   {
     id: 'discord',
@@ -120,7 +120,7 @@ const DEFINITIONS = [
     channel: 'discord',
     channelAliases: [],
     logo: 'discord.svg',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
   {
     id: 'email',
@@ -129,7 +129,7 @@ const DEFINITIONS = [
     channel: 'email',
     channelAliases: ['clawemail', 'clawemail-email'],
     logo: 'email.svg',
-    guideUrl: '',
+    guideUrl: 'https://tcnshqo5yu6i.feishu.cn/wiki/VIBzwpNRQi9g3cke5KqcGFgwnDf',
   },
 ] as const satisfies readonly PlatformDefInput[];
 
