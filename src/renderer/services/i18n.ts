@@ -557,7 +557,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     coworkOpenClawNotInstalledNotice:
       '未检测到内置 OpenClaw runtime（cfmind），请先执行打包前构建脚本。',
     coworkOpenClawReadyNotice: 'OpenClaw runtime 已就绪。开始任务时会自动启动网关。',
-    coworkOpenClawStarting: 'AI 引擎正在启动网关...',
+    coworkOpenClawStarting: 'AI 引擎正在启动...',
     coworkOpenClawRunning: 'AI 引擎已就绪。',
     coworkOpenClawError: 'OpenClaw 网关未能在规定时间内启动成功。',
     coworkMemoryTitle: '记忆',
@@ -793,6 +793,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     createAgent: '创建 Agent',
     myAgents: '我的 Agent',
     agentSidebarMessages: '消息',
+    agentSidebarAddFriend: '添加好友',
     defaultAgentDisplayName: '主 Agent',
     myAgentSidebarPinned: '置顶',
     myAgentSidebarExpandMore: '展开显示',
@@ -2770,7 +2771,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
       'Bundled OpenClaw runtime (cfmind) was not found. Build the runtime before packaging.',
     coworkOpenClawReadyNotice:
       'OpenClaw runtime is ready. The gateway will auto-start when you run a task.',
-    coworkOpenClawStarting: 'AI engine is starting the gateway...',
+    coworkOpenClawStarting: 'AI engine is starting...',
     coworkOpenClawRunning: 'AI engine is ready.',
     coworkOpenClawError: 'OpenClaw gateway failed to become healthy in time.',
     coworkMemoryTitle: 'Memory',
@@ -3016,6 +3017,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     createAgent: 'Create Agent',
     myAgents: 'My Agents',
     agentSidebarMessages: 'Messages',
+    agentSidebarAddFriend: 'Add Friend',
     defaultAgentDisplayName: 'Primary Agent',
     myAgentSidebarPinned: 'Pinned',
     myAgentSidebarExpandMore: 'Show more',

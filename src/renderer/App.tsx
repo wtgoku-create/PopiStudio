@@ -893,7 +893,11 @@ const App: React.FC = () => {
           }`}
         >
           {!isContactsView && (
-            <AgentSidebarPanel isCollapsed={isAgentPanelCollapsed} onShowCowork={handleShowCowork} />
+            <AgentSidebarPanel
+              isCollapsed={isAgentPanelCollapsed}
+              onShowCowork={handleShowCowork}
+              onShowContacts={handleShowContacts}
+            />
           )}
           <div className="flex-1 min-w-0 transition-[padding] duration-200 ease-out">
             <div className="relative h-full min-h-0 overflow-hidden rounded-xl bg-background">

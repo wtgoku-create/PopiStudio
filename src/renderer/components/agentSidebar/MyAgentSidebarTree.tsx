@@ -22,6 +22,7 @@ interface MyAgentSidebarTreeProps {
   deletedSessionIds: string[];
   selectedIds: Set<string>;
   onShowCowork: () => void;
+  onShowContacts: () => void;
   onToggleSelection: (sessionId: string, agentId: string) => void;
   onEnterBatchMode: (sessionId: string, agentId: string) => void;
   onBatchSelectableIdsChange: (sessionIds: string[]) => void;
@@ -31,6 +32,7 @@ interface MyAgentSidebarTreeProps {
 const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   deletedSessionIds,
   onShowCowork,
+  onShowContacts,
   onBatchSelectableIdsChange,
   onSearch,
 }) => {
@@ -142,6 +144,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     <div className="pb-3" role="list" aria-label={i18nService.t('myAgents')}>
       <MyAgentSidebarHeader
         onCreateAgent={() => setIsCreateOpen(true)}
+        onShowContacts={onShowContacts}
         onSearch={onSearch}
       />
 
