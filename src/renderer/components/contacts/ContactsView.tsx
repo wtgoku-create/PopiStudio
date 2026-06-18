@@ -317,11 +317,11 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
                               <span className="truncate text-sm font-medium">
                                 {getAgentDisplayName(agent)}
                               </span>
-                              {agent.source === 'preset' && (
+                              {/* {agent.source === 'preset' && (
                                 <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                                   {i18nService.t('contactsAgentBadge')}
                                 </span>
-                              )}
+                              )} */}
                             </span>
                             <span className="mt-0.5 block truncate text-xs text-secondary">
                               {agent.description || '-'}
