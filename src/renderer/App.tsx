@@ -896,7 +896,6 @@ const App: React.FC = () => {
             <AgentSidebarPanel
               isCollapsed={isAgentPanelCollapsed}
               onShowCowork={handleShowCowork}
-              onShowContacts={handleShowContacts}
             />
           )}
           <div className="flex-1 min-w-0 transition-[padding] duration-200 ease-out">

@@ -9,14 +9,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { i18nService } from '../../services/i18n';
 
 interface MyAgentSidebarHeaderProps {
+  onAddFriend: () => void;
   onCreateAgent: () => void;
-  onShowContacts: () => void;
   onSearch: () => void;
 }
 
 const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
+  onAddFriend,
   onCreateAgent,
-  onShowContacts,
   onSearch,
 }) => {
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
@@ -55,7 +55,7 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
 
   const handleShowContacts = () => {
     closeAddMenu();
-    onShowContacts();
+    onAddFriend();
   };
 
   const handleCreateAgent = () => {

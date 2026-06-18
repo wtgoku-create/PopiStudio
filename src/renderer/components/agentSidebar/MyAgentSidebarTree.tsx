@@ -8,6 +8,7 @@ import { i18nService } from '../../services/i18n';
 import { RootState } from '../../store';
 import { selectCurrentSessionId } from '../../store/selectors/coworkSelectors';
 import { isDefaultAgentId } from '../../utils/agentDisplay';
+import AgentAddFriendModal from '../agent/AgentAddFriendModal';
 import AgentCreateModal from '../agent/AgentCreateModal';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
 import { type CoworkOpenShareOptionsEventDetail, CoworkUiEvent } from '../cowork/constants';
@@ -22,7 +23,6 @@ interface MyAgentSidebarTreeProps {
   deletedSessionIds: string[];
   selectedIds: Set<string>;
   onShowCowork: () => void;
-  onShowContacts: () => void;
   onToggleSelection: (sessionId: string, agentId: string) => void;
   onEnterBatchMode: (sessionId: string, agentId: string) => void;
   onBatchSelectableIdsChange: (sessionIds: string[]) => void;
@@ -32,12 +32,12 @@ interface MyAgentSidebarTreeProps {
 const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   deletedSessionIds,
   onShowCowork,
-  onShowContacts,
   onBatchSelectableIdsChange,
   onSearch,
 }) => {
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
   const currentSessionId = useSelector(selectCurrentSessionId);
+  const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null);
   const {
@@ -143,8 +143,8 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   return (
     <div className="pb-3" role="list" aria-label={i18nService.t('myAgents')}>
       <MyAgentSidebarHeader
+        onAddFriend={() => setIsAddFriendOpen(true)}
         onCreateAgent={() => setIsCreateOpen(true)}
-        onShowContacts={onShowContacts}
         onSearch={onSearch}
       />
 
@@ -167,6 +167,11 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
         </div>
       )}
 
+      <AgentAddFriendModal
+        isOpen={isAddFriendOpen}
+        onClose={() => setIsAddFriendOpen(false)}
+        onShowCowork={onShowCowork}
+      />
       <AgentCreateModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} />
       <AgentSettingsPanel
         agentId={settingsAgentId}

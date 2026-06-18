@@ -21,7 +21,6 @@ import MyAgentSidebarTree from './MyAgentSidebarTree';
 interface AgentSidebarPanelProps {
   isCollapsed: boolean;
   onShowCowork: () => void;
-  onShowContacts: () => void;
 }
 
 const DEFAULT_AGENT_PANEL_WIDTH = 307;
@@ -33,7 +32,6 @@ const normalizeAgentId = (agentId?: string | null) => agentId?.trim() || AgentId
 const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
   isCollapsed,
   onShowCowork,
-  onShowContacts,
 }) => {
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
   const agents = useSelector((state: RootState) => state.agent.agents);
@@ -266,7 +264,6 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
               deletedSessionIds={deletedSessionIds}
               selectedIds={selectedIds}
               onShowCowork={onShowCowork}
-              onShowContacts={onShowContacts}
               onToggleSelection={handleToggleSelection}
               onEnterBatchMode={handleEnterBatchMode}
               onBatchSelectableIdsChange={handleBatchSelectableIdsChange}
