@@ -9,20 +9,29 @@ interface AgentTemplatePickerContentProps {
   presets: PresetAgent[];
   loading: boolean;
   onClose: () => void;
-  onSelect: (preset: PresetAgent) => void;
+  onToggle: (preset: PresetAgent) => void;
+  onConfirm: () => void;
   onNew?: () => void;
-  selectedPresetId?: string | null;
+  selectedPresetIds?: Set<string>;
+  disabledPresetIds?: Set<string>;
+  pendingPresetIds?: Set<string>;
+  confirming?: boolean;
 }
 
 const AgentTemplatePickerContent: React.FC<AgentTemplatePickerContentProps> = ({
   presets,
   loading,
   onClose,
-  onSelect,
+  onToggle,
+  onConfirm,
   onNew,
-  selectedPresetId = null,
+  selectedPresetIds = new Set(),
+  disabledPresetIds = new Set(),
+  pendingPresetIds = new Set(),
+  confirming = false,
 }) => {
   const isEn = i18nService.getLanguage() === 'en';
+  const selectedCount = selectedPresetIds.size;
 
   return (
     <>
@@ -42,7 +51,18 @@ const AgentTemplatePickerContent: React.FC<AgentTemplatePickerContentProps> = ({
           )}
           <button
             type="button"
+            onClick={onConfirm}
+            disabled={selectedCount === 0 || confirming}
+            className="h-8 rounded-lg bg-primary px-3 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {confirming
+              ? i18nService.t('creating')
+              : i18nService.t('agentAddSelectedFriends').replace('{count}', String(selectedCount))}
+          </button>
+          <button
+            type="button"
             onClick={onClose}
+            disabled={confirming}
             className="rounded-lg p-2 transition-colors hover:bg-surface-raised"
           >
             <XMarkIcon className="h-5 w-5 text-secondary" />
@@ -66,20 +86,44 @@ const AgentTemplatePickerContent: React.FC<AgentTemplatePickerContentProps> = ({
               const description = isEn && preset.descriptionEn
                 ? preset.descriptionEn
                 : preset.description;
-              const isSelected = selectedPresetId === preset.id;
-              const isDisabled = Boolean(selectedPresetId);
+              const isSelected = selectedPresetIds.has(preset.id);
+              const isInstalled = disabledPresetIds.has(preset.id);
+              const isPending = pendingPresetIds.has(preset.id);
+              const isDisabled = isInstalled || isPending || confirming;
 
               return (
                 <button
                   key={preset.id}
                   type="button"
-                  onClick={() => onSelect(preset)}
+                  onClick={() => onToggle(preset)}
                   disabled={isDisabled}
-                  className={`group flex min-h-[132px] flex-col items-start rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-primary/40 hover:bg-surface-raised disabled:cursor-not-allowed ${
-                    isDisabled && !isSelected ? 'opacity-45' : ''
+                  className={`group flex min-h-[132px] flex-col items-start rounded-xl border bg-surface p-4 text-left transition-colors hover:border-primary/40 hover:bg-surface-raised disabled:cursor-not-allowed ${
+                    isSelected ? 'border-primary/70 bg-primary/5' : 'border-border'
+                  } ${
+                    isInstalled ? 'opacity-45' : ''
                   }`}
                 >
                   <div className="flex w-full items-center gap-3">
+                    <span
+                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                        isSelected
+                          ? 'border-primary bg-primary text-white'
+                          : 'border-border bg-surface'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      {isSelected && (
+                        <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none">
+                          <path
+                            d="M2.5 6.2 4.7 8.4 9.5 3.6"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.7"
+                          />
+                        </svg>
+                      )}
+                    </span>
                     <AgentAvatarIcon
                       value={preset.icon}
                       className="h-8 w-8"
@@ -89,11 +133,15 @@ const AgentTemplatePickerContent: React.FC<AgentTemplatePickerContentProps> = ({
                     <div className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
                       {name}
                     </div>
-                    {isSelected && (
+                    {isInstalled ? (
+                      <span className="shrink-0 text-xs font-medium text-secondary">
+                        {i18nService.t('agentFriendAdded')}
+                      </span>
+                    ) : isPending ? (
                       <span className="shrink-0 text-xs font-medium text-primary">
                         {i18nService.t('creating')}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                   <div className="mt-3 line-clamp-3 text-sm leading-6 text-foreground/90">
                     {description}
