@@ -37,9 +37,8 @@ describe('MCN preset agents', () => {
     const bundledSkillIds = loadBundledSkillIds();
     const expectedSkillIds: Record<string, string[]> = {
       'mcn-topic-planner': ['daily-trending', 'content-planner', 'web-search'],
-      'mcn-script-director': ['article-writer', 'content-planner', 'popitv'],
+      'mcn-script-director': ['article-writer', 'content-planner'],
       'mcn-content-producer': [
-        'popitv',
         'seedream',
         'seedance',
         'remotion',

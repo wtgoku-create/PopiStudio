@@ -37,7 +37,6 @@
     "seedance": { "order": 212, "enabled": true },
     "seedream": { "order": 213, "enabled": true },
     "popiart": { "order": 214, "enabled": true },
-    "popitv": { "order": 215, "enabled": true },
     "popi-alice-vlog-director": { "order": 216, "enabled": true },
     "popi-alice-storyboard-skill": { "order": 217, "enabled": true },
     "films-search": { "order": 222, "enabled": true },
