@@ -164,6 +164,16 @@ const Sidebar: React.FC<SidebarProps> = ({
             <ChatRailIcon className={sidebarIconClassName} />
           </SidebarIconButton>
           <SidebarIconButton
+            label={i18nService.t('contactsTitle')}
+            active={activeView === MainView.Contacts}
+            onClick={() => {
+              onShowContacts();
+              onCollapseAgentPanel();
+            }}
+          >
+            <TeamOutlinedIcon className={sidebarIconClassName + ' h-[20px] w-[20px]'} />
+          </SidebarIconButton>
+          <SidebarIconButton
             label={i18nService.t('scheduledTasks')}
             active={activeView === MainView.ScheduledTasks}
             onClick={() => {
@@ -192,16 +202,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             }}
           >
             <FolderRailIcon className={sidebarIconClassName} />
-          </SidebarIconButton>
-          <SidebarIconButton
-            label={i18nService.t('contactsTitle')}
-            active={activeView === MainView.Contacts}
-            onClick={() => {
-              onShowContacts();
-              onCollapseAgentPanel();
-            }}
-          >
-            <TeamOutlinedIcon className={sidebarIconClassName} />
           </SidebarIconButton>
         </div>
         <div className="flex-1" />
