@@ -21,17 +21,11 @@ const getDefaultWorkingDirectory = (): string => {
   return path.join(os.homedir(), 'popiai', 'project');
 };
 
-const AGENT_WORKSPACE_NAME_INVALID_CHARS = /[<>:"/\\|?*\u0000-\u001F]/g;
-
-const sanitizeAgentWorkspaceName = (name: string): string => {
-  const sanitized = name
-    .replace(AGENT_WORKSPACE_NAME_INVALID_CHARS, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return sanitized || 'agent';
-};
-
 const TASK_WORKSPACE_CONTAINER_DIR = '.popiai-tasks';
+
+const resolveAgentWorkingDirectory = (workingDirectoryRoot: string, agentId: string): string => {
+  return path.join(workingDirectoryRoot.trim(), agentId);
+};
 
 const normalizeRecentWorkspacePath = (cwd: string): string => {
   const resolved = path.resolve(cwd);
@@ -2365,7 +2359,7 @@ export class CoworkStore {
       requestedWorkingDirectory ||
       (id === AgentId.Main
         ? resolveMainAgentWorkingDirectory(configWorkingDirectory)
-        : path.join(configWorkingDirectory, sanitizeAgentWorkspaceName(request.name)));
+        : resolveAgentWorkingDirectory(configWorkingDirectory, id));
     if (!requestedWorkingDirectory) {
       fs.mkdirSync(workingDirectory, { recursive: true });
     }

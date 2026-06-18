@@ -492,15 +492,26 @@ test('agent CRUD stores working directory independently', () => {
   expect(store.getAgent(agent.id)?.workingDirectory).toBe('/tmp/docs-next');
 });
 
-test('createAgent creates default working directory under cowork config directory', () => {
+test('createAgent creates default working directory from stable agent id', () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-agent-project-'));
+  store.setConfig({ workingDirectory: projectRoot });
+
+  const agent = store.createAgent({ name: '中文 Agent' });
+  const expectedWorkingDirectory = path.join(projectRoot, 'agents', agent.id);
+
+  expect(agent.workingDirectory).toBe(expectedWorkingDirectory);
+  expect(fs.existsSync(expectedWorkingDirectory)).toBe(true);
+  expect(fs.existsSync(path.join(projectRoot, '中文 Agent'))).toBe(false);
+});
+
+test('agent home session uses stable default directory for custom agent', () => {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-agent-project-'));
   store.setConfig({ workingDirectory: projectRoot });
 
   const agent = store.createAgent({ name: 'Docs Agent' });
-  const expectedWorkingDirectory = path.join(projectRoot, 'Docs Agent');
+  const homeSession = store.listSessions(20, 0, agent.id)[0];
 
-  expect(agent.workingDirectory).toBe(expectedWorkingDirectory);
-  expect(fs.existsSync(expectedWorkingDirectory)).toBe(true);
+  expect(homeSession?.cwd).toBe(path.join(projectRoot, 'agents', agent.id));
 });
 
 test('createAgent creates main agent working directory under cowork config main directory', () => {
