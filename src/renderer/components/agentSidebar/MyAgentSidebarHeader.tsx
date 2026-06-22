@@ -159,8 +159,8 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
             aria-haspopup="menu"
             aria-label={i18nService.t('add')}
           >
-            <PlusCircleIcon className="h-5 w-5" />
-          </button>
+            <PlusCircleIcon className="h-6 w-6" />
+          </button> 
         </div>
       </div>
       {addMenu}
