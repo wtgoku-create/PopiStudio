@@ -1,13 +1,10 @@
-import {
-  BoltIcon,
-  MagnifyingGlassIcon,
-  PlusCircleIcon,
-  UserPlusIcon,
-} from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { i18nService } from '../../services/i18n';
+import BoltIcon from '../icons/BoltIcon';
+import UserPlusIcon from '../icons/UserPlusIcon';
 
 interface MyAgentSidebarHeaderProps {
   onAddFriend: () => void;
@@ -110,36 +107,37 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
     onCreateAgent();
   };
 
-  const addMenu = isAddMenuOpen && typeof document !== 'undefined'
-    ? createPortal(
-      <div
-        ref={menuRef}
-        className="fixed z-50 w-[216px] max-w-[calc(100vw-16px)] overflow-hidden rounded-[12px] border border-black/[0.05] bg-white p-2 shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:border-white/[0.08] dark:bg-[#1f1f1f] dark:shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
-        style={menuPosition ?? { visibility: 'hidden' }}
-        role="menu"
-      >
-        <button
-          type="button"
-          onClick={handleShowContacts}
-          className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
-          role="menuitem"
-        >
-          <UserPlusIcon className={menuIconClassName} />
-          <span className="truncate">{i18nService.t('agentSidebarAddFriend')}</span>
-        </button>
-        <button
-          type="button"
-          onClick={handleCreateAgent}
-          className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
-          role="menuitem"
-        >
-          <BoltIcon className={menuIconClassName} />
-          <span className="truncate">{i18nService.t('createNewAgent')}</span>
-        </button>
-      </div>,
-      document.body,
-    )
-    : null;
+  const addMenu =
+    isAddMenuOpen && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-50 w-[216px] max-w-[calc(100vw-16px)] overflow-hidden rounded-[12px] border border-black/[0.05] bg-white p-1 shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:border-white/[0.08] dark:bg-[#1f1f1f] dark:shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
+            style={menuPosition ?? { visibility: 'hidden' }}
+            role="menu"
+          >
+            <button
+              type="button"
+              onClick={handleShowContacts}
+              className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
+              role="menuitem"
+            >
+              <UserPlusIcon />
+              <span className="text-[16px] font-medium leading-none text-[#666666] dark:text-foreground">{i18nService.t('agentSidebarAddFriend')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateAgent}
+              className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
+              role="menuitem"
+            >
+              <BoltIcon />
+              <span className="text-[16px] font-medium leading-none text-[#666666] dark:text-foreground">{i18nService.t('createNewAgent')}</span>
+            </button>
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <div className="sticky top-0 z-30 w-full bg-background pb-2">
@@ -153,14 +151,16 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
             type="button"
             onClick={() => setIsAddMenuOpen(prev => !prev)}
             className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[#666] transition-colors hover:bg-[#f0f0f0] hover:text-[#333] focus:bg-[#f0f0f0] focus:text-[#333] dark:text-secondary dark:hover:bg-white/[0.06] dark:hover:text-foreground dark:focus:bg-white/[0.06] dark:focus:text-foreground ${
-              isAddMenuOpen ? 'bg-[#f0f0f0] text-[#333] dark:bg-white/[0.06] dark:text-foreground' : ''
+              isAddMenuOpen
+                ? 'bg-[#f0f0f0] text-[#333] dark:bg-white/[0.06] dark:text-foreground'
+                : ''
             }`}
             aria-expanded={isAddMenuOpen}
             aria-haspopup="menu"
             aria-label={i18nService.t('add')}
           >
             <PlusCircleIcon className="h-6 w-6" />
-          </button> 
+          </button>
         </div>
       </div>
       {addMenu}
