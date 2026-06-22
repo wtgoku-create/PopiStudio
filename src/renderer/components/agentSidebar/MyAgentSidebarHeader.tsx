@@ -28,7 +28,7 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuItemClassName =
     'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
-  const menuIconClassName = 'h-3.5 w-3.5 shrink-0';
+  const menuIconClassName = 'h-5 w-5 shrink-0';
 
   const closeAddMenu = useCallback(() => {
     setIsAddMenuOpen(false);
@@ -112,7 +112,7 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
       ? createPortal(
           <div
             ref={menuRef}
-            className="fixed z-50 w-[216px] max-w-[calc(100vw-16px)] overflow-hidden rounded-[12px] border border-black/[0.05] bg-white p-1 shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:border-white/[0.08] dark:bg-[#1f1f1f] dark:shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
+            className="fixed z-50 w-[180px] max-w-[calc(100vw-16px)] overflow-hidden rounded-[12px] border border-black/[0.05] bg-white p-1 shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:border-white/[0.08] dark:bg-[#1f1f1f] dark:shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
             style={menuPosition ?? { visibility: 'hidden' }}
             role="menu"
           >
@@ -122,8 +122,8 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
               className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
               role="menuitem"
             >
-              <UserPlusIcon />
-              <span className="text-[16px] font-medium leading-none text-[#666666] dark:text-foreground">{i18nService.t('agentSidebarAddFriend')}</span>
+              <UserPlusIcon  className={menuIconClassName} />
+              <span className="text-[14px] font-medium leading-none text-[#666666] dark:text-foreground">{i18nService.t('agentSidebarAddFriend')}</span>
             </button>
             <button
               type="button"
@@ -131,8 +131,8 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
               className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
               role="menuitem"
             >
-              <BoltIcon />
-              <span className="text-[16px] font-medium leading-none text-[#666666] dark:text-foreground">{i18nService.t('createNewAgent')}</span>
+              <BoltIcon className={menuIconClassName} />
+              <span className="text-[14px] font-medium leading-none text-[#666666] dark:text-foreground">{i18nService.t('createNewAgent')}</span>
             </button>
           </div>,
           document.body,
