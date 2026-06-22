@@ -23,6 +23,7 @@ description_i18n:
 - **不要传递 `--key` 或 `--api-key`**：不要把密钥写进命令、prompt 或 tool 输入。
 - **优先使用 agent/CI 友好参数**：推荐统一带上 `--output json --quiet --non-interactive`；需要等待完成时再加 `--wait`。
 - **本地文件可以直接传**：传本地 `--image`、`--video`、`--audio` 时，CLI 会自动处理上传和稳定媒体 URL。
+- **生成后默认下载到本地**：每次图片、视频、语音、音乐生成成功后，都要继续把产物下载到本地目录，不要只返回远端 URL 或只汇报 `artifact_id`。
 - **主站模式不要优先用单 artifact 下载**：`popiart artifacts pull <artifact_id>` 在主站模式下可能返回 `UNSUPPORTED_IN_POPI_ART_MODE`，优先使用 `artifacts list`、`artifacts get`、`artifacts pull-all`。
 
 ## 推荐入口
@@ -225,10 +226,18 @@ popiart music generate \
 ### 图片 / 视频生成
 
 1. 使用 `popiart image generate`、`popiart image img2img`、`popiart video generate` 或 `popiart video seedance` 提交任务。
-2. 如果带了 `--wait`，直接从 JSON 结果中提取 `artifact_ids`、`outputs`、`result_url` 或 `last_frame_url`。
+2. 如果带了 `--wait`，直接从 JSON 结果中提取 `task_id`、`job_id`、`artifact_ids`、`outputs`、`result_url` 或 `last_frame_url`。
 3. 如果没有带 `--wait`，先取回 `job_id` 或 `task_id`，再用 `popiart jobs get <job_id>` 或 `popiart jobs wait <job_id>`。
-4. 需要结果列表时，优先用 `popiart artifacts list <task-id>` 或 `popiart artifacts get <artifact-id>`。
-5. 需要下载任务全部结果时，优先用 `popiart artifacts pull-all <task-id> --dir ./output`。
+4. 任务完成后，优先使用 `task_id` 立即下载全部结果到本地目录，例如 `./output/popiart/<task-id>/`。
+5. 下载命令优先用 `popiart artifacts pull-all <task-id> --dir ./output/popiart/<task-id>`。
+6. 只有在确认拿不到 `task_id` 时，才退回到 `popiart artifacts list <task-id>`、`popiart artifacts get <artifact-id>` 等查询步骤补齐信息。
+
+### 语音 / 音乐生成
+
+1. 使用 `popiart speech synthesize` 或 `popiart music generate` 提交任务，优先带 `--wait`。
+2. 从结果中提取 `task_id`、`artifact_ids`、输出 URL 或其他产物元数据。
+3. 生成成功后同样立即下载到本地，优先使用 `popiart artifacts pull-all <task-id> --dir ./output/popiart/<task-id>`。
+4. 如果接口只返回 URL 而没有可用的 `task_id`，至少要把最终媒体文件保存到本地，并在回复中明确本地路径。
 
 ### 本地文件作为输入
 
@@ -257,6 +266,7 @@ popiart media get <media-id>
 
 - 产物优先看 `artifact_id`。
 - 任务级轮询优先用 `popiart jobs get <job_id>` 或 `popiart jobs wait <job_id>`。
+- 默认把生成结果下载到 `./output/popiart/<task-id>/`；如果暂时拿不到 `task_id`，使用能稳定标识任务的目录名。
 - 查看任务结果列表：
 
 ```bash
@@ -272,10 +282,11 @@ popiart artifacts get <artifact-id>
 - 下载任务全部产物：
 
 ```bash
-popiart artifacts pull-all <task-id> --dir ./output
+popiart artifacts pull-all <task-id> --dir ./output/popiart/<task-id>
 ```
 
 - `popiart artifacts pull <artifact_id>` 在主站模式下可能不可用，只有确认环境支持时再使用。
+- 回复用户时，除了说明任务状态，也要明确告知本地下载目录和关键文件路径。
 
 ## 超时与重试
 
