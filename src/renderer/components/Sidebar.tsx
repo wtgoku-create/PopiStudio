@@ -26,9 +26,9 @@ interface SidebarProps {
 
 const SIDEBAR_WIDTH = 60;
 const sidebarIconButtonBaseClassName =
-  'relative inline-flex h-10 w-10 items-center justify-center rounded-[10px] transition-colors hover:bg-surface hover:text-[#333333] dark:hover:bg-white/[0.06]';
+  'relative inline-flex h-10 w-10 items-center justify-center rounded-[10px] transition-colors hover:bg-surface hover:text-[#333333] dark:hover:bg-white/[0.06] dark:hover:text-foreground';
 const sidebarIconButtonClassName = `${sidebarIconButtonBaseClassName} text-muted`;
-const activeSidebarIconButtonClassName = `${sidebarIconButtonBaseClassName} bg-surface text-[#333333] dark:bg-white/[0.08]`;
+const activeSidebarIconButtonClassName = `${sidebarIconButtonBaseClassName} bg-surface text-[#333333] dark:bg-white/[0.08] dark:text-foreground`;
 const sidebarIconClassName = 'h-[25px] w-[25px] shrink-0';
 
 const PopiRailLogo: React.FC = () => (
