@@ -5,6 +5,10 @@ import type {
   BrowserRuntimeProfile,
 } from '../../shared/browserWebAccess/constants';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
+import type {
+  KnowledgeResult,
+  RemoteKnowledgeBase,
+} from '../../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
 interface ApiResponse {
   ok: boolean;
@@ -705,6 +709,9 @@ interface IElectronAPI {
   folder: {
     getEntries: (entries: Array<{ path: string; name?: string; id?: string }>) => Promise<FolderListChildrenResult>;
     listChildren: (folderPath: string) => Promise<FolderListChildrenResult>;
+  };
+  knowledge: {
+    listBases: () => Promise<KnowledgeResult<RemoteKnowledgeBase[]>>;
   };
   clipboard: {
     writeImageFromFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;

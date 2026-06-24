@@ -46,6 +46,7 @@ import {
 import { pollNimQrLogin, startNimQrLogin } from './im/nimQrLoginService';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NimInstanceConfig, Platform, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from './im/types';
 import { registerNimQrLoginHandlers } from './ipcHandlers/nimQrLogin';
+import { RemoteKnowledgeService } from './knowledge/remoteKnowledgeService';
 import {
   getCronJobService,
   initCronJobServiceManager,
@@ -916,6 +917,7 @@ let coworkRuntimeForwarderBound = false;
 let memoryMigrationDone = false;
 let preventSleepBlockerId: number | null = null;
 let appUpdateCoordinator: AppUpdateCoordinator | null = null;
+let remoteKnowledgeService: RemoteKnowledgeService | null = null;
 
 const AUTH_USER_STORE_KEY = 'auth_user';
 const POPITV_MCP_SERVER_NAME = 'popitv';
@@ -971,6 +973,13 @@ const getAppUpdateCoordinator = (): AppUpdateCoordinator => {
     appUpdateCoordinator = new AppUpdateCoordinator(getStore());
   }
   return appUpdateCoordinator;
+};
+
+const getRemoteKnowledgeService = (): RemoteKnowledgeService => {
+  if (!remoteKnowledgeService) {
+    remoteKnowledgeService = new RemoteKnowledgeService();
+  }
+  return remoteKnowledgeService;
 };
 
 const forwardOpenClawStatus = (status: OpenClawEngineStatus): void => {
@@ -3906,6 +3915,8 @@ if (!gotTheLock) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to fetch marketplace' };
     }
   });
+
+  getRemoteKnowledgeService().registerIpc(ipcMain);
 
   // Cowork IPC handlers
   ipcMain.handle('cowork:session:start', async (_event, options: {

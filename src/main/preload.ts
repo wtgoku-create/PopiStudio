@@ -9,6 +9,7 @@ import { ClipboardIpc } from '../shared/clipboard/constants';
 import { CoworkIpcChannel } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc } from '../shared/folder/constants';
+import { KnowledgeIpc } from '../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../shared/localWebServices/constants';
 import { LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import type { Platform } from '../shared/platform';
@@ -444,6 +445,9 @@ contextBridge.exposeInMainWorld('electron', {
     getEntries: (entries: Array<{ path: string; name?: string; id?: string }>) =>
       ipcRenderer.invoke(FolderIpc.GetEntries, entries),
     listChildren: (folderPath: string) => ipcRenderer.invoke(FolderIpc.ListChildren, folderPath),
+  },
+  knowledge: {
+    listBases: () => ipcRenderer.invoke(KnowledgeIpc.ListBases),
   },
   clipboard: {
     writeImageFromFile: (filePath: string) =>
