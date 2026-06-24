@@ -67,7 +67,7 @@ const normalizeKnowledgeBase = (value: unknown): RemoteKnowledgeBase | null => {
 
   const name = readString(value, ['name', 'title', 'displayName', 'display_name']) || id;
   const description = readString(value, ['description', 'desc', 'summary']);
-  const documentCount = readNumber(value, ['documentCount', 'document_count', 'documentsCount', 'docsCount']);
+  const documentCount = readNumber(value, ['documentCount', 'document_count', 'documentsCount', 'docsCount', 'knowledge_count', 'chunk_count']);
   const updatedAt = readNumber(value, ['updatedAt', 'updated_at', 'mtime', 'modifiedAt']);
   const enabled = typeof value.enabled === 'boolean' ? value.enabled : undefined;
 
@@ -104,6 +104,7 @@ export class RemoteKnowledgeService {
     const response = await fetch(`${KNOWLEDGE_DEFAULT_BASE_URL}${pathname}`, {
       method: 'GET',
       headers: {
+        authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IjI5Mjc5MzM0MjZAcXEuY29tIiwiZXhwIjoxNzgyMzcwNTA5LCJpYXQiOjE3ODIyODQxMDksInRlbmFudF9pZCI6MTAwMDIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VyX2lkIjoiZmMyZDkwODUtNmUzNi00NzdjLTljNGQtYjMwYmYwZjhkNzE2In0.-3x_VJ4vkbM0_rCxkUBVlp3dh0-gHQrB6xoKI-mHUzk',
         Accept: 'application/json',
       },
     });

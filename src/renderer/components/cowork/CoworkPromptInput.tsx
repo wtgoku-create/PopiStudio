@@ -1,12 +1,15 @@
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { ArrowUpIcon, FolderIcon } from '@heroicons/react/24/solid';
+import * as PopoverPrimitive from '@radix-ui/react-popover';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
+import type { RemoteKnowledgeBase } from '../../../shared/knowledge/constants';
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
 import { configService } from '../../services/config';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
+import { knowledgeService } from '../../services/knowledge';
 import { skillService } from '../../services/skill';
 import { RootState } from '../../store';
 import { selectDraftPrompts } from '../../store/selectors/coworkSelectors';
@@ -25,6 +28,7 @@ import { Skill } from '../../types/skill';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
 import type { BrowserAnnotationPayload } from '../artifacts';
+import AcademicCapIcon from '../icons/AcademicCapIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
 import TaskPauseIcon from '../icons/TaskPauseIcon';
 import XMarkIcon from '../icons/XMarkIcon';
@@ -196,6 +200,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [isAddingFile, setIsAddingFile] = useState(false);
     const [imageVisionHint, setImageVisionHint] = useState(false);
     const [isPatchingModel, setIsPatchingModel] = useState(false);
+    const [isKnowledgeMenuOpen, setIsKnowledgeMenuOpen] = useState(false);
+    const [isLoadingKnowledgeBases, setIsLoadingKnowledgeBases] = useState(false);
+    const [knowledgeBases, setKnowledgeBases] = useState<RemoteKnowledgeBase[]>([]);
+    const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('');
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const dragDepthRef = useRef(0);
@@ -317,6 +325,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     globalSelectedModel: currentAgentSelectedModel,
   });
   const modelSupportsImage = !!effectiveSelectedModel?.supportsImage;
+  const selectedKnowledgeBase = knowledgeBases.find(base => base.id === selectedKnowledgeBaseId) ?? null;
 
   // Load skills on mount
   useEffect(() => {
@@ -498,6 +507,30 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       onManageSkills();
     }
   }, [onManageSkills]);
+
+  const loadKnowledgeBases = useCallback(async () => {
+    if (isLoadingKnowledgeBases) return;
+    setIsLoadingKnowledgeBases(true);
+    try {
+      const result = await knowledgeService.listBases();
+      if (result.success && result.data) {
+        setKnowledgeBases(result.data);
+        return;
+      }
+      setKnowledgeBases([]);
+    } catch (error) {
+      setKnowledgeBases([]);
+    } finally {
+      setIsLoadingKnowledgeBases(false);
+    }
+  }, [isLoadingKnowledgeBases]);
+
+  const handleKnowledgeMenuOpenChange = useCallback((open: boolean) => {
+    setIsKnowledgeMenuOpen(open);
+    if (open && knowledgeBases.length === 0) {
+      void loadKnowledgeBases();
+    }
+  }, [knowledgeBases.length, loadKnowledgeBases]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isComposing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
@@ -986,6 +1019,72 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </button>
   ) : null;
 
+  const knowledgeBaseSelector = !remoteManaged ? (
+    <PopoverPrimitive.Root open={isKnowledgeMenuOpen} onOpenChange={handleKnowledgeMenuOpenChange}>
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className={`flex h-[34px] max-w-[180px] items-center gap-1.5 rounded-lg px-2 text-[13px] transition-colors ${
+            selectedKnowledgeBase
+              ? 'bg-primary/10 text-primary hover:bg-primary/15'
+              : 'text-secondary hover:bg-surface-raised hover:text-foreground'
+          }`}
+          title={selectedKnowledgeBase?.name || i18nService.t('knowledgeBase')}
+          aria-label={i18nService.t('knowledgeBase')}
+          disabled={disabled || isStreaming}
+        >
+          <AcademicCapIcon className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 truncate">
+            {selectedKnowledgeBase?.name || i18nService.t('knowledgeBase')}
+          </span>
+        </button>
+      </PopoverPrimitive.Trigger>
+      {isKnowledgeMenuOpen && (
+        <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content
+            side="top"
+            align="start"
+            sideOffset={8}
+            collisionPadding={12}
+            className="z-[1000] w-72 overflow-hidden rounded-lg border border-border bg-surface shadow-card outline-none popover-enter"
+          >
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <span className="text-sm font-medium text-foreground">{i18nService.t('knowledgeBase')}</span>
+          </div>
+          <div className="max-h-72 overflow-y-auto py-1">
+            {isLoadingKnowledgeBases && (
+              <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('folderLoading')}</div>
+            )}
+            {!isLoadingKnowledgeBases && knowledgeBases.length === 0 && (
+              <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('knowledgeBaseEmpty')}</div>
+            )}
+            {!isLoadingKnowledgeBases && knowledgeBases.map((base) => (
+              <button
+                key={base.id}
+                type="button"
+                onClick={() => {
+                  setSelectedKnowledgeBaseId(selectedKnowledgeBaseId === base.id ? '' : base.id);
+                  handleKnowledgeMenuOpenChange(false);
+                }}
+                className={`flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-raised ${
+                  selectedKnowledgeBaseId === base.id ? 'text-primary' : 'text-foreground'
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{base.name}</span>
+                <span className="shrink-0 truncate text-xs text-secondary">
+                  {base.documentCount !== undefined
+                    ? `${base.documentCount} ${i18nService.t('knowledgeBaseDocuments')}`
+                    : base.description || base.id}
+                </span>
+              </button>
+            ))}
+          </div>
+          </PopoverPrimitive.Content>
+        </PopoverPrimitive.Portal>
+      )}
+    </PopoverPrimitive.Root>
+  ) : null;
+
   const largeInputActions = !remoteManaged ? (
     <div className="flex items-center gap-0.5">
       <button
@@ -1002,6 +1101,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         onSelectSkill={handleSelectSkill}
         onManageSkills={handleManageSkills}
       />
+      {knowledgeBaseSelector}
     </div>
   ) : null;
   const largeSendButtonSizeClass = useCompactSendButton ? 'h-7 w-7' : 'h-8 w-8';
@@ -1182,6 +1282,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 >
                   <PaperClipIcon className="h-5 w-5" />
                 </button>
+                {knowledgeBaseSelector}
               </div>
             )}
 
