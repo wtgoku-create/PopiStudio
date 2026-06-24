@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { describe, expect, test } from 'vitest';
 
@@ -19,6 +20,25 @@ const loadBundledSkillIds = (): Set<string> => {
 };
 
 describe('MCN preset agents', () => {
+  test('includes the xiaomo script guide preset', () => {
+    const preset = getPreset('script-guide');
+
+    expect(preset.name).toBe('小墨 · 剧本引导');
+    expect(preset.description).toContain('逐步追问缺失信息');
+    expect(preset.skillIds).toEqual([
+      'content-planner',
+      'article-writer',
+      'daily-trending',
+      'web-search',
+    ]);
+  });
+
+  test('preserves preset-specific working directory for xiaomo', () => {
+    const createRequest = presetToCreateRequest(getPreset('script-guide'));
+
+    expect(createRequest.workingDirectory).toBe(path.join(os.homedir(), 'popiai', 'project', 'script-guide'));
+  });
+
   test('exposes the three-stage MCN workflow agents as templates', () => {
     expect(getPreset('mcn-topic-planner').name).toBe('小满 · 选题策划');
     expect(getPreset('mcn-script-director').name).toBe('阿木 · 编导脚本');

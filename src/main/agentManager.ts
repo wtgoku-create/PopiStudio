@@ -1,5 +1,5 @@
 import type { Agent, CoworkStore, CreateAgentRequest, UpdateAgentRequest } from './coworkStore';
-import { PRESET_AGENTS, type PresetAgent,presetToCreateRequest } from './presetAgents';
+import { PRESET_AGENTS, presetToCreateRequest, type PresetAgent } from './presetAgents';
 
 /**
  * AgentManager handles CRUD operations for agents and preset agent installation.
@@ -69,10 +69,11 @@ export class AgentManager {
     const existing = this.store.getAgent(preset.id);
     if (existing) return existing;
 
+    const createRequest = presetToCreateRequest(preset);
     return this.store.createAgent({
-      ...presetToCreateRequest(preset),
-      model: defaultModel?.trim() || '',
-      workingDirectory: '',
+      ...createRequest,
+      model: createRequest.model?.trim() || defaultModel?.trim() || '',
+      workingDirectory: createRequest.workingDirectory?.trim() || '',
     });
   }
 }
