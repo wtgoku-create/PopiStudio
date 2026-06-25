@@ -124,7 +124,6 @@ const translations: Record<LanguageType, Record<string, string>> = {
     knowledgeBase: '知识库',
     knowledgeBaseEmpty: '暂无知识库',
     knowledgeBaseDocuments: '文档',
-    knowledgeBaseSelectedCount: '已选 {count} 个知识库',
     imageVisionHint:
       '当前模型未启用图片输入，图片将以文件路径形式发送。若该模型本身支持图片理解，可在模型配置中开启图片输入选项。',
     copied: '已复制',
@@ -2312,7 +2311,6 @@ const translations: Record<LanguageType, Record<string, string>> = {
     knowledgeBase: 'Knowledge base',
     knowledgeBaseEmpty: 'No knowledge bases',
     knowledgeBaseDocuments: 'documents',
-    knowledgeBaseSelectedCount: '{count} knowledge bases',
     imageVisionHint:
       'Image input is not enabled for the current model. Images will be sent as file paths. If the model supports vision, you can enable image input in the model configuration.',
     copied: 'Copied',

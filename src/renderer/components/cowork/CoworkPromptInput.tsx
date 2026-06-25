@@ -331,11 +331,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const selectedKnowledgeBases = selectedKnowledgeBaseIds
     .map(id => knowledgeBases.find(base => base.id === id))
     .filter((base): base is RemoteKnowledgeBase => Boolean(base));
-  const selectedKnowledgeBaseLabel = selectedKnowledgeBases.length === 1
-    ? selectedKnowledgeBases[0].name
-    : selectedKnowledgeBases.length > 1
-      ? i18nService.t('knowledgeBaseSelectedCount').replace('{count}', String(selectedKnowledgeBases.length))
-      : i18nService.t('knowledgeBase');
 
   // Load skills on mount
   useEffect(() => {
@@ -1054,7 +1049,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         >
           <AcademicCapIcon className="h-4 w-4 shrink-0" />
           <span className="min-w-0 truncate">
-            {selectedKnowledgeBaseLabel}
+            {i18nService.t('knowledgeBase')}
           </span>
         </button>
       </PopoverPrimitive.Trigger>
@@ -1082,7 +1077,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
               return (
                 <label
                   key={base.id}
-                  className={`flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-left hover:bg-surface-raised ${
+                  className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised ${
                     selected ? 'text-primary' : 'text-foreground'
                   }`}
                 >
