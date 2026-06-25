@@ -44,6 +44,7 @@ const NON_CODE_TYPES = new Set<ArtifactType>([
   ArtifactTypeValue.Document,
   ArtifactTypeValue.Image,
   ArtifactTypeValue.Text,
+  ArtifactTypeValue.Wiki,
   ArtifactTypeValue.LocalService,
 ]);
 

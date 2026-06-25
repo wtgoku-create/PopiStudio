@@ -17,8 +17,9 @@ const TYPE_ORDER: Record<ArtifactType, number> = {
   document: 6,
   markdown: 7,
   text: 8,
-  code: 9,
-  'local-service': 10,
+  wiki: 9,
+  code: 10,
+  'local-service': 11,
 };
 
 const TYPE_LABEL_KEYS: Record<ArtifactType, string> = {
@@ -31,6 +32,7 @@ const TYPE_LABEL_KEYS: Record<ArtifactType, string> = {
   document: 'artifactTypeDocument',
   markdown: 'artifactTypeMarkdown',
   text: 'artifactTypeText',
+  wiki: 'artifactTypeWiki',
   code: 'artifactCode',
   'local-service': 'artifactTypeHtml',
 };

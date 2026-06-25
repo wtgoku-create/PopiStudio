@@ -2,6 +2,9 @@ import http from 'http';
 import { net } from 'electron';
 
 const PROXY_BIND_HOST = '127.0.0.1';
+const WEKNORA_OPENCLAW_MCP_PROXY_PATH = '/mcp/weknora-openclaw';
+const WEKNORA_OPENCLAW_MCP_UPSTREAM_URL = 'http://192.168.77.27:6254/mcp';
+const WEKNORA_OPENCLAW_MCP_RETRY_DELAYS_MS = [250, 750, 1500];
 
 let proxyServer: http.Server | null = null;
 let proxyPort: number | null = null;
@@ -67,6 +70,10 @@ export function getOpenClawTokenProxyPort(): number | null {
   return proxyPort;
 }
 
+export function getWeknoraOpenClawMcpProxyUrl(): string | null {
+  return proxyPort ? `http://${PROXY_BIND_HOST}:${proxyPort}${WEKNORA_OPENCLAW_MCP_PROXY_PATH}` : null;
+}
+
 function collectRequestBody(req: http.IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -80,6 +87,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   try {
     const tokens = tokenGetter?.();
     const serverBaseUrl = serverBaseUrlGetter?.();
+
+    if (req.url?.startsWith(WEKNORA_OPENCLAW_MCP_PROXY_PATH)) {
+      await handleWeknoraOpenClawMcpRequest(req, res, tokens?.accessToken ?? null);
+      return;
+    }
 
     if (!tokens?.accessToken || !serverBaseUrl) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -114,6 +126,43 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       res.end(JSON.stringify({ error: 'Token proxy upstream error' }));
     }
   }
+}
+
+async function handleWeknoraOpenClawMcpRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  accessToken: string | null,
+): Promise<void> {
+  if (!accessToken) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Login required' }));
+    return;
+  }
+
+  const body = await collectRequestBody(req);
+  const result = await forwardWeknoraOpenClawMcpRequest(
+    req.method || 'POST',
+    accessToken,
+    body,
+    req.headers,
+  );
+
+  if ((result.status === 401 || result.status === 403) && tokenRefresher) {
+    console.log(`[OpenClawTokenProxy] Weknora MCP received ${result.status}, attempting token refresh`);
+    const newToken = await tokenRefresher('weknora-openclaw-mcp');
+    if (newToken) {
+      const retryResult = await forwardWeknoraOpenClawMcpRequest(
+        req.method || 'POST',
+        newToken,
+        body,
+        req.headers,
+      );
+      pipeResponse(retryResult, res);
+      return;
+    }
+  }
+
+  pipeResponse(result, res);
 }
 
 type UpstreamResult = {
@@ -170,6 +219,100 @@ async function forwardRequest(
     body: respBuffer,
     isStream: false,
   };
+}
+
+async function forwardWeknoraOpenClawMcpRequest(
+  method: string,
+  accessToken: string,
+  body: Buffer,
+  incomingHeaders: http.IncomingHttpHeaders,
+): Promise<UpstreamResult> {
+  const headers: Record<string, string> = {
+    'X-API-Key': accessToken,
+    'Content-Type': headerValueToString(incomingHeaders['content-type']) || 'application/json',
+  };
+
+  copyHeader(incomingHeaders, headers, 'accept', 'Accept');
+  copyHeader(incomingHeaders, headers, 'mcp-session-id', 'Mcp-Session-Id');
+  copyHeader(incomingHeaders, headers, 'mcp-protocol-version', 'Mcp-Protocol-Version');
+  copyHeader(incomingHeaders, headers, 'last-event-id', 'Last-Event-ID');
+
+  const resp = await net.fetch(WEKNORA_OPENCLAW_MCP_UPSTREAM_URL, {
+    method,
+    headers,
+    body: body.length > 0 ? new Uint8Array(body) : undefined,
+  }).catch(async (error) => {
+    for (const delayMs of WEKNORA_OPENCLAW_MCP_RETRY_DELAYS_MS) {
+      await delay(delayMs);
+      try {
+        return await net.fetch(WEKNORA_OPENCLAW_MCP_UPSTREAM_URL, {
+          method,
+          headers,
+          body: body.length > 0 ? new Uint8Array(body) : undefined,
+        });
+      } catch {
+        // Retry with the next delay, then return a structured 503 below.
+      }
+    }
+    console.warn('[OpenClawTokenProxy] Weknora MCP upstream is unavailable:', error);
+    return null;
+  });
+
+  if (!resp) {
+    return {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+      body: Buffer.from(JSON.stringify({
+        error: 'Weknora MCP upstream unavailable',
+        upstream: WEKNORA_OPENCLAW_MCP_UPSTREAM_URL,
+      })),
+      isStream: false,
+    };
+  }
+
+  const contentType = resp.headers.get('content-type') || '';
+  const isStream = contentType.includes('text/event-stream');
+
+  const responseHeaders: Record<string, string> = {};
+  resp.headers.forEach((value, key) => {
+    responseHeaders[key] = value;
+  });
+
+  if (isStream && resp.body) {
+    return {
+      status: resp.status,
+      headers: responseHeaders,
+      body: resp.body as unknown as NodeJS.ReadableStream,
+      isStream: true,
+    };
+  }
+
+  const respBuffer = Buffer.from(await resp.arrayBuffer());
+  return {
+    status: resp.status,
+    headers: responseHeaders,
+    body: respBuffer,
+    isStream: false,
+  };
+}
+
+function headerValueToString(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function copyHeader(
+  source: http.IncomingHttpHeaders,
+  target: Record<string, string>,
+  sourceKey: string,
+  targetKey: string,
+): void {
+  const value = headerValueToString(source[sourceKey]);
+  if (value) target[targetKey] = value;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {

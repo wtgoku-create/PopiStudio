@@ -11,6 +11,7 @@ import MediaRenderer from './renderers/MediaRenderer';
 import MermaidRenderer from './renderers/MermaidRenderer';
 import SvgRenderer from './renderers/SvgRenderer';
 import TextRenderer from './renderers/TextRenderer';
+import WikiRenderer from './renderers/WikiRenderer';
 
 interface ArtifactRendererProps {
   artifact: Artifact;
@@ -34,6 +35,8 @@ const ArtifactRenderer: React.FC<ArtifactRendererProps> = ({ artifact }) => {
       return <MarkdownRenderer artifact={artifact} />;
     case 'text':
       return <TextRenderer artifact={artifact} />;
+    case ArtifactTypeValue.Wiki:
+      return <WikiRenderer artifact={artifact} />;
     case 'document':
       return <DocumentRenderer artifact={artifact} />;
     case 'code':

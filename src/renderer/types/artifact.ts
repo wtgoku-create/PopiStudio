@@ -8,6 +8,7 @@ export const ArtifactTypeValue = {
   Code: 'code',
   Markdown: 'markdown',
   Text: 'text',
+  Wiki: 'wiki',
   Document: 'document',
   LocalService: 'local-service',
 } as const;
@@ -22,6 +23,7 @@ export const PREVIEWABLE_ARTIFACT_TYPES = new Set<ArtifactType>([
   ArtifactTypeValue.Audio,
   ArtifactTypeValue.Markdown,
   ArtifactTypeValue.Text,
+  ArtifactTypeValue.Wiki,
   ArtifactTypeValue.Document,
   ArtifactTypeValue.LocalService,
 ]);
@@ -38,6 +40,7 @@ export interface Artifact {
   filePath?: string;
   url?: string;
   contentVersion?: number;
+  metadata?: Record<string, unknown>;
   createdAt: number;
 }
 

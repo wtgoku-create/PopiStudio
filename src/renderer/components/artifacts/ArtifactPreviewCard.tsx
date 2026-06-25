@@ -76,6 +76,15 @@ const TextIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const WikiIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 5.5A2.5 2.5 0 016.5 3H20v16H6.5A2.5 2.5 0 014 16.5v-11z" />
+    <path d="M8 7h8" />
+    <path d="M8 11h8" />
+    <path d="M8 15h5" />
+  </svg>
+);
+
 const DocumentIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -102,6 +111,7 @@ const TYPE_ICON_MAP: Record<ArtifactType, React.FC<{ className?: string }>> = {
   code: GlobeIcon,
   markdown: MarkdownIcon,
   text: TextIcon,
+  wiki: WikiIcon,
   document: DocumentIcon,
   'local-service': GlobeIcon,
 };
@@ -118,6 +128,7 @@ const TYPE_LABEL_KEY: Record<ArtifactType, string> = {
   code: 'artifactTypeHtml',
   markdown: 'artifactTypeMarkdown',
   text: 'artifactTypeText',
+  wiki: 'artifactTypeWiki',
   document: 'artifactTypeDocument',
   'local-service': 'artifactTypeHtml',
 };

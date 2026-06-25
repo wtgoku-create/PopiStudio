@@ -47,6 +47,7 @@ import { pollNimQrLogin, startNimQrLogin } from './im/nimQrLoginService';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NimInstanceConfig, Platform, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from './im/types';
 import { registerNimQrLoginHandlers } from './ipcHandlers/nimQrLogin';
 import { RemoteKnowledgeService } from './knowledge/remoteKnowledgeService';
+import { buildKnowledgeSourceReferencePrompt } from './knowledge/sourceReferencePrompt';
 import {
   getCronJobService,
   initCronJobServiceManager,
@@ -113,7 +114,7 @@ import {
   writeBootstrapFile,
 } from './libs/openclawMemoryFile';
 import { collectReferencedEnvVarNames, pickReferencedSecretEnvVars } from './libs/openclawSecretEnv';
-import { startOpenClawTokenProxy, stopOpenClawTokenProxy } from './libs/openclawTokenProxy';
+import { getWeknoraOpenClawMcpProxyUrl, startOpenClawTokenProxy, stopOpenClawTokenProxy } from './libs/openclawTokenProxy';
 import { migrateMainAgentWorkspace } from './libs/openclawWorkspaceMigration';
 import { executePopiTVMcpTool, getPopiTVMcpToolManifest } from './libs/popiTVMcpBridgeTools';
 import {
@@ -921,6 +922,7 @@ let remoteKnowledgeService: RemoteKnowledgeService | null = null;
 
 const AUTH_USER_STORE_KEY = 'auth_user';
 const POPITV_MCP_SERVER_NAME = 'popitv';
+const WEKNORA_OPENCLAW_MCP_SERVER_NAME = 'weknora-openclaw';
 
 function setPreventSleepBlockerEnabled(enabled: boolean): void {
   if (enabled) {
@@ -1957,6 +1959,16 @@ const getResolvedMcpServers = async (): Promise<ResolvedMcpServer[]> => {
     }
   }
 
+  const hasUserConfiguredWeknoraOpenClaw = resolved.some(server => server.name === WEKNORA_OPENCLAW_MCP_SERVER_NAME);
+  const weknoraOpenClawMcpProxyUrl = getWeknoraOpenClawMcpProxyUrl();
+  if (!hasUserConfiguredWeknoraOpenClaw && weknoraOpenClawMcpProxyUrl) {
+    resolved.push({
+      name: WEKNORA_OPENCLAW_MCP_SERVER_NAME,
+      transportType: 'http',
+      url: weknoraOpenClawMcpProxyUrl,
+    });
+  }
+
   const popiTvBridgeUrl = popiTVToolBridgeServer?.mcpUrl;
   const hasUserConfiguredPopiTV = resolved.some(server => server.name === POPITV_MCP_SERVER_NAME);
   if (popiTvBridgeUrl && !hasUserConfiguredPopiTV) {
@@ -2187,6 +2199,7 @@ function mergeCoworkSystemPrompt(
 ): string | undefined {
   const sections = [
     buildScheduledTaskEnginePrompt(),
+    buildKnowledgeSourceReferencePrompt(),
     systemPrompt?.trim() || '',
   ].filter(Boolean);
   return sections.length > 0 ? sections.join('\n\n') : undefined;

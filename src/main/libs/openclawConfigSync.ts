@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { buildScheduledTaskEnginePrompt } from '../../scheduledTask/enginePrompt';
+import { buildKnowledgeSourceReferencePrompt } from '../knowledge/sourceReferencePrompt';
 import { AgentId, DefaultAgentProfile } from '../../shared/agent';
 import {
   BrowserNetworkMode,
@@ -2730,6 +2731,7 @@ export class OpenClawConfigSync {
       // in openclaw.json, so we no longer embed the skills routing prompt here.
 
       sections.push(MANAGED_WEB_SEARCH_POLICY_PROMPT);
+      sections.push(buildKnowledgeSourceReferencePrompt());
       sections.push(MANAGED_BROWSER_POLICY_PROMPT);
       sections.push(MANAGED_EXEC_SAFETY_PROMPT);
       sections.push(MANAGED_REPLY_MEDIA_PATH_PROMPT);

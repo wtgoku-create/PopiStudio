@@ -28,6 +28,7 @@ import {
   closePanel,
   MAX_PANEL_WIDTH,
   MIN_PANEL_WIDTH,
+  openArtifactPreviewTab,
   selectActivePreviewTab,
   selectIsPanelOpen,
   selectPanelWidth,
@@ -40,6 +41,7 @@ import type { Artifact } from '../../types/artifact';
 import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import { CoworkSessionStatusValue } from '../../types/cowork';
+import { SourceReferenceKind, type SourceReference } from '../../types/sourceReference';
 import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload } from '../artifacts';
@@ -77,6 +79,10 @@ const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
 const COWORK_DETAIL_MIN_WIDTH = 480;
 const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
 const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
+
+const toWikiArtifactId = (sessionId: string, slug: string): string => (
+  `artifact-wiki-${sessionId}-${encodeURIComponent(slug)}`
+);
 
 const sanitizeExportFileName = (value: string): string => {
   const sanitized = value.replace(INVALID_FILE_NAME_PATTERN, ' ').replace(/\s+/g, ' ').trim();
@@ -919,6 +925,46 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     handleBrowserPreviewAddressChange(url);
     handleBrowserPreviewUrlChange(url);
   }, [handleBrowserPreviewAddressChange, handleBrowserPreviewUrlChange, handleOpenArtifactBrowserTab]);
+
+  const handleOpenWikiReference = useCallback((reference: Extract<SourceReference, { kind: typeof SourceReferenceKind.Wiki }>) => {
+    if (!sessionId) return;
+    const slug = reference.slug.trim();
+    if (!slug) return;
+    const artifactId = toWikiArtifactId(sessionId, slug);
+    const artifact: Artifact = {
+      id: artifactId,
+      messageId: `source-reference:${slug}`,
+      sessionId,
+      type: ArtifactTypeValue.Wiki,
+      title: reference.title || slug,
+      content: '',
+      metadata: {
+        app: reference.app,
+        slug,
+        title: reference.title,
+        kbId: reference.kbId,
+      },
+      createdAt: Date.now(),
+    };
+    dispatch(addArtifact({ sessionId, artifact }));
+    setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.FileList);
+    dispatch(openArtifactPreviewTab({ sessionId, artifactId }));
+  }, [dispatch, sessionId, setSessionActiveSpecialPreviewTab]);
+
+  useEffect(() => {
+    if (!sessionId) return undefined;
+    const handleSourceReferenceClick = (event: Event) => {
+      const reference = (event as CustomEvent<SourceReference>).detail;
+      if (reference?.kind !== SourceReferenceKind.Wiki) {
+        return;
+      }
+      handleOpenWikiReference(reference);
+    };
+    window.addEventListener('cowork:source-reference-click', handleSourceReferenceClick);
+    return () => {
+      window.removeEventListener('cowork:source-reference-click', handleSourceReferenceClick);
+    };
+  }, [handleOpenWikiReference, sessionId]);
 
   const handleOpenArtifactFileListFromMenu = useCallback(() => {
     setShowArtifactAddMenu(false);

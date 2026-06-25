@@ -12,9 +12,11 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 
 import { i18nService } from '../services/i18n';
+import { SourceReferenceKind, type SourceReference } from '../types/sourceReference';
+import { decodeSourceReferenceHref, encodeSourceReferencesForMarkdown } from '../utils/sourceReferences';
 import CodeBlock from './CodeBlock';
 
-const SAFE_URL_PROTOCOLS = new Set(['http', 'https', 'mailto', 'tel', 'file', 'localfile']);
+const SAFE_URL_PROTOCOLS = new Set(['http', 'https', 'mailto', 'tel', 'file', 'localfile', 'popiai-source-ref']);
 const LINK_CLASS_NAME = 'text-primary hover:text-primary-hover underline decoration-primary/50 hover:decoration-primary transition-colors break-words [overflow-wrap:anywhere]';
 
 const encodeFileUrl = (url: string): string => {
@@ -344,6 +346,7 @@ const createMarkdownComponents = (
   resolveLocalFilePath?: (href: string, text: string) => string | null,
   showRevealInFolderAction = false,
   onImageClick?: (image: { src: string; alt?: string | null }) => void,
+  onSourceReferenceClick?: (reference: SourceReference) => void,
 ) => ({
   p: ({ node: _node, className: _className, children, ...props }: any) => (
     <p className="my-1 first:mt-0 last:mb-0 leading-[23px] text-foreground/90" {...props}>
@@ -448,6 +451,45 @@ const createMarkdownComponents = (
     }
 
     const hrefValue = typeof href === 'string' ? href.trim() : '';
+    const sourceReference = hrefValue ? decodeSourceReferenceHref(hrefValue) : null;
+    if (sourceReference) {
+      const handleSourceClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (onSourceReferenceClick) {
+          onSourceReferenceClick(sourceReference);
+        } else {
+          window.dispatchEvent(new CustomEvent('cowork:source-reference-click', {
+            detail: sourceReference,
+          }));
+        }
+      };
+
+      if (sourceReference.kind === SourceReferenceKind.Wiki) {
+        return (
+          <button
+            type="button"
+            onClick={handleSourceClick}
+            className="inline max-w-full align-baseline font-medium text-primary underline decoration-primary/50 underline-offset-2 transition-colors hover:text-primary-hover hover:decoration-primary"
+            title={sourceReference.title}
+          >
+            {children}
+          </button>
+        );
+      }
+
+      return (
+        <button
+          type="button"
+          onClick={handleSourceClick}
+          className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-surface-raised px-1.5 py-0.5 align-baseline text-xs font-medium text-primary hover:bg-surface-hover"
+          title={sourceReference.label}
+        >
+          <span className="min-w-0 truncate">{children}</span>
+        </button>
+      );
+    }
+
     const isExternalLink = !!hrefValue && isExternalHref(hrefValue);
     const linkText = Array.isArray(children) ? children.join('') : String(children ?? '');
     const resolvedPath = hrefValue && !isExternalLink && resolveLocalFilePath
@@ -605,6 +647,7 @@ interface MarkdownContentProps {
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   showRevealInFolderAction?: boolean;
   onImageClick?: (image: { src: string; alt?: string | null }) => void;
+  onSourceReferenceClick?: (reference: SourceReference) => void;
 }
 
 const MarkdownContent: React.FC<MarkdownContentProps> = ({
@@ -613,12 +656,21 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
   resolveLocalFilePath,
   showRevealInFolderAction = false,
   onImageClick,
+  onSourceReferenceClick,
 }) => {
   const components = useMemo(
-    () => createMarkdownComponents(resolveLocalFilePath, showRevealInFolderAction, onImageClick),
-    [resolveLocalFilePath, showRevealInFolderAction, onImageClick]
+    () => createMarkdownComponents(
+      resolveLocalFilePath,
+      showRevealInFolderAction,
+      onImageClick,
+      onSourceReferenceClick,
+    ),
+    [resolveLocalFilePath, showRevealInFolderAction, onImageClick, onSourceReferenceClick]
   );
-  const normalizedContent = useMemo(() => normalizeDisplayMath(encodeFileUrlsInMarkdown(content)), [content]);
+  const normalizedContent = useMemo(
+    () => normalizeDisplayMath(encodeFileUrlsInMarkdown(encodeSourceReferencesForMarkdown(content))),
+    [content],
+  );
   return (
     <div className={`markdown-content min-w-0 max-w-full text-[15px] leading-[23px] ${className}`}>
       <ReactMarkdown
