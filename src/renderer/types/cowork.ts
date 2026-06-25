@@ -49,6 +49,7 @@ export interface CoworkMessageMetadata {
   isFinal?: boolean;
   isThinking?: boolean;
   skillIds?: string[];
+  knowledgeBaseIds?: string[];
   usage?: {
     inputTokens?: number;
     outputTokens?: number;

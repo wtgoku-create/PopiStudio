@@ -311,9 +311,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
             type: 'user',
             content: prompt,
             timestamp: now,
-            metadata: (sessionSkillIds.length > 0 || (imageAttachments && imageAttachments.length > 0))
+            metadata: (sessionSkillIds.length > 0 || knowledgeBaseIds?.length || (imageAttachments && imageAttachments.length > 0))
               ? {
                 ...(sessionSkillIds.length > 0 ? { skillIds: sessionSkillIds } : {}),
+                ...(knowledgeBaseIds?.length ? { knowledgeBaseIds } : {}),
                 ...(imageAttachments && imageAttachments.length > 0 ? { imageAttachments } : {}),
               }
               : undefined,

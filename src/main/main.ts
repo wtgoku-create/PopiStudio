@@ -4015,6 +4015,9 @@ if (!gotTheLock) {
       if (options.activeSkillIds?.length) {
         messageMetadata.skillIds = options.activeSkillIds;
       }
+      if (options.knowledgeBaseIds?.length) {
+        messageMetadata.knowledgeBaseIds = options.knowledgeBaseIds;
+      }
       if (options.imageAttachments?.length) {
         console.log('[Cowork:StartSession] imageAttachments received via IPC:', {
           count: options.imageAttachments.length,
@@ -4110,6 +4113,9 @@ if (!gotTheLock) {
       const messageMetadata: Record<string, unknown> = {};
       if (options.activeSkillIds?.length) {
         messageMetadata.skillIds = options.activeSkillIds;
+      }
+      if (options.knowledgeBaseIds?.length) {
+        messageMetadata.knowledgeBaseIds = options.knowledgeBaseIds;
       }
       if (options.imageAttachments?.length) {
         messageMetadata.imageAttachments = options.imageAttachments;

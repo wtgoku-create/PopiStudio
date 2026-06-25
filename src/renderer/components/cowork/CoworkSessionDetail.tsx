@@ -417,23 +417,34 @@ const StreamingActivityBar: React.FC<{ messages: CoworkMessage[]; isContextMaint
   messages,
   isContextMaintenance = false,
 }) => {
-  // Walk messages backwards to find the latest tool_use without a paired tool_result
   const getStatusText = (): string => {
     if (isContextMaintenance) {
       return i18nService.t('coworkContextMaintenanceRunning');
     }
-    const toolUseIds = new Set<string>();
+
+    const latestUserIndex = (() => {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].type === 'user') return i;
+      }
+      return -1;
+    })();
+    const currentTurnMessages = latestUserIndex >= 0
+      ? messages.slice(latestUserIndex)
+      : messages;
+    const hasAssistantContent = currentTurnMessages.some((msg) => (
+      msg.type === 'assistant' && !msg.metadata?.isThinking && msg.content.trim().length > 0
+    ));
+    const hasThinking = currentTurnMessages.some((msg) => Boolean(msg.metadata?.isThinking));
+
     const toolResultIds = new Set<string>();
-    for (const msg of messages) {
+    for (const msg of currentTurnMessages) {
       const id = msg.metadata?.toolUseId;
       if (typeof id === 'string') {
         if (msg.type === 'tool_result') toolResultIds.add(id);
-        if (msg.type === 'tool_use') toolUseIds.add(id);
       }
     }
-    // Walk backwards to find latest unresolved tool_use
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
+    for (let i = currentTurnMessages.length - 1; i >= 0; i--) {
+      const msg = currentTurnMessages[i];
       if (msg.type === 'tool_use') {
         const id = msg.metadata?.toolUseId;
         if (typeof id === 'string' && !toolResultIds.has(id)) {
@@ -444,7 +455,25 @@ const StreamingActivityBar: React.FC<{ messages: CoworkMessage[]; isContextMaint
         }
       }
     }
-    return `${i18nService.t('coworkToolRunning')}`;
+
+    const latestMessage = currentTurnMessages[currentTurnMessages.length - 1];
+    if (latestMessage?.type === 'user') {
+      const knowledgeBaseIds = latestMessage.metadata?.knowledgeBaseIds;
+      if (Array.isArray(knowledgeBaseIds) && knowledgeBaseIds.length > 0) {
+        return i18nService.t('coworkRetrievingKnowledge');
+      }
+      return i18nService.t('coworkPreparingResponse');
+    }
+    if (hasThinking && !hasAssistantContent) {
+      return i18nService.t('coworkThinking');
+    }
+    if (hasAssistantContent) {
+      return i18nService.t('coworkGeneratingResponse');
+    }
+    if (hasThinking) {
+      return i18nService.t('coworkThinking');
+    }
+    return i18nService.t('coworkPreparingResponse');
   };
 
   return (
