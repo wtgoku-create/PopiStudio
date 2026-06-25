@@ -982,6 +982,40 @@ const getRemoteKnowledgeService = (): RemoteKnowledgeService => {
   return remoteKnowledgeService;
 };
 
+const resolveCoworkRuntimePrompt = async (options: {
+  prompt: string;
+  runtimePrompt?: string;
+  knowledgeBaseIds?: string[];
+}): Promise<string> => {
+  const runtimePrompt = options.runtimePrompt?.trim();
+  if (runtimePrompt) {
+    return runtimePrompt;
+  }
+
+  const query = options.prompt.trim();
+  const knowledgeBaseIds = options.knowledgeBaseIds?.filter(Boolean) ?? [];
+  if (!query || knowledgeBaseIds.length === 0) {
+    return options.prompt;
+  }
+
+  try {
+    const result = await getRemoteKnowledgeService().previewRagContext({
+      query,
+      knowledgeBaseIds,
+    });
+    if (result.success && result.data?.rendered_contexts?.trim()) {
+      return result.data?.rendered_contexts + '\n' + (result.data?.user_content || '');
+    }
+
+    if (result.error) {
+      console.warn('[CoworkKnowledge] RAG context preview failed, continuing with original prompt:', result.error);
+    }
+  } catch (error) {
+    console.warn('[CoworkKnowledge] RAG context preview failed, continuing with original prompt:', error);
+  }
+  return options.prompt;
+};
+
 const forwardOpenClawStatus = (status: OpenClawEngineStatus): void => {
   const windows = BrowserWindow.getAllWindows();
   windows.forEach((win) => {
@@ -3921,6 +3955,8 @@ if (!gotTheLock) {
   // Cowork IPC handlers
   ipcMain.handle('cowork:session:start', async (_event, options: {
     prompt: string;
+    runtimePrompt?: string;
+    knowledgeBaseIds?: string[];
     cwd?: string;
     systemPrompt?: string;
     title?: string;
@@ -4005,15 +4041,18 @@ if (!gotTheLock) {
 
       // Start the session asynchronously (skip initial user message since we already added it)
       const runtime = getCoworkEngineRouter();
-      runtime.startSession(session.id, options.prompt, {
-        skipInitialUserMessage: true,
-        systemPrompt,
-        skillIds: options.activeSkillIds,
-        workspaceRoot: taskWorkingDirectory,
-        confirmationMode: 'modal',
-        imageAttachments: options.imageAttachments,
-        agentId: options.agentId,
-      }).catch(error => {
+      (async () => {
+        const runtimePrompt = await resolveCoworkRuntimePrompt(options);
+        await runtime.startSession(session.id, runtimePrompt, {
+          skipInitialUserMessage: true,
+          systemPrompt,
+          skillIds: options.activeSkillIds,
+          workspaceRoot: taskWorkingDirectory,
+          confirmationMode: 'modal',
+          imageAttachments: options.imageAttachments,
+          agentId: options.agentId,
+        });
+      })().catch(error => {
         console.error('[Cowork] session error:', error);
         try {
           // The engine router already emits an 'error' event (handled at line ~990)
@@ -4048,6 +4087,8 @@ if (!gotTheLock) {
   ipcMain.handle('cowork:session:continue', async (_event, options: {
     sessionId: string;
     prompt: string;
+    runtimePrompt?: string;
+    knowledgeBaseIds?: string[];
     systemPrompt?: string;
     activeSkillIds?: string[];
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
@@ -4071,13 +4112,17 @@ if (!gotTheLock) {
           })),
         });
       }
-      runtime.continueSession(options.sessionId, options.prompt, {
-        systemPrompt: mergeCoworkSystemPrompt(
-          options.systemPrompt ?? existingSession?.systemPrompt,
-        ),
-        skillIds: options.activeSkillIds,
-        imageAttachments: options.imageAttachments,
-      }).catch(error => {
+      (async () => {
+        const runtimePrompt = await resolveCoworkRuntimePrompt(options);
+        await runtime.continueSession(options.sessionId, runtimePrompt, {
+          systemPrompt: mergeCoworkSystemPrompt(
+            options.systemPrompt ?? existingSession?.systemPrompt,
+          ),
+          skillIds: options.activeSkillIds,
+          imageAttachments: options.imageAttachments,
+          displayPrompt: options.prompt,
+        });
+      })().catch(error => {
         console.error('[Cowork] continue error:', error);
         try {
           // The engine router already emits an 'error' event (handled at line ~990)

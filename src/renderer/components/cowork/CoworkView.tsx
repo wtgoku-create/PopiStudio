@@ -24,7 +24,7 @@ import { PromptPanel,QuickActionBar } from '../quick-actions';
 import type { SettingsOpenOptions } from '../Settings';
 import { useAgentSelectedModel } from './agentModelSelection';
 import { CoworkUiEvent } from './constants';
-import CoworkPromptInput, { type CoworkPromptInputRef } from './CoworkPromptInput';
+import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
 import CoworkSessionDetail from './CoworkSessionDetail';
 import { buildCoworkContinuationSystemPrompt, buildCoworkSystemPrompt } from './skillSystemPrompt';
 import SubagentSessionDetail from './SubagentSessionDetail';
@@ -205,7 +205,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     });
   }, []);
 
-  const handleStartSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]): Promise<boolean | void> => {
+  const handleStartSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions): Promise<boolean | void> => {
     console.log('[CoworkView] handleStartSession: imageAttachments diagnosis', {
       hasImageAttachments: !!imageAttachments,
       count: imageAttachments?.length ?? 0,
@@ -252,6 +252,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
 
       // Capture active skill IDs before clearing them
       const sessionSkillIds = [...activeSkillIds];
+      const knowledgeBaseIds = options?.knowledgeBaseIds?.filter(Boolean);
       const existingSessionResult = await coworkService.listSessionsForAgentPreview(currentAgentId, 1, 0);
       const existingSessionSummary = existingSessionResult.success
         ? existingSessionResult.sessions?.[0]
@@ -270,6 +271,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         const sent = await coworkService.continueSession({
           sessionId: existingSessionSummary.id,
           prompt,
+          knowledgeBaseIds,
           systemPrompt: combinedSystemPrompt,
           activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
           imageAttachments,
@@ -345,6 +347,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       console.log('[CoworkView] creating session:', { modelId: currentAgentSelectedModel?.id, providerKey: currentAgentSelectedModel?.providerKey, isServerModel: currentAgentSelectedModel?.isServerModel, sessionModelOverride, agentModel: currentAgent?.model });
       const { session: startedSession, error: startError } = await coworkService.startSession({
         prompt,
+        knowledgeBaseIds,
         title: fallbackTitle,
         cwd: currentAgentWorkingDirectory || undefined,
         systemPrompt: combinedSystemPrompt,
@@ -384,7 +387,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     }
   };
 
-  const handleContinueSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[]) => {
+  const handleContinueSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions) => {
     if (!currentSession) return false;
     // Prevent duplicate submissions
     if (isContinuingRef.current) return false;
@@ -404,6 +407,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
 
       // Capture active skill IDs before clearing
       const sessionSkillIds = [...activeSkillIds];
+      const knowledgeBaseIds = options?.knowledgeBaseIds?.filter(Boolean);
 
       // Only send a continuation system prompt when this turn selects new skills.
       // Otherwise the main process falls back to the session prompt created on the first turn.
@@ -419,6 +423,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       const sent = await coworkService.continueSession({
         sessionId: currentSession.id,
         prompt,
+        knowledgeBaseIds,
         systemPrompt: combinedSystemPrompt,
         activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
         imageAttachments,
@@ -436,11 +441,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
     prompt: string,
     skillPrompt?: string,
     imageAttachments?: CoworkImageAttachment[],
+    options?: CoworkPromptSubmitOptions,
   ): Promise<boolean | void> => {
     if (currentSession && !hasCurrentSessionMessages) {
-      return handleContinueSession(prompt, skillPrompt, imageAttachments);
+      return handleContinueSession(prompt, skillPrompt, imageAttachments, options);
     }
-    return handleStartSession(prompt, skillPrompt, imageAttachments);
+    return handleStartSession(prompt, skillPrompt, imageAttachments, options);
   };
 
   const handleStopSession = async () => {

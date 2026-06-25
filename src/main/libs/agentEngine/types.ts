@@ -74,6 +74,7 @@ export type CoworkContinueOptions = {
   systemPrompt?: string;
   skillIds?: string[];
   imageAttachments?: CoworkImageAttachment[];
+  displayPrompt?: string;
 };
 
 export interface CoworkRuntime {

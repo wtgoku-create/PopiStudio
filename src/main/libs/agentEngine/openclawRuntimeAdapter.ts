@@ -2050,6 +2050,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   async continueSession(sessionId: string, prompt: string, options: CoworkContinueOptions = {}): Promise<void> {
     await this.runTurn(sessionId, prompt, {
       skipInitialUserMessage: false,
+      displayPrompt: options.displayPrompt,
       systemPrompt: options.systemPrompt,
       skillIds: options.skillIds,
       imageAttachments: options.imageAttachments,
@@ -2270,6 +2271,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       confirmationMode?: 'modal' | 'text';
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
       agentId?: string;
+      displayPrompt?: string;
     },
   ): Promise<void> {
     if (!prompt.trim() && (!options.imageAttachments || options.imageAttachments.length === 0)) {
@@ -2301,7 +2303,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         : undefined;
       const userMessage = this.store.addMessage(sessionId, {
         type: 'user',
-        content: prompt,
+        content: options.displayPrompt ?? prompt,
         metadata,
       });
       this.emit('message', sessionId, userMessage);

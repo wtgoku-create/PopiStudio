@@ -7,6 +7,8 @@ import type {
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type {
   KnowledgeResult,
+  PreviewRagContextRequest,
+  PreviewRagContextResult,
   RemoteKnowledgeBase,
 } from '../../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
@@ -507,6 +509,8 @@ interface IElectronAPI {
   cowork: {
     startSession: (options: {
       prompt: string;
+      runtimePrompt?: string;
+      knowledgeBaseIds?: string[];
       cwd?: string;
       systemPrompt?: string;
       title?: string;
@@ -523,6 +527,8 @@ interface IElectronAPI {
     continueSession: (options: {
       sessionId: string;
       prompt: string;
+      runtimePrompt?: string;
+      knowledgeBaseIds?: string[];
       systemPrompt?: string;
       activeSkillIds?: string[];
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
@@ -712,6 +718,7 @@ interface IElectronAPI {
   };
   knowledge: {
     listBases: () => Promise<KnowledgeResult<RemoteKnowledgeBase[]>>;
+    previewRagContext: (request: PreviewRagContextRequest) => Promise<PreviewRagContextResult>;
   };
   clipboard: {
     writeImageFromFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
