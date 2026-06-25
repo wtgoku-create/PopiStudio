@@ -50,6 +50,7 @@ import type {
   OpenClawEngineStatus,
   OpenClawSessionPolicyConfig,
 } from '../types/cowork';
+import { CoworkSessionStatusValue } from '../types/cowork';
 import { i18nService } from './i18n';
 
 const classifyError = (error: string): string => {
@@ -161,7 +162,7 @@ class CoworkService {
       // A new user turn means this session is actively running again
       // (especially important for IM-triggered turns that do not call continueSession from renderer).
       if (message.type === 'user' || message.type === 'assistant' || message.type === 'tool_use' || message.type === 'tool_result') {
-        store.dispatch(updateSessionStatus({ sessionId, status: 'running' }));
+        store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Running }));
       }
       if (beforeMessageId) {
         console.log('[ThinkingOrder] renderer received message with beforeMessageId=', beforeMessageId, 'messageId=', message.id, 'isThinking=', !!(message.metadata as any)?.isThinking);
@@ -175,7 +176,7 @@ class CoworkService {
     const messageUpdateCleanup = cowork.onStreamMessageUpdate(({ sessionId, messageId, content, metadata }) => {
       const session = store.getState().cowork.sessions.find(s => s.id === sessionId);
       if (metadata?.isFinal !== true && session?.status !== 'completed') {
-        store.dispatch(updateSessionStatus({ sessionId, status: 'running' }));
+        store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Running }));
       }
       store.dispatch(updateMessageContent({ sessionId, messageId, content, metadata }));
     });
@@ -233,13 +234,13 @@ class CoworkService {
     // Error listener
     const errorCleanup = cowork.onStreamError(({ sessionId, error }) => {
       if (this.isStillRunningError(error)) {
-        store.dispatch(updateSessionStatus({ sessionId, status: 'running' }));
+        store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Running }));
         window.dispatchEvent(new CustomEvent('app:showToast', {
           detail: i18nService.t('coworkSessionStillRunning'),
         }));
         return;
       }
-      store.dispatch(updateSessionStatus({ sessionId, status: 'error' }));
+      store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Error }));
       // Surface the error as a visible message so the user knows what happened.
       if (error) {
         store.dispatch(addMessage({
@@ -621,12 +622,11 @@ class CoworkService {
     }
 
     store.dispatch(setStreaming(true));
-    store.dispatch(updateSessionStatus({ sessionId: options.sessionId, status: 'running' }));
+    store.dispatch(updateSessionStatus({ sessionId: options.sessionId, status: CoworkSessionStatusValue.Running }));
 
     const result = await cowork.continueSession({
       sessionId: options.sessionId,
       prompt: options.prompt,
-      runtimePrompt: options.runtimePrompt,
       knowledgeBaseIds: options.knowledgeBaseIds,
       systemPrompt: options.systemPrompt,
       activeSkillIds: options.activeSkillIds,
@@ -637,25 +637,16 @@ class CoworkService {
       if (result.engineStatus) {
         this.notifyOpenClawStatus(result.engineStatus);
       }
-      if (result.code !== 'ENGINE_NOT_READY') {
-        store.dispatch(updateSessionStatus({ sessionId: options.sessionId, status: 'error' }));
-        if (result.error) {
-          store.dispatch(addMessage({
-            sessionId: options.sessionId,
-            message: {
-              id: `error-${Date.now()}`,
-              type: 'system',
-              content: i18nService.t('coworkErrorSessionContinueFailed').replace('{error}', result.error),
-              timestamp: Date.now(),
-            },
-          }));
-        }
-      }
-      // Show a user-visible error message in the session
       if (result.error) {
         const errorContent = result.code === 'ENGINE_NOT_READY'
           ? i18nService.t('coworkErrorEngineNotReady')
           : classifyError(result.error);
+        store.dispatch(updateSessionStatus({
+          sessionId: options.sessionId,
+          status: result.code === 'ENGINE_NOT_READY'
+            ? CoworkSessionStatusValue.Idle
+            : CoworkSessionStatusValue.Error,
+        }));
         store.dispatch(addMessage({
           sessionId: options.sessionId,
           message: {
@@ -680,7 +671,7 @@ class CoworkService {
     const result = await cowork.stopSession(sessionId);
     if (result.success) {
       store.dispatch(setStreaming(false));
-      store.dispatch(updateSessionStatus({ sessionId, status: 'idle' }));
+      store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Idle }));
       return true;
     }
 

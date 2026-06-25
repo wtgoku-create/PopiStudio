@@ -206,7 +206,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [isKnowledgeMenuOpen, setIsKnowledgeMenuOpen] = useState(false);
     const [isLoadingKnowledgeBases, setIsLoadingKnowledgeBases] = useState(false);
     const [knowledgeBases, setKnowledgeBases] = useState<RemoteKnowledgeBase[]>([]);
-    const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('');
+    const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const dragDepthRef = useRef(0);
@@ -328,7 +328,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     globalSelectedModel: currentAgentSelectedModel,
   });
   const modelSupportsImage = !!effectiveSelectedModel?.supportsImage;
-  const selectedKnowledgeBase = knowledgeBases.find(base => base.id === selectedKnowledgeBaseId) ?? null;
+  const selectedKnowledgeBases = selectedKnowledgeBaseIds
+    .map(id => knowledgeBases.find(base => base.id === id))
+    .filter((base): base is RemoteKnowledgeBase => Boolean(base));
+  const selectedKnowledgeBaseLabel = selectedKnowledgeBases.length === 1
+    ? selectedKnowledgeBases[0].name
+    : selectedKnowledgeBases.length > 1
+      ? i18nService.t('knowledgeBaseSelectedCount').replace('{count}', String(selectedKnowledgeBases.length))
+      : i18nService.t('knowledgeBase');
 
   // Load skills on mount
   useEffect(() => {
@@ -493,8 +500,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         })),
       });
     }
-    const submitOptions: CoworkPromptSubmitOptions | undefined = selectedKnowledgeBaseId
-      ? { knowledgeBaseIds: [selectedKnowledgeBaseId] }
+    const knowledgeBaseIds = selectedKnowledgeBaseIds.filter(Boolean);
+    const submitOptions: CoworkPromptSubmitOptions | undefined = knowledgeBaseIds.length > 0
+      ? { knowledgeBaseIds }
       : undefined;
     const result = await onSubmit(finalPrompt, skillPrompt, imageAtts.length > 0 ? imageAtts : undefined, submitOptions);
     if (result === false) return;
@@ -502,7 +510,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
     setImageVisionHint(false);
-  }, [value, isStreaming, disabled, isPatchingModel, onSubmit, activeSkillIds, skills, attachments, dispatch, draftKey, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseId]);
+  }, [value, isStreaming, disabled, isPatchingModel, onSubmit, activeSkillIds, skills, attachments, dispatch, draftKey, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     dispatch(toggleActiveSkill(skill.id));
@@ -520,12 +528,17 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     try {
       const result = await knowledgeService.listBases();
       if (result.success && result.data) {
-        setKnowledgeBases(result.data);
+        const nextKnowledgeBases = result.data;
+        const nextKnowledgeBaseIds = new Set(nextKnowledgeBases.map(base => base.id));
+        setKnowledgeBases(nextKnowledgeBases);
+        setSelectedKnowledgeBaseIds(current => current.filter(id => nextKnowledgeBaseIds.has(id)));
         return;
       }
       setKnowledgeBases([]);
+      setSelectedKnowledgeBaseIds([]);
     } catch (error) {
       setKnowledgeBases([]);
+      setSelectedKnowledgeBaseIds([]);
     } finally {
       setIsLoadingKnowledgeBases(false);
     }
@@ -1031,17 +1044,17 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         <button
           type="button"
           className={`flex h-[34px] max-w-[180px] items-center gap-1.5 rounded-lg px-2 text-[13px] transition-colors ${
-            selectedKnowledgeBase
+            selectedKnowledgeBaseIds.length > 0
               ? 'bg-primary/10 text-primary hover:bg-primary/15'
               : 'text-secondary hover:bg-surface-raised hover:text-foreground'
           }`}
-          title={selectedKnowledgeBase?.name || i18nService.t('knowledgeBase')}
+          title={selectedKnowledgeBases.map(base => base.name).join(', ') || i18nService.t('knowledgeBase')}
           aria-label={i18nService.t('knowledgeBase')}
           disabled={disabled || isStreaming}
         >
           <AcademicCapIcon className="h-4 w-4 shrink-0" />
           <span className="min-w-0 truncate">
-            {selectedKnowledgeBase?.name || i18nService.t('knowledgeBase')}
+            {selectedKnowledgeBaseLabel}
           </span>
         </button>
       </PopoverPrimitive.Trigger>
@@ -1064,26 +1077,36 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             {!isLoadingKnowledgeBases && knowledgeBases.length === 0 && (
               <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('knowledgeBaseEmpty')}</div>
             )}
-            {!isLoadingKnowledgeBases && knowledgeBases.map((base) => (
-              <button
-                key={base.id}
-                type="button"
-                onClick={() => {
-                  setSelectedKnowledgeBaseId(selectedKnowledgeBaseId === base.id ? '' : base.id);
-                  handleKnowledgeMenuOpenChange(false);
-                }}
-                className={`flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-raised ${
-                  selectedKnowledgeBaseId === base.id ? 'text-primary' : 'text-foreground'
-                }`}
-              >
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{base.name}</span>
-                <span className="shrink-0 truncate text-xs text-secondary">
-                  {base.documentCount !== undefined
-                    ? `${base.documentCount} ${i18nService.t('knowledgeBaseDocuments')}`
-                    : base.description || base.id}
-                </span>
-              </button>
-            ))}
+            {!isLoadingKnowledgeBases && knowledgeBases.map((base) => {
+              const selected = selectedKnowledgeBaseIds.includes(base.id);
+              return (
+                <label
+                  key={base.id}
+                  className={`flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-left hover:bg-surface-raised ${
+                    selected ? 'text-primary' : 'text-foreground'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => {
+                      setSelectedKnowledgeBaseIds((current) => (
+                        current.includes(base.id)
+                          ? current.filter(id => id !== base.id)
+                          : [...current, base.id]
+                      ));
+                    }}
+                    className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{base.name}</span>
+                  <span className="shrink-0 truncate text-xs text-secondary">
+                    {base.documentCount !== undefined
+                      ? `${base.documentCount} ${i18nService.t('knowledgeBaseDocuments')}`
+                      : base.description || base.id}
+                  </span>
+                </label>
+              );
+            })}
           </div>
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>

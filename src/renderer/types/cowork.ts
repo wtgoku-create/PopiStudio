@@ -261,7 +261,6 @@ export interface SubagentSessionSummary {
 // Start session options
 export interface CoworkStartOptions {
   prompt: string;
-  runtimePrompt?: string;
   knowledgeBaseIds?: string[];
   cwd?: string;
   systemPrompt?: string;
@@ -276,7 +275,6 @@ export interface CoworkStartOptions {
 export interface CoworkContinueOptions {
   sessionId: string;
   prompt: string;
-  runtimePrompt?: string;
   knowledgeBaseIds?: string[];
   systemPrompt?: string;
   activeSkillIds?: string[];

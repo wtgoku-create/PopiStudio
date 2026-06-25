@@ -509,7 +509,6 @@ interface IElectronAPI {
   cowork: {
     startSession: (options: {
       prompt: string;
-      runtimePrompt?: string;
       knowledgeBaseIds?: string[];
       cwd?: string;
       systemPrompt?: string;
@@ -527,7 +526,6 @@ interface IElectronAPI {
     continueSession: (options: {
       sessionId: string;
       prompt: string;
-      runtimePrompt?: string;
       knowledgeBaseIds?: string[];
       systemPrompt?: string;
       activeSkillIds?: string[];

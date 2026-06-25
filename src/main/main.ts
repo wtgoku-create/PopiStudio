@@ -984,14 +984,8 @@ const getRemoteKnowledgeService = (): RemoteKnowledgeService => {
 
 const resolveCoworkRuntimePrompt = async (options: {
   prompt: string;
-  runtimePrompt?: string;
   knowledgeBaseIds?: string[];
 }): Promise<string> => {
-  const runtimePrompt = options.runtimePrompt?.trim();
-  if (runtimePrompt) {
-    return runtimePrompt;
-  }
-
   const query = options.prompt.trim();
   const knowledgeBaseIds = options.knowledgeBaseIds?.filter(Boolean) ?? [];
   if (!query || knowledgeBaseIds.length === 0) {
@@ -1014,6 +1008,18 @@ const resolveCoworkRuntimePrompt = async (options: {
     console.warn('[CoworkKnowledge] RAG context preview failed, continuing with original prompt:', error);
   }
   return options.prompt;
+};
+
+const forwardCoworkMessage = (sessionId: string, message: unknown, beforeMessageId?: string): void => {
+  const safeMessage = sanitizeCoworkMessageForIpc(message);
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (win.isDestroyed()) return;
+    try {
+      win.webContents.send('cowork:stream:message', { sessionId, message: safeMessage, beforeMessageId });
+    } catch (error) {
+      console.error('[CoworkForwarder] failed to forward cowork message:', error);
+    }
+  });
 };
 
 const forwardOpenClawStatus = (status: OpenClawEngineStatus): void => {
@@ -1685,7 +1691,6 @@ const bindCoworkRuntimeForwarder = (): void => {
   const runtime = getCoworkEngineRouter();
 
   runtime.on('message', (sessionId: string, message: unknown, beforeMessageId?: string) => {
-    const safeMessage = sanitizeCoworkMessageForIpc(message);
     const windows = BrowserWindow.getAllWindows();
     const messageType = typeof message === 'object' && message && 'type' in message
       ? (message as { type?: unknown }).type
@@ -1694,14 +1699,7 @@ const bindCoworkRuntimeForwarder = (): void => {
       console.log('[ThinkingOrder] IPC forwarding with beforeMessageId=', beforeMessageId, 'type=', messageType);
     }
     console.log('[CoworkForwarder] forwarding message: sessionId=', sessionId, 'type=', messageType, 'windowCount=', windows.length);
-    windows.forEach((win) => {
-      if (win.isDestroyed()) return;
-      try {
-        win.webContents.send('cowork:stream:message', { sessionId, message: safeMessage, beforeMessageId });
-      } catch (error) {
-        console.error('Failed to forward cowork message:', error);
-      }
-    });
+    forwardCoworkMessage(sessionId, message, beforeMessageId);
   });
 
   runtime.on('messageUpdate', (sessionId: string, messageId: string, content: string, metadata?: Record<string, unknown>) => {
@@ -3955,7 +3953,6 @@ if (!gotTheLock) {
   // Cowork IPC handlers
   ipcMain.handle('cowork:session:start', async (_event, options: {
     prompt: string;
-    runtimePrompt?: string;
     knowledgeBaseIds?: string[];
     cwd?: string;
     systemPrompt?: string;
@@ -4035,10 +4032,6 @@ if (!gotTheLock) {
         metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
       });
 
-      // Update session status to 'running' before starting async task
-      // This ensures the frontend receives the correct status immediately
-      coworkStoreInstance.updateSession(session.id, { status: 'running' });
-
       // Start the session asynchronously (skip initial user message since we already added it)
       const runtime = getCoworkEngineRouter();
       (async () => {
@@ -4087,7 +4080,6 @@ if (!gotTheLock) {
   ipcMain.handle('cowork:session:continue', async (_event, options: {
     sessionId: string;
     prompt: string;
-    runtimePrompt?: string;
     knowledgeBaseIds?: string[];
     systemPrompt?: string;
     activeSkillIds?: string[];
@@ -4100,7 +4092,34 @@ if (!gotTheLock) {
       }
 
       const runtime = getCoworkEngineRouter();
-      const existingSession = getCoworkStore().getSession(options.sessionId);
+      const coworkStoreInstance = getCoworkStore();
+      const existingSession = coworkStoreInstance.getSession(options.sessionId);
+      if (!existingSession) {
+        return {
+          success: false,
+          error: 'Session not found',
+        };
+      }
+      if (runtime.isSessionActive(options.sessionId)) {
+        return {
+          success: false,
+          error: `Session ${options.sessionId} is still running.`,
+        };
+      }
+
+      const messageMetadata: Record<string, unknown> = {};
+      if (options.activeSkillIds?.length) {
+        messageMetadata.skillIds = options.activeSkillIds;
+      }
+      if (options.imageAttachments?.length) {
+        messageMetadata.imageAttachments = options.imageAttachments;
+      }
+      const userMessage = coworkStoreInstance.addMessage(options.sessionId, {
+        type: 'user',
+        content: options.prompt,
+        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
+      });
+      forwardCoworkMessage(options.sessionId, userMessage);
       if (options.imageAttachments?.length) {
         console.log('[Cowork:ContinueSession] imageAttachments received via IPC:', {
           sessionId: options.sessionId,
@@ -4115,12 +4134,12 @@ if (!gotTheLock) {
       (async () => {
         const runtimePrompt = await resolveCoworkRuntimePrompt(options);
         await runtime.continueSession(options.sessionId, runtimePrompt, {
+          skipInitialUserMessage: true,
           systemPrompt: mergeCoworkSystemPrompt(
             options.systemPrompt ?? existingSession?.systemPrompt,
           ),
           skillIds: options.activeSkillIds,
           imageAttachments: options.imageAttachments,
-          displayPrompt: options.prompt,
         });
       })().catch(error => {
         console.error('[Cowork] continue error:', error);

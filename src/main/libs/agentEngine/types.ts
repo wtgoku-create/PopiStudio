@@ -71,10 +71,10 @@ export type CoworkStartOptions = {
 };
 
 export type CoworkContinueOptions = {
+  skipInitialUserMessage?: boolean;
   systemPrompt?: string;
   skillIds?: string[];
   imageAttachments?: CoworkImageAttachment[];
-  displayPrompt?: string;
 };
 
 export interface CoworkRuntime {
