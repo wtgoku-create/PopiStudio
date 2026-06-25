@@ -1,6 +1,7 @@
 export const KnowledgeIpc = {
   ListBases: 'knowledge:bases:list',
   PreviewRagContext: 'knowledge:rag:previewContext',
+  GetWikiPage: 'knowledge:wiki:getPage',
 } as const;
 
 export type KnowledgeIpc = typeof KnowledgeIpc[keyof typeof KnowledgeIpc];
@@ -29,6 +30,36 @@ export interface PreviewRagContextRequest {
   images?: Array<Record<string, unknown>>;
   attachmentUploads?: Array<Record<string, unknown>>;
   channel?: string;
+}
+
+export interface GetWikiPageRequest {
+  knowledgeBaseId: string;
+  slug: string;
+}
+
+export interface WikiPage {
+  id: string;
+  tenant_id: number;
+  knowledge_base_id: string;
+  slug: string;
+  title: string;
+  page_type: string;
+  status: string;
+  content: string;
+  summary: string;
+  aliases: string[];
+  parent_slug?: string;
+  category_path?: string[];
+  wiki_path?: string;
+  depth?: number;
+  sort_order?: number;
+  source_refs: string[];
+  in_links: string[];
+  out_links: string[];
+  page_metadata: Record<string, unknown>;
+  version: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface RagContextChunk {

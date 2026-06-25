@@ -9,6 +9,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { normalizeFilePathForDedup, normalizeLocalServiceUrlForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseToolArtifact, stripFileLinksFromText } from '../../services/artifactParser';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
+import { knowledgeService } from '../../services/knowledge';
 import { RootState } from '../../store';
 import {
   selectCurrentMessagesLength,
@@ -80,9 +81,15 @@ const COWORK_DETAIL_MIN_WIDTH = 480;
 const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
 const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
 
-const toWikiArtifactId = (sessionId: string, slug: string): string => (
-  `artifact-wiki-${sessionId}-${encodeURIComponent(slug)}`
+const toWikiArtifactId = (sessionId: string, kbId: string, slug: string): string => (
+  `artifact-wiki-${sessionId}-${encodeURIComponent(kbId)}-${encodeURIComponent(slug)}`
 );
+
+const WikiArtifactStatus = {
+  Loading: 'loading',
+  Loaded: 'loaded',
+  Error: 'error',
+} as const;
 
 const sanitizeExportFileName = (value: string): string => {
   const sanitized = value.replace(INVALID_FILE_NAME_PATTERN, ' ').replace(/\s+/g, ' ').trim();
@@ -576,6 +583,55 @@ const toAbsolutePathFromCwd = (filePath: string, cwd: string): string => {
   return `${cwd.replace(/\/$/, '')}/${filePath.replace(/^\.\//, '')}`;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+);
+
+const parseJsonObject = (value: string): Record<string, unknown> | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    try {
+      const parsed = JSON.parse(trimmed.slice(start, end + 1));
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+};
+
+const getFoundKbsRecord = (payload: Record<string, unknown>): Record<string, unknown> | null => {
+  if (isRecord(payload.found_kbs)) {
+    return payload.found_kbs;
+  }
+  if (isRecord(payload.data) && isRecord(payload.data.found_kbs)) {
+    return payload.data.found_kbs;
+  }
+  return null;
+};
+
+const getWikiFoundKnowledgeBaseIds = (payload: Record<string, unknown>, slug: string): string[] => {
+  const foundKbs = getFoundKbsRecord(payload);
+  if (!foundKbs) return [];
+
+  const normalizedSlug = slug.trim().toLowerCase();
+  const match = foundKbs[slug] ?? Object.entries(foundKbs).find(([key]) => (
+    key.trim().toLowerCase() === normalizedSlug
+  ))?.[1];
+
+  if (!Array.isArray(match)) return [];
+  return match.filter((value): value is string => (
+    typeof value === 'string' && value.trim().length > 0
+  )).map(value => value.trim());
+};
+
 const EMPTY_ARTIFACTS: Artifact[] = [];
 const EMPTY_ARTIFACT_PREVIEW_TABS: ArtifactPreviewTab[] = [];
 
@@ -926,11 +982,61 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     handleBrowserPreviewUrlChange(url);
   }, [handleBrowserPreviewAddressChange, handleBrowserPreviewUrlChange, handleOpenArtifactBrowserTab]);
 
+  const getSelectedKnowledgeBaseIds = useCallback((): string[] => {
+    if (!currentSession?.messages?.length) return [];
+    for (let index = currentSession.messages.length - 1; index >= 0; index -= 1) {
+      const message = currentSession.messages[index];
+      const knowledgeBaseIds = message.metadata?.knowledgeBaseIds;
+      if (!Array.isArray(knowledgeBaseIds)) continue;
+      const selectedIds = knowledgeBaseIds.filter((value): value is string => (
+        typeof value === 'string' && value.trim().length > 0
+      )).map(value => value.trim());
+      if (selectedIds.length > 0) return selectedIds;
+    }
+    return [];
+  }, [currentSession?.messages]);
+
+  const getWikiKnowledgeBaseId = useCallback((slug: string, explicitKbId?: string): string => {
+    const normalizedExplicitKbId = explicitKbId?.trim();
+    if (normalizedExplicitKbId) return normalizedExplicitKbId;
+    if (!currentSession?.messages?.length) return '';
+
+    const selectedIds = getSelectedKnowledgeBaseIds();
+
+    for (let index = currentSession.messages.length - 1; index >= 0; index -= 1) {
+      const message = currentSession.messages[index];
+      if (message.type !== 'tool_result') continue;
+
+      const payloadTexts = [
+        message.content,
+        typeof message.metadata?.toolResult === 'string' ? message.metadata.toolResult : '',
+      ].filter((value): value is string => Boolean(value?.trim()));
+
+      for (const payloadText of payloadTexts) {
+        const payload = parseJsonObject(payloadText);
+        if (!payload) continue;
+        const candidateIds = getWikiFoundKnowledgeBaseIds(payload, slug);
+        if (candidateIds.length > 0) return candidateIds[0];
+      }
+    }
+
+    return selectedIds[0] || '';
+  }, [currentSession?.messages, getSelectedKnowledgeBaseIds]);
+
   const handleOpenWikiReference = useCallback((reference: Extract<SourceReference, { kind: typeof SourceReferenceKind.Wiki }>) => {
     if (!sessionId) return;
     const slug = reference.slug.trim();
     if (!slug) return;
-    const artifactId = toWikiArtifactId(sessionId, slug);
+    const kbId = getWikiKnowledgeBaseId(slug, reference.kbId);
+    const artifactId = toWikiArtifactId(sessionId, kbId || 'unknown', slug);
+    const existingArtifact = sessionArtifacts.find(item => item.id === artifactId);
+    const existingStatus = existingArtifact?.metadata?.status;
+    if (existingStatus === WikiArtifactStatus.Loaded || existingStatus === WikiArtifactStatus.Loading) {
+      setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.FileList);
+      dispatch(openArtifactPreviewTab({ sessionId, artifactId }));
+      return;
+    }
+
     const artifact: Artifact = {
       id: artifactId,
       messageId: `source-reference:${slug}`,
@@ -942,14 +1048,72 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         app: reference.app,
         slug,
         title: reference.title,
-        kbId: reference.kbId,
+        kbId,
+        status: kbId ? WikiArtifactStatus.Loading : WikiArtifactStatus.Error,
+        error: kbId ? undefined : i18nService.t('artifactWikiMissingKnowledgeBase'),
       },
       createdAt: Date.now(),
     };
     dispatch(addArtifact({ sessionId, artifact }));
     setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.FileList);
     dispatch(openArtifactPreviewTab({ sessionId, artifactId }));
-  }, [dispatch, sessionId, setSessionActiveSpecialPreviewTab]);
+    if (!kbId) return;
+
+    void knowledgeService.getWikiPage({ knowledgeBaseId: kbId, slug }).then((result) => {
+      if (result.success && result.data) {
+        dispatch(addArtifact({
+          sessionId,
+          artifact: {
+            ...artifact,
+            title: result.data.title || artifact.title,
+            content: result.data.content || '',
+            contentVersion: Date.now(),
+            metadata: {
+              ...artifact.metadata,
+              status: WikiArtifactStatus.Loaded,
+              title: result.data.title || artifact.title,
+              wikiPage: result.data,
+              summary: result.data.summary,
+              updatedAt: result.data.updated_at,
+            },
+          },
+        }));
+        return;
+      }
+
+      dispatch(addArtifact({
+        sessionId,
+        artifact: {
+          ...artifact,
+          contentVersion: Date.now(),
+          metadata: {
+            ...artifact.metadata,
+            status: WikiArtifactStatus.Error,
+            error: result.error || i18nService.t('artifactWikiLoadError'),
+          },
+        },
+      }));
+    }).catch((error) => {
+      dispatch(addArtifact({
+        sessionId,
+        artifact: {
+          ...artifact,
+          contentVersion: Date.now(),
+          metadata: {
+            ...artifact.metadata,
+            status: WikiArtifactStatus.Error,
+            error: error instanceof Error ? error.message : i18nService.t('artifactWikiLoadError'),
+          },
+        },
+      }));
+    });
+  }, [
+    dispatch,
+    getWikiKnowledgeBaseId,
+    sessionArtifacts,
+    sessionId,
+    setSessionActiveSpecialPreviewTab,
+  ]);
 
   useEffect(() => {
     if (!sessionId) return undefined;

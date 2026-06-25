@@ -3,10 +3,12 @@ import type { IpcMain } from 'electron';
 import {
   KNOWLEDGE_DEFAULT_BASE_URL,
   KnowledgeIpc,
+  type GetWikiPageRequest,
   type KnowledgeResult,
   type PreviewRagContextRequest,
   type PreviewRagContextResult,
   type RemoteKnowledgeBase,
+  type WikiPage,
 } from '../../shared/knowledge/constants';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => (
@@ -131,6 +133,27 @@ export class RemoteKnowledgeService {
     };
   }
 
+  async getWikiPage(request: GetWikiPageRequest): Promise<KnowledgeResult<WikiPage>> {
+    const knowledgeBaseId = request.knowledgeBaseId.trim();
+    const slug = request.slug.trim();
+    if (!knowledgeBaseId || !slug) {
+      return {
+        success: false,
+        error: 'Knowledge base id and slug are required',
+      };
+    }
+
+    const payload = await this.request(
+      `/api/v1/knowledgebase/${encodeURIComponent(knowledgeBaseId)}/wiki/pages/${encodeURIComponent(slug)}`,
+    );
+    return {
+      success: true,
+      data: isRecord(payload) && isRecord(payload.data)
+        ? payload.data as unknown as WikiPage
+        : payload as WikiPage,
+    };
+  }
+
   registerIpc(ipcMain: IpcMain): void {
     ipcMain.handle(KnowledgeIpc.ListBases, async (): Promise<KnowledgeResult<RemoteKnowledgeBase[]>> => {
       try {
@@ -147,6 +170,14 @@ export class RemoteKnowledgeService {
         return { success: false, error: error instanceof Error ? error.message : 'Failed to preview RAG context' };
       }
     });
+
+    ipcMain.handle(KnowledgeIpc.GetWikiPage, async (_event, request: GetWikiPageRequest): Promise<KnowledgeResult<WikiPage>> => {
+      try {
+        return await this.getWikiPage(request);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to get wiki page' };
+      }
+    });
   }
 
   private async request(pathname: string, init?: RequestInit): Promise<unknown> {
@@ -154,9 +185,8 @@ export class RemoteKnowledgeService {
       Accept: 'application/json',
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
     };
-    const apiKey ='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IjI5Mjc5MzM0MjZAcXEuY29tIiwiZXhwIjoxNzgyMzcwNTA5LCJpYXQiOjE3ODIyODQxMDksInRlbmFudF9pZCI6MTAwMDIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VyX2lkIjoiZmMyZDkwODUtNmUzNi00NzdjLTljNGQtYjMwYmYwZjhkNzE2In0.-3x_VJ4vkbM0_rCxkUBVlp3dh0-gHQrB6xoKI-mHUzk';
+    const apiKey ='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IjI5Mjc5MzM0MjZAcXEuY29tIiwiZXhwIjoxNzgyNDU2OTE3LCJpYXQiOjE3ODIzNzA1MTcsInRlbmFudF9pZCI6MTAwMDIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VyX2lkIjoiZmMyZDkwODUtNmUzNi00NzdjLTljNGQtYjMwYmYwZjhkNzE2In0.UU6uX4v7kgbC2cNnESkRlX6bI56iia9LakM4G1InOB0';
     if (apiKey) {
-      headers['X-API-Key'] = apiKey;
       headers.Authorization = `Bearer ${apiKey}`;
     }
 

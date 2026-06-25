@@ -89,7 +89,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const serverBaseUrl = serverBaseUrlGetter?.();
 
     if (req.url?.startsWith(WEKNORA_OPENCLAW_MCP_PROXY_PATH)) {
-      await handleWeknoraOpenClawMcpRequest(req, res, tokens?.accessToken ?? null);
+      await handleWeknoraOpenClawMcpRequest(req, res, 'sk-zubySD_r1gOVw82UcdBg1O2FRCZy9B_kG6h1yWWAmNWNEzDS');
       return;
     }
 

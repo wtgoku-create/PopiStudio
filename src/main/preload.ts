@@ -9,7 +9,11 @@ import { ClipboardIpc } from '../shared/clipboard/constants';
 import { CoworkIpcChannel } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc } from '../shared/folder/constants';
-import { KnowledgeIpc, type PreviewRagContextRequest } from '../shared/knowledge/constants';
+import {
+  KnowledgeIpc,
+  type GetWikiPageRequest,
+  type PreviewRagContextRequest,
+} from '../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../shared/localWebServices/constants';
 import { LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import type { Platform } from '../shared/platform';
@@ -450,6 +454,8 @@ contextBridge.exposeInMainWorld('electron', {
     listBases: () => ipcRenderer.invoke(KnowledgeIpc.ListBases),
     previewRagContext: (request: PreviewRagContextRequest) =>
       ipcRenderer.invoke(KnowledgeIpc.PreviewRagContext, request),
+    getWikiPage: (request: GetWikiPageRequest) =>
+      ipcRenderer.invoke(KnowledgeIpc.GetWikiPage, request),
   },
   clipboard: {
     writeImageFromFile: (filePath: string) =>

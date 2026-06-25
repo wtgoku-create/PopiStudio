@@ -558,6 +558,7 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
 
   const handleRefreshRef = useRef(handleRefresh);
   handleRefreshRef.current = handleRefresh;
+  const hideArtifactTitle = selectedArtifact?.type === ArtifactTypeValue.Wiki;
 
   return (
     <>
@@ -578,7 +579,9 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
             {/* Header: current file + actions */}
             <div className="h-10 flex items-center gap-2 px-3 border-b border-border shrink-0">
-              <span className="text-sm font-medium truncate">{selectedArtifact.fileName || selectedArtifact.title}</span>
+              {!hideArtifactTitle && (
+                <span className="text-sm font-medium truncate">{selectedArtifact.fileName || selectedArtifact.title}</span>
+              )}
               <span className="text-xs uppercase text-muted">{selectedArtifact.type}</span>
               <span className="flex-1" />
               {selectedArtifact.filePath && (

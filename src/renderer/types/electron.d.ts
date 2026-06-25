@@ -6,10 +6,12 @@ import type {
 } from '../../shared/browserWebAccess/constants';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type {
+  GetWikiPageRequest,
   KnowledgeResult,
   PreviewRagContextRequest,
   PreviewRagContextResult,
   RemoteKnowledgeBase,
+  WikiPage,
 } from '../../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
 interface ApiResponse {
@@ -717,6 +719,7 @@ interface IElectronAPI {
   knowledge: {
     listBases: () => Promise<KnowledgeResult<RemoteKnowledgeBase[]>>;
     previewRagContext: (request: PreviewRagContextRequest) => Promise<PreviewRagContextResult>;
+    getWikiPage: (request: GetWikiPageRequest) => Promise<KnowledgeResult<WikiPage>>;
   };
   clipboard: {
     writeImageFromFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
