@@ -599,6 +599,10 @@ export class AuthManager {
       return tokens?.accessToken || null;
     });
 
+    ipcMain.handle('auth:getKnowledgeToken', async () => {
+      return this.getKnowledgeAccessKey();
+    });
+
     ipcMain.handle('auth:getModels', async () => {
       try {
         const tokens = this.getAuthTokens();

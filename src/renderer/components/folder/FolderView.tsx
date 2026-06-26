@@ -22,6 +22,8 @@ import { RootState } from '../../store';
 import type { Artifact, ArtifactType } from '../../types/artifact';
 import { ArtifactTypeValue } from '../../types/artifact';
 import ArtifactRenderer from '../artifacts/ArtifactRenderer';
+import FolderViewTabs, { type FolderViewTab } from './FolderViewTabs';
+import KnowledgeBaseFrame from './KnowledgeBaseFrame';
 
 interface FolderTreeNode {
   id: string;
@@ -134,6 +136,7 @@ const FolderView: React.FC = () => {
   const [previewArtifact, setPreviewArtifact] = useState<Artifact | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<FolderViewTab>('files');
 
   useEffect(() => {
     void coworkService.loadConfig();
@@ -400,12 +403,16 @@ const FolderView: React.FC = () => {
           <h1 className="text-lg font-semibold text-foreground">
             {i18nService.t('folderAllFiles')}
           </h1>
+          <FolderViewTabs activeTab={activeTab} onChange={setActiveTab} />
         </div>
         <div className="flex items-center gap-3">
         </div>
       </div>
 
       <div className="flex-1 overflow-hidden p-4">
+        {activeTab === 'knowledge' ? (
+          <KnowledgeBaseFrame />
+        ) : (
         <div className="flex h-full gap-3 overflow-hidden">
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background">
             <div className="grid h-10 shrink-0 grid-cols-[1fr_140px_160px] items-center border-b border-border bg-surface text-xs text-secondary">
@@ -477,6 +484,7 @@ const FolderView: React.FC = () => {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

@@ -1117,6 +1117,7 @@ interface IElectronAPI {
     logout: () => Promise<{ success: boolean }>;
     refreshToken: () => Promise<{ success: boolean; accessToken?: string }>;
     getAccessToken: () => Promise<string | null>;
+    getKnowledgeToken: () => Promise<string | null>;
     getModels: () => Promise<{
       success: boolean;
       models?: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }>;
@@ -1246,6 +1247,7 @@ interface IElectronAPI {
     logout: () => Promise<{ success: boolean }>;
     refreshToken: () => Promise<{ success: boolean; accessToken?: string }>;
     getAccessToken: () => Promise<string | null>;
+    getKnowledgeToken: () => Promise<string | null>;
     onCallback: (callback: (data: { code: string }) => void) => () => void;
   };
   qwen: Record<string, never>;

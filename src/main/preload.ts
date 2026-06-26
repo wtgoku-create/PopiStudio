@@ -735,6 +735,7 @@ contextBridge.exposeInMainWorld('electron', {
     logout: () => ipcRenderer.invoke('auth:logout'),
     refreshToken: () => ipcRenderer.invoke('auth:refreshToken'),
     getAccessToken: () => ipcRenderer.invoke('auth:getAccessToken'),
+    getKnowledgeToken: () => ipcRenderer.invoke('auth:getKnowledgeToken'),
     getModels: () => ipcRenderer.invoke('auth:getModels'),
     getProfileSummary: () => ipcRenderer.invoke('auth:getProfileSummary'),
     onCallback: (callback: (data: { code: string }) => void) => {
