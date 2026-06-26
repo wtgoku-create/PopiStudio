@@ -29,10 +29,11 @@ import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import { PlatformRegistry } from '../shared/platform';
 // PopiArt CLI 登录态同步与 IPC 处理
-import { ProviderName, ProviderRegistry } from '../shared/providers';
+import { ProviderName } from '../shared/providers';
 import { AgentManager } from './agentManager';
 import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 import { APP_NAME } from './appConstants';
+import { AuthManager } from './authManager';
 import { getAutoLaunchEnabled, isAutoLaunched, setAutoLaunchEnabled } from './autoLaunchManager';
 import { type CoworkSessionSource, type CoworkSessionSummary, CoworkStore } from './coworkStore';
 import { setLanguage, t } from './i18n';
@@ -139,7 +140,6 @@ import { McpStore } from './mcpStore';
 import { OpenClawSessionIpc } from './openclawSession/constants';
 import { OpenClawSessionPolicyIpc } from './openclawSessionPolicy/constants';
 import { loadOpenClawSessionPolicyConfig, saveOpenClawSessionPolicyConfig } from './openclawSessionPolicy/store';
-import { PopiArtService } from './popiart/popiartService';
 import { SkillManager } from './skillManager';
 import { getSkillServiceManager } from './skillServices';
 import { SqliteStore } from './sqliteStore';
@@ -202,10 +202,6 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'application/json': '.json',
   'text/csv': '.csv',
 };
-const POPI_DEFAULT_SERVER_MODELS = [
-  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: true },
-] as const;
-
 const cleanHtmlTitle = (value: string): string =>
   value.replace(/\s+/g, ' ').trim().slice(0, LOCAL_WEB_SERVICE_TITLE_MAX_LENGTH);
 
@@ -898,8 +894,6 @@ let skillManager: SkillManager | null = null;
 let mcpStore: McpStore | null = null;
 let mcpBridgeServer: McpBridgeServer | null = null;
 let popiTVToolBridgeServer: PopiTVToolBridgeServer | null = null;
-// PopiArt 主进程服务实例（用于登录、登出和身份信息查询）
-let popiArtService: PopiArtService | null = null;
 // Generated eagerly so the secret is available before the first syncOpenClawConfig
 // call — the gateway process inherits it via LOBSTER_MCP_BRIDGE_SECRET env var at
 // spawn time, avoiding a restart just to pick up the correct secret.
@@ -919,8 +913,8 @@ let memoryMigrationDone = false;
 let preventSleepBlockerId: number | null = null;
 let appUpdateCoordinator: AppUpdateCoordinator | null = null;
 let remoteKnowledgeService: RemoteKnowledgeService | null = null;
+let authManager: AuthManager | null = null;
 
-const AUTH_USER_STORE_KEY = 'auth_user';
 const POPITV_MCP_SERVER_NAME = 'popitv';
 const WEKNORA_OPENCLAW_MCP_SERVER_NAME = 'weknora-openclaw';
 
@@ -977,29 +971,32 @@ const getAppUpdateCoordinator = (): AppUpdateCoordinator => {
   return appUpdateCoordinator;
 };
 
+const getAuthManager = (): AuthManager => {
+  if (!authManager) {
+    authManager = new AuthManager({
+      ipcMain,
+      getStore,
+      getServerApiBaseUrl,
+      getLlmGatewayBaseUrl,
+      getSkillHubListUrl,
+      getSkillHubCategoryListUrl,
+      installationUuidKey: INSTALLATION_UUID_KEY,
+      t,
+      clearServerModelMetadata,
+      updateServerModelMetadata,
+      syncOpenClawConfig,
+    });
+  }
+  return authManager;
+};
+
 const getRemoteKnowledgeService = (): RemoteKnowledgeService => {
   if (!remoteKnowledgeService) {
     remoteKnowledgeService = new RemoteKnowledgeService({
-      getAccessKey: getKnowledgeAccessKey,
+      getAccessKey: () => getAuthManager().getKnowledgeAccessKey(),
     });
   }
   return remoteKnowledgeService;
-};
-
-type AuthTokens = {
-  accessToken: string;
-  refreshToken: string;
-  knowledgeToken?: string;
-};
-
-const getKnowledgeAccessKey = (): string | null => {
-  try {
-    const knowledgeToken = getStore().get<AuthTokens>('auth_tokens')?.knowledgeToken;
-    return typeof knowledgeToken === 'string' && knowledgeToken.trim() ? knowledgeToken.trim() : null;
-  } catch (error) {
-    console.warn('[KnowledgeAuth] failed to read access token:', error);
-    return null;
-  }
 };
 
 const resolveCoworkRuntimePrompt = async (options: {
@@ -1141,20 +1138,13 @@ const bootstrapOpenClawEngine = async (options: { forceReinstall?: boolean; reas
   return promise;
 };
 
-// Module-level handle so ensureOpenClawRunningForCowork can await any in-flight
-// proactive token refresh before syncing config to the gateway.
-let pendingTokenRefresh: Promise<string | null> | null = null;
-
 const ensureOpenClawRunningForCowork = async () => {
   const manager = getOpenClawEngineManager();
   const status = manager.getStatus();
   if (status.phase === 'running') {
     // Token proxy handles dynamic token injection — no need to restart
     // the gateway for token changes. Just wait for any in-flight refresh.
-    if (pendingTokenRefresh) {
-      console.log('[OpenClaw] ensureRunning: awaiting pending token refresh before proceeding');
-      await pendingTokenRefresh.catch(() => { });
-    }
+    await getAuthManager().waitForPendingRefresh();
     return manager.getStatus();
   }
   if (status.phase === 'starting') {
@@ -1163,10 +1153,7 @@ const ensureOpenClawRunningForCowork = async () => {
 
   // Wait for any in-flight token refresh so that the gateway starts with
   // a fresh token rather than the stale one that triggered the refresh.
-  if (pendingTokenRefresh) {
-    console.log('[OpenClaw] ensureRunning: awaiting pending token refresh before gateway start');
-    await pendingTokenRefresh.catch(() => { });
-  }
+  await getAuthManager().waitForPendingRefresh();
 
   // Ensure AskUser server is started and config is synced before launching the gateway,
   // so that mcp.servers config is available in openclaw.json when the gateway loads.
@@ -2665,884 +2652,7 @@ if (!gotTheLock) {
   ipcMain.handle('app:getVersion', () => app.getVersion());
   ipcMain.handle('app:getSystemLocale', () => app.getLocale());
 
-  // ── Auth IPC handlers ──
-
-  /**
-   * Helper: Persist auth tokens into the kv store.
-   */
-  const saveAuthTokens = (accessToken: string, refreshToken: string, knowledgeToken: string) => {
-    if (!accessToken.trim() || !refreshToken.trim() || !knowledgeToken.trim()) {
-      throw new Error('Auth tokens must include access, refresh, and knowledge tokens.');
-    }
-    getStore().set('auth_tokens', {
-      accessToken: accessToken.trim(),
-      refreshToken: refreshToken.trim(),
-      knowledgeToken: knowledgeToken.trim(),
-    });
-  };
-
-  const getAuthTokens = (): AuthTokens | null => {
-    return getStore().get<AuthTokens>('auth_tokens') || null;
-  };
-
-  const clearAuthTokens = () => {
-    getStore().delete('auth_tokens');
-    getStore().delete('auth_token_meta');
-  };
-
-  type PopiUser = {
-    id?: number;
-    code?: string;
-    name?: string;
-    avatar?: string | null;
-    phone?: string | null;
-    email?: string | null;
-    isMember?: boolean;
-    memberLevel?: number;
-    allCoins?: number;
-    memberCoins?: number;
-    otherCoins?: number;
-    pointPackageCoins?: number;
-    status?: number;
-  };
-
-  type WechatQrCodeData = {
-    qrCodeUrl: string;
-    sceneCode: string;
-  };
-
-  type WechatLoginCheckData = {
-    expired?: number;
-    token?: string;
-    needBindPhone?: boolean;
-    registerToken?: string;
-    user?: PopiUser | null;
-  };
-
-  type ModelGatewayCredential = {
-    apiKey: string;
-    baseURL: string;
-    expiresAt?: number;
-  };
-
-  const normalizePopiBaseUrl = (url: string): string => url.trim().replace(/\/+$/, '');
-
-  const saveModelGatewayCredential = (credential: ModelGatewayCredential) => {
-    getStore().set('model_gateway_credential', credential);
-  };
-
-  const getModelGatewayCredential = (): ModelGatewayCredential | null => {
-    return getStore().get<ModelGatewayCredential>('model_gateway_credential') || null;
-  };
-
-  const clearModelGatewayCredential = () => {
-    getStore().delete('model_gateway_credential');
-  };
-
-  const normalizePopiUser = (user: PopiUser) => ({
-    yid: user.code || String(user.id || ''),
-    nickname: user.name || user.phone || user.email || 'Popi user',
-    avatarUrl: user.avatar || null,
-    phone: user.phone || null,
-    userId: user.id !== undefined ? String(user.id) : undefined,
-    id: user.id,
-    status: user.status,
-  });
-
-  const normalizePopiQuota = (raw?: Record<string, unknown> | null) => {
-    const availableTotalPoints = typeof raw?.availableTotalPoints === 'number'
-      ? raw.availableTotalPoints
-      : typeof raw?.allCoins === 'number'
-        ? raw.allCoins
-        : 0;
-    const consumePoints = typeof raw?.consumePoints === 'number' ? raw.consumePoints : 0;
-    return {
-      planName: typeof raw?.planName === 'string' ? raw.planName : t('authPlanFree'),
-      subscriptionStatus: raw?.isMember === true ? 'active' : 'free',
-      creditsLimit: availableTotalPoints + consumePoints,
-      creditsUsed: consumePoints,
-      creditsRemaining: availableTotalPoints,
-    };
-  };
-
-  const parsePopiResponse = async <T>(resp: Response): Promise<T> => {
-    const body = await resp.json() as { status?: string; message?: string; data?: T };
-    if (body.status !== '0000') {
-      throw new Error(body.message || 'Popi API request failed');
-    }
-    return body.data as T;
-  };
-
-  const refreshModelGatewayCredential = async (): Promise<ModelGatewayCredential> => {
-    const serverBaseUrl = getServerApiBaseUrl();
-    const resp = await fetchWithAuth(`${serverBaseUrl}/api_client/gateway/apikey/list`);
-    if (!resp.ok) {
-      throw new Error(`Gateway API key request failed: ${resp.status}`);
-    }
-    console.log('[Auth] fetched API keys list from server, selecting active key...',resp);
-    const data = await parsePopiResponse<{
-      list?: Array<{ apikey?: string; status?: number; deleted?: boolean }>;
-    }>(resp);
-    console.log('data==>',data);
-
-    const activeKey = data?.list?.find(item => item.apikey && item.deleted !== true && item.status === 1)
-      ?? data?.list?.find(item => item.apikey && item.deleted !== true)
-      ?? data?.list?.find(item => item.apikey);
-
-    if (!activeKey?.apikey) {
-      throw new Error('Gateway API key not found for current account.');
-    }
-
-    const credential = {
-      apiKey: activeKey.apikey,
-      baseURL: `${normalizePopiBaseUrl(getLlmGatewayBaseUrl())}/v1`,
-    };
-    saveModelGatewayCredential(credential);
-    return credential;
-  };
-
-  const fetchPopiUserPoints = async () => {
-    const serverBaseUrl = getServerApiBaseUrl();
-    const resp = await fetchWithAuth(`${serverBaseUrl}/api_client/users/userPoints/total`);
-    if (!resp.ok) return null;
-    return parsePopiResponse<Record<string, unknown>>(resp);
-  };
-
-  const fetchKnowledgeTokenForAccessToken = async (accessToken: string): Promise<string> => {
-    const serverBaseUrl = getServerApiBaseUrl();
-    const resp = await fetchWithAccessToken(`${serverBaseUrl}/api_client/knowledgeUser/detail`, accessToken);
-    if (!resp.ok) {
-      throw new Error(`Knowledge user detail request failed: ${resp.status}`);
-    }
-
-    const data = await parsePopiResponse<{
-      accessKey?: string;
-      knowledgeUserId?: string;
-      accessKeyId?: string;
-      accessKeyName?: string;
-      accessKeyPrefix?: string;
-      tenantId?: string;
-      userId?: number;
-      username?: string;
-      email?: string;
-    }>(resp);
-
-    const accessKey = data?.accessKey?.trim();
-    if (!accessKey) {
-      throw new Error('Knowledge user detail response did not include an access key.');
-    }
-    return accessKey;
-  };
-
-  const saveCompleteAuthTokens = async (accessToken: string, refreshToken: string): Promise<void> => {
-    const knowledgeToken = await fetchKnowledgeTokenForAccessToken(accessToken);
-    saveAuthTokens(accessToken, refreshToken, knowledgeToken);
-    console.log('[KnowledgeAuth] saved auth tokens with bound knowledge token.');
-  };
-
-  const buildPopiAuthResult = async (token: string, user: PopiUser, expired?: number) => {
-    const expiresAt = expired ? Date.now() + expired * 1000 : undefined;
-    await saveCompleteAuthTokens(token, token);
-    getStore().set('auth_token_meta', { expiresAt });
-    await refreshModelGatewayCredential();
-    const quota = normalizePopiQuota({
-      ...(user as Record<string, unknown>),
-      ...(await fetchPopiUserPoints() ?? {}),
-    });
-    clearServerModelMetadata();
-    updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
-    syncOpenClawConfig({ reason: 'popi-login', restartGatewayIfRunning: false }).catch(() => { });
-    void syncPopiArtLoginState('popi-login');
-    return { success: true, user: normalizePopiUser(user), quota };
-  };
-
-  const saveAuthUser = (user: Record<string, unknown>) => {
-    try {
-      getStore().set(AUTH_USER_STORE_KEY, user);
-    } catch (error) {
-      console.warn('[Auth] failed to save auth user for attribution:', error);
-    }
-  };
-
-  const getAuthUserId = (): string | null => {
-    try {
-      const user = getStore().get<Record<string, unknown>>(AUTH_USER_STORE_KEY);
-      const yid = user?.yid;
-      if (typeof yid === 'string' && yid.trim()) return yid;
-      const userId = user?.userId;
-      if (typeof userId === 'string' && userId.trim()) return userId;
-    } catch (error) {
-      console.warn('[Auth] failed to read auth user for attribution:', error);
-    }
-    return null;
-  };
-
-  const clearAuthUser = () => {
-    try {
-      getStore().delete(AUTH_USER_STORE_KEY);
-    } catch (error) {
-      console.warn('[Auth] failed to clear auth user for attribution:', error);
-    }
-  };
-
-  const getOrCreateInstallationId = (): string | null => {
-    try {
-      const existing = getStore().get<string>(INSTALLATION_UUID_KEY);
-      if (typeof existing === 'string' && existing.trim()) {
-        return existing;
-      }
-      const nextId = crypto.randomUUID();
-      getStore().set(INSTALLATION_UUID_KEY, nextId);
-      return nextId;
-    } catch (error) {
-      console.warn('[Auth] failed to get installation uuid:', error);
-      return null;
-    }
-  };
-
-  const buildKeyfromPayload = (): { firstKeyfrom: string; latestKeyfrom: string; uuid?: string; userId?: string; version: string } => {
-    const { firstKeyfrom, latestKeyfrom } = getKeyfromAttribution(getStore());
-    const uuid = getOrCreateInstallationId();
-    const userId = getAuthUserId();
-    return {
-      firstKeyfrom,
-      latestKeyfrom,
-      ...(uuid ? { uuid } : {}),
-      ...(userId ? { userId } : {}),
-      version: app.getVersion(),
-    };
-  };
-
-  const withKeyfromBody = <T extends Record<string, unknown>>(body: T) => ({
-    ...body,
-    ...buildKeyfromPayload(),
-  });
-
-  const appendKeyfromQuery = (url: string): string => {
-    const parsed = new URL(url);
-    const payload = buildKeyfromPayload();
-    for (const [key, value] of Object.entries(payload)) {
-      if (value) {
-        parsed.searchParams.set(key, String(value));
-      }
-    }
-    return parsed.toString();
-  };
-
-  // refreshOnce() is the single entry-point for all token refresh paths
-  // (proactive, proxy 401/403 retry, and main-process authenticated API 401s).
-  // It deduplicates concurrent calls via pendingTokenRefresh so that rolling
-  // refresh tokens are never consumed twice.
-  const refreshOnce = async (reason: string): Promise<string | null> => {
-    if (pendingTokenRefresh) {
-      return pendingTokenRefresh;
-    }
-    let resolvedToken: string | null = null;
-    pendingTokenRefresh = (async () => {
-      try {
-        const tokens = getAuthTokens();
-        if (!tokens?.refreshToken) return null;
-        const serverBaseUrl = getServerApiBaseUrl();
-        const refreshUrl = `${serverBaseUrl}/api/auth/refresh`;
-        console.log(`[Auth] requesting token refresh (reason: ${reason}) at ${refreshUrl}`);
-        const resp = await net.fetch(refreshUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(withKeyfromBody({ refreshToken: tokens.refreshToken })),
-        });
-        if (resp.ok) {
-          const body = await resp.json() as { code: number; data: { accessToken: string; refreshToken?: string } };
-          if (body.code === 0 && body.data) {
-            await saveCompleteAuthTokens(body.data.accessToken, body.data.refreshToken || tokens.refreshToken);
-            console.log(`[Auth] token refresh succeeded (reason: ${reason})`);
-            resolvedToken = body.data.accessToken;
-            // Token proxy handles fresh tokens dynamically — no need
-            // to restart the gateway on token refresh.
-            syncOpenClawConfig({ reason: `token-refresh:${reason}`, restartGatewayIfRunning: false }).catch((err) => {
-              console.warn('[Auth] post-refresh OpenClaw config sync failed:', err);
-            });
-          }
-        }
-      } catch (err) {
-        console.warn(`[Auth] token refresh failed (reason: ${reason}):`, err);
-      } finally {
-        pendingTokenRefresh = null;
-      }
-      return resolvedToken;
-    })();
-    return pendingTokenRefresh;
-  };
-
-  /**
-   * Helper: Fetch with Bearer token, auto-refresh on 401 and retry once.
-   */
-  const fetchWithAuth = async (url: string, options?: RequestInit): Promise<Response> => {
-    const tokens = getAuthTokens();
-    if (!tokens) throw new Error('No auth tokens');
-
-    const doFetch = (accessToken: string) =>
-      net.fetch(url, {
-        ...options,
-        headers: {
-          ...(options?.headers as Record<string, string>),
-          Authorization: `Bearer ${accessToken}`,
-          token: accessToken,
-        },
-      });
-
-    let resp = await doFetch(tokens.accessToken);
-
-    if (resp.status === 401 && tokens.refreshToken) {
-      const refreshedAccessToken = await refreshOnce('passive');
-      if (refreshedAccessToken) {
-        resp = await doFetch(refreshedAccessToken);
-      }
-    }
-
-    return resp;
-  };
-
-  const fetchWithAccessToken = (url: string, accessToken: string, options?: RequestInit): Promise<Response> =>
-    net.fetch(url, {
-      ...options,
-      headers: {
-        ...(options?.headers as Record<string, string>),
-        Authorization: `Bearer ${accessToken}`,
-        token: accessToken,
-      },
-    });
-
-  const getPopiArtService = (): PopiArtService => {
-    if (!popiArtService) {
-      popiArtService = new PopiArtService(getStore(), {
-        getAuthToken: () => getAuthTokens()?.accessToken || null,
-      });
-    }
-    return popiArtService;
-  };
-
-  const syncPopiArtLoginState = async (reason: string): Promise<void> => {
-    try {
-      await getPopiArtService().ensureAuthenticatedFromGatewayKey();
-      console.log(`[PopiArt] synchronized login state after ${reason}`);
-    } catch (error) {
-      console.warn(`[PopiArt] failed to synchronize login state after ${reason}:`, error);
-    }
-  };
-
-  const syncPopiArtLogoutState = async (reason: string): Promise<void> => {
-    try {
-      await getPopiArtService().ensureUnavailable();
-      console.log(`[PopiArt] synchronized logout state after ${reason}`);
-    } catch (error) {
-      console.warn(`[PopiArt] failed to synchronize logout state after ${reason}:`, error);
-    }
-  };
-
-  const fetchSkillMarketplacePage = async (options?: {
-    page?: number;
-    pageSize?: number;
-    categoryId?: string;
-    keyword?: string;
-  }) => {
-    const fetchSkillHubJson = async (url: string) => {
-      const response = getAuthTokens()
-        ? await fetchWithAuth(url, { method: 'GET' })
-        : await net.fetch(url, { method: 'GET' });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return response.json();
-    };
-
-    const buildListUrl = () => {
-      const listUrl = new URL(getSkillHubListUrl());
-      const page = Math.max(1, options?.page ?? 1);
-      const pageSize = Math.max(1, options?.pageSize ?? 20);
-      listUrl.searchParams.set('page', String(page));
-      listUrl.searchParams.set('pageSize', String(pageSize));
-      if (options?.categoryId && options.categoryId !== 'all') {
-        listUrl.searchParams.set('categoryId', options.categoryId);
-      }
-      const keyword = options?.keyword?.trim();
-      if (keyword) {
-        listUrl.searchParams.set('keyword', keyword);
-      }
-      return listUrl.toString();
-    };
-
-    const listUrl = buildListUrl();
-    const categoryUrl = getSkillHubCategoryListUrl();
-
-    const [skillsBody, categoriesBody] = await Promise.all([
-      fetchSkillHubJson(listUrl),
-      fetchSkillHubJson(categoryUrl),
-    ]);
-
-    const skills = Array.isArray(skillsBody?.data?.list) ? skillsBody.data.list : [];
-    const categories = Array.isArray(categoriesBody?.data?.list) ? categoriesBody.data.list : [];
-    const pageInfo = typeof skillsBody?.data?.pageInfo === 'object' && skillsBody.data.pageInfo
-      ? skillsBody.data.pageInfo
-      : undefined;
-
-    return {
-      skills,
-      categories,
-      pageInfo,
-    };
-  };
-
-  /**
-   * Normalize quota data from various server response formats into a unified shape.
-   */
-  const normalizeQuota = (raw: Record<string, unknown>) => {
-    let creditsLimit = 0;
-    let creditsUsed = 0;
-    let planName = t('authPlanFree');
-    let subscriptionStatus = 'free';
-
-    if (typeof raw.freeCreditsTotal === 'number') {
-      // Free user format from /api/user/quota
-      creditsLimit = raw.freeCreditsTotal as number;
-      creditsUsed = (raw.freeCreditsUsed as number) || 0;
-      planName = (raw.planName as string) || t('authPlanFree');
-      subscriptionStatus = (raw.subscriptionStatus as string) || 'free';
-    } else if (typeof raw.monthlyCreditsLimit === 'number') {
-      // Paid user format from /api/user/quota
-      creditsLimit = raw.monthlyCreditsLimit as number;
-      creditsUsed = (raw.monthlyCreditsUsed as number) || 0;
-      planName = (raw.planName as string) || t('authPlanStandard');
-      subscriptionStatus = (raw.subscriptionStatus as string) || 'active';
-    } else if (typeof raw.dailyCreditsLimit === 'number') {
-      // Legacy exchange format
-      creditsLimit = raw.dailyCreditsLimit as number;
-      creditsUsed = (raw.dailyCreditsUsed as number) || 0;
-      planName = (raw.planName as string) || t('authPlanFree');
-      subscriptionStatus = (raw.subscriptionStatus as string) || 'free';
-    } else if (typeof raw.creditsLimit === 'number') {
-      // Already normalized
-      return raw;
-    }
-
-    return {
-      planName,
-      subscriptionStatus,
-      creditsLimit,
-      creditsUsed,
-      creditsRemaining: Math.max(0, creditsLimit - creditsUsed),
-    };
-  };
-
-  ipcMain.handle('auth:login', async (_event, { loginUrl }: { loginUrl?: string } = {}) => {
-    return { success: true, loginUrl };
-  });
-
-  ipcMain.handle('auth:getCaptcha', async () => {
-    try {
-      const serverBaseUrl = getServerApiBaseUrl();
-      const resp = await net.fetch(`${serverBaseUrl}/api_client/captcha/gen`);
-      if (!resp.ok) {
-        return { success: false, error: `Captcha request failed: ${resp.status}` };
-      }
-      const data = await parsePopiResponse<{ id: number; data: string }>(resp);
-      return { success: true, captcha: data };
-    } catch (error) {
-      console.error('[Auth] captcha request failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to request captcha' };
-    }
-  });
-
-  ipcMain.handle('auth:sendSmsCode', async (_event, payload: { phone: string; captchaId: number; captchaValue: string }) => {
-    try {
-      const phone = payload.phone?.trim();
-      const captchaValue = payload.captchaValue?.trim();
-      if (!phone || !payload.captchaId || !captchaValue) {
-        return { success: false, error: 'Phone and captcha are required.' };
-      }
-      const serverBaseUrl = getServerApiBaseUrl();
-      const params = new URLSearchParams({
-        phone,
-        usage: 'LOGIN',
-        captchaId: String(payload.captchaId),
-        captchaValue,
-      });
-      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/code?${params.toString()}`);
-      if (!resp.ok) {
-        return { success: false, error: `SMS code request failed: ${resp.status}` };
-      }
-      await parsePopiResponse<Record<string, unknown>>(resp);
-      return { success: true };
-    } catch (error) {
-      console.error('[Auth] SMS code request failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to send SMS code' };
-    }
-  });
-
-  ipcMain.handle('auth:loginWithPassword', async (_event, payload: { username: string; password: string; inviteCode?: string }) => {
-    try {
-      const serverBaseUrl = getServerApiBaseUrl();
-      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: payload.username?.trim(),
-          password: payload.password,
-          inviteCode: payload.inviteCode?.trim() || '',
-        }),
-      });
-      if (!resp.ok) {
-        return { success: false, error: `Login failed: ${resp.status}` };
-      }
-      const data = await parsePopiResponse<{ token: string; expired?: number; user: PopiUser }>(resp);
-      if (!data?.token || !data.user) {
-        return { success: false, error: 'Login response is missing token or user.' };
-      }
-      return await buildPopiAuthResult(data.token, data.user, data.expired);
-    } catch (error) {
-      console.error('[Auth] password login failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Login failed' };
-    }
-  });
-
-  ipcMain.handle('auth:loginWithCode', async (_event, payload: { phone: string; code: string; inviteCode?: string }) => {
-    try {
-      const serverBaseUrl = getServerApiBaseUrl();
-      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/loginByCode`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: payload.phone?.trim(),
-          code: payload.code?.trim(),
-          inviteCode: payload.inviteCode?.trim() || '',
-        }),
-      });
-      if (!resp.ok) {
-        return { success: false, error: `Login failed: ${resp.status}` };
-      }
-      const data = await parsePopiResponse<{ token: string; expired?: number; user: PopiUser }>(resp);
-      if (!data?.token || !data.user) {
-        return { success: false, error: 'Login response is missing token or user.' };
-      }
-      return await buildPopiAuthResult(data.token, data.user, data.expired);
-    } catch (error) {
-      console.error('[Auth] SMS login failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Login failed' };
-    }
-  });
-
-  ipcMain.handle('auth:getWechatQrCode', async () => {
-    try {
-      const serverBaseUrl = getServerApiBaseUrl();
-      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/wxghQrCode`);
-      if (!resp.ok) {
-        return { success: false, error: `WeChat QR code request failed: ${resp.status}` };
-      }
-      const data = await parsePopiResponse<WechatQrCodeData>(resp);
-      if (!data?.qrCodeUrl || !data?.sceneCode) {
-        return { success: false, error: 'WeChat QR code response is missing required fields.' };
-      }
-      return { success: true, data };
-    } catch (error) {
-      console.error('[Auth] WeChat QR code request failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to request WeChat QR code' };
-    }
-  });
-
-  ipcMain.handle('auth:checkWechatLogin', async (_event, payload: { sceneCode: string }) => {
-    try {
-      const sceneCode = payload.sceneCode?.trim();
-      if (!sceneCode) {
-        return { success: false, error: 'sceneCode is required.' };
-      }
-      const serverBaseUrl = getServerApiBaseUrl();
-      const params = new URLSearchParams({ sceneCode });
-      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/checkWxghLogin?${params.toString()}`);
-      if (!resp.ok) {
-        return { success: false, error: `WeChat login check failed: ${resp.status}` };
-      }
-      const data = await parsePopiResponse<WechatLoginCheckData>(resp);
-
-      // 已绑定老用户：直接沿用现有登录成功链路。
-      if (data?.token && data.user) {
-        return await buildPopiAuthResult(data.token, data.user, data.expired);
-      }
-
-      // 新用户：扫码后拿到 registerToken，进入手机号绑定流程。
-      if (data?.needBindPhone === true && data.registerToken) {
-        return {
-          success: true,
-          needBindPhone: true,
-          registerToken: data.registerToken,
-        };
-      }
-
-      // 其余情况先统一视为等待扫码/确认，避免前端误判失败。
-      return {
-        success: true,
-        pending: true,
-      };
-    } catch (error) {
-      console.error('[Auth] WeChat login check failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to check WeChat login' };
-    }
-  });
-
-  ipcMain.handle('auth:registerWechatByPhone', async (
-    _event,
-    payload: { registerToken: string; phone: string; code: string; inviteCode?: string },
-  ) => {
-    try {
-      const registerToken = payload.registerToken?.trim();
-      const phone = payload.phone?.trim();
-      const code = payload.code?.trim();
-      if (!registerToken || !phone || !code) {
-        return { success: false, error: 'registerToken, phone, and code are required.' };
-      }
-      const serverBaseUrl = getServerApiBaseUrl();
-      const resp = await net.fetch(`${serverBaseUrl}/api_client/auth/wxghRegisterByPhone`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          registerToken,
-          phone,
-          code,
-          inviteCode: payload.inviteCode?.trim() || '',
-        }),
-      });
-      if (!resp.ok) {
-        return { success: false, error: `WeChat phone binding failed: ${resp.status}` };
-      }
-      const data = await parsePopiResponse<{ token: string; expired?: number; user: PopiUser }>(resp);
-      if (!data?.token || !data.user) {
-        return { success: false, error: 'WeChat phone binding response is missing token or user.' };
-      }
-      return await buildPopiAuthResult(data.token, data.user, data.expired);
-    } catch (error) {
-      console.error('[Auth] WeChat phone binding failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to bind phone' };
-    }
-  });
-
-  ipcMain.handle('auth:exchange', async (_event, { code }: { code: string }) => {
-    try {
-      const serverBaseUrl = getServerApiBaseUrl();
-      const exchangeUrl = `${serverBaseUrl}/api/auth/exchange`;
-      console.log(`[Auth] requesting auth exchange at ${exchangeUrl}`);
-      const resp = await net.fetch(exchangeUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(withKeyfromBody({ authCode: code })),
-      });
-      if (!resp.ok) {
-        return { success: false, error: `Exchange failed: ${resp.status}` };
-      }
-      const body = await resp.json() as {
-        code: number;
-        message?: string;
-        data: {
-          accessToken: string;
-          refreshToken: string;
-          user: Record<string, unknown>;
-          quota: Record<string, unknown>;
-        };
-      };
-      if (body.code !== 0 || !body.data) {
-        return { success: false, error: body.message || 'Exchange failed' };
-      }
-      await saveCompleteAuthTokens(body.data.accessToken, body.data.refreshToken);
-      saveAuthUser(body.data.user);
-      void syncPopiArtLoginState('auth-exchange');
-      console.log('[Auth] exchange user data:', JSON.stringify(body.data.user));
-      return { success: true, user: body.data.user, quota: normalizeQuota(body.data.quota) };
-    } catch (error) {
-      console.error('[Auth] exchange failed:', error);
-      return { success: false, error: error instanceof Error ? error.message : 'Exchange failed' };
-    }
-  });
-
-  ipcMain.handle('auth:getUser', async () => {
-    try {
-      const tokens = getAuthTokens();
-      if (!tokens) return { success: false };
-      const serverBaseUrl = getServerApiBaseUrl();
-      const profileResp = await fetchWithAuth(`${serverBaseUrl}/api_client/auth/userInfo`);
-      if (!profileResp.ok) return { success: false };
-      const profileData = await parsePopiResponse<{ token?: string; user: PopiUser }>(profileResp);
-      if (!profileData?.user) return { success: false };
-      if (profileData.token && profileData.token !== tokens.accessToken) {
-        await saveCompleteAuthTokens(profileData.token, profileData.token);
-      } else if (!tokens.knowledgeToken) {
-        await saveCompleteAuthTokens(tokens.accessToken, tokens.refreshToken);
-      }
-      if (!getModelGatewayCredential()?.apiKey) {
-        await refreshModelGatewayCredential();
-      }
-      const points = await fetchPopiUserPoints();
-      const quota = normalizePopiQuota({
-        ...(profileData.user as Record<string, unknown>),
-        ...(points ?? {}),
-      });
-      updateServerModelMetadata([...POPI_DEFAULT_SERVER_MODELS]);
-      void syncPopiArtLoginState('auth-restore');
-      console.log('[Auth] restored Popi user session');
-      return { success: true, user: normalizePopiUser(profileData.user), quota };
-    } catch {
-      return { success: false };
-    }
-  });
-
-  ipcMain.handle('auth:getQuota', async () => {
-    try {
-      const tokens = getAuthTokens();
-      if (!tokens) return { success: false };
-      const points = await fetchPopiUserPoints();
-      return { success: true, quota: normalizePopiQuota(points) };
-    } catch {
-      return { success: false };
-    }
-  });
-
-  ipcMain.handle('auth:getProfileSummary', async () => {
-    try {
-      const tokens = getAuthTokens();
-      if (!tokens) return { success: false };
-      const points = await fetchPopiUserPoints();
-      const userResp = await fetchWithAuth(`${getServerApiBaseUrl()}/api_client/auth/userInfo`);
-      if (!userResp.ok) return { success: false };
-      const userData = await parsePopiResponse<{ user: PopiUser }>(userResp);
-      const totalCreditsRemaining = typeof points?.availableTotalPoints === 'number' ? points.availableTotalPoints : 0;
-      return {
-        success: true,
-        data: {
-          id: userData.user.id ?? 0,
-          nickname: userData.user.name || userData.user.phone || 'Popi user',
-          avatarUrl: userData.user.avatar || null,
-          totalCreditsRemaining,
-          creditItems: [
-            {
-              type: userData.user.isMember ? 'subscription' : 'free',
-              label: userData.user.isMember ? `会员 Lv.${userData.user.memberLevel ?? 0}` : '积分',
-              labelEn: userData.user.isMember ? `Member Lv.${userData.user.memberLevel ?? 0}` : 'Points',
-              creditsRemaining: totalCreditsRemaining,
-              expiresAt: null,
-            },
-          ],
-        },
-      };
-    } catch {
-      return { success: false };
-    }
-  });
-
-  ipcMain.handle('auth:logout', async () => {
-    try {
-      const tokens = getAuthTokens();
-      if (tokens) {
-        const serverBaseUrl = getServerApiBaseUrl();
-        await net.fetch(`${serverBaseUrl}/api_client/auth/logout`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${tokens.accessToken}`, token: tokens.accessToken },
-        }).catch(() => { /* best-effort */ });
-      }
-      clearAuthTokens();
-      clearAuthUser();
-      clearModelGatewayCredential();
-      clearServerModelMetadata();
-      await syncPopiArtLogoutState('auth-logout');
-      return { success: true };
-    } catch {
-      clearAuthTokens();
-      clearModelGatewayCredential();
-      clearAuthUser();
-      clearServerModelMetadata();
-      await syncPopiArtLogoutState('auth-logout-fallback');
-      return { success: true };
-    }
-  });
-
-  ipcMain.handle('auth:refreshToken', async () => {
-    try {
-      const tokens = getAuthTokens();
-      if (!tokens?.accessToken) return { success: false };
-      await refreshModelGatewayCredential();
-      const refreshedTokens = getAuthTokens();
-      if (!refreshedTokens?.accessToken || !refreshedTokens.refreshToken || !refreshedTokens.knowledgeToken) {
-        return { success: false };
-      }
-      return { success: true, accessToken: refreshedTokens.accessToken };
-    } catch {
-      return { success: false };
-    }
-  });
-
-  ipcMain.handle('auth:getAccessToken', async () => {
-    const tokens = getAuthTokens();
-    return tokens?.accessToken || null;
-  });
-
-  ipcMain.handle('auth:getModels', async () => {
-    try {
-      const tokens = getAuthTokens();
-      if (!tokens) {
-        console.log('[Auth:getModels] No auth tokens available');
-        return { success: false };
-      }
-      const credential = getModelGatewayCredential() ?? await refreshModelGatewayCredential();
-      let models: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }> = [...POPI_DEFAULT_SERVER_MODELS];
-
-      try {
-        const modelsUrl = `${normalizePopiBaseUrl(credential.baseURL)}/models?scene=chat`;
-        const resp = await net.fetch(modelsUrl, {
-          headers: { Authorization: `Bearer ${credential.apiKey}` },
-        });
-        if (resp.ok) {
-          const body = (await resp.json()) as {
-            data?: Array<{
-              id?: string;
-              object?: string;
-              created?: number;
-              owned_by?: string;
-              scenes?: string[];
-              is_multimodal?: boolean;
-              supported_endpoint_types?: string[];
-            }>;
-          };
-          // console.log('[Auth:getModels] fetched model list from gateway:', body.data);
-          const gatewayModels = (body.data ?? [])
-            .map(model => model.id?.trim())
-            .filter((id): id is string => !!id)
-            .map(id => ({
-              modelId: id,
-              modelName: id,
-              provider: ProviderName.PopiaiServer,
-              apiFormat: 'openai',
-              supportsImage: body.data?.find(model => model.id?.trim() === id)?.is_multimodal
-                ?? ProviderRegistry.resolveModelSupportsImage(ProviderName.PopiaiServer, id, false),
-            }));
-          if (gatewayModels.length > 0) {
-            models = gatewayModels;
-          }
-        }
-      } catch (error) {
-        console.debug('[Auth:getModels] gateway model list unavailable, using fallback model:', error);
-      }
-
-      // Cache server model metadata for use in OpenClaw config sync (supportsImage, etc.)
-      const serverModelsChanged = updateServerModelMetadata(models);
-      // Re-sync so the gateway picks up the correct supportsImage values for server models.
-      // This IPC can run after normal chat completion when the renderer refreshes quota/model
-      // state, so server model updates must not force a hard gateway restart.
-      if (serverModelsChanged) {
-        syncOpenClawConfig({ reason: 'server-models-updated', restartGatewayIfRunning: false }).catch(() => { });
-      } else {
-        console.debug('[Auth:getModels] server model metadata unchanged, skipping config sync');
-      }
-      return { success: true, models };
-    } catch (e) {
-      console.error('[Auth:getModels] Error:', e);
-      return { success: false };
-    }
-  });
+  getAuthManager().registerIpcHandlers();
 
   // Skills IPC handlers
   ipcMain.handle('skills:list', () => {
@@ -3644,7 +2754,7 @@ if (!gotTheLock) {
       const categoryUrl = getSkillHubCategoryListUrl();
       console.log(`[SkillMarketplace] fetching skill hub data from ${listUrl} and ${categoryUrl}`);
 
-      const marketplace = await fetchSkillMarketplacePage();
+      const marketplace = await getAuthManager().fetchSkillMarketplacePage();
       return { success: true, data: marketplace };
     } catch (error) {
       return {
@@ -3661,7 +2771,7 @@ if (!gotTheLock) {
     keyword?: string;
   }) => {
     try {
-      const marketplace = await fetchSkillMarketplacePage(options);
+      const marketplace = await getAuthManager().fetchSkillMarketplacePage(options);
       return { success: true, data: marketplace };
     } catch (error) {
       return {
@@ -7952,13 +7062,13 @@ end tell'`, { timeout: 5000 });
     // accessToken is within 5 minutes of expiry, so that the SDK always
     // gets a fresh token without blocking.
     setAuthTokensGetter(() => {
-      const tokens = getAuthTokens();
+      const tokens = getAuthManager().getAuthTokens();
       if (!tokens) return null;
       // Check if the Popi token is close to expiry and trigger background credential refresh.
       try {
         const meta = getStore().get<{ expiresAt?: number }>('auth_token_meta');
         if (meta?.expiresAt && meta.expiresAt - Date.now() < 5 * 60 * 1000) {
-          void refreshOnce('proactive'); // fire-and-forget
+          void getAuthManager().refreshOnce('proactive'); // fire-and-forget
         }
       } catch { /* unable to read token metadata, return token as-is */ }
       return tokens;
@@ -7981,7 +7091,7 @@ end tell'`, { timeout: 5000 });
 
     registerProxyTokenRefresher('popiai-server', async () => {
       try {
-        const credential = await refreshModelGatewayCredential();
+        const credential = await getAuthManager().refreshModelGatewayCredential();
         console.log('[Auth] proxy credential refresh succeeded');
         return credential.apiKey;
       } catch (err) {
@@ -8006,8 +7116,8 @@ end tell'`, { timeout: 5000 });
     profiler.mark('openClawTokenProxy');
     try {
       await startOpenClawTokenProxy({
-        getAuthTokens,
-        refreshToken: refreshOnce,
+        getAuthTokens: getAuthManager().getAuthTokens,
+        refreshToken: getAuthManager().refreshOnce,
         getServerBaseUrl: getServerApiBaseUrl,
       });
       console.log('[Main] OpenClaw token proxy started');
