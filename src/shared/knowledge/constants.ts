@@ -6,7 +6,7 @@ export const KnowledgeIpc = {
 
 export type KnowledgeIpc = typeof KnowledgeIpc[keyof typeof KnowledgeIpc];
 
-export const KNOWLEDGE_DEFAULT_BASE_URL = 'http://192.168.77.27:8080';
+export const KNOWLEDGE_DEFAULT_BASE_URL = 'https://weknora.popi.art';
 
 export interface RemoteKnowledgeBase {
   id: string;

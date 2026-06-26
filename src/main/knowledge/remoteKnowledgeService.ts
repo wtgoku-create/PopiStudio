@@ -86,7 +86,13 @@ const normalizeKnowledgeBase = (value: unknown): RemoteKnowledgeBase | null => {
   };
 };
 
+export type RemoteKnowledgeServiceOptions = {
+  getAccessKey?: () => string | null;
+};
+
 export class RemoteKnowledgeService {
+  constructor(private readonly options: RemoteKnowledgeServiceOptions = {}) {}
+
   async listBases(): Promise<RemoteKnowledgeBase[]> {
     const payload = await this.request('/api/v1/knowledge-bases');
     return readArray(payload, ['items', 'data', 'list', 'records', 'knowledgeBases', 'knowledge_bases'])
@@ -185,9 +191,10 @@ export class RemoteKnowledgeService {
       Accept: 'application/json',
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
     };
-    const apiKey ='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IjI5Mjc5MzM0MjZAcXEuY29tIiwiZXhwIjoxNzgyNDU2OTE3LCJpYXQiOjE3ODIzNzA1MTcsInRlbmFudF9pZCI6MTAwMDIsInR5cGUiOiJhY2Nlc3MiLCJ1c2VyX2lkIjoiZmMyZDkwODUtNmUzNi00NzdjLTljNGQtYjMwYmYwZjhkNzE2In0.UU6uX4v7kgbC2cNnESkRlX6bI56iia9LakM4G1InOB0';
+    const apiKey = this.options.getAccessKey?.();
     if (apiKey) {
       headers.Authorization = `Bearer ${apiKey}`;
+      headers['X-API-Key'] = apiKey;
     }
 
     const response = await fetch(`${KNOWLEDGE_DEFAULT_BASE_URL}${pathname}`, {

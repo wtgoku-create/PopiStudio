@@ -979,9 +979,27 @@ const getAppUpdateCoordinator = (): AppUpdateCoordinator => {
 
 const getRemoteKnowledgeService = (): RemoteKnowledgeService => {
   if (!remoteKnowledgeService) {
-    remoteKnowledgeService = new RemoteKnowledgeService();
+    remoteKnowledgeService = new RemoteKnowledgeService({
+      getAccessKey: getKnowledgeAccessKey,
+    });
   }
   return remoteKnowledgeService;
+};
+
+type AuthTokens = {
+  accessToken: string;
+  refreshToken: string;
+  knowledgeToken?: string;
+};
+
+const getKnowledgeAccessKey = (): string | null => {
+  try {
+    const knowledgeToken = getStore().get<AuthTokens>('auth_tokens')?.knowledgeToken;
+    return typeof knowledgeToken === 'string' && knowledgeToken.trim() ? knowledgeToken.trim() : null;
+  } catch (error) {
+    console.warn('[KnowledgeAuth] failed to read access token:', error);
+    return null;
+  }
 };
 
 const resolveCoworkRuntimePrompt = async (options: {
@@ -2652,12 +2670,19 @@ if (!gotTheLock) {
   /**
    * Helper: Persist auth tokens into the kv store.
    */
-  const saveAuthTokens = (accessToken: string, refreshToken: string) => {
-    getStore().set('auth_tokens', { accessToken, refreshToken });
+  const saveAuthTokens = (accessToken: string, refreshToken: string, knowledgeToken: string) => {
+    if (!accessToken.trim() || !refreshToken.trim() || !knowledgeToken.trim()) {
+      throw new Error('Auth tokens must include access, refresh, and knowledge tokens.');
+    }
+    getStore().set('auth_tokens', {
+      accessToken: accessToken.trim(),
+      refreshToken: refreshToken.trim(),
+      knowledgeToken: knowledgeToken.trim(),
+    });
   };
 
-  const getAuthTokens = (): { accessToken: string; refreshToken: string } | null => {
-    return getStore().get<{ accessToken: string; refreshToken: string }>('auth_tokens') || null;
+  const getAuthTokens = (): AuthTokens | null => {
+    return getStore().get<AuthTokens>('auth_tokens') || null;
   };
 
   const clearAuthTokens = () => {
@@ -2783,9 +2808,41 @@ if (!gotTheLock) {
     return parsePopiResponse<Record<string, unknown>>(resp);
   };
 
+  const fetchKnowledgeTokenForAccessToken = async (accessToken: string): Promise<string> => {
+    const serverBaseUrl = getServerApiBaseUrl();
+    const resp = await fetchWithAccessToken(`${serverBaseUrl}/api_client/knowledgeUser/detail`, accessToken);
+    if (!resp.ok) {
+      throw new Error(`Knowledge user detail request failed: ${resp.status}`);
+    }
+
+    const data = await parsePopiResponse<{
+      accessKey?: string;
+      knowledgeUserId?: string;
+      accessKeyId?: string;
+      accessKeyName?: string;
+      accessKeyPrefix?: string;
+      tenantId?: string;
+      userId?: number;
+      username?: string;
+      email?: string;
+    }>(resp);
+
+    const accessKey = data?.accessKey?.trim();
+    if (!accessKey) {
+      throw new Error('Knowledge user detail response did not include an access key.');
+    }
+    return accessKey;
+  };
+
+  const saveCompleteAuthTokens = async (accessToken: string, refreshToken: string): Promise<void> => {
+    const knowledgeToken = await fetchKnowledgeTokenForAccessToken(accessToken);
+    saveAuthTokens(accessToken, refreshToken, knowledgeToken);
+    console.log('[KnowledgeAuth] saved auth tokens with bound knowledge token.');
+  };
+
   const buildPopiAuthResult = async (token: string, user: PopiUser, expired?: number) => {
     const expiresAt = expired ? Date.now() + expired * 1000 : undefined;
-    saveAuthTokens(token, token);
+    await saveCompleteAuthTokens(token, token);
     getStore().set('auth_token_meta', { expiresAt });
     await refreshModelGatewayCredential();
     const quota = normalizePopiQuota({
@@ -2896,7 +2953,7 @@ if (!gotTheLock) {
         if (resp.ok) {
           const body = await resp.json() as { code: number; data: { accessToken: string; refreshToken?: string } };
           if (body.code === 0 && body.data) {
-            saveAuthTokens(body.data.accessToken, body.data.refreshToken || tokens.refreshToken);
+            await saveCompleteAuthTokens(body.data.accessToken, body.data.refreshToken || tokens.refreshToken);
             console.log(`[Auth] token refresh succeeded (reason: ${reason})`);
             resolvedToken = body.data.accessToken;
             // Token proxy handles fresh tokens dynamically — no need
@@ -2944,6 +3001,16 @@ if (!gotTheLock) {
 
     return resp;
   };
+
+  const fetchWithAccessToken = (url: string, accessToken: string, options?: RequestInit): Promise<Response> =>
+    net.fetch(url, {
+      ...options,
+      headers: {
+        ...(options?.headers as Record<string, string>),
+        Authorization: `Bearer ${accessToken}`,
+        token: accessToken,
+      },
+    });
 
   const getPopiArtService = (): PopiArtService => {
     if (!popiArtService) {
@@ -3282,7 +3349,7 @@ if (!gotTheLock) {
       if (body.code !== 0 || !body.data) {
         return { success: false, error: body.message || 'Exchange failed' };
       }
-      saveAuthTokens(body.data.accessToken, body.data.refreshToken);
+      await saveCompleteAuthTokens(body.data.accessToken, body.data.refreshToken);
       saveAuthUser(body.data.user);
       void syncPopiArtLoginState('auth-exchange');
       console.log('[Auth] exchange user data:', JSON.stringify(body.data.user));
@@ -3303,7 +3370,9 @@ if (!gotTheLock) {
       const profileData = await parsePopiResponse<{ token?: string; user: PopiUser }>(profileResp);
       if (!profileData?.user) return { success: false };
       if (profileData.token && profileData.token !== tokens.accessToken) {
-        saveAuthTokens(profileData.token, profileData.token);
+        await saveCompleteAuthTokens(profileData.token, profileData.token);
+      } else if (!tokens.knowledgeToken) {
+        await saveCompleteAuthTokens(tokens.accessToken, tokens.refreshToken);
       }
       if (!getModelGatewayCredential()?.apiKey) {
         await refreshModelGatewayCredential();
@@ -3396,7 +3465,11 @@ if (!gotTheLock) {
       const tokens = getAuthTokens();
       if (!tokens?.accessToken) return { success: false };
       await refreshModelGatewayCredential();
-      return { success: true, accessToken: tokens.accessToken };
+      const refreshedTokens = getAuthTokens();
+      if (!refreshedTokens?.accessToken || !refreshedTokens.refreshToken || !refreshedTokens.knowledgeToken) {
+        return { success: false };
+      }
+      return { success: true, accessToken: refreshedTokens.accessToken };
     } catch {
       return { success: false };
     }

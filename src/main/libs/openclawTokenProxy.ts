@@ -3,19 +3,25 @@ import { net } from 'electron';
 
 const PROXY_BIND_HOST = '127.0.0.1';
 const WEKNORA_OPENCLAW_MCP_PROXY_PATH = '/mcp/weknora-openclaw';
-const WEKNORA_OPENCLAW_MCP_UPSTREAM_URL = 'http://192.168.77.27:6254/mcp';
+const WEKNORA_OPENCLAW_MCP_UPSTREAM_URL = 'https://weknora.popi.art/mcp';
 const WEKNORA_OPENCLAW_MCP_RETRY_DELAYS_MS = [250, 750, 1500];
 
 let proxyServer: http.Server | null = null;
 let proxyPort: number | null = null;
 
 // Injected dependencies
-let tokenGetter: (() => { accessToken: string; refreshToken: string } | null) | null = null;
+type AuthTokens = {
+  accessToken: string;
+  refreshToken: string;
+  knowledgeToken?: string;
+};
+
+let tokenGetter: (() => AuthTokens | null) | null = null;
 let tokenRefresher: ((reason: string) => Promise<string | null>) | null = null;
 let serverBaseUrlGetter: (() => string) | null = null;
 
 export type OpenClawTokenProxyConfig = {
-  getAuthTokens: () => { accessToken: string; refreshToken: string } | null;
+  getAuthTokens: () => AuthTokens | null;
   refreshToken: (reason: string) => Promise<string | null>;
   getServerBaseUrl: () => string;
 };
@@ -89,7 +95,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const serverBaseUrl = serverBaseUrlGetter?.();
 
     if (req.url?.startsWith(WEKNORA_OPENCLAW_MCP_PROXY_PATH)) {
-      await handleWeknoraOpenClawMcpRequest(req, res, 'sk-zubySD_r1gOVw82UcdBg1O2FRCZy9B_kG6h1yWWAmNWNEzDS');
+      await handleWeknoraOpenClawMcpRequest(req, res, tokens?.knowledgeToken ?? null);
       return;
     }
 
@@ -149,7 +155,8 @@ async function handleWeknoraOpenClawMcpRequest(
 
   if ((result.status === 401 || result.status === 403) && tokenRefresher) {
     console.log(`[OpenClawTokenProxy] Weknora MCP received ${result.status}, attempting token refresh`);
-    const newToken = await tokenRefresher('weknora-openclaw-mcp');
+    await tokenRefresher('weknora-openclaw-mcp');
+    const newToken = tokenGetter?.()?.knowledgeToken ?? null;
     if (newToken) {
       const retryResult = await forwardWeknoraOpenClawMcpRequest(
         req.method || 'POST',

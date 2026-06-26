@@ -61,7 +61,7 @@ const classifyError = (error: string): string => {
 const CONTEXT_USAGE_REFRESH_DELAY_MS = 800;
 const FINAL_CONTEXT_USAGE_REFRESH_DELAYS_MS = [800, 2500, 6000, 12000] as const;
 const SESSION_ENTRY_CONTEXT_USAGE_REFRESH_COOLDOWN_MS = 1500;
-const MANUAL_CONTEXT_COMPACTION_WATCHDOG_MS = 130_000;
+const MANUAL_CONTEXT_COMPACTION_WATCHDOG_MS = 310_000;
 
 const restoreCurrentAgentDefaultSkills = (): void => {
   const state = store.getState();

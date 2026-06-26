@@ -169,6 +169,8 @@ type OpenClawRuntimeAdapterOptions = {
   normalizeModelRef?: (modelRef: string) => string;
 };
 
+const MANUAL_CONTEXT_COMPACTION_TIMEOUT_MS = 300_000;
+
 type ChatEventState = 'delta' | 'final' | 'aborted' | 'error';
 
 type ChatEventPayload = {
@@ -1549,7 +1551,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     console.log(`[OpenClawRuntime] starting manual context compaction for session ${sessionId}.`);
     const result = await client.request<Record<string, unknown>>('sessions.compact', {
       key: sessionKey,
-    }, { timeoutMs: 120_000 });
+    }, { timeoutMs: MANUAL_CONTEXT_COMPACTION_TIMEOUT_MS });
     const compacted = result?.compacted === true;
     const reason = typeof result?.reason === 'string' ? result.reason : undefined;
     const usage = await this.getContextUsage(sessionId);
