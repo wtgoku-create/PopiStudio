@@ -1,0 +1,8 @@
+interface:
+  display_name: "素材虚拟化"
+  short_description: "把真人或宠物素材替换成稳定虚拟形象。"
+  brand_color: "#E23D4F"
+  default_prompt: "Use $popi-mcn-avatarize-media to turn uploaded POPi MCN daily photos or videos into virtual-character media."
+
+policy:
+  allow_implicit_invocation: true

@@ -20,6 +20,38 @@ const loadBundledSkillIds = (): Set<string> => {
 };
 
 describe('MCN preset agents', () => {
+  test('includes the xiaohuan avatarize-media preset', () => {
+    const preset = getPreset('avatarize-media');
+
+    expect(preset.name).toBe('小幻 · 素材虚拟化');
+    expect(preset.description).toContain('素材虚拟化制作 agent');
+    expect(preset.skillIds).toEqual([
+      'popi-mcn-avatarize-media',
+      'seedream',
+      'seedance',
+    ]);
+  });
+
+  test('preserves preset-specific working directory for xiaohuan', () => {
+    const createRequest = presetToCreateRequest(getPreset('avatarize-media'));
+
+    expect(createRequest.workingDirectory).toBe(path.join(os.homedir(), 'popiai', 'project', 'avatarize-media'));
+  });
+
+  test('maps xiaohuan preset to bundled skill-market skills', () => {
+    const bundledSkillIds = loadBundledSkillIds();
+    const preset = getPreset('avatarize-media');
+
+    expect(preset.skillIds.every((skillId) => bundledSkillIds.has(skillId))).toBe(true);
+  });
+
+  test('bundles the xiaohuan avatarize skill with matching frontmatter name', () => {
+    const skillPath = path.join(__dirname, '..', '..', 'SKILLs', 'popi-mcn-avatarize-media', 'SKILL.md');
+
+    expect(fs.existsSync(skillPath)).toBe(true);
+    expect(fs.readFileSync(skillPath, 'utf8')).toContain('name: popi-mcn-avatarize-media');
+  });
+
   test('includes the xiaomo script guide preset', () => {
     const preset = getPreset('script-guide');
 

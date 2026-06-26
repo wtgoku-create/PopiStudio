@@ -45,6 +45,7 @@
     "image-image2image-2dcharacterin3dworld": { "order": 310, "enabled": true },
     "popiskill-image-real2anime": { "order": 312, "enabled": true },
     "popiskill-video-image2video-character-in-scene": { "order": 313, "enabled": true },
+    "popi-mcn-avatarize-media": { "order": 314, "enabled": true },
     "cheat-on-content": { "order": 400, "enabled": true }
   }
 }
