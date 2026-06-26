@@ -16,6 +16,11 @@
  * Environment variables:
  *   OPENCLAW_SKIP_PLUGINS          – Set to "1" to skip this script entirely
  *   OPENCLAW_FORCE_PLUGIN_INSTALL  – Set to "1" to force re-download all plugins
+ *   OPENCLAW_PLUGIN_INSTALL_RETRIES – Override retry attempts for transient
+ *                                     plugin-install failures (default: 3)
+ *   OPENCLAW_PLUGIN_RETRY_BASE_MS   – Override initial retry delay in ms
+ *                                     for transient plugin-install failures
+ *                                     (default: 3000)
  */
 
 const { spawnSync } = require('child_process');
@@ -85,6 +90,16 @@ function fixBinSymlinks(baseDir) {
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function sleep(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function isLocalPathSpec(spec) {
@@ -399,6 +414,49 @@ function resolvePluginInstallSource(plugin) {
   };
 }
 
+function isRetryablePluginInstallError(error) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /(?:\b503\b|\b429\b|rate limit|temporarily unavailable|service unavailable|econnreset|etimedout|enotfound|eai_again|socket hang up|network error|fetch failed)/i
+    .test(message);
+}
+
+function installPluginWithRetries(installSpec, stagingDir, plugin) {
+  const retryCount = parsePositiveInt(process.env.OPENCLAW_PLUGIN_INSTALL_RETRIES, 3);
+  const baseDelayMs = parsePositiveInt(process.env.OPENCLAW_PLUGIN_RETRY_BASE_MS, 3000);
+  const maxAttempts = Math.max(1, retryCount);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      runOpenClawCli(
+        ['plugins', 'install', installSpec, '--force', '--dangerously-force-unsafe-install'],
+        {
+          env: {
+            OPENCLAW_STATE_DIR: stagingDir,
+            // Prevent npm from auto-installing peerDependencies (npm v7+).
+            // Channel plugins declare openclaw as a peerDep, but the host
+            // gateway already provides the SDK at runtime.  Without this,
+            // npm installs the full openclaw SDK + transitive deps (~738 MB)
+            // into each plugin's node_modules.
+            npm_config_legacy_peer_deps: 'true',
+          },
+          stdio: 'inherit',
+        }
+      );
+      return;
+    } catch (error) {
+      if (attempt >= maxAttempts || !isRetryablePluginInstallError(error)) {
+        throw error;
+      }
+      const delayMs = baseDelayMs * (2 ** (attempt - 1));
+      log(
+        `Install attempt ${attempt}/${maxAttempts} for ${plugin.id} failed with a transient error. ` +
+        `Retrying in ${delayMs}ms...`
+      );
+      sleep(delayMs);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -489,21 +547,7 @@ function main() {
           installSpec = source.installSpec;
         }
 
-        runOpenClawCli(
-          ['plugins', 'install', installSpec, '--force', '--dangerously-force-unsafe-install'],
-          {
-            env: {
-              OPENCLAW_STATE_DIR: stagingDir,
-              // Prevent npm from auto-installing peerDependencies (npm v7+).
-              // Channel plugins declare openclaw as a peerDep, but the host
-              // gateway already provides the SDK at runtime.  Without this,
-              // npm installs the full openclaw SDK + transitive deps (~738 MB)
-              // into each plugin's node_modules.
-              npm_config_legacy_peer_deps: 'true',
-            },
-            stdio: 'inherit',
-          }
-        );
+        installPluginWithRetries(installSpec, stagingDir, plugin);
 
         // The CLI installs to {OPENCLAW_STATE_DIR}/extensions/{pluginId}/
         const installedDir = path.join(stagingDir, 'extensions', id);
