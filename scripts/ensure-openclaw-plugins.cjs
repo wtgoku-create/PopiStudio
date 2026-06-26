@@ -191,6 +191,12 @@ function buildGitEnv() {
   };
 }
 
+function formatCliFailureOutput(result) {
+  const stdout = (result.stdout || '').trim();
+  const stderr = (result.stderr || '').trim();
+  return [stdout, stderr].filter(Boolean).join('\n');
+}
+
 /**
  * Run the OpenClaw CLI with the given arguments.
  *
@@ -208,20 +214,27 @@ function runOpenClawCli(args, opts = {}) {
 
   const result = spawnSync(process.execPath, [openclawMjs, ...args], {
     encoding: 'utf-8',
-    stdio: opts.stdio || 'inherit',
+    stdio: ['inherit', 'pipe', 'pipe'],
     cwd: opts.cwd || rootDir,
     env: { ...process.env, ...opts.env },
     timeout: opts.timeout || 5 * 60 * 1000,
   });
 
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+
   if (result.error) {
     throw new Error(`openclaw ${args.join(' ')} failed: ${result.error.message}`);
   }
   if (result.status !== 0) {
-    const stderr = (result.stderr || '').trim();
+    const output = formatCliFailureOutput(result);
     throw new Error(
       `openclaw ${args.join(' ')} exited with code ${result.status}` +
-      (stderr ? `\n${stderr}` : '')
+      (output ? `\n${output}` : '')
     );
   }
 
