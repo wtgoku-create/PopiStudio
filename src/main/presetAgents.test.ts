@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { describe, expect, test } from 'vitest';
 
@@ -19,6 +20,57 @@ const loadBundledSkillIds = (): Set<string> => {
 };
 
 describe('MCN preset agents', () => {
+  test('includes the xiaohuan avatarize-media preset', () => {
+    const preset = getPreset('avatarize-media');
+
+    expect(preset.name).toBe('小幻 · 素材虚拟化');
+    expect(preset.description).toContain('素材虚拟化制作 agent');
+    expect(preset.skillIds).toEqual([
+      'popi-mcn-avatarize-media',
+      'seedream',
+      'seedance',
+    ]);
+  });
+
+  test('preserves preset-specific working directory for xiaohuan', () => {
+    const createRequest = presetToCreateRequest(getPreset('avatarize-media'));
+
+    expect(createRequest.workingDirectory).toBe(path.join(os.homedir(), 'popiai', 'project', 'avatarize-media'));
+  });
+
+  test('maps xiaohuan preset to bundled skill-market skills', () => {
+    const bundledSkillIds = loadBundledSkillIds();
+    const preset = getPreset('avatarize-media');
+
+    expect(preset.skillIds.every((skillId) => bundledSkillIds.has(skillId))).toBe(true);
+  });
+
+  test('bundles the xiaohuan avatarize skill with matching frontmatter name', () => {
+    const skillPath = path.join(__dirname, '..', '..', 'SKILLs', 'popi-mcn-avatarize-media', 'SKILL.md');
+
+    expect(fs.existsSync(skillPath)).toBe(true);
+    expect(fs.readFileSync(skillPath, 'utf8')).toContain('name: popi-mcn-avatarize-media');
+  });
+
+  test('includes the xiaomo script guide preset', () => {
+    const preset = getPreset('script-guide');
+
+    expect(preset.name).toBe('小墨 · 剧本引导');
+    expect(preset.description).toContain('逐步追问缺失信息');
+    expect(preset.skillIds).toEqual([
+      'content-planner',
+      'article-writer',
+      'daily-trending',
+      'web-search',
+    ]);
+  });
+
+  test('preserves preset-specific working directory for xiaomo', () => {
+    const createRequest = presetToCreateRequest(getPreset('script-guide'));
+
+    expect(createRequest.workingDirectory).toBe(path.join(os.homedir(), 'popiai', 'project', 'script-guide'));
+  });
+
   test('exposes the three-stage MCN workflow agents as templates', () => {
     expect(getPreset('mcn-topic-planner').name).toBe('小满 · 选题策划');
     expect(getPreset('mcn-script-director').name).toBe('阿木 · 编导脚本');
