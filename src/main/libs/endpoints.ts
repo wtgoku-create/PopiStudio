@@ -27,7 +27,9 @@ const isTestMode = (): boolean => {
  * Used for auth exchange/refresh, models, proxy, etc.
  */
 export const getServerApiBaseUrl = (): string => {
-  return 'https://wwwtest.popi.art';
+  return isTestMode()
+    ? 'https://wwwtest.popi.art'
+    : 'https://www.popi.art';
 };
 
 export const getPortalBaseUrl = (): string => (
