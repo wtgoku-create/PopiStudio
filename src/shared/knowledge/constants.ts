@@ -5,8 +5,15 @@ export const KnowledgeIpc = {
 } as const;
 
 export type KnowledgeIpc = typeof KnowledgeIpc[keyof typeof KnowledgeIpc];
+// https://weknora.popi.art
+export const KNOWLEDGE_DEFAULT_BASE_URL = 'http://localhost:5174';
+export const KNOWLEDGE_BASES_URL = `${KNOWLEDGE_DEFAULT_BASE_URL}/kb/platform/knowledge-bases`;
 
-export const KNOWLEDGE_DEFAULT_BASE_URL = 'https://weknora.popi.art';
+export const KnowledgeBrowserPartition = {
+  Default: 'persist:popiai-knowledge-browser',
+} as const;
+
+export type KnowledgeBrowserPartition = typeof KnowledgeBrowserPartition[keyof typeof KnowledgeBrowserPartition];
 
 export interface RemoteKnowledgeBase {
   id: string;

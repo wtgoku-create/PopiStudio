@@ -26,6 +26,10 @@ import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } 
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
+import {
+  KNOWLEDGE_DEFAULT_BASE_URL,
+  KnowledgeBrowserPartition,
+} from '../shared/knowledge/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import { PlatformRegistry } from '../shared/platform';
 // PopiArt CLI 登录态同步与 IPC 处理
@@ -6573,6 +6577,16 @@ end tell'`, { timeout: 5000 });
     }
   };
 
+  const isKnowledgeBrowserUrl = (url: string): boolean => {
+    try {
+      const parsedUrl = new URL(url);
+      const baseUrl = new URL(KNOWLEDGE_DEFAULT_BASE_URL);
+      return parsedUrl.origin === baseUrl.origin && parsedUrl.pathname.startsWith('/kb');
+    } catch {
+      return false;
+    }
+  };
+
   // 设置 Content Security Policy
   const setContentSecurityPolicy = () => {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -6599,7 +6613,7 @@ end tell'`, { timeout: 5000 });
         "'self'",
         'file:',
         'https://canvas.popi.art',
-        "https://weknora.popi.art",
+        "https://weknora.popi.art/kb",
         'http://localhost:5174',
         'http://127.0.0.1:5174',
         ...(isDev ? ['http://127.0.0.1:*', 'http://localhost:*'] : []),
@@ -6722,13 +6736,17 @@ end tell'`, { timeout: 5000 });
       webPreferences.webSecurity = true;
       webPreferences.plugins = false;
       webPreferences.devTools = isDev;
-      webPreferences.partition = ArtifactBrowserPartition.Default;
+      const src = params.src ?? '';
+      const partition = isKnowledgeBrowserUrl(src)
+        ? KnowledgeBrowserPartition.Default
+        : ArtifactBrowserPartition.Default;
+
+      webPreferences.partition = partition;
       delete webPreferences.preload;
 
-      params.partition = ArtifactBrowserPartition.Default;
+      params.partition = partition;
       params.allowpopups = 'false';
 
-      const src = params.src ?? '';
       if (src.startsWith('javascript:')) {
         event.preventDefault();
       }
