@@ -77,7 +77,7 @@ import { saveCoworkApiConfig } from './libs/coworkConfigStore';
 import { getCoworkLogPath } from './libs/coworkLogger';
 import { registerProxyTokenRefresher, startCoworkOpenAICompatProxy, stopCoworkOpenAICompatProxy } from './libs/coworkOpenAICompatProxy';
 import { generateSessionTitle, getElectronNodeRuntimePath, probeCoworkModelReadiness } from './libs/coworkUtil';
-import { getLlmGatewayBaseUrl, getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
+import { getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession, isPreviewServerUrl, stopHtmlPreviewServer } from './libs/htmlPreviewServer';
 import { getKeyfromAttribution, initializeKeyfromAttribution } from './libs/keyfromAttribution';
@@ -981,7 +981,6 @@ const getAuthManager = (): AuthManager => {
       ipcMain,
       getStore,
       getServerApiBaseUrl,
-      getLlmGatewayBaseUrl,
       getSkillHubListUrl,
       getSkillHubCategoryListUrl,
       installationUuidKey: INSTALLATION_UUID_KEY,
@@ -7112,11 +7111,14 @@ end tell'`, { timeout: 5000 });
 
     registerProxyTokenRefresher('popiai-server', async () => {
       try {
-        const credential = await getAuthManager().refreshModelGatewayCredential();
-        console.log('[Auth] proxy credential refresh succeeded');
-        return credential.apiKey;
+        const token = await getAuthManager().refreshOnce('popiai-server-proxy');
+        if (token) {
+          console.log('[Auth] proxy token refresh succeeded');
+          return token;
+        }
+        return getAuthManager().getAuthTokens()?.accessToken || null;
       } catch (err) {
-        console.warn('[Auth] proxy credential refresh failed:', err);
+        console.warn('[Auth] proxy token refresh failed:', err);
       }
       return null;
     });

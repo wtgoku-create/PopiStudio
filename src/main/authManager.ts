@@ -1,7 +1,7 @@
 import type { IpcMain } from 'electron';
 import { app, net } from 'electron';
 
-import { ProviderName, ProviderRegistry } from '../shared/providers';
+import { ProviderName } from '../shared/providers';
 import { getKeyfromAttribution } from './libs/keyfromAttribution';
 import { PopiArtService } from './popiart/popiartService';
 import type { SqliteStore } from './sqliteStore';
@@ -41,10 +41,13 @@ type WechatLoginCheckData = {
   user?: PopiUser | null;
 };
 
-export type ModelGatewayCredential = {
-  apiKey: string;
-  baseURL: string;
-  expiresAt?: number;
+type PopiModelListItem = {
+  id: number;
+  code: string;
+  name: string;
+  status: number;
+  deleted: boolean;
+  isSupportImages: boolean;
 };
 
 export type ServerModelMetadata = {
@@ -70,7 +73,6 @@ type AuthManagerDeps = {
   ipcMain: IpcMain;
   getStore: () => SqliteStore;
   getServerApiBaseUrl: () => string;
-  getLlmGatewayBaseUrl: () => string;
   getSkillHubListUrl: () => string;
   getSkillHubCategoryListUrl: () => string;
   installationUuidKey: string;
@@ -100,40 +102,6 @@ export class AuthManager {
 
   getAuthTokens = (): AuthTokens | null => {
     return this.deps.getStore().get<AuthTokens>('auth_tokens') || null;
-  };
-
-  getModelGatewayCredential = (): ModelGatewayCredential | null => {
-    return this.deps.getStore().get<ModelGatewayCredential>('model_gateway_credential') || null;
-  };
-
-  clearModelGatewayCredential = (): void => {
-    this.deps.getStore().delete('model_gateway_credential');
-  };
-
-  refreshModelGatewayCredential = async (): Promise<ModelGatewayCredential> => {
-    const serverBaseUrl = this.deps.getServerApiBaseUrl();
-    const resp = await this.fetchWithAuth(`${serverBaseUrl}/api_client/gateway/apikey/list`);
-    if (!resp.ok) {
-      throw new Error(`Gateway API key request failed: ${resp.status}`);
-    }
-    const data = await this.parsePopiResponse<{
-      list?: Array<{ apikey?: string; status?: number; deleted?: boolean }>;
-    }>(resp);
-
-    const activeKey = data?.list?.find(item => item.apikey && item.deleted !== true && item.status === 1)
-      ?? data?.list?.find(item => item.apikey && item.deleted !== true)
-      ?? data?.list?.find(item => item.apikey);
-
-    if (!activeKey?.apikey) {
-      throw new Error('Gateway API key not found for current account.');
-    }
-
-    const credential = {
-      apiKey: activeKey.apikey,
-      baseURL: `${this.normalizePopiBaseUrl(this.deps.getLlmGatewayBaseUrl())}/v1`,
-    };
-    this.saveModelGatewayCredential(credential);
-    return credential;
   };
 
   refreshOnce = async (reason: string): Promise<string | null> => {
@@ -492,9 +460,6 @@ export class AuthManager {
         } else if (!tokens.knowledgeToken) {
           await this.saveCompleteAuthTokens(tokens.accessToken, tokens.refreshToken);
         }
-        if (!this.getModelGatewayCredential()?.apiKey) {
-          await this.refreshModelGatewayCredential();
-        }
         const points = await this.fetchPopiUserPoints();
         const quota = this.normalizePopiQuota({
           ...(profileData.user as Record<string, unknown>),
@@ -564,13 +529,11 @@ export class AuthManager {
         }
         this.clearAuthTokens();
         this.clearAuthUser();
-        this.clearModelGatewayCredential();
         this.deps.clearServerModelMetadata();
         await this.syncPopiArtLogoutState('auth-logout');
         return { success: true };
       } catch {
         this.clearAuthTokens();
-        this.clearModelGatewayCredential();
         this.clearAuthUser();
         this.deps.clearServerModelMetadata();
         await this.syncPopiArtLogoutState('auth-logout-fallback');
@@ -583,7 +546,6 @@ export class AuthManager {
         const tokens = this.getAuthTokens();
         if (!tokens?.accessToken || !tokens.refreshToken) return { success: false };
         await this.saveCompleteAuthTokens(tokens.accessToken, tokens.refreshToken);
-        await this.refreshModelGatewayCredential();
         const refreshedTokens = this.getAuthTokens();
         if (!refreshedTokens?.accessToken || !refreshedTokens.refreshToken || !refreshedTokens.knowledgeToken) {
           return { success: false };
@@ -610,43 +572,23 @@ export class AuthManager {
           console.log('[Auth:getModels] No auth tokens available');
           return { success: false };
         }
-        const credential = this.getModelGatewayCredential() ?? await this.refreshModelGatewayCredential();
+        const accessToken = tokens.accessToken.trim();
+        if (!accessToken) return { success: false };
         let models: ServerModelMetadata[] = [...POPI_DEFAULT_SERVER_MODELS];
 
         try {
-          const modelsUrl = `${this.normalizePopiBaseUrl(credential.baseURL)}/models?scene=chat`;
-          const resp = await net.fetch(modelsUrl, {
-            headers: { Authorization: `Bearer ${credential.apiKey}` },
-          });
+          const serverBaseUrl = this.deps.getServerApiBaseUrl();
+          const modelsUrl = `${serverBaseUrl}/api_client/anime/ai/model/list?&origin=pc`;
+          const resp = await this.fetchWithAuth(modelsUrl);
           if (resp.ok) {
-            const body = (await resp.json()) as {
-              data?: Array<{
-                id?: string;
-                object?: string;
-                created?: number;
-                owned_by?: string;
-                scenes?: string[];
-                is_multimodal?: boolean;
-                supported_endpoint_types?: string[];
-              }>;
-            };
-            const gatewayModels = (body.data ?? [])
-              .map(model => model.id?.trim())
-              .filter((id): id is string => !!id)
-              .map(id => ({
-                modelId: id,
-                modelName: id,
-                provider: ProviderName.PopiaiServer,
-                apiFormat: 'openai',
-                supportsImage: body.data?.find(model => model.id?.trim() === id)?.is_multimodal
-                  ?? ProviderRegistry.resolveModelSupportsImage(ProviderName.PopiaiServer, id, false),
-              }));
-            if (gatewayModels.length > 0) {
-              models = gatewayModels;
+            const data = await this.parsePopiResponse<PopiModelListItem[]>(resp);
+            const serverModels = this.normalizeServerModelList(data);
+            if (serverModels.length > 0) {
+              models = serverModels;
             }
           }
         } catch (error) {
-          console.debug('[Auth:getModels] gateway model list unavailable, using fallback model:', error);
+          console.debug('[Auth:getModels] server model list unavailable, using fallback model:', error);
         }
 
         const serverModelsChanged = this.deps.updateServerModelMetadata(models);
@@ -677,14 +619,6 @@ export class AuthManager {
   private clearAuthTokens(): void {
     this.deps.getStore().delete('auth_tokens');
     this.deps.getStore().delete('auth_token_meta');
-  }
-
-  private saveModelGatewayCredential(credential: ModelGatewayCredential): void {
-    this.deps.getStore().set('model_gateway_credential', credential);
-  }
-
-  private normalizePopiBaseUrl(url: string): string {
-    return url.trim().replace(/\/+$/, '');
   }
 
   private normalizePopiUser(user: PopiUser): Record<string, unknown> {
@@ -757,6 +691,23 @@ export class AuthManager {
     return body.data as T;
   };
 
+  private normalizeServerModelList = (models: PopiModelListItem[]): ServerModelMetadata[] => {
+    return models
+      .filter(item => item.deleted !== true && item.status !== 0)
+      .map((item): ServerModelMetadata | null => {
+        const modelId = item.code.trim();
+        if (!modelId) return null;
+        return {
+          modelId,
+          modelName: item.name.trim() || modelId,
+          provider: ProviderName.PopiaiServer,
+          apiFormat: 'openai',
+          supportsImage: item.isSupportImages,
+        };
+      })
+      .filter((model): model is ServerModelMetadata => model !== null);
+  };
+
   private fetchPopiUserPoints = async (): Promise<Record<string, unknown> | null> => {
     const serverBaseUrl = this.deps.getServerApiBaseUrl();
     const resp = await this.fetchWithAuth(`${serverBaseUrl}/api_client/users/userPoints/total`);
@@ -792,7 +743,6 @@ export class AuthManager {
     const expiresAt = expired ? Date.now() + expired * 1000 : undefined;
     await this.saveCompleteAuthTokens(token, token);
     this.deps.getStore().set('auth_token_meta', { expiresAt });
-    await this.refreshModelGatewayCredential();
     const quota = this.normalizePopiQuota({
       ...(user as Record<string, unknown>),
       ...(await this.fetchPopiUserPoints() ?? {}),

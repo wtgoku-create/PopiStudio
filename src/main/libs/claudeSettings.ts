@@ -96,7 +96,7 @@ const serializeServerModelMetadata = (
     .sort((a, b) => a.modelId.localeCompare(b.modelId)),
 );
 
-export function updateServerModelMetadata(models: Array<{ modelId: string; supportsImage?: boolean; contextWindow?: number }>): boolean {
+export function updateServerModelMetadata(models: readonly { modelId: string; supportsImage?: boolean; contextWindow?: number }[]): boolean {
   const previous = serializeServerModelMetadata(getAllServerModelMetadata());
   const nextCache = new Map(models.map(m => [m.modelId, { supportsImage: m.supportsImage, contextWindow: m.contextWindow }]));
   const next = serializeServerModelMetadata(Array.from(nextCache.entries()).map(([modelId, meta]) => ({
@@ -199,16 +199,18 @@ function shouldUseOpenAICodexOAuth(providerName: string, providerConfig: LocalPr
 }
 
 function tryPopiaiServerFallback(modelId?: string): MatchedProvider | null {
-  const credential = getStore()?.get<{ apiKey: string; baseURL: string }>('model_gateway_credential');
-  if (!credential?.apiKey || !credential.baseURL) return null;
+  const accessToken = getStore()?.get<{ accessToken?: string }>('auth_tokens')?.accessToken?.trim();
+  if (!accessToken) return null;
   const effectiveModelId = modelId?.trim() || '';
   if (!effectiveModelId) return null;
-  const baseURL = credential.baseURL;
+  const proxyPort = getOpenClawTokenProxyPort();
+  if (!proxyPort) return null;
+  const baseURL = `http://127.0.0.1:${proxyPort}/v1`;
   const cachedMeta = serverModelMetadataCache.get(effectiveModelId);
   console.log('[ClaudeSettings] popiai-server fallback activated:', { baseURL, modelId: effectiveModelId, supportsImage: cachedMeta?.supportsImage });
   return {
     providerName: ProviderName.PopiaiServer,
-    providerConfig: { enabled: true, apiKey: credential.apiKey, baseUrl: baseURL, apiFormat: 'openai', models: buildServerFallbackModels(effectiveModelId) },
+    providerConfig: { enabled: true, apiKey: accessToken, baseUrl: baseURL, apiFormat: 'openai', models: buildServerFallbackModels(effectiveModelId) },
     modelId: effectiveModelId,
     apiFormat: 'openai',
     baseURL,
@@ -237,7 +239,7 @@ function resolveMatchedProvider(appConfig: AppConfig): { matched: MatchedProvide
     return { matched: serverMatch };
   }
 
-  if (getStore()?.get('model_gateway_credential')) {
+  if (getStore()?.get('auth_tokens')) {
     return { matched: null, error: 'No available PopiAi server model found for the current account.' };
   }
 
@@ -414,12 +416,6 @@ export function resolveAllProviderApiKeys(): Record<string, string> {
 
   // popiai-server token is now managed by the token proxy
   // (openclawTokenProxy.ts) — no longer injected as an env var.
-
-    // popiai-server: uses the model gateway API key issued after Popi login.
-    const credential = getStore()?.get<{ apiKey: string }>('model_gateway_credential');
-    if (credential?.apiKey) {
-      result.SERVER = credential.apiKey;
-    }
 
   // All configured custom providers
   const sqliteStore = getStore();

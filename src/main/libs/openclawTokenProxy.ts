@@ -5,6 +5,7 @@ const PROXY_BIND_HOST = '127.0.0.1';
 const WEKNORA_OPENCLAW_MCP_PROXY_PATH = '/mcp/weknora-openclaw';
 const WEKNORA_OPENCLAW_MCP_UPSTREAM_URL = 'https://weknora.popi.art/mcp';
 const WEKNORA_OPENCLAW_MCP_RETRY_DELAYS_MS = [250, 750, 1500];
+const POPIAI_LLM_CHAT_PATH = '/api_client/anime/task/llmChat';
 
 let proxyServer: http.Server | null = null;
 let proxyPort: number | null = null;
@@ -107,18 +108,19 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
     const body = await collectRequestBody(req);
 
-    // Build upstream URL: serverBaseUrl + request path
-    // OpenClaw sends to /v1/chat/completions, upstream is /api/proxy/v1/chat/completions
-    const upstreamPath = `/api/proxy${req.url || '/'}`;
+    const upstreamPath = resolveUpstreamPath(req.url || '/');
     const upstreamUrl = `${serverBaseUrl}${upstreamPath}`;
+    console.debug(`[OpenClawTokenProxy] forwarding request to ${upstreamUrl}`);
 
     const result = await forwardRequest(upstreamUrl, req.method || 'POST', tokens.accessToken, body, req.headers);
+    console.debug(`[OpenClawTokenProxy] upstream responded with status ${result.status}`);
 
     if ((result.status === 401 || result.status === 403) && tokenRefresher) {
       console.log(`[OpenClawTokenProxy] received ${result.status}, attempting token refresh`);
       const newToken = await tokenRefresher('openclaw-proxy');
       if (newToken) {
         const retryResult = await forwardRequest(upstreamUrl, req.method || 'POST', newToken, body, req.headers);
+        console.debug(`[OpenClawTokenProxy] upstream retry responded with status ${retryResult.status}`);
         pipeResponse(retryResult, res);
         return;
       }
@@ -132,6 +134,14 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       res.end(JSON.stringify({ error: 'Token proxy upstream error' }));
     }
   }
+}
+
+function resolveUpstreamPath(requestUrl: string): string {
+  const path = requestUrl.split('?')[0] || '/';
+  if (path === '/v1/chat/completions' || path === '/chat/completions') {
+    return POPIAI_LLM_CHAT_PATH;
+  }
+  return `/api/proxy${requestUrl}`;
 }
 
 async function handleWeknoraOpenClawMcpRequest(
@@ -175,7 +185,7 @@ async function handleWeknoraOpenClawMcpRequest(
 type UpstreamResult = {
   status: number;
   headers: Record<string, string>;
-  body: NodeJS.ReadableStream | Buffer;
+  body: NodeJS.ReadableStream | ReadableStream<Uint8Array> | Buffer;
   isStream: boolean;
 };
 
@@ -214,12 +224,13 @@ async function forwardRequest(
     return {
       status: resp.status,
       headers: responseHeaders,
-      body: resp.body as unknown as NodeJS.ReadableStream,
+      body: resp.body,
       isStream: true,
     };
   }
 
   const respBuffer = Buffer.from(await resp.arrayBuffer());
+  console.debug('[OpenClawTokenProxy] upstream response body:', respBuffer.toString('utf8'));
   return {
     status: resp.status,
     headers: responseHeaders,
@@ -289,7 +300,7 @@ async function forwardWeknoraOpenClawMcpRequest(
     return {
       status: resp.status,
       headers: responseHeaders,
-      body: resp.body as unknown as NodeJS.ReadableStream,
+      body: resp.body,
       isStream: true,
     };
   }
@@ -322,8 +333,40 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function buildResponseHeaders(result: UpstreamResult): Record<string, string> {
+  if (result.isStream) {
+    return {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    };
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(result.headers)) {
+    const normalizedKey = key.toLowerCase();
+    if (
+      normalizedKey === 'connection'
+      || normalizedKey === 'content-length'
+      || normalizedKey === 'content-encoding'
+      || normalizedKey === 'transfer-encoding'
+      || normalizedKey === 'keep-alive'
+      || normalizedKey === 'proxy-authenticate'
+      || normalizedKey === 'proxy-authorization'
+      || normalizedKey === 'te'
+      || normalizedKey === 'trailer'
+      || normalizedKey === 'upgrade'
+    ) {
+      continue;
+    }
+    headers[key] = value;
+  }
+  return headers;
+}
+
 function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {
-  res.writeHead(result.status, result.headers);
+  res.writeHead(result.status, buildResponseHeaders(result));
 
   if (result.isStream && 'pipe' in result.body && typeof (result.body as NodeJS.ReadableStream).pipe === 'function') {
     (result.body as NodeJS.ReadableStream).pipe(res);
@@ -331,11 +374,30 @@ function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {
     res.end(result.body);
   } else {
     // Web ReadableStream from net.fetch — need to consume manually
-    const webStream = result.body as unknown as ReadableStream<Uint8Array>;
+    const webStream = result.body as ReadableStream<Uint8Array>;
     const reader = webStream.getReader();
+    let streamDoneSent = false;
     const pump = (): void => {
       reader.read().then(({ done, value }) => {
         if (done) {
+          res.end();
+          return;
+        }
+        if (streamDoneSent) {
+          pump();
+          return;
+        }
+        const chunkText = Buffer.from(value).toString('utf8');
+        const doneIndex = chunkText.indexOf('data: [DONE]');
+        if (doneIndex >= 0) {
+          const doneEndIndex = doneIndex + 'data: [DONE]'.length;
+          const sanitizedChunk = chunkText.slice(0, doneEndIndex) + '\n\n';
+          streamDoneSent = true;
+          console.debug('[OpenClawTokenProxy] completed upstream stream after data done marker.');
+          res.write(Buffer.from(sanitizedChunk, 'utf8'));
+          reader.cancel().catch(() => {
+            // Upstream may already be closed after [DONE].
+          });
           res.end();
           return;
         }

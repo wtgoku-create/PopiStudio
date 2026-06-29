@@ -618,7 +618,11 @@ const PROVIDER_REGISTRY: Record<string, ProviderDescriptor> = {
     providerId: OpenClawProviderId.PopiaiServer,
     resolveApi: () => OpenClawApiConst.OpenAICompletions as OpenClawProviderApi,
     normalizeBaseUrl: stripChatCompletionsSuffix,
-    resolveApiKey: () => `\${${providerApiKeyEnvVar('server')}}`,
+    resolveRuntimeBaseUrl: () => {
+      const port = getOpenClawTokenProxyPort();
+      return port ? `http://127.0.0.1:${port}/v1` : null;
+    },
+    resolveApiKey: () => '${LOBSTER_PROXY_TOKEN}',
   },
 
   [ProviderName.Moonshot]: {
@@ -1322,8 +1326,8 @@ export class OpenClawConfigSync {
         }
       }
 
-      if (apiResolution.providerMetadata?.providerName === ProviderName.PopiaiServer) {
-        const serverModels = getAllServerModelMetadata();
+      const serverModels = getAllServerModelMetadata();
+      if (serverModels.length > 0 || apiResolution.providerMetadata?.providerName === ProviderName.PopiaiServer) {
         const providerId = OpenClawProviderId.PopiaiServer;
 
         if (serverModels.length > 0 || !allProvidersMap[providerId]) {

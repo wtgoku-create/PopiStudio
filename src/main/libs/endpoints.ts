@@ -27,21 +27,13 @@ const isTestMode = (): boolean => {
  * Used for auth exchange/refresh, models, proxy, etc.
  */
 export const getServerApiBaseUrl = (): string => {
-  return isTestMode()
-    ? 'https://wwwtest.popi.art'
-    : 'https://www.popi.art';
+  return 'https://wwwtest.popi.art';
 };
 
 export const getPortalBaseUrl = (): string => (
   isTestMode()
     ? 'https://wwwtest.popi.art/index'
     : 'https://www.popi.art/index'
-);
-
-export const getLlmGatewayBaseUrl = (): string => (
-  isTestMode()
-    ? 'https://llmapitest.popi.art'
-    : 'https://llmapi.popi.art'
 );
 
 export const getUpdateCheckUrl = (_manual: boolean): string => (
