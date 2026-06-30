@@ -2222,6 +2222,22 @@ const KNOWLEDGE_WEBVIEW_PRELOAD_PATH = app.isPackaged
   ? path.join(__dirname, 'knowledgeWebviewPreload.js')
   : path.join(__dirname, '../dist-electron/knowledgeWebviewPreload.js');
 
+const prepareKnowledgeBrowserSession = (): void => {
+  const knowledgeSession = session.fromPartition(KnowledgeBrowserPartition.Default);
+  knowledgeSession.setPreloads([
+    KNOWLEDGE_WEBVIEW_PRELOAD_PATH,
+  ]);
+
+  try {
+    knowledgeSession.preconnect({
+      url: KNOWLEDGE_DEFAULT_BASE_URL,
+      numSockets: 2,
+    });
+  } catch (error) {
+    console.warn('[KnowledgeWebview] failed to preconnect knowledge service:', error);
+  }
+};
+
 // 获取应用图标路径（Windows 使用 .ico，其他平台使用 .png）
 const getAppIconPath = (): string | undefined => {
   if (process.platform !== 'win32' && process.platform !== 'linux') return undefined;
@@ -6653,9 +6669,7 @@ end tell'`, { timeout: 5000 });
       return;
     }
 
-    session.fromPartition(KnowledgeBrowserPartition.Default).setPreloads([
-      KNOWLEDGE_WEBVIEW_PRELOAD_PATH,
-    ]);
+    prepareKnowledgeBrowserSession();
 
     const initialWindowState = resolveInitialAppWindowState(
       getStore().get(AppWindowStoreKey.State),

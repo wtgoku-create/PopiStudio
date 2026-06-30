@@ -288,8 +288,8 @@ export class RemoteKnowledgeService {
     const text = await response.text();
     const payload = text ? JSON.parse(text) : null;
     if (!response.ok) {
-      const message = isRecord(payload) && typeof payload.message === 'string'
-        ? payload.message
+      const message = isRecord(payload) && typeof payload.error === 'string'
+        ? payload.error
         : `Remote knowledge request failed with HTTP ${response.status}`;
       throw new Error(message);
     }
