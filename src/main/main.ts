@@ -2218,6 +2218,10 @@ const PRELOAD_PATH = app.isPackaged
   ? path.join(__dirname, 'preload.js')
   : path.join(__dirname, '../dist-electron/preload.js');
 
+const KNOWLEDGE_WEBVIEW_PRELOAD_PATH = app.isPackaged
+  ? path.join(__dirname, 'knowledgeWebviewPreload.js')
+  : path.join(__dirname, '../dist-electron/knowledgeWebviewPreload.js');
+
 // 获取应用图标路径（Windows 使用 .ico，其他平台使用 .png）
 const getAppIconPath = (): string | undefined => {
   if (process.platform !== 'win32' && process.platform !== 'linux') return undefined;
@@ -6649,6 +6653,10 @@ end tell'`, { timeout: 5000 });
       return;
     }
 
+    session.fromPartition(KnowledgeBrowserPartition.Default).setPreloads([
+      KNOWLEDGE_WEBVIEW_PRELOAD_PATH,
+    ]);
+
     const initialWindowState = resolveInitialAppWindowState(
       getStore().get(AppWindowStoreKey.State),
       windowStatePersist.getDisplayWorkAreas(),
@@ -6736,12 +6744,19 @@ end tell'`, { timeout: 5000 });
       webPreferences.plugins = false;
       webPreferences.devTools = isDev;
       const src = params.src ?? '';
-      const partition = isKnowledgeBrowserUrl(src)
+      const requestedPartition = params.partition ?? '';
+      const isKnowledgeWebview = requestedPartition === KnowledgeBrowserPartition.Default
+        || isKnowledgeBrowserUrl(src);
+      const partition = isKnowledgeWebview
         ? KnowledgeBrowserPartition.Default
         : ArtifactBrowserPartition.Default;
 
       webPreferences.partition = partition;
-      delete webPreferences.preload;
+      if (partition === KnowledgeBrowserPartition.Default) {
+        webPreferences.preload = KNOWLEDGE_WEBVIEW_PRELOAD_PATH;
+      } else {
+        delete webPreferences.preload;
+      }
 
       params.partition = partition;
       params.allowpopups = 'false';

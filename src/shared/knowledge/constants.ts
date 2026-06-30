@@ -2,11 +2,12 @@ export const KnowledgeIpc = {
   ListBases: 'knowledge:bases:list',
   PreviewRagContext: 'knowledge:rag:previewContext',
   GetWikiPage: 'knowledge:wiki:getPage',
+  UploadLocalSessionMarkdown: 'knowledge:localSession:uploadMarkdown',
 } as const;
 
 export type KnowledgeIpc = typeof KnowledgeIpc[keyof typeof KnowledgeIpc];
 // https://weknora.popi.art
-export const KNOWLEDGE_DEFAULT_BASE_URL = 'http://localhost:5174';
+export const KNOWLEDGE_DEFAULT_BASE_URL = 'https://weknora.popi.art';
 export const KNOWLEDGE_BASES_URL = `${KNOWLEDGE_DEFAULT_BASE_URL}/kb/platform/knowledge-bases`;
 
 export const KnowledgeBrowserPartition = {
@@ -14,6 +15,14 @@ export const KnowledgeBrowserPartition = {
 } as const;
 
 export type KnowledgeBrowserPartition = typeof KnowledgeBrowserPartition[keyof typeof KnowledgeBrowserPartition];
+
+export const KnowledgeWebviewMessage = {
+  UploadLocalSession: 'weknora:upload-local-session',
+  LocalSessionUploadComplete: 'weknora:local-session-upload-complete',
+  PreloadReady: 'weknora:preload-ready',
+} as const;
+
+export type KnowledgeWebviewMessage = typeof KnowledgeWebviewMessage[keyof typeof KnowledgeWebviewMessage];
 
 export interface RemoteKnowledgeBase {
   id: string;
@@ -42,6 +51,18 @@ export interface PreviewRagContextRequest {
 export interface GetWikiPageRequest {
   knowledgeBaseId: string;
   slug: string;
+}
+
+export interface UploadLocalSessionMarkdownRequest {
+  knowledgeBaseId: string;
+  fileName: string;
+  markdown: string;
+}
+
+export interface UploadLocalSessionMarkdownResult {
+  success: boolean;
+  knowledgeId?: string;
+  error?: string;
 }
 
 export interface WikiPage {

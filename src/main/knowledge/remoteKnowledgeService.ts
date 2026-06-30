@@ -8,6 +8,8 @@ import {
   type PreviewRagContextRequest,
   type PreviewRagContextResult,
   type RemoteKnowledgeBase,
+  type UploadLocalSessionMarkdownRequest,
+  type UploadLocalSessionMarkdownResult,
   type WikiPage,
 } from '../../shared/knowledge/constants';
 
@@ -86,6 +88,31 @@ const normalizeKnowledgeBase = (value: unknown): RemoteKnowledgeBase | null => {
   };
 };
 
+const sanitizeKnowledgeUploadFileName = (value: string): string => {
+  const sanitized = value.replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ').replace(/\s+/g, ' ').trim();
+  return sanitized || 'cowork-session.md';
+};
+
+const sanitizeUploadLocalSessionMarkdownRequest = (request: unknown): UploadLocalSessionMarkdownRequest => {
+  if (!isRecord(request)) {
+    throw new Error('Invalid upload request');
+  }
+
+  const knowledgeBaseId = typeof request.knowledgeBaseId === 'string' ? request.knowledgeBaseId.trim() : '';
+  const fileName = typeof request.fileName === 'string' ? sanitizeKnowledgeUploadFileName(request.fileName) : '';
+  const markdown = typeof request.markdown === 'string' ? request.markdown : '';
+
+  if (!knowledgeBaseId) throw new Error('Knowledge base id is required');
+  if (!fileName) throw new Error('File name is required');
+  if (!markdown.trim()) throw new Error('Markdown content is required');
+
+  return {
+    knowledgeBaseId,
+    fileName,
+    markdown,
+  };
+};
+
 export type RemoteKnowledgeServiceOptions = {
   getAccessKey?: () => string | null;
 };
@@ -160,6 +187,46 @@ export class RemoteKnowledgeService {
     };
   }
 
+  async uploadLocalSessionMarkdown(
+    request: UploadLocalSessionMarkdownRequest,
+  ): Promise<UploadLocalSessionMarkdownResult> {
+    const sanitizedRequest = sanitizeUploadLocalSessionMarkdownRequest(request);
+    const apiKey = this.options.getAccessKey?.();
+    if (!apiKey) {
+      return { success: false, error: 'Knowledge access token is missing' };
+    }
+
+    const form = new FormData();
+    form.append(
+      'file',
+      new Blob([sanitizedRequest.markdown], { type: 'text/markdown;charset=utf-8' }),
+      sanitizedRequest.fileName,
+    );
+    form.append('fileName', sanitizedRequest.fileName);
+    form.append('channel', 'web');
+
+    const payload = await this.request(
+      `/api/v1/knowledge-bases/${encodeURIComponent(sanitizedRequest.knowledgeBaseId)}/knowledge/file`,
+      {
+        method: 'POST',
+        body: form,
+        jsonBody: false,
+      },
+    );
+
+    if (isRecord(payload) && payload.success && isRecord(payload.data) && payload.data.id) {
+      return {
+        success: true,
+        knowledgeId: String(payload.data.id),
+      };
+    }
+
+    const message = isRecord(payload) && typeof payload.message === 'string'
+      ? payload.message
+      : 'Knowledge upload failed';
+    return { success: false, error: message };
+  }
+
   registerIpc(ipcMain: IpcMain): void {
     ipcMain.handle(KnowledgeIpc.ListBases, async (): Promise<KnowledgeResult<RemoteKnowledgeBase[]>> => {
       try {
@@ -184,12 +251,25 @@ export class RemoteKnowledgeService {
         return { success: false, error: error instanceof Error ? error.message : 'Failed to get wiki page' };
       }
     });
+
+    ipcMain.handle(KnowledgeIpc.UploadLocalSessionMarkdown, async (_event, request: UploadLocalSessionMarkdownRequest): Promise<UploadLocalSessionMarkdownResult> => {
+      try {
+        return await this.uploadLocalSessionMarkdown(request);
+      } catch (error) {
+        console.warn('[RemoteKnowledgeService] local session markdown upload failed:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to upload local session markdown' };
+      }
+    });
   }
 
-  private async request(pathname: string, init?: RequestInit): Promise<unknown> {
+  private async request(
+    pathname: string,
+    init?: RequestInit & { jsonBody?: boolean },
+  ): Promise<unknown> {
+    const shouldSendJson = init?.jsonBody !== false && Boolean(init?.body);
     const headers: Record<string, string> = {
       Accept: 'application/json',
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(shouldSendJson ? { 'Content-Type': 'application/json' } : {}),
     };
     const apiKey = this.options.getAccessKey?.();
     if (apiKey) {

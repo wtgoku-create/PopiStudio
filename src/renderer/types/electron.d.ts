@@ -11,6 +11,8 @@ import type {
   PreviewRagContextRequest,
   PreviewRagContextResult,
   RemoteKnowledgeBase,
+  UploadLocalSessionMarkdownRequest,
+  UploadLocalSessionMarkdownResult,
   WikiPage,
 } from '../../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
@@ -720,6 +722,7 @@ interface IElectronAPI {
     listBases: () => Promise<KnowledgeResult<RemoteKnowledgeBase[]>>;
     previewRagContext: (request: PreviewRagContextRequest) => Promise<PreviewRagContextResult>;
     getWikiPage: (request: GetWikiPageRequest) => Promise<KnowledgeResult<WikiPage>>;
+    uploadLocalSessionMarkdown: (request: UploadLocalSessionMarkdownRequest) => Promise<UploadLocalSessionMarkdownResult>;
   };
   clipboard: {
     writeImageFromFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;

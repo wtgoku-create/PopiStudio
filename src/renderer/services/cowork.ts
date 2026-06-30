@@ -826,6 +826,19 @@ class CoworkService {
     return null;
   }
 
+  async getSessionSnapshot(sessionId: string): Promise<CoworkSession | null> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSession) return null;
+
+    const result = await cowork.getSession(sessionId);
+    if (result.success && result.session) {
+      return result.session;
+    }
+
+    console.error('Failed to get session snapshot:', result.error);
+    return null;
+  }
+
   /** Load older messages for the current session (for scroll-up history). */
   async loadMoreMessages(sessionId: string): Promise<boolean> {
     const cowork = window.electron?.cowork;

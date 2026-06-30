@@ -44,6 +44,7 @@ import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata } from 
 import { CoworkSessionStatusValue } from '../../types/cowork';
 import { SourceReferenceKind, type SourceReference } from '../../types/sourceReference';
 import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
+import { sanitizeExportFileName, sessionToJSON, sessionToMarkdown } from '../../utils/coworkSessionExport';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload } from '../artifacts';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
@@ -79,8 +80,6 @@ const ARTIFACT_PANEL_TRANSITION_MS = 200;
 const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
 const COWORK_DETAIL_MIN_WIDTH = 480;
 const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
-const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
-
 const toWikiArtifactId = (sessionId: string, kbId: string, slug: string): string => (
   `artifact-wiki-${sessionId}-${encodeURIComponent(kbId)}-${encodeURIComponent(slug)}`
 );
@@ -90,11 +89,6 @@ const WikiArtifactStatus = {
   Loaded: 'loaded',
   Error: 'error',
 } as const;
-
-const sanitizeExportFileName = (value: string): string => {
-  const sanitized = value.replace(INVALID_FILE_NAME_PATTERN, ' ').replace(/\s+/g, ' ').trim();
-  return sanitized || 'cowork-session';
-};
 
 const formatExportTimestamp = (value: Date): string => {
   const pad = (num: number): string => String(num).padStart(2, '0');
@@ -1669,67 +1663,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     };
   }, [currentSession?.id]);
 
-  const sessionToMarkdown = useCallback((): string => {
-    if (!currentSession) return '';
-    const lines: string[] = [];
-    lines.push(`# ${currentSession.title}`);
-    lines.push('');
-    lines.push(`> ${i18nService.t('coworkExportCreatedAt')}: ${new Date(currentSession.createdAt).toLocaleString()}`);
-    lines.push('');
-    lines.push('---');
-    lines.push('');
-    for (const msg of currentSession.messages) {
-      if (msg.type === 'user') {
-        lines.push(`## 🧑 User`);
-        lines.push('');
-        lines.push(msg.content);
-        lines.push('');
-      } else if (msg.type === 'assistant') {
-        lines.push(`## 🤖 Assistant`);
-        lines.push('');
-        lines.push(msg.content);
-        lines.push('');
-      } else if (msg.type === 'tool_use' && msg.metadata?.toolName) {
-        lines.push(`### 🔧 Tool: ${msg.metadata.toolName}`);
-        lines.push('');
-        if (msg.metadata.toolInput) {
-          lines.push('```json');
-          lines.push(JSON.stringify(msg.metadata.toolInput, null, 2));
-          lines.push('```');
-          lines.push('');
-        }
-      } else if (msg.type === 'tool_result') {
-        lines.push('#### Tool Result');
-        lines.push('');
-        lines.push('```');
-        lines.push(msg.content.slice(0, 2000) + (msg.content.length > 2000 ? '\n... (truncated)' : ''));
-        lines.push('```');
-        lines.push('');
-      }
-    }
-    return lines.join('\n');
-  }, [currentSession]);
-
-  const sessionToJSON = useCallback((): string => {
-    if (!currentSession) return '{}';
-    return JSON.stringify({
-      title: currentSession.title,
-      createdAt: new Date(currentSession.createdAt).toISOString(),
-      updatedAt: new Date(currentSession.updatedAt).toISOString(),
-      status: currentSession.status,
-      messages: currentSession.messages.map(msg => ({
-        type: msg.type,
-        content: msg.content,
-        timestamp: new Date(msg.timestamp).toISOString(),
-        ...(msg.metadata?.toolName ? { toolName: msg.metadata.toolName } : {}),
-        ...(msg.metadata?.toolInput ? { toolInput: msg.metadata.toolInput } : {}),
-      })),
-    }, null, 2);
-  }, [currentSession]);
-
   const handleExportText = useCallback(async (format: 'md' | 'json') => {
     if (!currentSession) return;
-    const content = format === 'md' ? sessionToMarkdown() : sessionToJSON();
+    const content = format === 'md' ? sessionToMarkdown(currentSession) : sessionToJSON(currentSession);
     const timestamp = new Date().toISOString().slice(0, 10);
     const fileName = sanitizeExportFileName(`${currentSession.title}-${timestamp}.${format}`);
     try {
@@ -1751,7 +1687,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         detail: i18nService.t('coworkExportTextFailed'),
       }));
     }
-  }, [currentSession, sessionToMarkdown, sessionToJSON]);
+  }, [currentSession]);
 
   const handleShareClick = (e: React.MouseEvent) => {
     e.stopPropagation();

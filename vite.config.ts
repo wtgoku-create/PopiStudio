@@ -56,6 +56,17 @@ export default defineConfig({
         },
         onstart() {},
       },
+      {
+        entry: 'src/main/knowledgeWebviewPreload.ts',
+        vite: {
+          build: {
+            sourcemap: true,
+            outDir: 'dist-electron',
+            minify: false,
+          },
+        },
+        onstart() {},
+      },
     ]),
     renderer(),
   ],

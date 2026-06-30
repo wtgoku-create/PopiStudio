@@ -13,6 +13,7 @@ import {
   KnowledgeIpc,
   type GetWikiPageRequest,
   type PreviewRagContextRequest,
+  type UploadLocalSessionMarkdownRequest,
 } from '../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../shared/localWebServices/constants';
 import { LocalWebServicesIpc } from '../shared/localWebServices/constants';
@@ -456,6 +457,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(KnowledgeIpc.PreviewRagContext, request),
     getWikiPage: (request: GetWikiPageRequest) =>
       ipcRenderer.invoke(KnowledgeIpc.GetWikiPage, request),
+    uploadLocalSessionMarkdown: (request: UploadLocalSessionMarkdownRequest) =>
+      ipcRenderer.invoke(KnowledgeIpc.UploadLocalSessionMarkdown, request),
   },
   clipboard: {
     writeImageFromFile: (filePath: string) =>
