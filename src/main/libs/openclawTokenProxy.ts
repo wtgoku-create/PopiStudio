@@ -115,7 +115,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const result = await forwardRequest(upstreamUrl, req.method || 'POST', tokens.accessToken, body, req.headers);
     console.debug(`[OpenClawTokenProxy] upstream responded with status ${result.status}`);
 
-    if ((result.status === 401 || result.status === 403) && tokenRefresher) {
+    if ((result.status === 401 || result.status === 403) && !result.skipAuthRefresh && tokenRefresher) {
       console.log(`[OpenClawTokenProxy] received ${result.status}, attempting token refresh`);
       const newToken = await tokenRefresher('openclaw-proxy');
       if (newToken) {
@@ -187,7 +187,65 @@ type UpstreamResult = {
   headers: Record<string, string>;
   body: NodeJS.ReadableStream | ReadableStream<Uint8Array> | Buffer;
   isStream: boolean;
+  skipAuthRefresh?: boolean;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeLlmChatBusinessError(responseText: string): UpstreamResult | null {
+  const payload = tryParseJson(responseText);
+  if (!isRecord(payload) || payload.status !== '5000' || typeof payload.message !== 'string') {
+    return null;
+  }
+
+  const match = payload.message.match(/body=(\{[\s\S]*\})$/);
+  const upstreamPayload = match ? tryParseJson(match[1]) : null;
+  const upstreamError = isRecord(upstreamPayload) && isRecord(upstreamPayload.error)
+    ? upstreamPayload.error
+    : null;
+
+  const message = typeof upstreamError?.user_message === 'string'
+    ? upstreamError.user_message
+    : typeof upstreamError?.message === 'string'
+      ? upstreamError.message
+      : payload.message;
+  const status = typeof upstreamError?.http_status === 'number'
+    ? upstreamError.http_status
+    : 502;
+  const type = typeof upstreamError?.type === 'string'
+    ? upstreamError.type
+    : 'upstream_error';
+  const code = typeof upstreamError?.normalized_code === 'string'
+    ? upstreamError.normalized_code
+    : typeof upstreamError?.code === 'string'
+      ? upstreamError.code
+      : null;
+
+  return {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+    body: Buffer.from(JSON.stringify({
+      error: {
+        message,
+        type,
+        code,
+        upstream: upstreamError ?? payload,
+      },
+    })),
+    isStream: false,
+    skipAuthRefresh: true,
+  };
+}
 
 async function forwardRequest(
   url: string,
@@ -230,7 +288,12 @@ async function forwardRequest(
   }
 
   const respBuffer = Buffer.from(await resp.arrayBuffer());
-  console.debug('[OpenClawTokenProxy] upstream response body:', respBuffer.toString('utf8'));
+  const responseText = respBuffer.toString('utf8');
+  console.debug('[OpenClawTokenProxy] upstream response body:', responseText);
+  const normalizedBusinessError = normalizeLlmChatBusinessError(responseText);
+  if (normalizedBusinessError) {
+    return normalizedBusinessError;
+  }
   return {
     status: resp.status,
     headers: responseHeaders,
