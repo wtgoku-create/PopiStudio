@@ -16,16 +16,16 @@ const FolderViewTabs: React.FC<FolderViewTabsProps> = ({ activeTab, onChange }) 
   ];
 
   return (
-    <div className="non-draggable flex h-8 items-center rounded-md bg-surface-inset p-0.5">
+    <div className="non-draggable flex h-8 items-baseline gap-5">
       {tabs.map((tab) => (
         <button
           key={tab.key}
           type="button"
           onClick={() => onChange(tab.key)}
-          className={`h-7 rounded px-3 text-sm transition-colors ${
+          className={`transition-all ${
             activeTab === tab.key
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-secondary hover:text-foreground'
+              ? 'text-lg font-semibold text-foreground'
+              : 'text-sm font-medium text-secondary hover:text-foreground'
           }`}
         >
           {tab.label}

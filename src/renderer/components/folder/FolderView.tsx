@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 import type { FolderTreeEntry } from '../../../shared/folder/constants';
-import { KnowledgeNavigationEvent } from '../../../shared/knowledge/constants';
+import type { OpenKnowledgeGraphEventDetail } from '../../../shared/knowledge/constants';
 import { agentService } from '../../services/agent';
 import { getArtifactTypeFromExtension } from '../../services/artifactParser';
 import { coworkService } from '../../services/cowork';
@@ -36,6 +36,10 @@ interface FolderTreeNode {
   childCount?: number;
   children: string[];
   loaded: boolean;
+}
+
+interface FolderViewProps {
+  knowledgeGraphTarget?: OpenKnowledgeGraphEventDetail | null;
 }
 
 const ROOT_ID = '__folder-root__';
@@ -125,7 +129,7 @@ const openPath = async (targetPath: string): Promise<void> => {
   }
 };
 
-const FolderView: React.FC = () => {
+const FolderView: React.FC<FolderViewProps> = ({ knowledgeGraphTarget = null }) => {
   const configWorkingDirectory = useSelector((state: RootState) => state.cowork.config.workingDirectory);
   const agents = useSelector((state: RootState) => state.agent.agents);
   const [nodes, setNodes] = useState<Record<string, FolderTreeNode>>(() => ({
@@ -145,14 +149,9 @@ const FolderView: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const handleOpenKnowledgeGraph = () => {
-      setActiveTab('knowledge');
-    };
-    window.addEventListener(KnowledgeNavigationEvent.OpenGraph, handleOpenKnowledgeGraph);
-    return () => {
-      window.removeEventListener(KnowledgeNavigationEvent.OpenGraph, handleOpenKnowledgeGraph);
-    };
-  }, []);
+    if (!knowledgeGraphTarget) return;
+    setActiveTab('knowledge');
+  }, [knowledgeGraphTarget]);
 
   const rootEntries = useMemo(() => {
     const entries: FolderTreeEntry[] = [];
@@ -411,9 +410,6 @@ const FolderView: React.FC = () => {
     <div className="flex h-full flex-1 flex-col bg-background">
       <div className="draggable flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex h-8 items-center gap-5">
-          <h1 className="text-lg font-semibold text-foreground">
-            {i18nService.t('folderAllFiles')}
-          </h1>
           <FolderViewTabs activeTab={activeTab} onChange={setActiveTab} />
         </div>
         <div className="flex items-center gap-3">
@@ -422,7 +418,7 @@ const FolderView: React.FC = () => {
 
       <div className="flex-1 overflow-hidden p-4">
         {activeTab === 'knowledge' ? (
-          <KnowledgeBaseFrame />
+          <KnowledgeBaseFrame graphTarget={knowledgeGraphTarget} />
         ) : (
         <div className="flex h-full gap-3 overflow-hidden">
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background">

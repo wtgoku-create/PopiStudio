@@ -9,7 +9,10 @@ import {
   type AppUpdateRuntimeState,
   AppUpdateStatus,
 } from '../shared/appUpdate/constants';
-import { KnowledgeNavigationEvent } from '../shared/knowledge/constants';
+import {
+  KnowledgeNavigationEvent,
+  type OpenKnowledgeGraphEventDetail,
+} from '../shared/knowledge/constants';
 import AgentSidebarPanel from './components/agentSidebar/AgentSidebarPanel';
 import { ContactsView } from './components/contacts';
 import { CoworkView } from './components/cowork';
@@ -58,6 +61,8 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState<SettingsOpenOptions>({});
   const [mainView, setMainView] = useState<MainView>(MainView.Cowork);
+  const [pendingKnowledgeGraphTarget, setPendingKnowledgeGraphTarget] =
+    useState<OpenKnowledgeGraphEventDetail | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -607,7 +612,10 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const handler = () => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<OpenKnowledgeGraphEventDetail>).detail;
+      if (!detail?.knowledgeBaseId || !detail.slug) return;
+      setPendingKnowledgeGraphTarget(detail);
       setMainView(MainView.Folder);
     };
     window.addEventListener(KnowledgeNavigationEvent.OpenGraph, handler);
@@ -931,7 +939,7 @@ const App: React.FC = () => {
                   onNewChat={handleNewChat}
                 />
               ) : mainView === MainView.Folder ? (
-                <FolderView />
+                <FolderView knowledgeGraphTarget={pendingKnowledgeGraphTarget} />
               ) : mainView === MainView.Contacts ? (
                 <ContactsView onShowCowork={handleShowCowork} />
               ) : (

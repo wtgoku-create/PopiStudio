@@ -1,7 +1,6 @@
 import {
   KNOWLEDGE_BASES_URL,
   KnowledgeBrowserPartition,
-  KnowledgeNavigationEvent,
   KnowledgeWebviewMessage,
   type OpenKnowledgeGraphEventDetail,
 } from '@shared/knowledge/constants';
@@ -49,6 +48,10 @@ type KnowledgeUploadCompleteMessage = {
   knowledge_ids: string[];
 };
 
+interface KnowledgeBaseFrameProps {
+  graphTarget?: OpenKnowledgeGraphEventDetail | null;
+}
+
 const getKnowledgeTheme = (): string => {
   return document.documentElement.dataset.theme?.includes('dark') ? 'dark' : 'light';
 };
@@ -60,7 +63,7 @@ const buildKnowledgeGraphUrl = (detail: OpenKnowledgeGraphEventDetail): string =
   return url.toString();
 };
 
-const KnowledgeBaseFrame: React.FC = () => {
+const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({ graphTarget = null }) => {
   const webviewContainerRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<KnowledgeWebviewElement | null>(null);
   const unbindKnowledgeWebviewRef = useRef<(() => void) | null>(null);
@@ -73,6 +76,11 @@ const KnowledgeBaseFrame: React.FC = () => {
   );
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
+  const initialKnowledgeUrl = useMemo(
+    () => graphTarget ? buildKnowledgeGraphUrl(graphTarget) : KNOWLEDGE_BASES_URL,
+    [graphTarget],
+  );
+  const initialKnowledgeUrlRef = useRef(initialKnowledgeUrl);
 
   const knowledgeBaseName = useMemo(
     () => uploadRequest?.knowledge_base_name?.trim() || i18nService.t('knowledgeBase'),
@@ -182,22 +190,15 @@ const KnowledgeBaseFrame: React.FC = () => {
   }, [postKnowledgeTheme, postKnowledgeToken]);
 
   useEffect(() => {
-    const handleOpenKnowledgeGraph = (event: Event) => {
-      const detail = (event as CustomEvent<OpenKnowledgeGraphEventDetail>).detail;
-      if (!detail?.knowledgeBaseId || !detail.slug) return;
-      const targetUrl = buildKnowledgeGraphUrl(detail);
-      const webview = webviewRef.current;
-      if (webview?.loadURL) {
-        void webview.loadURL(targetUrl);
-        return;
-      }
-      webview?.setAttribute('src', targetUrl);
-    };
-    window.addEventListener(KnowledgeNavigationEvent.OpenGraph, handleOpenKnowledgeGraph);
-    return () => {
-      window.removeEventListener(KnowledgeNavigationEvent.OpenGraph, handleOpenKnowledgeGraph);
-    };
-  }, []);
+    if (!graphTarget) return;
+    const targetUrl = buildKnowledgeGraphUrl(graphTarget);
+    const webview = webviewRef.current;
+    if (webview?.loadURL) {
+      void webview.loadURL(targetUrl);
+      return;
+    }
+    webview?.setAttribute('src', targetUrl);
+  }, [graphTarget]);
 
   useEffect(() => {
     postKnowledgeTokenRef.current = () => {
@@ -285,7 +286,7 @@ const KnowledgeBaseFrame: React.FC = () => {
     if (!container) return undefined;
 
     const webview = document.createElement('webview') as KnowledgeWebviewElement;
-    webview.setAttribute('src', KNOWLEDGE_BASES_URL);
+    webview.setAttribute('src', initialKnowledgeUrlRef.current);
     webview.setAttribute('partition', KnowledgeBrowserPartition.Default);
     webview.setAttribute('webpreferences', 'contextIsolation=yes,nodeIntegration=no,sandbox=no');
     webview.setAttribute('title', i18nService.t('knowledgeBase'));
