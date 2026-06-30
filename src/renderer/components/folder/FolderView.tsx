@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 import type { FolderTreeEntry } from '../../../shared/folder/constants';
+import { KnowledgeNavigationEvent } from '../../../shared/knowledge/constants';
 import { agentService } from '../../services/agent';
 import { getArtifactTypeFromExtension } from '../../services/artifactParser';
 import { coworkService } from '../../services/cowork';
@@ -141,6 +142,16 @@ const FolderView: React.FC = () => {
   useEffect(() => {
     void coworkService.loadConfig();
     void agentService.loadAgents();
+  }, []);
+
+  useEffect(() => {
+    const handleOpenKnowledgeGraph = () => {
+      setActiveTab('knowledge');
+    };
+    window.addEventListener(KnowledgeNavigationEvent.OpenGraph, handleOpenKnowledgeGraph);
+    return () => {
+      window.removeEventListener(KnowledgeNavigationEvent.OpenGraph, handleOpenKnowledgeGraph);
+    };
   }, []);
 
   const rootEntries = useMemo(() => {

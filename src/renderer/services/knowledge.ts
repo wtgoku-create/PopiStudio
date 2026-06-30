@@ -1,5 +1,7 @@
 import type {
+  GetChunkByIdRequest,
   GetWikiPageRequest,
+  KnowledgeChunk,
   KnowledgeResult,
   PreviewRagContextRequest,
   PreviewRagContextResult,
@@ -61,6 +63,25 @@ class KnowledgeService {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to get wiki page',
+      };
+    }
+  }
+
+  async getChunkById(request: GetChunkByIdRequest): Promise<KnowledgeResult<KnowledgeChunk>> {
+    const knowledgeApi = window.electron?.knowledge;
+    if (!knowledgeApi?.getChunkById) {
+      return {
+        success: false,
+        error: 'Knowledge IPC is unavailable',
+      };
+    }
+
+    try {
+      return await knowledgeApi.getChunkById(request);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get knowledge chunk',
       };
     }
   }

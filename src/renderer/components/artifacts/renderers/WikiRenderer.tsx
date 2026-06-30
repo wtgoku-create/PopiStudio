@@ -1,6 +1,8 @@
 import { MapIcon } from '@heroicons/react/24/outline';
 import React from 'react';
 
+import { KnowledgeNavigationEvent, type OpenKnowledgeGraphEventDetail } from '@shared/knowledge/constants';
+
 import MarkdownContent from '@/components/MarkdownContent';
 import { i18nService } from '@/services/i18n';
 import type { Artifact } from '@/types/artifact';
@@ -31,6 +33,7 @@ const WikiRenderer: React.FC<WikiRendererProps> = ({ artifact }) => {
   const status = getString(metadata.status);
   const error = getString(metadata.error);
   const kbId = getString(wikiPage?.knowledge_base_id) || getString(metadata.kbId);
+  const wikiSlug = getString(wikiPage?.slug) || getString(metadata.slug);
   const pageType = getString(wikiPage?.page_type) || getString(metadata.pageType);
   const version = typeof wikiPage?.version === 'number'
     ? wikiPage.version
@@ -43,6 +46,14 @@ const WikiRenderer: React.FC<WikiRendererProps> = ({ artifact }) => {
     window.dispatchEvent(new CustomEvent('cowork:source-reference-click', {
       detail: nextReference,
     }));
+  };
+  const handleOpenGraph = (): void => {
+    if (!kbId || !wikiSlug) return;
+    const detail: OpenKnowledgeGraphEventDetail = {
+      knowledgeBaseId: kbId,
+      slug: wikiSlug,
+    };
+    window.dispatchEvent(new CustomEvent(KnowledgeNavigationEvent.OpenGraph, { detail }));
   };
 
   return (
@@ -62,6 +73,8 @@ const WikiRenderer: React.FC<WikiRendererProps> = ({ artifact }) => {
             </div>
             <button
               type="button"
+              disabled={!kbId || !wikiSlug}
+              onClick={handleOpenGraph}
               className="inline-flex shrink-0 items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary-hover"
               title={i18nService.t('artifactWikiViewInGraph')}
             >

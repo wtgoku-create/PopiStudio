@@ -1,7 +1,9 @@
 import {
   KNOWLEDGE_BASES_URL,
   KnowledgeBrowserPartition,
+  KnowledgeNavigationEvent,
   KnowledgeWebviewMessage,
+  type OpenKnowledgeGraphEventDetail,
 } from '@shared/knowledge/constants';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
@@ -16,6 +18,7 @@ import KnowledgeSessionUploadModal from './KnowledgeSessionUploadModal';
 type KnowledgeWebviewElement = HTMLElement & {
   addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
   executeJavaScript?: (code: string) => Promise<unknown>;
+  loadURL?: (url: string) => Promise<void>;
   remove: () => void;
   removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
   setAttribute: (qualifiedName: string, value: string) => void;
@@ -48,6 +51,13 @@ type KnowledgeUploadCompleteMessage = {
 
 const getKnowledgeTheme = (): string => {
   return document.documentElement.dataset.theme?.includes('dark') ? 'dark' : 'light';
+};
+
+const buildKnowledgeGraphUrl = (detail: OpenKnowledgeGraphEventDetail): string => {
+  const url = new URL(`${KNOWLEDGE_BASES_URL}/${encodeURIComponent(detail.knowledgeBaseId)}`);
+  url.searchParams.set('tab', 'graph');
+  url.searchParams.set('slug', detail.slug);
+  return url.toString();
 };
 
 const KnowledgeBaseFrame: React.FC = () => {
@@ -170,6 +180,24 @@ const KnowledgeBaseFrame: React.FC = () => {
     void postKnowledgeToken();
     void postKnowledgeTheme();
   }, [postKnowledgeTheme, postKnowledgeToken]);
+
+  useEffect(() => {
+    const handleOpenKnowledgeGraph = (event: Event) => {
+      const detail = (event as CustomEvent<OpenKnowledgeGraphEventDetail>).detail;
+      if (!detail?.knowledgeBaseId || !detail.slug) return;
+      const targetUrl = buildKnowledgeGraphUrl(detail);
+      const webview = webviewRef.current;
+      if (webview?.loadURL) {
+        void webview.loadURL(targetUrl);
+        return;
+      }
+      webview?.setAttribute('src', targetUrl);
+    };
+    window.addEventListener(KnowledgeNavigationEvent.OpenGraph, handleOpenKnowledgeGraph);
+    return () => {
+      window.removeEventListener(KnowledgeNavigationEvent.OpenGraph, handleOpenKnowledgeGraph);
+    };
+  }, []);
 
   useEffect(() => {
     postKnowledgeTokenRef.current = () => {

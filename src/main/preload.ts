@@ -11,6 +11,7 @@ import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc } from '../shared/folder/constants';
 import {
   KnowledgeIpc,
+  type GetChunkByIdRequest,
   type GetWikiPageRequest,
   type PreviewRagContextRequest,
   type UploadLocalSessionMarkdownRequest,
@@ -457,6 +458,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(KnowledgeIpc.PreviewRagContext, request),
     getWikiPage: (request: GetWikiPageRequest) =>
       ipcRenderer.invoke(KnowledgeIpc.GetWikiPage, request),
+    getChunkById: (request: GetChunkByIdRequest) =>
+      ipcRenderer.invoke(KnowledgeIpc.GetChunkById, request),
     uploadLocalSessionMarkdown: (request: UploadLocalSessionMarkdownRequest) =>
       ipcRenderer.invoke(KnowledgeIpc.UploadLocalSessionMarkdown, request),
   },

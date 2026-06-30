@@ -2,6 +2,7 @@ export const KnowledgeIpc = {
   ListBases: 'knowledge:bases:list',
   PreviewRagContext: 'knowledge:rag:previewContext',
   GetWikiPage: 'knowledge:wiki:getPage',
+  GetChunkById: 'knowledge:chunks:getById',
   UploadLocalSessionMarkdown: 'knowledge:localSession:uploadMarkdown',
 } as const;
 
@@ -9,6 +10,18 @@ export type KnowledgeIpc = typeof KnowledgeIpc[keyof typeof KnowledgeIpc];
 // https://weknora.popi.art
 export const KNOWLEDGE_DEFAULT_BASE_URL = 'https://weknora.popi.art';
 export const KNOWLEDGE_BASES_URL = `${KNOWLEDGE_DEFAULT_BASE_URL}/kb/platform/knowledge-bases`;
+
+export const KnowledgeNavigationEvent = {
+  OpenGraph: 'knowledge:navigation:openGraph',
+} as const;
+
+export type KnowledgeNavigationEvent =
+  typeof KnowledgeNavigationEvent[keyof typeof KnowledgeNavigationEvent];
+
+export interface OpenKnowledgeGraphEventDetail {
+  knowledgeBaseId: string;
+  slug: string;
+}
 
 export const KnowledgeBrowserPartition = {
   Default: 'persist:popiai-knowledge-browser',
@@ -51,6 +64,10 @@ export interface PreviewRagContextRequest {
 export interface GetWikiPageRequest {
   knowledgeBaseId: string;
   slug: string;
+}
+
+export interface GetChunkByIdRequest {
+  chunkId: string;
 }
 
 export interface UploadLocalSessionMarkdownRequest {
@@ -100,6 +117,32 @@ export interface RagContextChunk {
   score?: number;
   chunk_type?: string;
   [key: string]: unknown;
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  seq_id: number;
+  knowledge_id: string;
+  knowledge_base_id: string;
+  tenant_id: number;
+  tag_id: string;
+  content: string;
+  chunk_index: number;
+  is_enabled: boolean;
+  status: number;
+  start_at: number;
+  end_at: number;
+  pre_chunk_id: string;
+  next_chunk_id: string;
+  chunk_type: string;
+  parent_chunk_id: string;
+  relation_chunks: unknown;
+  indirect_relation_chunks: unknown;
+  metadata: unknown;
+  content_hash: string;
+  image_info: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PreviewRagContextData {

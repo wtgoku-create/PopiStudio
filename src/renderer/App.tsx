@@ -9,6 +9,7 @@ import {
   type AppUpdateRuntimeState,
   AppUpdateStatus,
 } from '../shared/appUpdate/constants';
+import { KnowledgeNavigationEvent } from '../shared/knowledge/constants';
 import AgentSidebarPanel from './components/agentSidebar/AgentSidebarPanel';
 import { ContactsView } from './components/contacts';
 import { CoworkView } from './components/cowork';
@@ -603,6 +604,14 @@ const App: React.FC = () => {
     };
     window.addEventListener('app:ask-ai', handler);
     return () => window.removeEventListener('app:ask-ai', handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      setMainView(MainView.Folder);
+    };
+    window.addEventListener(KnowledgeNavigationEvent.OpenGraph, handler);
+    return () => window.removeEventListener(KnowledgeNavigationEvent.OpenGraph, handler);
   }, []);
 
   // 监听托盘菜单打开设置的 IPC 事件

@@ -84,7 +84,15 @@ const toWikiArtifactId = (sessionId: string, kbId: string, slug: string): string
   `artifact-wiki-${sessionId}-${encodeURIComponent(kbId)}-${encodeURIComponent(slug)}`
 );
 
-const WikiArtifactStatus = {
+const toChunkArtifactId = (sessionId: string, chunkId: string): string => (
+  `artifact-chunk-${sessionId}-${encodeURIComponent(chunkId)}`
+);
+
+const isMarkdownSourceTitle = (title: string): boolean => (
+  /\.(md|markdown|mdown|mkdn|mkd)$/i.test(title.trim())
+);
+
+const SourceArtifactStatus = {
   Loading: 'loading',
   Loaded: 'loaded',
   Error: 'error',
@@ -1025,7 +1033,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const artifactId = toWikiArtifactId(sessionId, kbId || 'unknown', slug);
     const existingArtifact = sessionArtifacts.find(item => item.id === artifactId);
     const existingStatus = existingArtifact?.metadata?.status;
-    if (existingStatus === WikiArtifactStatus.Loaded || existingStatus === WikiArtifactStatus.Loading) {
+    if (existingStatus === SourceArtifactStatus.Loaded || existingStatus === SourceArtifactStatus.Loading) {
       setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.FileList);
       dispatch(openArtifactPreviewTab({ sessionId, artifactId }));
       return;
@@ -1043,7 +1051,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         slug,
         title: reference.title,
         kbId,
-        status: kbId ? WikiArtifactStatus.Loading : WikiArtifactStatus.Error,
+        status: kbId ? SourceArtifactStatus.Loading : SourceArtifactStatus.Error,
         error: kbId ? undefined : i18nService.t('artifactWikiMissingKnowledgeBase'),
       },
       createdAt: Date.now(),
@@ -1064,7 +1072,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             contentVersion: Date.now(),
             metadata: {
               ...artifact.metadata,
-              status: WikiArtifactStatus.Loaded,
+              status: SourceArtifactStatus.Loaded,
               title: result.data.title || artifact.title,
               wikiPage: result.data,
               summary: result.data.summary,
@@ -1082,7 +1090,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           contentVersion: Date.now(),
           metadata: {
             ...artifact.metadata,
-            status: WikiArtifactStatus.Error,
+            status: SourceArtifactStatus.Error,
             error: result.error || i18nService.t('artifactWikiLoadError'),
           },
         },
@@ -1095,7 +1103,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           contentVersion: Date.now(),
           metadata: {
             ...artifact.metadata,
-            status: WikiArtifactStatus.Error,
+            status: SourceArtifactStatus.Error,
             error: error instanceof Error ? error.message : i18nService.t('artifactWikiLoadError'),
           },
         },
@@ -1109,20 +1117,116 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setSessionActiveSpecialPreviewTab,
   ]);
 
+  const handleOpenChunkReference = useCallback((reference: Extract<SourceReference, { kind: typeof SourceReferenceKind.Chunk }>) => {
+    if (!sessionId) return;
+    const chunkId = reference.chunkId.trim();
+    if (!chunkId) return;
+    const artifactId = toChunkArtifactId(sessionId, chunkId);
+    const existingArtifact = sessionArtifacts.find(item => item.id === artifactId);
+    const existingStatus = existingArtifact?.metadata?.status;
+    if (existingStatus === SourceArtifactStatus.Loaded || existingStatus === SourceArtifactStatus.Loading) {
+      setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.FileList);
+      dispatch(openArtifactPreviewTab({ sessionId, artifactId }));
+      return;
+    }
+
+    const title = reference.doc || reference.label || chunkId;
+    const artifactType = isMarkdownSourceTitle(title) ? ArtifactTypeValue.Markdown : ArtifactTypeValue.Text;
+    const artifact: Artifact = {
+      id: artifactId,
+      messageId: `source-reference:${chunkId}`,
+      sessionId,
+      type: artifactType,
+      title,
+      content: i18nService.t('artifactChunkLoading'),
+      fileName: title,
+      metadata: {
+        app: reference.app,
+        doc: reference.doc,
+        kbId: reference.kbId,
+        chunkId,
+        status: SourceArtifactStatus.Loading,
+      },
+      createdAt: Date.now(),
+    };
+    dispatch(addArtifact({ sessionId, artifact }));
+    setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.FileList);
+    dispatch(openArtifactPreviewTab({ sessionId, artifactId }));
+
+    void knowledgeService.getChunkById({ chunkId }).then((result) => {
+      if (result.success && result.data) {
+        dispatch(addArtifact({
+          sessionId,
+          artifact: {
+            ...artifact,
+            content: result.data.content || i18nService.t('artifactChunkEmpty'),
+            contentVersion: Date.now(),
+            metadata: {
+              ...artifact.metadata,
+              status: SourceArtifactStatus.Loaded,
+              chunk: result.data,
+              knowledgeId: result.data.knowledge_id,
+              kbId: result.data.knowledge_base_id || reference.kbId,
+              updatedAt: result.data.updated_at,
+            },
+          },
+        }));
+        return;
+      }
+
+      dispatch(addArtifact({
+        sessionId,
+        artifact: {
+          ...artifact,
+          content: result.error || i18nService.t('artifactChunkLoadError'),
+          contentVersion: Date.now(),
+          metadata: {
+            ...artifact.metadata,
+            status: SourceArtifactStatus.Error,
+            error: result.error || i18nService.t('artifactChunkLoadError'),
+          },
+        },
+      }));
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : i18nService.t('artifactChunkLoadError');
+      dispatch(addArtifact({
+        sessionId,
+        artifact: {
+          ...artifact,
+          content: message,
+          contentVersion: Date.now(),
+          metadata: {
+            ...artifact.metadata,
+            status: SourceArtifactStatus.Error,
+            error: message,
+          },
+        },
+      }));
+    });
+  }, [
+    dispatch,
+    sessionArtifacts,
+    sessionId,
+    setSessionActiveSpecialPreviewTab,
+  ]);
+
   useEffect(() => {
     if (!sessionId) return undefined;
     const handleSourceReferenceClick = (event: Event) => {
       const reference = (event as CustomEvent<SourceReference>).detail;
-      if (reference?.kind !== SourceReferenceKind.Wiki) {
+      if (reference?.kind === SourceReferenceKind.Wiki) {
+        handleOpenWikiReference(reference);
         return;
       }
-      handleOpenWikiReference(reference);
+      if (reference?.kind === SourceReferenceKind.Chunk) {
+        handleOpenChunkReference(reference);
+      }
     };
     window.addEventListener('cowork:source-reference-click', handleSourceReferenceClick);
     return () => {
       window.removeEventListener('cowork:source-reference-click', handleSourceReferenceClick);
     };
-  }, [handleOpenWikiReference, sessionId]);
+  }, [handleOpenChunkReference, handleOpenWikiReference, sessionId]);
 
   const handleOpenArtifactFileListFromMenu = useCallback(() => {
     setShowArtifactAddMenu(false);

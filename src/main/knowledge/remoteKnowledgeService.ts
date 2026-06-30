@@ -2,8 +2,10 @@ import type { IpcMain } from 'electron';
 
 import {
   KNOWLEDGE_DEFAULT_BASE_URL,
+  type GetChunkByIdRequest,
   KnowledgeIpc,
   type GetWikiPageRequest,
+  type KnowledgeChunk,
   type KnowledgeResult,
   type PreviewRagContextRequest,
   type PreviewRagContextResult,
@@ -187,6 +189,26 @@ export class RemoteKnowledgeService {
     };
   }
 
+  async getChunkById(request: GetChunkByIdRequest): Promise<KnowledgeResult<KnowledgeChunk>> {
+    const chunkId = request.chunkId.trim();
+    if (!chunkId) {
+      return {
+        success: false,
+        error: 'Chunk id is required',
+      };
+    }
+
+    const payload = await this.request(
+      `/api/v1/chunks/by-id/${encodeURIComponent(chunkId)}`,
+    );
+    return {
+      success: true,
+      data: isRecord(payload) && isRecord(payload.data)
+        ? payload.data as unknown as KnowledgeChunk
+        : payload as KnowledgeChunk,
+    };
+  }
+
   async uploadLocalSessionMarkdown(
     request: UploadLocalSessionMarkdownRequest,
   ): Promise<UploadLocalSessionMarkdownResult> {
@@ -249,6 +271,14 @@ export class RemoteKnowledgeService {
         return await this.getWikiPage(request);
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : 'Failed to get wiki page' };
+      }
+    });
+
+    ipcMain.handle(KnowledgeIpc.GetChunkById, async (_event, request: GetChunkByIdRequest): Promise<KnowledgeResult<KnowledgeChunk>> => {
+      try {
+        return await this.getChunkById(request);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to get knowledge chunk' };
       }
     });
 
