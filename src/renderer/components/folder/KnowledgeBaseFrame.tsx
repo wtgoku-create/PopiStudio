@@ -50,6 +50,7 @@ type KnowledgeUploadCompleteMessage = {
 
 interface KnowledgeBaseFrameProps {
   graphTarget?: OpenKnowledgeGraphEventDetail | null;
+  onGraphTargetConsumed?: () => void;
 }
 
 const getKnowledgeTheme = (): string => {
@@ -63,7 +64,10 @@ const buildKnowledgeGraphUrl = (detail: OpenKnowledgeGraphEventDetail): string =
   return url.toString();
 };
 
-const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({ graphTarget = null }) => {
+const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
+  graphTarget = null,
+  onGraphTargetConsumed,
+}) => {
   const webviewContainerRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<KnowledgeWebviewElement | null>(null);
   const unbindKnowledgeWebviewRef = useRef<(() => void) | null>(null);
@@ -195,10 +199,12 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({ graphTarget = n
     const webview = webviewRef.current;
     if (webview?.loadURL) {
       void webview.loadURL(targetUrl);
+      onGraphTargetConsumed?.();
       return;
     }
     webview?.setAttribute('src', targetUrl);
-  }, [graphTarget]);
+    onGraphTargetConsumed?.();
+  }, [graphTarget, onGraphTargetConsumed]);
 
   useEffect(() => {
     postKnowledgeTokenRef.current = () => {

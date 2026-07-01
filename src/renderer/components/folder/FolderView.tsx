@@ -155,8 +155,7 @@ const FolderView: React.FC<FolderViewProps> = ({
   useEffect(() => {
     if (!knowledgeGraphTarget) return;
     setActiveTab('knowledge');
-    onKnowledgeGraphTargetConsumed?.();
-  }, [knowledgeGraphTarget, onKnowledgeGraphTargetConsumed]);
+  }, [knowledgeGraphTarget]);
 
   const rootEntries = useMemo(() => {
     const entries: FolderTreeEntry[] = [];
@@ -423,7 +422,10 @@ const FolderView: React.FC<FolderViewProps> = ({
 
       <div className="flex-1 overflow-hidden p-4">
         {activeTab === 'knowledge' ? (
-          <KnowledgeBaseFrame graphTarget={knowledgeGraphTarget} />
+          <KnowledgeBaseFrame
+            graphTarget={knowledgeGraphTarget}
+            onGraphTargetConsumed={onKnowledgeGraphTargetConsumed}
+          />
         ) : (
         <div className="flex h-full gap-3 overflow-hidden">
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background">
