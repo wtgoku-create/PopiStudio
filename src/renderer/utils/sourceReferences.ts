@@ -2,7 +2,7 @@ import { SourceReferenceKind, type SourceReference } from '../types/sourceRefere
 
 const KB_TAG_RE = /<kb\s+([^<>]*?)\/>/gi;
 const SOURCE_TAG_RE = /<source\s+([^<>]*?)\/>/gi;
-const WIKI_LINK_RE = /\[\[([^\]|\n]+)\|([^\]\n]+)\]\]/g;
+const WIKI_LINK_RE = /\[\[([^\]|\n]+)\|([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g;
 
 const SOURCE_REF_SCHEME = 'popiai-source-ref:';
 
@@ -27,6 +27,21 @@ const escapeMarkdownLinkText = (value: string): string => (
 
 const toMarkdownReferenceLink = (label: string, reference: SourceReference): string => {
   return `[${escapeMarkdownLinkText(label)}](${encodeReference(reference)})`;
+};
+
+const parseWikiLinkParams = (value: string | undefined): Record<string, string> => {
+  const params: Record<string, string> = {};
+  if (!value) return params;
+  for (const part of value.split('|')) {
+    const index = part.indexOf('=');
+    if (index <= 0) continue;
+    const key = part.slice(0, index).trim();
+    const paramValue = part.slice(index + 1).trim();
+    if (key && paramValue) {
+      params[key] = paramValue;
+    }
+  }
+  return params;
 };
 
 const buildChunkReference = (attrs: Record<string, string>): SourceReference | null => {
@@ -95,15 +110,17 @@ export const encodeSourceReferencesForMarkdown = (content: string): string => {
       const reference = buildGenericReference(parseAttributes(attrText));
       return reference ? toMarkdownReferenceLink(reference.label, reference) : raw;
     })
-    .replace(WIKI_LINK_RE, (raw, slugValue, titleValue) => {
+    .replace(WIKI_LINK_RE, (raw, slugValue, titleValue, paramsValue) => {
       const slug = String(slugValue).trim();
       const title = String(titleValue).trim();
       if (!slug || !title) return raw;
+      const params = parseWikiLinkParams(typeof paramsValue === 'string' ? paramsValue : undefined);
       const reference: SourceReference = {
         kind: SourceReferenceKind.Wiki,
         app: 'weknora',
         slug,
         title,
+        kbId: params.kb_id || undefined,
         label: title,
       };
       return toMarkdownReferenceLink(title, reference);

@@ -628,6 +628,7 @@ class CoworkService {
       sessionId: options.sessionId,
       prompt: options.prompt,
       knowledgeBaseIds: options.knowledgeBaseIds,
+      knowledgeIds: options.knowledgeIds,
       systemPrompt: options.systemPrompt,
       activeSkillIds: options.activeSkillIds,
       imageAttachments: options.imageAttachments,

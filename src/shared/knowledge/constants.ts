@@ -1,5 +1,6 @@
 export const KnowledgeIpc = {
   ListBases: 'knowledge:bases:list',
+  SearchRecentKnowledge: 'knowledge:knowledge:searchRecent',
   PreviewRagContext: 'knowledge:rag:previewContext',
   GetWikiPage: 'knowledge:wiki:getPage',
   GetChunkById: 'knowledge:chunks:getById',
@@ -45,6 +46,45 @@ export interface RemoteKnowledgeBase {
   enabled?: boolean;
   updatedAt?: number;
   raw?: unknown;
+}
+
+export interface SearchRecentKnowledgeRequest {
+  recent?: boolean;
+  offset?: number;
+  limit?: number;
+}
+
+export interface RemoteKnowledgeFile {
+  id: string;
+  tenant_id: number;
+  knowledge_base_id: string;
+  knowledge_base_name: string;
+  type: string;
+  title: string;
+  description: string;
+  source: string;
+  channel: string;
+  parse_status: string;
+  summary_status: string;
+  enable_status: string;
+  embedding_model_id: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  file_hash: string;
+  file_path: string;
+  storage_size: number;
+  created_by: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  processed_at: string;
+  error_message: string;
+}
+
+export interface SearchRecentKnowledgeData {
+  items: RemoteKnowledgeFile[];
+  hasMore: boolean;
 }
 
 export interface PreviewRagContextRequest {

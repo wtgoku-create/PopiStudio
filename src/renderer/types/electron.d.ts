@@ -13,6 +13,8 @@ import type {
   PreviewRagContextRequest,
   PreviewRagContextResult,
   RemoteKnowledgeBase,
+  SearchRecentKnowledgeData,
+  SearchRecentKnowledgeRequest,
   UploadLocalSessionMarkdownRequest,
   UploadLocalSessionMarkdownResult,
   WikiPage,
@@ -516,6 +518,7 @@ interface IElectronAPI {
     startSession: (options: {
       prompt: string;
       knowledgeBaseIds?: string[];
+      knowledgeIds?: string[];
       cwd?: string;
       systemPrompt?: string;
       title?: string;
@@ -533,6 +536,7 @@ interface IElectronAPI {
       sessionId: string;
       prompt: string;
       knowledgeBaseIds?: string[];
+      knowledgeIds?: string[];
       systemPrompt?: string;
       activeSkillIds?: string[];
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
@@ -722,6 +726,7 @@ interface IElectronAPI {
   };
   knowledge: {
     listBases: () => Promise<KnowledgeResult<RemoteKnowledgeBase[]>>;
+    searchRecentKnowledge: (request: SearchRecentKnowledgeRequest) => Promise<KnowledgeResult<SearchRecentKnowledgeData>>;
     previewRagContext: (request: PreviewRagContextRequest) => Promise<PreviewRagContextResult>;
     getWikiPage: (request: GetWikiPageRequest) => Promise<KnowledgeResult<WikiPage>>;
     getChunkById: (request: GetChunkByIdRequest) => Promise<KnowledgeResult<KnowledgeChunk>>;

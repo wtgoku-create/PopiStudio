@@ -9,7 +9,10 @@ import {
   type KnowledgeResult,
   type PreviewRagContextRequest,
   type PreviewRagContextResult,
+  type RemoteKnowledgeFile,
   type RemoteKnowledgeBase,
+  type SearchRecentKnowledgeData,
+  type SearchRecentKnowledgeRequest,
   type UploadLocalSessionMarkdownRequest,
   type UploadLocalSessionMarkdownResult,
   type WikiPage,
@@ -90,6 +93,40 @@ const normalizeKnowledgeBase = (value: unknown): RemoteKnowledgeBase | null => {
   };
 };
 
+const normalizeKnowledgeFile = (value: unknown): RemoteKnowledgeFile | null => {
+  if (!isRecord(value)) return null;
+  const id = readString(value, ['id']);
+  if (!id) return null;
+
+  return {
+    id,
+    tenant_id: readNumber(value, ['tenant_id']) ?? 0,
+    knowledge_base_id: readString(value, ['knowledge_base_id']),
+    knowledge_base_name: readString(value, ['knowledge_base_name']),
+    type: readString(value, ['type']),
+    title: readString(value, ['title']),
+    description: readString(value, ['description']),
+    source: readString(value, ['source']),
+    channel: readString(value, ['channel']),
+    parse_status: readString(value, ['parse_status']),
+    summary_status: readString(value, ['summary_status']),
+    enable_status: readString(value, ['enable_status']),
+    embedding_model_id: readString(value, ['embedding_model_id']),
+    file_name: readString(value, ['file_name']),
+    file_type: readString(value, ['file_type']),
+    file_size: readNumber(value, ['file_size']) ?? 0,
+    file_hash: readString(value, ['file_hash']),
+    file_path: readString(value, ['file_path']),
+    storage_size: readNumber(value, ['storage_size']) ?? 0,
+    created_by: readString(value, ['created_by']),
+    metadata: isRecord(value.metadata) ? value.metadata : {},
+    created_at: readString(value, ['created_at']),
+    updated_at: readString(value, ['updated_at']),
+    processed_at: readString(value, ['processed_at']),
+    error_message: readString(value, ['error_message']),
+  };
+};
+
 const sanitizeKnowledgeUploadFileName = (value: string): string => {
   const sanitized = value.replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ').replace(/\s+/g, ' ').trim();
   return sanitized || 'cowork-session.md';
@@ -127,6 +164,21 @@ export class RemoteKnowledgeService {
     return readArray(payload, ['items', 'data', 'list', 'records', 'knowledgeBases', 'knowledge_bases'])
       .map(normalizeKnowledgeBase)
       .filter((base): base is RemoteKnowledgeBase => base !== null);
+  }
+
+  async searchRecentKnowledge(
+    request: SearchRecentKnowledgeRequest = {},
+  ): Promise<SearchRecentKnowledgeData> {
+    const offset = Math.max(0, Math.trunc(request.offset ?? 0));
+    const limit = Math.min(Math.max(1, Math.trunc(request.limit ?? 20)), 100);
+    const payload = await this.request(`/api/v1/knowledge/search?recent=true&offset=${offset}&limit=${limit}`);
+    const items = readArray(payload, ['data', 'items', 'list', 'records'])
+      .map(normalizeKnowledgeFile)
+      .filter((file): file is RemoteKnowledgeFile => file !== null);
+    const hasMore = isRecord(payload) && typeof payload.has_more === 'boolean'
+      ? payload.has_more
+      : false;
+    return { items, hasMore };
   }
 
   async previewRagContext(request: PreviewRagContextRequest): Promise<PreviewRagContextResult> {
@@ -255,6 +307,14 @@ export class RemoteKnowledgeService {
         return { success: true, data: await this.listBases() };
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : 'Failed to list remote knowledge bases' };
+      }
+    });
+
+    ipcMain.handle(KnowledgeIpc.SearchRecentKnowledge, async (_event, request: SearchRecentKnowledgeRequest): Promise<KnowledgeResult<SearchRecentKnowledgeData>> => {
+      try {
+        return { success: true, data: await this.searchRecentKnowledge(request) };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to search recent knowledge files' };
       }
     });
 

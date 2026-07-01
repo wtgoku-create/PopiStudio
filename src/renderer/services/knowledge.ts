@@ -6,6 +6,8 @@ import type {
   PreviewRagContextRequest,
   PreviewRagContextResult,
   RemoteKnowledgeBase,
+  SearchRecentKnowledgeData,
+  SearchRecentKnowledgeRequest,
   WikiPage,
 } from '../../shared/knowledge/constants';
 
@@ -25,6 +27,25 @@ class KnowledgeService {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to list knowledge bases',
+      };
+    }
+  }
+
+  async searchRecentKnowledge(request: SearchRecentKnowledgeRequest = {}): Promise<KnowledgeResult<SearchRecentKnowledgeData>> {
+    const knowledgeApi = window.electron?.knowledge;
+    if (!knowledgeApi?.searchRecentKnowledge) {
+      return {
+        success: false,
+        error: 'Knowledge IPC is unavailable',
+      };
+    }
+
+    try {
+      return await knowledgeApi.searchRecentKnowledge(request);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to search recent knowledge files',
       };
     }
   }

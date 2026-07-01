@@ -50,6 +50,7 @@ export interface CoworkMessageMetadata {
   isThinking?: boolean;
   skillIds?: string[];
   knowledgeBaseIds?: string[];
+  knowledgeIds?: string[];
   usage?: {
     inputTokens?: number;
     outputTokens?: number;
@@ -263,6 +264,7 @@ export interface SubagentSessionSummary {
 export interface CoworkStartOptions {
   prompt: string;
   knowledgeBaseIds?: string[];
+  knowledgeIds?: string[];
   cwd?: string;
   systemPrompt?: string;
   title?: string;
@@ -277,6 +279,7 @@ export interface CoworkContinueOptions {
   sessionId: string;
   prompt: string;
   knowledgeBaseIds?: string[];
+  knowledgeIds?: string[];
   systemPrompt?: string;
   activeSkillIds?: string[];
   imageAttachments?: CoworkImageAttachment[];

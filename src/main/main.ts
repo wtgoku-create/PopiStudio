@@ -1005,10 +1005,12 @@ const getRemoteKnowledgeService = (): RemoteKnowledgeService => {
 const resolveCoworkRuntimePrompt = async (options: {
   prompt: string;
   knowledgeBaseIds?: string[];
+  knowledgeIds?: string[];
 }): Promise<string> => {
   const query = options.prompt.trim();
   const knowledgeBaseIds = options.knowledgeBaseIds?.filter(Boolean) ?? [];
-  if (!query || knowledgeBaseIds.length === 0) {
+  const knowledgeIds = options.knowledgeIds?.filter(Boolean) ?? [];
+  if (!query || (knowledgeBaseIds.length === 0 && knowledgeIds.length === 0)) {
     return options.prompt;
   }
 
@@ -1016,6 +1018,7 @@ const resolveCoworkRuntimePrompt = async (options: {
     const result = await getRemoteKnowledgeService().previewRagContext({
       query,
       knowledgeBaseIds,
+      knowledgeIds,
     });
     if (result.success && result.data?.rendered_contexts?.trim()) {
       return result.data?.rendered_contexts + '\n' + (result.data?.user_content || '');
@@ -3173,6 +3176,7 @@ if (!gotTheLock) {
   ipcMain.handle('cowork:session:start', async (_event, options: {
     prompt: string;
     knowledgeBaseIds?: string[];
+    knowledgeIds?: string[];
     cwd?: string;
     systemPrompt?: string;
     title?: string;
@@ -3236,6 +3240,9 @@ if (!gotTheLock) {
       }
       if (options.knowledgeBaseIds?.length) {
         messageMetadata.knowledgeBaseIds = options.knowledgeBaseIds;
+      }
+      if (options.knowledgeIds?.length) {
+        messageMetadata.knowledgeIds = options.knowledgeIds;
       }
       if (options.imageAttachments?.length) {
         console.log('[Cowork:StartSession] imageAttachments received via IPC:', {
@@ -3303,6 +3310,7 @@ if (!gotTheLock) {
     sessionId: string;
     prompt: string;
     knowledgeBaseIds?: string[];
+    knowledgeIds?: string[];
     systemPrompt?: string;
     activeSkillIds?: string[];
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
@@ -3335,6 +3343,9 @@ if (!gotTheLock) {
       }
       if (options.knowledgeBaseIds?.length) {
         messageMetadata.knowledgeBaseIds = options.knowledgeBaseIds;
+      }
+      if (options.knowledgeIds?.length) {
+        messageMetadata.knowledgeIds = options.knowledgeIds;
       }
       if (options.imageAttachments?.length) {
         messageMetadata.imageAttachments = options.imageAttachments;
