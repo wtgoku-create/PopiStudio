@@ -473,8 +473,12 @@ const StreamingActivityBar: React.FC<{ messages: CoworkMessage[]; isContextMaint
 
     const latestMessage = currentTurnMessages[currentTurnMessages.length - 1];
     if (latestMessage?.type === 'user') {
-      const knowledgeBaseIds = latestMessage.metadata?.knowledgeBaseIds;
-      if (Array.isArray(knowledgeBaseIds) && knowledgeBaseIds.length > 0) {
+      const knowledgeBases = latestMessage.metadata?.knowledgeBases;
+      const knowledgeFiles = latestMessage.metadata?.knowledgeFiles;
+      if (
+        (Array.isArray(knowledgeBases) && knowledgeBases.length > 0)
+        || (Array.isArray(knowledgeFiles) && knowledgeFiles.length > 0)
+      ) {
         return i18nService.t('coworkRetrievingKnowledge');
       }
       return i18nService.t('coworkPreparingResponse');
@@ -988,11 +992,15 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     if (!currentSession?.messages?.length) return [];
     for (let index = currentSession.messages.length - 1; index >= 0; index -= 1) {
       const message = currentSession.messages[index];
-      const knowledgeBaseIds = message.metadata?.knowledgeBaseIds;
-      if (!Array.isArray(knowledgeBaseIds)) continue;
-      const selectedIds = knowledgeBaseIds.filter((value): value is string => (
-        typeof value === 'string' && value.trim().length > 0
-      )).map(value => value.trim());
+      const knowledgeBases = message.metadata?.knowledgeBases;
+      if (!Array.isArray(knowledgeBases)) continue;
+      const selectedIds = knowledgeBases
+        .map((value): string => (
+          value && typeof value === 'object' && 'id' in value && typeof value.id === 'string'
+            ? value.id.trim()
+            : ''
+        ))
+        .filter(Boolean);
       if (selectedIds.length > 0) return selectedIds;
     }
     return [];

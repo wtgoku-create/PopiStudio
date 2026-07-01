@@ -252,8 +252,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
 
       // Capture active skill IDs before clearing them
       const sessionSkillIds = [...activeSkillIds];
-      const knowledgeBaseIds = options?.knowledgeBaseIds?.filter(Boolean);
-      const knowledgeIds = options?.knowledgeIds?.filter(Boolean);
+      const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
+      const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
       const existingSessionResult = await coworkService.listSessionsForAgentPreview(currentAgentId, 1, 0);
       const existingSessionSummary = existingSessionResult.success
         ? existingSessionResult.sessions?.[0]
@@ -272,8 +272,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         const sent = await coworkService.continueSession({
           sessionId: existingSessionSummary.id,
           prompt,
-          knowledgeBaseIds,
-          knowledgeIds,
+          knowledgeBases,
+          knowledgeFiles,
           systemPrompt: combinedSystemPrompt,
           activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
           imageAttachments,
@@ -313,11 +313,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
             type: 'user',
             content: prompt,
             timestamp: now,
-            metadata: (sessionSkillIds.length > 0 || knowledgeBaseIds?.length || knowledgeIds?.length || (imageAttachments && imageAttachments.length > 0))
+            metadata: (sessionSkillIds.length > 0 || knowledgeBases?.length || knowledgeFiles?.length || (imageAttachments && imageAttachments.length > 0))
               ? {
                 ...(sessionSkillIds.length > 0 ? { skillIds: sessionSkillIds } : {}),
-                ...(knowledgeBaseIds?.length ? { knowledgeBaseIds } : {}),
-                ...(knowledgeIds?.length ? { knowledgeIds } : {}),
+                ...(knowledgeBases?.length ? { knowledgeBases } : {}),
+                ...(knowledgeFiles?.length ? { knowledgeFiles } : {}),
                 ...(imageAttachments && imageAttachments.length > 0 ? { imageAttachments } : {}),
               }
               : undefined,
@@ -351,8 +351,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       console.log('[CoworkView] creating session:', { modelId: currentAgentSelectedModel?.id, providerKey: currentAgentSelectedModel?.providerKey, isServerModel: currentAgentSelectedModel?.isServerModel, sessionModelOverride, agentModel: currentAgent?.model });
       const { session: startedSession, error: startError } = await coworkService.startSession({
         prompt,
-        knowledgeBaseIds,
-        knowledgeIds,
+        knowledgeBases,
+        knowledgeFiles,
         title: fallbackTitle,
         cwd: currentAgentWorkingDirectory || undefined,
         systemPrompt: combinedSystemPrompt,
@@ -412,8 +412,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
 
       // Capture active skill IDs before clearing
       const sessionSkillIds = [...activeSkillIds];
-      const knowledgeBaseIds = options?.knowledgeBaseIds?.filter(Boolean);
-      const knowledgeIds = options?.knowledgeIds?.filter(Boolean);
+      const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
+      const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
 
       // Only send a continuation system prompt when this turn selects new skills.
       // Otherwise the main process falls back to the session prompt created on the first turn.
@@ -429,8 +429,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       const sent = await coworkService.continueSession({
         sessionId: currentSession.id,
         prompt,
-        knowledgeBaseIds,
-        knowledgeIds,
+        knowledgeBases,
+        knowledgeFiles,
         systemPrompt: combinedSystemPrompt,
         activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
         imageAttachments,

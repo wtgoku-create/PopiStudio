@@ -43,8 +43,8 @@ import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 type CoworkAttachment = DraftAttachment;
 
 export interface CoworkPromptSubmitOptions {
-  knowledgeBaseIds?: string[];
-  knowledgeIds?: string[];
+  knowledgeBases?: Array<{ id: string; name: string }>;
+  knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.tiff', '.tif', '.ico', '.avif']);
@@ -292,6 +292,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);
   const hasActiveSkills = activeSkillIds.some(id => skills.some(skill => skill.id === id));
+  const selectedKnowledgeBases = selectedKnowledgeBaseIds
+    .map(id => knowledgeBases.find(base => base.id === id))
+    .filter((base): base is RemoteKnowledgeBase => Boolean(base));
+  const selectedKnowledgeFiles = selectedKnowledgeIds
+    .map(id => recentKnowledgeFiles.find(file => file.id === id))
+    .filter((file): file is RemoteKnowledgeFile => Boolean(file));
+  const hasSelectedKnowledge = selectedKnowledgeBases.length > 0 || selectedKnowledgeFiles.length > 0;
+  const hasContextBadges = hasActiveSkills || hasSelectedKnowledge;
   const modelTargetAgentId = currentSession && currentSession.id === sessionId
     ? currentSession.agentId
     : currentAgentId;
@@ -320,8 +328,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const useCompactSendButton = isLarge && (useHomeContextLayout || showReadOnlyContext);
   const minHeight = isLarge
     ? useHomeContextLayout
-      ? hasActiveSkills ? 36 : 52
-      : hasActiveSkills ? 44 : 60
+      ? hasContextBadges ? 36 : 52
+      : hasContextBadges ? 44 : 60
     : 24;
   const maxHeight = isLarge ? 200 : 200;
 
@@ -331,13 +339,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     globalSelectedModel: currentAgentSelectedModel,
   });
   const modelSupportsImage = !!effectiveSelectedModel?.supportsImage;
-  const selectedKnowledgeBases = selectedKnowledgeBaseIds
-    .map(id => knowledgeBases.find(base => base.id === id))
-    .filter((base): base is RemoteKnowledgeBase => Boolean(base));
-  const selectedKnowledgeFiles = selectedKnowledgeIds
-    .map(id => recentKnowledgeFiles.find(file => file.id === id))
-    .filter((file): file is RemoteKnowledgeFile => Boolean(file));
-
   // Load skills on mount
   useEffect(() => {
     const loadSkills = async () => {
@@ -501,12 +502,17 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         })),
       });
     }
-    const knowledgeBaseIds = selectedKnowledgeBaseIds.filter(Boolean);
-    const knowledgeIds = selectedKnowledgeIds.filter(Boolean);
-    const submitOptions: CoworkPromptSubmitOptions | undefined = knowledgeBaseIds.length > 0 || knowledgeIds.length > 0
+    const knowledgeBases = selectedKnowledgeBases.map(base => ({ id: base.id, name: base.name }));
+    const knowledgeFiles = selectedKnowledgeFiles.map(file => ({
+      id: file.id,
+      title: file.title || file.file_name || file.id,
+      knowledgeBaseName: file.knowledge_base_name || undefined,
+      fileType: file.file_type || undefined,
+    }));
+    const submitOptions: CoworkPromptSubmitOptions | undefined = knowledgeBases.length > 0 || knowledgeFiles.length > 0
       ? {
-        ...(knowledgeBaseIds.length > 0 ? { knowledgeBaseIds } : {}),
-        ...(knowledgeIds.length > 0 ? { knowledgeIds } : {}),
+        ...(knowledgeBases.length > 0 ? { knowledgeBases } : {}),
+        ...(knowledgeFiles.length > 0 ? { knowledgeFiles } : {}),
       }
       : undefined;
     const result = await onSubmit(finalPrompt, skillPrompt, imageAtts.length > 0 ? imageAtts : undefined, submitOptions);
@@ -515,7 +521,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
     setImageVisionHint(false);
-  }, [value, isStreaming, disabled, isPatchingModel, onSubmit, activeSkillIds, skills, attachments, dispatch, draftKey, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeIds]);
+  }, [value, isStreaming, disabled, isPatchingModel, onSubmit, activeSkillIds, skills, attachments, dispatch, draftKey, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeIds, selectedKnowledgeBases, selectedKnowledgeFiles]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     dispatch(toggleActiveSkill(skill.id));
@@ -635,8 +641,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const textareaClass = isLarge
     ? `w-full resize-none bg-transparent px-4 pb-2 text-foreground placeholder:dark:text-foregroundSecondary/60 placeholder:text-secondary/60 focus:outline-none min-h-[${minHeight}px] max-h-[${maxHeight}px] ${
       useHomeContextLayout
-        ? `${hasActiveSkills ? 'pt-2' : 'pt-3'} text-[14px] leading-[22px]`
-        : `${hasActiveSkills ? 'pt-2' : 'pt-2.5'} text-[15px] leading-[23px]`
+        ? `${hasContextBadges ? 'pt-2' : 'pt-3'} text-[14px] leading-[22px]`
+        : `${hasContextBadges ? 'pt-2' : 'pt-2.5'} text-[15px] leading-[23px]`
     }`
     : 'flex-1 resize-none bg-transparent text-foreground placeholder:placeholder:text-secondary focus:outline-none text-sm leading-relaxed min-h-[24px] max-h-[200px]';
 
@@ -1227,14 +1233,59 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </button>
   );
 
-  const activeSkillContextRow = isLarge && hasActiveSkills ? (
+  const activeKnowledgeBadges = hasSelectedKnowledge ? (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {selectedKnowledgeBases.map(base => (
+        <button
+          type="button"
+          key={`kb:${base.id}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setSelectedKnowledgeBaseIds(current => current.filter(id => id !== base.id));
+          }}
+          className="group inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground transition-all hover:bg-primary/15 hover:ring-1 hover:ring-primary/30"
+          title={i18nService.t('knowledgeBase')}
+        >
+          <span className="relative flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-colors group-hover:bg-primary/15">
+            <AcademicCapIcon className="h-3.5 w-3.5 text-primary transition-opacity group-hover:opacity-0" />
+            <XMarkIcon className="absolute h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100" />
+          </span>
+          <span className="min-w-0 truncate">{base.name}</span>
+        </button>
+      ))}
+      {selectedKnowledgeFiles.map(file => {
+        const title = file.title || file.file_name || file.id;
+        return (
+          <button
+            type="button"
+            key={`knowledge:${file.id}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setSelectedKnowledgeIds(current => current.filter(id => id !== file.id));
+            }}
+            className="group inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground transition-all hover:bg-primary/15 hover:ring-1 hover:ring-primary/30"
+            title={i18nService.t('knowledgeRecentFiles')}
+          >
+            <span className="relative flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-colors group-hover:bg-primary/15">
+              <PaperClipIcon className="h-3.5 w-3.5 text-primary transition-opacity group-hover:opacity-0" />
+              <XMarkIcon className="absolute h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100" />
+            </span>
+            <span className="min-w-0 truncate">{title}</span>
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
+  const activeContextRow = isLarge && hasContextBadges ? (
     <div
       className="flex cursor-text flex-wrap items-center gap-x-2 gap-y-1 px-4 pt-4"
       onClick={() => {
         if (!disabled) textareaRef.current?.focus();
       }}
     >
-      <ActiveSkillBadge />
+      {hasActiveSkills && <ActiveSkillBadge />}
+      {activeKnowledgeBadges}
     </div>
   ) : null;
   const textareaPlaceholder = placeholder;
@@ -1295,7 +1346,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           useHomeContextLayout ? (
             <>
               <div className="relative z-10 rounded-2xl border border-border bg-surface shadow-card">
-                {activeSkillContextRow}
+                {activeContextRow}
                 <textarea
                   ref={textareaRef}
                   value={value}
@@ -1323,7 +1374,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             </>
           ) : (
             <>
-              {activeSkillContextRow}
+              {activeContextRow}
               <textarea
                 ref={textareaRef}
                 value={value}

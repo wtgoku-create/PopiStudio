@@ -49,8 +49,8 @@ export interface CoworkMessageMetadata {
   isFinal?: boolean;
   isThinking?: boolean;
   skillIds?: string[];
-  knowledgeBaseIds?: string[];
-  knowledgeIds?: string[];
+  knowledgeBases?: Array<{ id: string; name: string }>;
+  knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
   usage?: {
     inputTokens?: number;
     outputTokens?: number;
@@ -263,8 +263,8 @@ export interface SubagentSessionSummary {
 // Start session options
 export interface CoworkStartOptions {
   prompt: string;
-  knowledgeBaseIds?: string[];
-  knowledgeIds?: string[];
+  knowledgeBases?: Array<{ id: string; name: string }>;
+  knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
   cwd?: string;
   systemPrompt?: string;
   title?: string;
@@ -278,8 +278,8 @@ export interface CoworkStartOptions {
 export interface CoworkContinueOptions {
   sessionId: string;
   prompt: string;
-  knowledgeBaseIds?: string[];
-  knowledgeIds?: string[];
+  knowledgeBases?: Array<{ id: string; name: string }>;
+  knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
   systemPrompt?: string;
   activeSkillIds?: string[];
   imageAttachments?: CoworkImageAttachment[];

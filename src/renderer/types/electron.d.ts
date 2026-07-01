@@ -517,8 +517,8 @@ interface IElectronAPI {
   cowork: {
     startSession: (options: {
       prompt: string;
-      knowledgeBaseIds?: string[];
-      knowledgeIds?: string[];
+      knowledgeBases?: Array<{ id: string; name: string }>;
+      knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
       cwd?: string;
       systemPrompt?: string;
       title?: string;
@@ -535,8 +535,8 @@ interface IElectronAPI {
     continueSession: (options: {
       sessionId: string;
       prompt: string;
-      knowledgeBaseIds?: string[];
-      knowledgeIds?: string[];
+      knowledgeBases?: Array<{ id: string; name: string }>;
+      knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
       systemPrompt?: string;
       activeSkillIds?: string[];
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;

@@ -627,8 +627,8 @@ class CoworkService {
     const result = await cowork.continueSession({
       sessionId: options.sessionId,
       prompt: options.prompt,
-      knowledgeBaseIds: options.knowledgeBaseIds,
-      knowledgeIds: options.knowledgeIds,
+      knowledgeBases: options.knowledgeBases,
+      knowledgeFiles: options.knowledgeFiles,
       systemPrompt: options.systemPrompt,
       activeSkillIds: options.activeSkillIds,
       imageAttachments: options.imageAttachments,

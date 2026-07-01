@@ -7,8 +7,10 @@ import type { CoworkImageAttachment, CoworkMessage, CoworkMessageMetadata } from
 import type { Skill } from '../../types/skill';
 import { formatMessageDateTime } from '../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
+import AcademicCapIcon from '../icons/AcademicCapIcon';
 import EditIcon from '../icons/EditIcon';
 import MessageCopyIcon from '../icons/MessageCopyIcon';
+import PaperClipIcon from '../icons/PaperClipIcon';
 import SkillIcon from '../icons/SkillIcon';
 import MarkdownContent from '../MarkdownContent';
 import ImagePreviewModal, { type ImagePreviewSource } from './ImagePreviewModal';
@@ -119,6 +121,38 @@ const UserMessageSkillBadges: React.FC<{ skills: Skill[] }> = ({ skills }) => {
 
 // ── UserMessageItem ──────────────────────────────────────────────────────────
 
+const UserMessageKnowledgeBadges: React.FC<{
+  bases: NonNullable<CoworkMessageMetadata['knowledgeBases']>;
+  files: NonNullable<CoworkMessageMetadata['knowledgeFiles']>;
+}> = ({ bases, files }) => {
+  if (bases.length === 0 && files.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {bases.map(base => (
+        <div
+          key={`kb:${base.id}`}
+          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground"
+          title={i18nService.t('knowledgeBase')}
+        >
+          <AcademicCapIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span className="min-w-0 truncate">{base.name || base.id}</span>
+        </div>
+      ))}
+      {files.map(file => (
+        <div
+          key={`knowledge:${file.id}`}
+          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground"
+          title={file.knowledgeBaseName || i18nService.t('knowledgeRecentFiles')}
+        >
+          <PaperClipIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span className="min-w-0 truncate">{file.title || file.id}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const UserMessageItem: React.FC<{
   message: CoworkMessage;
   skills: Skill[];
@@ -148,6 +182,11 @@ const UserMessageItem: React.FC<{
   const messageSkills = messageSkillIds
     .map(id => skills.find(s => s.id === id))
     .filter((s): s is NonNullable<typeof s> => s !== undefined);
+  const messageKnowledgeBases = ((message.metadata as CoworkMessageMetadata)?.knowledgeBases ?? [])
+    .filter((base): base is { id: string; name: string } => Boolean(base?.id));
+  const messageKnowledgeFiles = ((message.metadata as CoworkMessageMetadata)?.knowledgeFiles ?? [])
+    .filter((file): file is { id: string; title: string; knowledgeBaseName?: string; fileType?: string } => Boolean(file?.id));
+  const hasContextBadges = messageSkills.length > 0 || messageKnowledgeBases.length > 0 || messageKnowledgeFiles.length > 0;
 
   const imageAttachments = ((message.metadata as CoworkMessageMetadata)?.imageAttachments ?? []) as CoworkImageAttachment[];
 
@@ -165,9 +204,12 @@ const UserMessageItem: React.FC<{
           <div className="flex items-start gap-3 flex-row-reverse">
             <div className="w-full min-w-0 flex flex-col items-end">
               <div className="w-fit max-w-full rounded-2xl px-4 py-2.5 bg-surface text-foreground shadow-subtle">
-                {messageSkills.length > 0 && (
+                {hasContextBadges && (
                   <div className={(displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
-                    <UserMessageSkillBadges skills={messageSkills} />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <UserMessageSkillBadges skills={messageSkills} />
+                      <UserMessageKnowledgeBadges bases={messageKnowledgeBases} files={messageKnowledgeFiles} />
+                    </div>
                   </div>
                 )}
                 {displayContent?.trim() && (

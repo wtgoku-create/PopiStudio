@@ -1004,12 +1004,12 @@ const getRemoteKnowledgeService = (): RemoteKnowledgeService => {
 
 const resolveCoworkRuntimePrompt = async (options: {
   prompt: string;
-  knowledgeBaseIds?: string[];
-  knowledgeIds?: string[];
+  knowledgeBases?: Array<{ id: string }>;
+  knowledgeFiles?: Array<{ id: string }>;
 }): Promise<string> => {
   const query = options.prompt.trim();
-  const knowledgeBaseIds = options.knowledgeBaseIds?.filter(Boolean) ?? [];
-  const knowledgeIds = options.knowledgeIds?.filter(Boolean) ?? [];
+  const knowledgeBaseIds = options.knowledgeBases?.map(item => item.id).filter(Boolean) ?? [];
+  const knowledgeIds = options.knowledgeFiles?.map(item => item.id).filter(Boolean) ?? [];
   if (!query || (knowledgeBaseIds.length === 0 && knowledgeIds.length === 0)) {
     return options.prompt;
   }
@@ -3175,8 +3175,8 @@ if (!gotTheLock) {
   // Cowork IPC handlers
   ipcMain.handle('cowork:session:start', async (_event, options: {
     prompt: string;
-    knowledgeBaseIds?: string[];
-    knowledgeIds?: string[];
+    knowledgeBases?: Array<{ id: string; name: string }>;
+    knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
     cwd?: string;
     systemPrompt?: string;
     title?: string;
@@ -3238,11 +3238,11 @@ if (!gotTheLock) {
       if (options.activeSkillIds?.length) {
         messageMetadata.skillIds = options.activeSkillIds;
       }
-      if (options.knowledgeBaseIds?.length) {
-        messageMetadata.knowledgeBaseIds = options.knowledgeBaseIds;
+      if (options.knowledgeBases?.length) {
+        messageMetadata.knowledgeBases = options.knowledgeBases;
       }
-      if (options.knowledgeIds?.length) {
-        messageMetadata.knowledgeIds = options.knowledgeIds;
+      if (options.knowledgeFiles?.length) {
+        messageMetadata.knowledgeFiles = options.knowledgeFiles;
       }
       if (options.imageAttachments?.length) {
         console.log('[Cowork:StartSession] imageAttachments received via IPC:', {
@@ -3309,8 +3309,8 @@ if (!gotTheLock) {
   ipcMain.handle('cowork:session:continue', async (_event, options: {
     sessionId: string;
     prompt: string;
-    knowledgeBaseIds?: string[];
-    knowledgeIds?: string[];
+    knowledgeBases?: Array<{ id: string; name: string }>;
+    knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
     systemPrompt?: string;
     activeSkillIds?: string[];
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
@@ -3341,11 +3341,11 @@ if (!gotTheLock) {
       if (options.activeSkillIds?.length) {
         messageMetadata.skillIds = options.activeSkillIds;
       }
-      if (options.knowledgeBaseIds?.length) {
-        messageMetadata.knowledgeBaseIds = options.knowledgeBaseIds;
+      if (options.knowledgeBases?.length) {
+        messageMetadata.knowledgeBases = options.knowledgeBases;
       }
-      if (options.knowledgeIds?.length) {
-        messageMetadata.knowledgeIds = options.knowledgeIds;
+      if (options.knowledgeFiles?.length) {
+        messageMetadata.knowledgeFiles = options.knowledgeFiles;
       }
       if (options.imageAttachments?.length) {
         messageMetadata.imageAttachments = options.imageAttachments;
