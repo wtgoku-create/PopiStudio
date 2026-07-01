@@ -40,6 +40,7 @@ interface FolderTreeNode {
 
 interface FolderViewProps {
   knowledgeGraphTarget?: OpenKnowledgeGraphEventDetail | null;
+  onKnowledgeGraphTargetConsumed?: () => void;
 }
 
 const ROOT_ID = '__folder-root__';
@@ -129,7 +130,10 @@ const openPath = async (targetPath: string): Promise<void> => {
   }
 };
 
-const FolderView: React.FC<FolderViewProps> = ({ knowledgeGraphTarget = null }) => {
+const FolderView: React.FC<FolderViewProps> = ({
+  knowledgeGraphTarget = null,
+  onKnowledgeGraphTargetConsumed,
+}) => {
   const configWorkingDirectory = useSelector((state: RootState) => state.cowork.config.workingDirectory);
   const agents = useSelector((state: RootState) => state.agent.agents);
   const [nodes, setNodes] = useState<Record<string, FolderTreeNode>>(() => ({
@@ -151,7 +155,8 @@ const FolderView: React.FC<FolderViewProps> = ({ knowledgeGraphTarget = null }) 
   useEffect(() => {
     if (!knowledgeGraphTarget) return;
     setActiveTab('knowledge');
-  }, [knowledgeGraphTarget]);
+    onKnowledgeGraphTargetConsumed?.();
+  }, [knowledgeGraphTarget, onKnowledgeGraphTargetConsumed]);
 
   const rootEntries = useMemo(() => {
     const entries: FolderTreeEntry[] = [];

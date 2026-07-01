@@ -309,6 +309,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleShowFolder = useCallback(() => {
+    setPendingKnowledgeGraphTarget(null);
     setMainView(MainView.Folder);
   }, []);
 
@@ -940,7 +941,10 @@ const App: React.FC = () => {
                   onNewChat={handleNewChat}
                 />
               ) : mainView === MainView.Folder ? (
-                <FolderView knowledgeGraphTarget={pendingKnowledgeGraphTarget} />
+                <FolderView
+                  knowledgeGraphTarget={pendingKnowledgeGraphTarget}
+                  onKnowledgeGraphTargetConsumed={() => setPendingKnowledgeGraphTarget(null)}
+                />
               ) : mainView === MainView.Contacts ? (
                 <ContactsView onShowCowork={handleShowCowork} />
               ) : (
