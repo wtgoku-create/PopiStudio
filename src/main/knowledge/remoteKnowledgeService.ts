@@ -70,6 +70,25 @@ const readArray = (payload: unknown, keys: string[]): unknown[] => {
   return [];
 };
 
+const getKnowledgeErrorMessage = (payload: unknown, fallback: string): string => {
+  if (!isRecord(payload)) return fallback;
+
+  if (isRecord(payload.error)) {
+    const message = readString(payload.error, ['message', 'error', 'detail']);
+    const code = readString(payload.error, ['code']);
+    if (message && code) return `error code: ${code}, error message: ${message}`;
+    if (message) return message;
+  }
+
+  const errorText = readString(payload, ['error']);
+  if (errorText) return errorText;
+
+  const message = readString(payload, ['message']);
+  if (message) return message;
+
+  return fallback;
+};
+
 const normalizeKnowledgeBase = (value: unknown): RemoteKnowledgeBase | null => {
   if (!isRecord(value)) return null;
 
@@ -378,10 +397,13 @@ export class RemoteKnowledgeService {
     const text = await response.text();
     const payload = text ? JSON.parse(text) : null;
     if (!response.ok) {
-      const message = isRecord(payload) && typeof payload.error === 'string'
-        ? payload.error
-        : `Remote knowledge request failed with HTTP ${response.status}`;
-      throw new Error(message);
+      throw new Error(getKnowledgeErrorMessage(
+        payload,
+        `Remote knowledge request failed with HTTP ${response.status}`,
+      ));
+    }
+    if (isRecord(payload) && payload.success === false) {
+      throw new Error(getKnowledgeErrorMessage(payload, 'Remote knowledge request failed'));
     }
     return payload;
   }

@@ -616,6 +616,7 @@ const App: React.FC = () => {
       const detail = (event as CustomEvent<OpenKnowledgeGraphEventDetail>).detail;
       if (!detail?.knowledgeBaseId || !detail.slug) return;
       setPendingKnowledgeGraphTarget(detail);
+      setIsAgentPanelCollapsed(true);
       setMainView(MainView.Folder);
     };
     window.addEventListener(KnowledgeNavigationEvent.OpenGraph, handler);
