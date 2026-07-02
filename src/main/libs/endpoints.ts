@@ -29,15 +29,15 @@ const isTestMode = (): boolean => {
 export const getServerApiBaseUrl = (): string => {
   return isTestMode()
     ? 'https://wwwtest.popi.art'
-    : 'https://www.popi.art';
+    : 'https://wwwtest.popi.art';
 };
 
 export const getPortalBaseUrl = (): string => (
   isTestMode()
     ? 'https://wwwtest.popi.art/index'
-    : 'https://www.popi.art/index'
+    : 'https://wwwtest.popi.art/index'
 );
-
+  
 export const getUpdateCheckUrl = (_manual: boolean): string => (
   `${getServerApiBaseUrl()}/api_client/app/latest?channel=${encodeURIComponent(APP_UPDATE_CHANNEL)}`
 );
