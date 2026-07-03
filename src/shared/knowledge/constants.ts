@@ -122,6 +122,23 @@ export interface UploadLocalSessionMarkdownResult {
   error?: string;
 }
 
+export interface UploadAgentKnowledgeFileRequest {
+  file: Blob;
+  fileName: string;
+  apiKey?: string;
+  metadata?: Record<string, unknown>;
+  channel?: string;
+}
+
+export interface UploadAgentKnowledgeFileResult {
+  success: boolean;
+  knowledgeId?: string;
+  knowledgeBaseId?: string;
+  knowledge?: RemoteKnowledgeFile;
+  raw?: unknown;
+  error?: string;
+}
+
 export interface WikiPage {
   id: string;
   tenant_id: number;

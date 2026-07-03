@@ -81,6 +81,7 @@ import { getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, re
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession, isPreviewServerUrl, stopHtmlPreviewServer } from './libs/htmlPreviewServer';
 import { getKeyfromAttribution, initializeKeyfromAttribution } from './libs/keyfromAttribution';
+import { createKnowledgeMcpToolProvider } from './libs/knowledgeMcpBridgeTools';
 import { exportLogsZip } from './libs/logExport';
 import { McpBridgeServer } from './libs/mcpBridgeServer';
 import { parsePrimaryModelRef, resolveQualifiedAgentModelRef } from './libs/openclawAgentModels';
@@ -1922,6 +1923,9 @@ const startPopiTVToolBridgeServer = async (): Promise<void> => {
       requestPopiTVCanvasFromRenderer(request, { signal: options.signal })
     ), getCachedPopiTVCanvasSnapshot)
   ));
+  popiTVToolBridgeServer.registerLocalToolProvider(
+    createKnowledgeMcpToolProvider(getRemoteKnowledgeService()),
+  );
 
   if (popiTVToolBridgeServer.port) return;
 

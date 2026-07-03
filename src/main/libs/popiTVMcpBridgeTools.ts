@@ -1,8 +1,10 @@
+import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
+
 export interface McpToolManifestEntry {
   server: string;
   name: string;
   description: string;
-  inputSchema: Record<string, unknown>;
+  inputSchema: Tool['inputSchema'];
 }
 
 export const POPITV_MCP_SERVER_NAME = 'popitv';
@@ -22,9 +24,7 @@ export type PopiTVCanvasBridgeRequest = {
   operations?: unknown[];
 };
 
-export type PopiTVBridgeToolResult = {
-  content: Array<{ type: string; text?: string }>;
-  isError: boolean;
+export type PopiTVBridgeToolResult = CallToolResult & {
   details?: unknown;
 };
 
@@ -65,9 +65,9 @@ const DEFAULT_NODE_DIMENSIONS: Record<string, NodeDimensions> = {
 const CANVAS_LAYOUT_DEFAULT_DIMENSIONS = DEFAULT_NODE_DIMENSIONS.nanoBanana;
 
 const objectSchema = (
-  properties: Record<string, unknown>,
+  properties: Record<string, object>,
   required: string[] = [],
-): Record<string, unknown> => ({
+): Tool['inputSchema'] => ({
   type: 'object',
   properties,
   required,

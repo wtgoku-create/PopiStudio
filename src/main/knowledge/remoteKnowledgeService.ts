@@ -15,6 +15,8 @@ import {
   type SearchRecentKnowledgeRequest,
   type UploadLocalSessionMarkdownRequest,
   type UploadLocalSessionMarkdownResult,
+  type UploadAgentKnowledgeFileRequest,
+  type UploadAgentKnowledgeFileResult,
   type WikiPage,
 } from '../../shared/knowledge/constants';
 
@@ -171,6 +173,32 @@ const sanitizeUploadLocalSessionMarkdownRequest = (request: unknown): UploadLoca
   };
 };
 
+const sanitizeUploadAgentKnowledgeFileRequest = (
+  request: UploadAgentKnowledgeFileRequest,
+): UploadAgentKnowledgeFileRequest => {
+  if (!request || !(request.file instanceof Blob)) {
+    throw new Error('Upload file is required');
+  }
+
+  if (typeof request.fileName !== 'string' || !request.fileName.trim()) {
+    throw new Error('File name is required');
+  }
+  const fileName = sanitizeKnowledgeUploadFileName(request.fileName);
+
+  const apiKey = typeof request.apiKey === 'string' ? request.apiKey.trim() : undefined;
+  const channel = typeof request.channel === 'string' && request.channel.trim()
+    ? request.channel.trim()
+    : 'agent';
+
+  return {
+    file: request.file,
+    fileName,
+    ...(apiKey ? { apiKey } : {}),
+    ...(isRecord(request.metadata) ? { metadata: request.metadata } : {}),
+    channel,
+  };
+};
+
 export type RemoteKnowledgeServiceOptions = {
   getAccessKey?: () => string | null;
 };
@@ -318,6 +346,57 @@ export class RemoteKnowledgeService {
       ? payload.message
       : 'Knowledge upload failed';
     return { success: false, error: message };
+  }
+
+  async uploadAgentKnowledgeFile(
+    request: UploadAgentKnowledgeFileRequest,
+  ): Promise<UploadAgentKnowledgeFileResult> {
+    const sanitizedRequest = sanitizeUploadAgentKnowledgeFileRequest(request);
+    const apiKey = sanitizedRequest.apiKey || this.options.getAccessKey?.();
+    if (!apiKey) {
+      return { success: false, error: 'Knowledge access token is missing' };
+    }
+
+    const form = new FormData();
+    form.append('file', sanitizedRequest.file, sanitizedRequest.fileName);
+    form.append('fileName', sanitizedRequest.fileName);
+    form.append('channel', sanitizedRequest.channel || 'agent');
+    if (sanitizedRequest.metadata) {
+      form.append('metadata', JSON.stringify(sanitizedRequest.metadata));
+    }
+
+    const payload = await this.request('/api/v1/knowledge/agent-kb/file', {
+      method: 'POST',
+      body: form,
+      jsonBody: false,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'X-API-Key': apiKey,
+      },
+    });
+
+    const data = isRecord(payload) && isRecord(payload.data) ? payload.data : {};
+    const knowledge = isRecord(data.knowledge)
+      ? normalizeKnowledgeFile(data.knowledge)
+      : null;
+    const knowledgeBaseId = readString(data, ['knowledge_base_id', 'knowledgeBaseId']);
+    const knowledgeId = knowledge?.id || (isRecord(data.knowledge) ? readString(data.knowledge, ['id']) : '');
+
+    if (isRecord(payload) && payload.success === true) {
+      return {
+        success: true,
+        ...(knowledgeId ? { knowledgeId } : {}),
+        ...(knowledgeBaseId ? { knowledgeBaseId } : {}),
+        ...(knowledge ? { knowledge } : {}),
+        raw: payload,
+      };
+    }
+
+    return {
+      success: false,
+      error: getKnowledgeErrorMessage(payload, 'Knowledge upload failed'),
+      raw: payload,
+    };
   }
 
   registerIpc(ipcMain: IpcMain): void {
