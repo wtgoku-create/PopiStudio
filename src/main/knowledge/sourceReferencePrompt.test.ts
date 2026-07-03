@@ -7,6 +7,8 @@ describe('buildKnowledgeSourceReferencePrompt', () => {
     const prompt = buildKnowledgeSourceReferencePrompt();
 
     expect(prompt).toContain('Knowledge Retrieval Tool Routing');
+    expect(prompt).toContain('Wiki tools first');
+    expect(prompt).toContain('Knowledge tools second');
     expect(prompt).toContain('preview_rag_context');
     expect(prompt).toContain('Knowledge Upload Tool Routing');
     expect(prompt).toContain('upload_agent_knowledge_file');

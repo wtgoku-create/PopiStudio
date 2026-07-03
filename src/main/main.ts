@@ -1016,7 +1016,7 @@ const resolveCoworkRuntimePrompt = async (options: {
 
   const routingContext = [
     '[Popiai selected knowledge context]',
-    'The user selected knowledge sources for this turn. Before answering questions that depend on those sources, prefer calling the local MCP tool `preview_rag_context` from the `knowledge` server with the current user query and these selected ids.',
+    'The user selected knowledge sources for this turn. Before answering questions that depend on those sources, use knowledge tools in this priority order: 1. wiki tools such as `wiki_search` / `wiki_read_page`; 2. direct knowledge tools such as `knowledge_search`, `grep_chunks`, `list_knowledge_chunks`, or `get_document_info`; 3. the local MCP tool `preview_rag_context` from the `knowledge` server as the fallback.',
     knowledgeBases.length > 0
       ? `Selected knowledgeBaseIds: ${JSON.stringify(knowledgeBases.map(item => ({
           id: item.id,
@@ -1031,7 +1031,7 @@ const resolveCoworkRuntimePrompt = async (options: {
           ...(item.fileType ? { fileType: item.fileType } : {}),
         })))}`
       : '',
-    'Call `preview_rag_context` with `query`, `knowledgeBaseIds`, and/or `knowledgeIds`. If retrieval fails or returns no relevant context, continue with the user request normally and mention the retrieval issue briefly when relevant.',
+    'Pass these selected ids to whichever knowledge tool supports them. If you use `preview_rag_context`, call it with `query`, `knowledgeBaseIds`, and/or `knowledgeIds`. If retrieval fails or returns no relevant context, continue with the user request normally and mention the retrieval issue briefly when relevant.',
     '[/Popiai selected knowledge context]',
   ].filter(Boolean).join('\n');
 
