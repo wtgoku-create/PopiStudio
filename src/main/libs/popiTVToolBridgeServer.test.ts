@@ -42,6 +42,36 @@ describe('PopiTVToolBridgeServer MCP HTTP handling', () => {
     ]);
   });
 
+  test('announces popiartAi as the local MCP server name', async () => {
+    server = new PopiTVToolBridgeServer('test-secret');
+    await server.start();
+
+    const response = await callMcp(server, {
+      jsonrpc: '2.0',
+      id: 6,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: {
+          name: 'test-client',
+          version: '1.0.0',
+        },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          serverInfo: expect.objectContaining({
+            name: 'popiartAi',
+          }),
+        }),
+      }),
+    );
+  });
+
   test('registers local application tools into the MCP tool list', async () => {
     server = new PopiTVToolBridgeServer('test-secret');
     server.registerLocalToolProvider({

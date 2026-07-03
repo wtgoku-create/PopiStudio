@@ -128,7 +128,7 @@ import {
   registerPopiTVRendererBridgeIpc,
   requestPopiTVCanvasFromRenderer,
 } from './libs/popiTVRendererBridge';
-import { PopiTVToolBridgeServer } from './libs/popiTVToolBridgeServer';
+import { LOCAL_MCP_SERVER_NAME, PopiTVToolBridgeServer } from './libs/popiTVToolBridgeServer';
 import { ensurePythonRuntimeReady } from './libs/pythonRuntime';
 import { resolveStdioCommand } from './libs/resolveStdioCommand';
 import { serializeForLog } from './libs/sanitizeForLog';
@@ -920,7 +920,6 @@ let appUpdateCoordinator: AppUpdateCoordinator | null = null;
 let remoteKnowledgeService: RemoteKnowledgeService | null = null;
 let authManager: AuthManager | null = null;
 
-const POPITV_MCP_SERVER_NAME = 'popitv';
 const WEKNORA_OPENCLAW_MCP_SERVER_NAME = 'weknora-openclaw';
 
 function setPreventSleepBlockerEnabled(enabled: boolean): void {
@@ -1985,10 +1984,10 @@ const getResolvedMcpServers = async (): Promise<ResolvedMcpServer[]> => {
   }
 
   const popiTvBridgeUrl = popiTVToolBridgeServer?.mcpUrl;
-  const hasUserConfiguredPopiTV = resolved.some(server => server.name === POPITV_MCP_SERVER_NAME);
-  if (popiTvBridgeUrl && !hasUserConfiguredPopiTV) {
+  const hasUserConfiguredLocalMcp = resolved.some(server => server.name === LOCAL_MCP_SERVER_NAME);
+  if (popiTvBridgeUrl && !hasUserConfiguredLocalMcp) {
     resolved.push({
-      name: POPITV_MCP_SERVER_NAME,
+      name: LOCAL_MCP_SERVER_NAME,
       transportType: 'http',
       url: popiTvBridgeUrl,
       headers: {

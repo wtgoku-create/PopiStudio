@@ -15,6 +15,8 @@ import {
   type PopiTVBridgeToolResult,
 } from './popiTVMcpBridgeTools';
 
+export const LOCAL_MCP_SERVER_NAME = 'popiartAi';
+
 export type PopiTVToolBridgeHandler = (
   serverName: string,
   toolName: string,
@@ -207,7 +209,7 @@ export class PopiTVToolBridgeServer {
   private createMcpServer(): Server {
     const mcpServer = new Server(
       {
-        name: POPITV_MCP_SERVER_NAME,
+        name: LOCAL_MCP_SERVER_NAME,
         version: '1.0.0',
       },
       {
