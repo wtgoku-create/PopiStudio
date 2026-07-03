@@ -1,11 +1,21 @@
 import http from 'http';
 import net from 'net';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  type CallToolResult,
+  type Tool,
+} from '@modelcontextprotocol/sdk/types.js';
 
 import {
   getPopiTVMcpToolManifest,
   POPITV_MCP_SERVER_NAME,
   type PopiTVBridgeToolResult,
 } from './popiTVMcpBridgeTools';
+
+export const LOCAL_MCP_SERVER_NAME = 'popiartAi';
 
 export type PopiTVToolBridgeHandler = (
   serverName: string,
@@ -14,32 +24,19 @@ export type PopiTVToolBridgeHandler = (
   options: { signal?: AbortSignal },
 ) => Promise<PopiTVBridgeToolResult | null>;
 
-type JsonRpcRequest = {
-  jsonrpc?: unknown;
-  id?: unknown;
-  method?: unknown;
-  params?: unknown;
+export type LocalMcpToolManifestEntry = {
+  name: string;
+  description: string;
+  inputSchema: Tool['inputSchema'];
 };
 
-type JsonRpcResponse = {
-  jsonrpc: '2.0';
-  id: unknown;
-  result?: unknown;
-  error?: {
-    code: number;
-    message: string;
-  };
+export type LocalMcpToolProvider = {
+  serverName: string;
+  tools: LocalMcpToolManifestEntry[];
+  handleToolCall: PopiTVToolBridgeHandler;
 };
 
 const PROTOCOL_VERSION = '2025-06-18';
-
-const JsonRpcErrorCode = {
-  ParseError: -32700,
-  InvalidRequest: -32600,
-  MethodNotFound: -32601,
-  InvalidParams: -32602,
-  InternalError: -32603,
-} as const;
 
 const log = (level: string, msg: string) => {
   const formatted = `[PopiTVMcpHttp][${level}] ${msg}`;
@@ -59,9 +56,18 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 export class PopiTVToolBridgeServer {
   private server: http.Server | null = null;
   private _port: number | null = null;
-  private localToolHandler: PopiTVToolBridgeHandler | null = null;
+  private readonly localToolProviders = new Map<string, LocalMcpToolProvider>();
+  private popiTVToolHandler: PopiTVToolBridgeHandler | null = null;
 
-  constructor(private readonly secret: string) {}
+  constructor(private readonly secret: string) {
+    this.registerLocalToolProvider({
+      serverName: POPITV_MCP_SERVER_NAME,
+      tools: getPopiTVMcpToolManifest(),
+      handleToolCall: (serverName, toolName, args, options) => (
+        this.popiTVToolHandler?.(serverName, toolName, args, options) ?? Promise.resolve(null)
+      ),
+    });
+  }
 
   get port(): number | null {
     return this._port;
@@ -71,8 +77,24 @@ export class PopiTVToolBridgeServer {
     return this._port ? `http://127.0.0.1:${this._port}/mcp` : null;
   }
 
+  registerLocalToolProvider(provider: LocalMcpToolProvider): void {
+    const serverName = provider.serverName.trim();
+    if (!serverName) {
+      throw new Error('Local MCP tool provider requires a server name.');
+    }
+
+    this.localToolProviders.set(serverName, {
+      ...provider,
+      serverName,
+    });
+  }
+
+  unregisterLocalToolProvider(serverName: string): void {
+    this.localToolProviders.delete(serverName.trim());
+  }
+
   setLocalToolHandler(handler: PopiTVToolBridgeHandler | null): void {
-    this.localToolHandler = handler;
+    this.popiTVToolHandler = handler;
   }
 
   async start(): Promise<number> {
@@ -87,14 +109,9 @@ export class PopiTVToolBridgeServer {
         this.handleRequest(req, res).catch(error => {
           log('ERROR', `Unhandled request failed: ${error instanceof Error ? error.message : String(error)}`);
           if (!res.headersSent) {
-            this.writeJson(res, 500, {
-              jsonrpc: '2.0',
-              id: null,
-              error: {
-                code: JsonRpcErrorCode.InternalError,
-                message: 'Internal server error',
-              },
-            });
+            this.writeJson(res, 500, this.buildJsonRpcError('Internal server error'));
+          } else {
+            res.end();
           }
         });
       });
@@ -148,185 +165,120 @@ export class PopiTVToolBridgeServer {
       return;
     }
 
-    if (req.method === 'GET') {
-      this.writeJson(res, 405, { error: 'Server-sent events are not required for PopiTV MCP.' });
+    if (req.method === 'DELETE') {
+      this.writeJson(res, 405, this.buildJsonRpcError('Method not allowed.'));
       return;
     }
 
-    if (req.method !== 'POST') {
+    if (req.method !== 'POST' && req.method !== 'GET') {
       this.writeJson(res, 404, { error: 'Not found' });
       return;
     }
 
-    await this.handleMcpPost(req, res);
+    if (req.method === 'GET') {
+      this.writeJson(res, 405, this.buildJsonRpcError('Method not allowed.'));
+      return;
+    }
+
+    await this.handleMcpRequestWithSdk(req, res);
   }
 
-  private async handleMcpPost(
+  private async handleMcpRequestWithSdk(
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
-    const abortController = new AbortController();
-    const onClose = () => {
-      if (!res.writableFinished) {
-        abortController.abort();
-      }
-    };
-    res.on('close', onClose);
+    const mcpServer = this.createMcpServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
 
     try {
-      const input = await this.parseJsonRpcRequest(req);
-      if (Array.isArray(input)) {
-        const responses = await Promise.all(
-          input
-            .filter(request => request.id !== undefined)
-            .map(request => this.handleJsonRpcRequest(request, abortController.signal)),
-        );
-        this.writeJson(res, 200, responses);
-        return;
-      }
-
-      if (input.id === undefined) {
-        await this.handleJsonRpcNotification(input);
-        res.writeHead(202);
-        res.end();
-        return;
-      }
-
-      const response = await this.handleJsonRpcRequest(input, abortController.signal);
-      this.writeJson(res, 200, response);
+      await mcpServer.connect(transport);
+      await transport.handleRequest(req, res);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.writeJson(res, 200, this.errorResponse(null, JsonRpcErrorCode.ParseError, message));
+      log('ERROR', `MCP request failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (!res.headersSent) {
+        this.writeJson(res, 500, this.buildJsonRpcError('Internal server error'));
+      }
     } finally {
-      res.removeListener('close', onClose);
+      await transport.close().catch(() => {});
+      await mcpServer.close().catch(() => {});
     }
   }
 
-  private async handleJsonRpcRequest(
-    request: JsonRpcRequest,
-    signal: AbortSignal,
-  ): Promise<JsonRpcResponse> {
-    const id = request.id ?? null;
-    if (request.jsonrpc !== '2.0' || typeof request.method !== 'string') {
-      return this.errorResponse(id, JsonRpcErrorCode.InvalidRequest, 'Invalid JSON-RPC request.');
-    }
-
-    try {
-      switch (request.method) {
-        case 'initialize':
-          console.log(`[PopiTVMcpHttp] initialize received from client, id=${id}`);
-          return {
-            jsonrpc: '2.0',
-            id,
-            result: {
-              protocolVersion: PROTOCOL_VERSION,
-              capabilities: {
-                tools: {},
-              },
-              serverInfo: {
-                name: POPITV_MCP_SERVER_NAME,
-                version: '1.0.0',
-              },
-            },
-          };
-        case 'ping':
-          return { jsonrpc: '2.0', id, result: {} };
-        case 'tools/list':
-          return {
-            jsonrpc: '2.0',
-            id,
-            result: {
-              tools: getPopiTVMcpToolManifest().map(tool => ({
-                name: tool.name,
-                description: tool.description,
-                inputSchema: tool.inputSchema,
-              })),
-            },
-          };
-        case 'tools/call':
-          return await this.handleToolCall(id, request.params, signal);
-        default:
-          return this.errorResponse(
-            id,
-            JsonRpcErrorCode.MethodNotFound,
-            `Unsupported MCP method "${request.method}".`,
-          );
-      }
-    } catch (error) {
-      return this.errorResponse(
-        id,
-        JsonRpcErrorCode.InternalError,
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-
-  private async handleJsonRpcNotification(request: JsonRpcRequest): Promise<void> {
-    if (request.method === 'notifications/initialized') {
-      return;
-    }
-  }
-
-  private async handleToolCall(
-    id: unknown,
-    params: unknown,
-    signal: AbortSignal,
-  ): Promise<JsonRpcResponse> {
-    if (!isRecord(params) || typeof params.name !== 'string') {
-      return this.errorResponse(id, JsonRpcErrorCode.InvalidParams, 'Missing tool name.');
-    }
-
-    const args = isRecord(params.arguments) ? params.arguments : {};
-    const result = await this.localToolHandler?.(
-      POPITV_MCP_SERVER_NAME,
-      params.name,
-      args,
-      { signal },
+  private createMcpServer(): Server {
+    const mcpServer = new Server(
+      {
+        name: LOCAL_MCP_SERVER_NAME,
+        version: '1.0.0',
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      },
     );
 
-    if (!result) {
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
+    mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: this.getLocalToolManifest().map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      })),
+    }));
+
+    mcpServer.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
+      const toolName = request.params.name;
+      const args = isRecord(request.params.arguments) ? request.params.arguments : {};
+      const provider = this.findLocalToolProvider(toolName);
+      const result = provider
+        ? await provider.handleToolCall(provider.serverName, toolName, args, { signal: extra.signal })
+        : null;
+
+      if (!result) {
+        return {
           content: [
             {
               type: 'text',
-              text: `No local PopiTV MCP handler for ${POPITV_MCP_SERVER_NAME}.${params.name}`,
+              text: `No local MCP handler for tool "${toolName}".`,
             },
           ],
           isError: true,
-        },
-      };
-    }
+        };
+      }
 
-    return {
-      jsonrpc: '2.0',
-      id,
-      result,
-    };
+      return result;
+    });
+
+    return mcpServer;
   }
 
-  private async parseJsonRpcRequest(req: http.IncomingMessage): Promise<JsonRpcRequest | JsonRpcRequest[]> {
-    const body = await this.readBody(req);
-    const input = JSON.parse(body) as unknown;
-    if (Array.isArray(input)) {
-      return input.filter(isRecord) as JsonRpcRequest[];
-    }
-    if (!isRecord(input)) {
-      throw new Error('Invalid JSON body.');
-    }
-    return input as JsonRpcRequest;
+  private getLocalToolManifest(): LocalMcpToolManifestEntry[] {
+    return Array.from(this.localToolProviders.values())
+      .flatMap(provider => provider.tools);
   }
 
-  private errorResponse(id: unknown, code: number, message: string): JsonRpcResponse {
+  private findLocalToolProvider(toolName: string): LocalMcpToolProvider | null {
+    for (const provider of this.localToolProviders.values()) {
+      if (provider.tools.some(tool => tool.name === toolName)) {
+        return provider;
+      }
+    }
+    return null;
+  }
+
+  private buildJsonRpcError(message: string): {
+    jsonrpc: '2.0';
+    error: { code: -32000; message: string };
+    id: null;
+  } {
     return {
       jsonrpc: '2.0',
-      id,
       error: {
-        code,
+        code: -32000,
         message,
       },
+      id: null,
     };
   }
 
@@ -337,15 +289,6 @@ export class PopiTVToolBridgeServer {
       'MCP-Protocol-Version': PROTOCOL_VERSION,
     });
     res.end(JSON.stringify(payload));
-  }
-
-  private readBody(req: http.IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      req.on('data', (chunk: Buffer) => chunks.push(chunk));
-      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-      req.on('error', reject);
-    });
   }
 
   private findFreePort(): Promise<number> {

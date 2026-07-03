@@ -81,6 +81,7 @@ import { getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, re
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession, isPreviewServerUrl, stopHtmlPreviewServer } from './libs/htmlPreviewServer';
 import { getKeyfromAttribution, initializeKeyfromAttribution } from './libs/keyfromAttribution';
+import { createKnowledgeMcpToolProvider } from './libs/knowledgeMcpBridgeTools';
 import { exportLogsZip } from './libs/logExport';
 import { McpBridgeServer } from './libs/mcpBridgeServer';
 import { parsePrimaryModelRef, resolveQualifiedAgentModelRef } from './libs/openclawAgentModels';
@@ -127,7 +128,7 @@ import {
   registerPopiTVRendererBridgeIpc,
   requestPopiTVCanvasFromRenderer,
 } from './libs/popiTVRendererBridge';
-import { PopiTVToolBridgeServer } from './libs/popiTVToolBridgeServer';
+import { LOCAL_MCP_SERVER_NAME, PopiTVToolBridgeServer } from './libs/popiTVToolBridgeServer';
 import { ensurePythonRuntimeReady } from './libs/pythonRuntime';
 import { resolveStdioCommand } from './libs/resolveStdioCommand';
 import { serializeForLog } from './libs/sanitizeForLog';
@@ -919,7 +920,6 @@ let appUpdateCoordinator: AppUpdateCoordinator | null = null;
 let remoteKnowledgeService: RemoteKnowledgeService | null = null;
 let authManager: AuthManager | null = null;
 
-const POPITV_MCP_SERVER_NAME = 'popitv';
 const WEKNORA_OPENCLAW_MCP_SERVER_NAME = 'weknora-openclaw';
 
 function setPreventSleepBlockerEnabled(enabled: boolean): void {
@@ -1004,33 +1004,38 @@ const getRemoteKnowledgeService = (): RemoteKnowledgeService => {
 
 const resolveCoworkRuntimePrompt = async (options: {
   prompt: string;
-  knowledgeBases?: Array<{ id: string }>;
-  knowledgeFiles?: Array<{ id: string }>;
+  knowledgeBases?: Array<{ id: string; name?: string }>;
+  knowledgeFiles?: Array<{ id: string; title?: string; knowledgeBaseName?: string; fileType?: string }>;
 }): Promise<string> => {
   const query = options.prompt.trim();
-  const knowledgeBaseIds = options.knowledgeBases?.map(item => item.id).filter(Boolean) ?? [];
-  const knowledgeIds = options.knowledgeFiles?.map(item => item.id).filter(Boolean) ?? [];
-  if (!query || (knowledgeBaseIds.length === 0 && knowledgeIds.length === 0)) {
+  const knowledgeBases = options.knowledgeBases?.filter(item => Boolean(item.id)) ?? [];
+  const knowledgeFiles = options.knowledgeFiles?.filter(item => Boolean(item.id)) ?? [];
+  if (!query || (knowledgeBases.length === 0 && knowledgeFiles.length === 0)) {
     return options.prompt;
   }
 
-  try {
-    const result = await getRemoteKnowledgeService().previewRagContext({
-      query,
-      knowledgeBaseIds,
-      knowledgeIds,
-    });
-    if (result.success && result.data?.rendered_contexts?.trim()) {
-      return result.data?.rendered_contexts + '\n' + (result.data?.user_content || '');
-    }
+  const routingContext = [
+    '[Popiai selected knowledge context]',
+    'The user selected knowledge sources for this turn. Before answering questions that depend on those sources, use knowledge tools in this priority order: 1. wiki tools such as `wiki_search` / `wiki_read_page`; 2. direct knowledge tools such as `knowledge_search`, `grep_chunks`, `list_knowledge_chunks`, or `get_document_info`; 3. the local MCP tool `preview_rag_context` from the `knowledge` server as the fallback.',
+    knowledgeBases.length > 0
+      ? `Selected knowledgeBaseIds: ${JSON.stringify(knowledgeBases.map(item => ({
+          id: item.id,
+          ...(item.name ? { name: item.name } : {}),
+        })))}`
+      : '',
+    knowledgeFiles.length > 0
+      ? `Selected knowledgeIds: ${JSON.stringify(knowledgeFiles.map(item => ({
+          id: item.id,
+          ...(item.title ? { title: item.title } : {}),
+          ...(item.knowledgeBaseName ? { knowledgeBaseName: item.knowledgeBaseName } : {}),
+          ...(item.fileType ? { fileType: item.fileType } : {}),
+        })))}`
+      : '',
+    'Pass these selected ids to whichever knowledge tool supports them. If you use `preview_rag_context`, call it with `query`, `knowledgeBaseIds`, and/or `knowledgeIds`. If retrieval fails or returns no relevant context, continue with the user request normally and mention the retrieval issue briefly when relevant.',
+    '[/Popiai selected knowledge context]',
+  ].filter(Boolean).join('\n');
 
-    if (result.error) {
-      console.warn('[CoworkKnowledge] RAG context preview failed, continuing with original prompt:', result.error);
-    }
-  } catch (error) {
-    console.warn('[CoworkKnowledge] RAG context preview failed, continuing with original prompt:', error);
-  }
-  return options.prompt;
+  return `${routingContext}\n\n${options.prompt}`;
 };
 
 const forwardCoworkMessage = (sessionId: string, message: unknown, beforeMessageId?: string): void => {
@@ -1922,6 +1927,9 @@ const startPopiTVToolBridgeServer = async (): Promise<void> => {
       requestPopiTVCanvasFromRenderer(request, { signal: options.signal })
     ), getCachedPopiTVCanvasSnapshot)
   ));
+  popiTVToolBridgeServer.registerLocalToolProvider(
+    createKnowledgeMcpToolProvider(getRemoteKnowledgeService()),
+  );
 
   if (popiTVToolBridgeServer.port) return;
 
@@ -1981,10 +1989,10 @@ const getResolvedMcpServers = async (): Promise<ResolvedMcpServer[]> => {
   }
 
   const popiTvBridgeUrl = popiTVToolBridgeServer?.mcpUrl;
-  const hasUserConfiguredPopiTV = resolved.some(server => server.name === POPITV_MCP_SERVER_NAME);
-  if (popiTvBridgeUrl && !hasUserConfiguredPopiTV) {
+  const hasUserConfiguredLocalMcp = resolved.some(server => server.name === LOCAL_MCP_SERVER_NAME);
+  if (popiTvBridgeUrl && !hasUserConfiguredLocalMcp) {
     resolved.push({
-      name: POPITV_MCP_SERVER_NAME,
+      name: LOCAL_MCP_SERVER_NAME,
       transportType: 'http',
       url: popiTvBridgeUrl,
       headers: {

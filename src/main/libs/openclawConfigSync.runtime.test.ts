@@ -1325,7 +1325,7 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.tools.web.fetch.useEnvProxy).toBeUndefined();
   });
 
-  test('writes built-in popitv stdio MCP server into mcp.servers', async () => {
+  test('writes built-in popiartAi MCP server into mcp.servers', async () => {
     const { OpenClawConfigSync } = await import('./openclawConfigSync');
 
     const sync = new OpenClawConfigSync({
@@ -1356,7 +1356,7 @@ describe('OpenClawConfigSync runtime config output', () => {
       getAgents: () => [],
       getResolvedMcpServers: () => [
         {
-          name: 'popitv',
+          name: 'popiartAi',
           transportType: 'stdio',
           command: '/usr/bin/node',
           args: ['/app/dist-electron/main/libs/popiTVMcpStdioServer.js'],
@@ -1370,11 +1370,11 @@ describe('OpenClawConfigSync runtime config output', () => {
       getMcpBridgeSecret: () => 'test-bridge-secret',
     } as never);
 
-    const result = sync.sync('popitv-mcp-bridge');
+    const result = sync.sync('popiart-ai-mcp-bridge');
     expect(result.ok).toBe(true);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    expect(config.mcp.servers.popitv).toEqual({
+    expect(config.mcp.servers.popiartAi).toEqual({
       command: '/usr/bin/node',
       args: ['/app/dist-electron/main/libs/popiTVMcpStdioServer.js'],
       env: {

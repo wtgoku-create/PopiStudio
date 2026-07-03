@@ -36,9 +36,123 @@ describe('PopiTVToolBridgeServer MCP HTTP handling', () => {
     expect(payload.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
       'read_canvas',
       'edit_canvas',
+      'measure_nodes',
       'run_canvas',
       'stop_canvas',
     ]);
+  });
+
+  test('announces popiartAi as the local MCP server name', async () => {
+    server = new PopiTVToolBridgeServer('test-secret');
+    await server.start();
+
+    const response = await callMcp(server, {
+      jsonrpc: '2.0',
+      id: 6,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: {
+          name: 'test-client',
+          version: '1.0.0',
+        },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          serverInfo: expect.objectContaining({
+            name: 'popiartAi',
+          }),
+        }),
+      }),
+    );
+  });
+
+  test('registers local application tools into the MCP tool list', async () => {
+    server = new PopiTVToolBridgeServer('test-secret');
+    server.registerLocalToolProvider({
+      serverName: 'local-app',
+      tools: [
+        {
+          name: 'open_panel',
+          description: 'Open a local application panel.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              panelId: { type: 'string' },
+            },
+            required: ['panelId'],
+            additionalProperties: false,
+          },
+        },
+      ],
+      handleToolCall: async (serverName, toolName, args) => ({
+        content: [{ type: 'text', text: JSON.stringify({ serverName, toolName, args }) }],
+        isError: false,
+      }),
+    });
+    await server.start();
+
+    const listResponse = await callMcp(server, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/list',
+    });
+
+    expect(listResponse.status).toBe(200);
+    const listPayload = await listResponse.json();
+    expect(listPayload.result.tools).toContainEqual(
+      expect.objectContaining({
+        name: 'open_panel',
+        description: 'Open a local application panel.',
+        inputSchema: expect.objectContaining({
+          properties: expect.objectContaining({
+            panelId: { type: 'string' },
+          }),
+          required: ['panelId'],
+          additionalProperties: false,
+        }),
+      }),
+    );
+    expect(listPayload.result.tools.map((tool: { name: string }) => tool.name)).toEqual(
+      expect.arrayContaining([
+        'read_canvas',
+        'open_panel',
+      ]),
+    );
+
+    const callResponse = await callMcp(server, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: {
+        name: 'open_panel',
+        arguments: { panelId: 'settings' },
+      },
+    });
+
+    expect(callResponse.status).toBe(200);
+    expect(await callResponse.json()).toEqual({
+      jsonrpc: '2.0',
+      id: 3,
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              serverName: 'local-app',
+              toolName: 'open_panel',
+              args: { panelId: 'settings' },
+            }),
+          },
+        ],
+        isError: false,
+      },
+    });
   });
 
   test('lets a PopiTV tool handler handle tools/call requests', async () => {
@@ -51,7 +165,7 @@ describe('PopiTVToolBridgeServer MCP HTTP handling', () => {
 
     const response = await callMcp(server, {
       jsonrpc: '2.0',
-      id: 2,
+      id: 4,
       method: 'tools/call',
       params: {
         name: 'read_canvas',
@@ -62,7 +176,7 @@ describe('PopiTVToolBridgeServer MCP HTTP handling', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       jsonrpc: '2.0',
-      id: 2,
+      id: 4,
       result: {
         content: [
           {
@@ -86,7 +200,7 @@ describe('PopiTVToolBridgeServer MCP HTTP handling', () => {
 
     const response = await callMcp(server, {
       jsonrpc: '2.0',
-      id: 3,
+      id: 5,
       method: 'tools/call',
       params: {
         name: 'tool_a',
@@ -97,9 +211,9 @@ describe('PopiTVToolBridgeServer MCP HTTP handling', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       jsonrpc: '2.0',
-      id: 3,
+      id: 5,
       result: {
-        content: [{ type: 'text', text: 'No local PopiTV MCP handler for popitv.tool_a' }],
+        content: [{ type: 'text', text: 'No local MCP handler for tool "tool_a".' }],
         isError: true,
       },
     });
