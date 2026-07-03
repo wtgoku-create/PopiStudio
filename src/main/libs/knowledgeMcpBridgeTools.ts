@@ -10,6 +10,7 @@ import type { LocalMcpToolProvider } from './popiTVToolBridgeServer';
 export const KNOWLEDGE_MCP_SERVER_NAME = 'knowledge';
 
 const KNOWLEDGE_UPLOAD_TOOL_NAME = 'upload_agent_knowledge_file';
+const KNOWLEDGE_PREVIEW_RAG_CONTEXT_TOOL_NAME = 'preview_rag_context';
 
 const objectSchema = (
   properties: Record<string, object>,
@@ -48,8 +49,42 @@ const getOptionalString = (args: Record<string, unknown>, key: string): string |
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 };
 
+const getOptionalStringArray = (
+  args: Record<string, unknown>,
+  key: string,
+): string[] | undefined => {
+  const value = args[key];
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((item): item is string => typeof item === 'string' && item.trim() !== '');
+  return strings.length > 0 ? strings.map(item => item.trim()) : undefined;
+};
+
 export function getKnowledgeMcpToolManifest(): LocalMcpToolProvider['tools'] {
   return [
+    {
+      name: KNOWLEDGE_PREVIEW_RAG_CONTEXT_TOOL_NAME,
+      description:
+        'Preview RAG context from selected knowledge bases or knowledge files for a user query.',
+      inputSchema: objectSchema(
+        {
+          query: {
+            type: 'string',
+            description: 'User query to retrieve relevant knowledge context for.',
+          },
+          knowledgeBaseIds: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Selected knowledge base ids.',
+          },
+          knowledgeIds: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Selected knowledge file ids.',
+          },
+        },
+        ['query'],
+      ),
+    },
     {
       name: KNOWLEDGE_UPLOAD_TOOL_NAME,
       description:
@@ -95,12 +130,34 @@ export async function executeKnowledgeMcpTool(
   }
 
   const details = { server: KNOWLEDGE_MCP_SERVER_NAME, tool: toolName };
-  if (toolName !== KNOWLEDGE_UPLOAD_TOOL_NAME) {
-    return toToolError(`Unknown knowledge tool "${toolName}".`, details);
-  }
 
   try {
     const safeArgs = isRecord(args) ? args : {};
+    if (toolName === KNOWLEDGE_PREVIEW_RAG_CONTEXT_TOOL_NAME) {
+      const query = getOptionalString(safeArgs, 'query');
+      if (!query) {
+        return toToolError('preview_rag_context requires "query".', details);
+      }
+      const knowledgeBaseIds = getOptionalStringArray(safeArgs, 'knowledgeBaseIds') || [];
+      const knowledgeIds = getOptionalStringArray(safeArgs, 'knowledgeIds') || [];
+      if (knowledgeBaseIds.length === 0 && knowledgeIds.length === 0) {
+        return toToolError('preview_rag_context requires at least one selected knowledgeBaseIds or knowledgeIds value.', details);
+      }
+      const result = await remoteKnowledgeService.previewRagContext({
+        query,
+        knowledgeBaseIds,
+        knowledgeIds,
+      });
+      if (!result.success) {
+        return toToolError(result.error || 'RAG context preview failed', details);
+      }
+      return toToolResult(result, details);
+    }
+
+    if (toolName !== KNOWLEDGE_UPLOAD_TOOL_NAME) {
+      return toToolError(`Unknown knowledge tool "${toolName}".`, details);
+    }
+
     const filePath = getOptionalString(safeArgs, 'filePath');
     if (!filePath) {
       return toToolError('upload_agent_knowledge_file requires "filePath".', details);

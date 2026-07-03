@@ -1004,33 +1004,38 @@ const getRemoteKnowledgeService = (): RemoteKnowledgeService => {
 
 const resolveCoworkRuntimePrompt = async (options: {
   prompt: string;
-  knowledgeBases?: Array<{ id: string }>;
-  knowledgeFiles?: Array<{ id: string }>;
+  knowledgeBases?: Array<{ id: string; name?: string }>;
+  knowledgeFiles?: Array<{ id: string; title?: string; knowledgeBaseName?: string; fileType?: string }>;
 }): Promise<string> => {
   const query = options.prompt.trim();
-  const knowledgeBaseIds = options.knowledgeBases?.map(item => item.id).filter(Boolean) ?? [];
-  const knowledgeIds = options.knowledgeFiles?.map(item => item.id).filter(Boolean) ?? [];
-  if (!query || (knowledgeBaseIds.length === 0 && knowledgeIds.length === 0)) {
+  const knowledgeBases = options.knowledgeBases?.filter(item => Boolean(item.id)) ?? [];
+  const knowledgeFiles = options.knowledgeFiles?.filter(item => Boolean(item.id)) ?? [];
+  if (!query || (knowledgeBases.length === 0 && knowledgeFiles.length === 0)) {
     return options.prompt;
   }
 
-  try {
-    const result = await getRemoteKnowledgeService().previewRagContext({
-      query,
-      knowledgeBaseIds,
-      knowledgeIds,
-    });
-    if (result.success && result.data?.rendered_contexts?.trim()) {
-      return result.data?.rendered_contexts + '\n' + (result.data?.user_content || '');
-    }
+  const routingContext = [
+    '[Popiai selected knowledge context]',
+    'The user selected knowledge sources for this turn. Before answering questions that depend on those sources, prefer calling the local MCP tool `preview_rag_context` from the `knowledge` server with the current user query and these selected ids.',
+    knowledgeBases.length > 0
+      ? `Selected knowledgeBaseIds: ${JSON.stringify(knowledgeBases.map(item => ({
+          id: item.id,
+          ...(item.name ? { name: item.name } : {}),
+        })))}`
+      : '',
+    knowledgeFiles.length > 0
+      ? `Selected knowledgeIds: ${JSON.stringify(knowledgeFiles.map(item => ({
+          id: item.id,
+          ...(item.title ? { title: item.title } : {}),
+          ...(item.knowledgeBaseName ? { knowledgeBaseName: item.knowledgeBaseName } : {}),
+          ...(item.fileType ? { fileType: item.fileType } : {}),
+        })))}`
+      : '',
+    'Call `preview_rag_context` with `query`, `knowledgeBaseIds`, and/or `knowledgeIds`. If retrieval fails or returns no relevant context, continue with the user request normally and mention the retrieval issue briefly when relevant.',
+    '[/Popiai selected knowledge context]',
+  ].filter(Boolean).join('\n');
 
-    if (result.error) {
-      console.warn('[CoworkKnowledge] RAG context preview failed, continuing with original prompt:', result.error);
-    }
-  } catch (error) {
-    console.warn('[CoworkKnowledge] RAG context preview failed, continuing with original prompt:', error);
-  }
-  return options.prompt;
+  return `${routingContext}\n\n${options.prompt}`;
 };
 
 const forwardCoworkMessage = (sessionId: string, message: unknown, beforeMessageId?: string): void => {

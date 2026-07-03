@@ -23,11 +23,45 @@ describe('knowledge MCP bridge tools', () => {
   test('declares the knowledge upload tool manifest', () => {
     const manifest = getKnowledgeMcpToolManifest();
 
-    expect(manifest.map(tool => tool.name)).toEqual(['upload_agent_knowledge_file']);
-    expect(manifest[0].inputSchema.required).toEqual(['filePath']);
-    expect(manifest[0].inputSchema.properties?.filePath).toEqual(
+    expect(manifest.map(tool => tool.name)).toEqual([
+      'preview_rag_context',
+      'upload_agent_knowledge_file',
+    ]);
+    const uploadTool = manifest.find(tool => tool.name === 'upload_agent_knowledge_file');
+    expect(uploadTool?.inputSchema.required).toEqual(['filePath']);
+    expect(uploadTool?.inputSchema.properties?.filePath).toEqual(
       expect.objectContaining({ type: 'string' }),
     );
+  });
+
+  test('previews RAG context through RemoteKnowledgeService', async () => {
+    const previewRagContext = vi.fn(async () => ({
+      success: true,
+      data: {
+        rendered_contexts: 'context',
+        user_content: 'question',
+      },
+    }));
+    const service = { previewRagContext } as unknown as RemoteKnowledgeService;
+
+    const result = await executeKnowledgeMcpTool(
+      KNOWLEDGE_MCP_SERVER_NAME,
+      'preview_rag_context',
+      {
+        query: 'how to refund?',
+        knowledgeBaseIds: ['kb-1'],
+        knowledgeIds: ['doc-1'],
+      },
+      service,
+    );
+
+    expect(result?.isError).toBe(false);
+    expect(previewRagContext).toHaveBeenCalledWith({
+      query: 'how to refund?',
+      knowledgeBaseIds: ['kb-1'],
+      knowledgeIds: ['doc-1'],
+    });
+    expect(result?.content[0].text).toContain('"rendered_contexts": "context"');
   });
 
   test('uploads a local file through RemoteKnowledgeService', async () => {
