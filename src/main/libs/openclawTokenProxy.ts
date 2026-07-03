@@ -396,36 +396,44 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function buildResponseHeaders(result: UpstreamResult): Record<string, string> {
-  if (result.isStream) {
-    return {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    };
-  }
+const RESPONSE_HEADERS_TO_DROP = new Set([
+  'connection',
+  'content-length',
+  'content-encoding',
+  'transfer-encoding',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'upgrade',
+]);
 
+function buildResponseHeaders(result: UpstreamResult): Record<string, string> {
   const headers: Record<string, string> = {};
+
   for (const [key, value] of Object.entries(result.headers)) {
     const normalizedKey = key.toLowerCase();
-    if (
-      normalizedKey === 'connection'
-      || normalizedKey === 'content-length'
-      || normalizedKey === 'content-encoding'
-      || normalizedKey === 'transfer-encoding'
-      || normalizedKey === 'keep-alive'
-      || normalizedKey === 'proxy-authenticate'
-      || normalizedKey === 'proxy-authorization'
-      || normalizedKey === 'te'
-      || normalizedKey === 'trailer'
-      || normalizedKey === 'upgrade'
-    ) {
+    if (RESPONSE_HEADERS_TO_DROP.has(normalizedKey)) {
+      continue;
+    }
+    if (result.isStream && (normalizedKey === 'content-type' || normalizedKey === 'cache-control')) {
       continue;
     }
     headers[key] = value;
   }
-  return headers;
+
+  if (!result.isStream) {
+    return headers;
+  }
+
+  return {
+    ...headers,
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  };
 }
 
 function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {
@@ -437,30 +445,11 @@ function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {
     res.end(result.body);
   } else {
     // Web ReadableStream from net.fetch — need to consume manually
-    const webStream = result.body as ReadableStream<Uint8Array>;
+    const webStream = result.body as unknown as ReadableStream<Uint8Array>;
     const reader = webStream.getReader();
-    let streamDoneSent = false;
     const pump = (): void => {
       reader.read().then(({ done, value }) => {
         if (done) {
-          res.end();
-          return;
-        }
-        if (streamDoneSent) {
-          pump();
-          return;
-        }
-        const chunkText = Buffer.from(value).toString('utf8');
-        const doneIndex = chunkText.indexOf('data: [DONE]');
-        if (doneIndex >= 0) {
-          const doneEndIndex = doneIndex + 'data: [DONE]'.length;
-          const sanitizedChunk = chunkText.slice(0, doneEndIndex) + '\n\n';
-          streamDoneSent = true;
-          console.debug('[OpenClawTokenProxy] completed upstream stream after data done marker.');
-          res.write(Buffer.from(sanitizedChunk, 'utf8'));
-          reader.cancel().catch(() => {
-            // Upstream may already be closed after [DONE].
-          });
           res.end();
           return;
         }
