@@ -1,6 +1,7 @@
 ---
 name: xhs-writing
-description: Use when the user wants Xiaohongshu note writing or optimization: titles, cover copy, note body, tags, comment prompts, seed-style notes, reviews, pitfall posts, lists, tutorials, comparisons, content rewriting, or converting a rough idea into publish-ready Xiaohongshu content. This skill is content-only and must not publish or access Xiaohongshu APIs.
+description: >-
+  Use when the user wants Xiaohongshu note writing or optimization: titles, cover copy, note body, tags, comment prompts, seed-style notes, reviews, pitfall posts, lists, tutorials, comparisons, content rewriting, or converting a rough idea into publish-ready Xiaohongshu content. This skill is content-only and must not publish or access Xiaohongshu APIs.
 ---
 
 # XHS Writing

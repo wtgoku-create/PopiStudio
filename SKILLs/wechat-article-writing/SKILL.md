@@ -1,6 +1,7 @@
 ---
 name: wechat-article-writing
-description: Use when the user wants a WeChat Official Account article draft: title options, opening hook, article outline, full long-form body, section headings, pull quotes, ending CTA, or rewriting a draft into a polished WeChat article. This skill is content-only and must not publish, scrape, log in, or call WeChat APIs.
+description: >-
+  Use when the user wants a WeChat Official Account article draft: title options, opening hook, article outline, full long-form body, section headings, pull quotes, ending CTA, or rewriting a draft into a polished WeChat article. This skill is content-only and must not publish, scrape, log in, or call WeChat APIs.
 ---
 
 # WeChat Official Account Article Writing | 公众号长文创作

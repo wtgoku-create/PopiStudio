@@ -1,6 +1,7 @@
 ---
 name: content-quality-review
-description: Use when reviewing new-media content before publishing or handing off: detect AI tone, hard-sell language, vague claims, weak hooks, unsupported data, platform mismatch, compliance risk, and missing CTA.
+description: >-
+  Use when reviewing new-media content before publishing or handing off: detect AI tone, hard-sell language, vague claims, weak hooks, unsupported data, platform mismatch, compliance risk, and missing CTA.
 ---
 
 # Content Quality Review | 内容质检

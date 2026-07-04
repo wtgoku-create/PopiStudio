@@ -1,6 +1,7 @@
 ---
 name: xhs-strategy
-description: Use when the user needs Xiaohongshu content strategy: account positioning, persona design, target audience, content pillars, topic planning, 30-day content calendar, competitor note analysis, growth review, or KOL/KOC collaboration ideas. This skill is content-only and must not log in, scrape, publish, comment, like, favorite, or call Xiaohongshu APIs.
+description: >-
+  Use when the user needs Xiaohongshu content strategy: account positioning, persona design, target audience, content pillars, topic planning, 30-day content calendar, competitor note analysis, growth review, or KOL/KOC collaboration ideas. This skill is content-only and must not log in, scrape, publish, comment, like, favorite, or call Xiaohongshu APIs.
 ---
 
 # XHS Strategy
