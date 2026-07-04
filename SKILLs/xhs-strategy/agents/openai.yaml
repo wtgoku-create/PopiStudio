@@ -1,0 +1,3 @@
+display_name: 小红书账号策略
+short_description: 做小红书账号定位、内容支柱、选题池和内容日历。
+default_prompt: 帮我做一个小红书账号定位、内容支柱和前7天选题。
