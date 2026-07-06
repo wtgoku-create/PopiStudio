@@ -908,8 +908,8 @@ const App: React.FC = () => {
         />
         <div
           className={`flex min-w-0 flex-1 overflow-hidden ${
-            isContactsView ? 'p-0' : 'gap-[6px] p-[10px] pt-0 pl-0'
-          }`}
+            isContactsView ? 'p-0' : 'p-[10px] pt-0 pl-[0]'
+          } ${!isContactsView && !isAgentPanelCollapsed ? 'gap-[6px]' : ''}`}
         >
           {!isContactsView && (
             <AgentSidebarPanel
