@@ -13,6 +13,7 @@ import AgentCreateModal from '../agent/AgentCreateModal';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
 import { type CoworkOpenShareOptionsEventDetail, CoworkUiEvent } from '../cowork/constants';
 import AgentSessionNode from './AgentSessionNode';
+import { AgentSidebarTaskTab } from './constants';
 import MyAgentSidebarHeader from './MyAgentSidebarHeader';
 import type { AgentSidebarAgentNode, AgentSidebarTaskNode } from './types';
 import { useAgentSidebarState } from './useAgentSidebarState';
@@ -22,7 +23,9 @@ interface MyAgentSidebarTreeProps {
   batchAgentId: string | null;
   deletedSessionIds: string[];
   selectedIds: Set<string>;
+  activeTab: AgentSidebarTaskTab;
   onShowCowork: () => void;
+  onTaskTabChange: (tab: AgentSidebarTaskTab) => void;
   onToggleSelection: (sessionId: string, agentId: string) => void;
   onEnterBatchMode: (sessionId: string, agentId: string) => void;
   onBatchSelectableIdsChange: (sessionIds: string[]) => void;
@@ -31,7 +34,9 @@ interface MyAgentSidebarTreeProps {
 
 const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   deletedSessionIds,
+  activeTab,
   onShowCowork,
+  onTaskTabChange,
   onBatchSelectableIdsChange,
   onSearch,
 }) => {
@@ -45,6 +50,12 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     removeTaskPreview,
     removeTaskPreviews,
   } = useAgentSidebarState();
+
+  const visibleAgentNodes = agentNodes.filter((agent) => {
+    const task = agent.tasks[0];
+    const isScheduledTask = task?.source?.kind === CoworkSessionSourceKind.ScheduledTask;
+    return activeTab === AgentSidebarTaskTab.Scheduled ? isScheduledTask : !isScheduledTask;
+  });
 
   useEffect(() => {
     void agentService.loadAgents();
@@ -148,6 +159,33 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
         onSearch={onSearch}
       />
 
+      <div className="mb-2 flex items-center rounded-lg bg-black/[0.03] p-0.5 text-[12px] font-medium text-secondary dark:bg-white/[0.04]">
+        <button
+          type="button"
+          onClick={() => onTaskTabChange(AgentSidebarTaskTab.Main)}
+          className={`h-7 min-w-0 flex-1 rounded-md px-2 transition-colors ${
+            activeTab === AgentSidebarTaskTab.Main
+              ? 'bg-white text-foreground shadow-sm dark:bg-white/[0.08]'
+              : 'hover:text-foreground'
+          }`}
+          aria-pressed={activeTab === AgentSidebarTaskTab.Main}
+        >
+          {i18nService.t('myAgentSidebarMainTasks')}
+        </button>
+        <button
+          type="button"
+          onClick={() => onTaskTabChange(AgentSidebarTaskTab.Scheduled)}
+          className={`h-7 min-w-0 flex-1 rounded-md px-2 transition-colors ${
+            activeTab === AgentSidebarTaskTab.Scheduled
+              ? 'bg-white text-foreground shadow-sm dark:bg-white/[0.08]'
+              : 'hover:text-foreground'
+          }`}
+          aria-pressed={activeTab === AgentSidebarTaskTab.Scheduled}
+        >
+          {i18nService.t('myAgentSidebarScheduledTasks')}
+        </button>
+      </div>
+
       {agentNodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
           <p className="text-xs font-medium text-secondary">
@@ -161,9 +199,17 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
             {i18nService.t('createNewAgent')}
           </button>
         </div>
+      ) : visibleAgentNodes.length === 0 ? (
+        <div className="px-3 py-6 text-center">
+          <p className="text-xs font-medium text-secondary">
+            {activeTab === AgentSidebarTaskTab.Scheduled
+              ? i18nService.t('myAgentSidebarNoScheduledTasks')
+              : i18nService.t('myAgentSidebarNoTasks')}
+          </p>
+        </div>
       ) : (
         <div className="space-y-1.5 px-0">
-          {agentNodes.map(renderSessionNode)}
+          {visibleAgentNodes.map(renderSessionNode)}
         </div>
       )}
 
