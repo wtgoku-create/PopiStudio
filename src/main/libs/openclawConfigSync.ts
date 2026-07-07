@@ -1480,6 +1480,7 @@ export class OpenClawConfigSync {
       },
       models: {
         mode: 'replace',
+        pricing: { enabled: false },
         providers: allProvidersMap,
       },
       agents: {
@@ -1492,6 +1493,7 @@ export class OpenClawConfigSync {
             mode: sandboxMode,
           },
           workspace: path.resolve(mainWorkspacePath),
+          mediaMaxMb: 30,
           ...(taskWorkingDirectory ? { cwd: path.resolve(taskWorkingDirectory) } : {}),
           ...(coworkConfig.embeddingEnabled ? {
             memorySearch: {
