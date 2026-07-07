@@ -1,9 +1,16 @@
 import { describe, expect, test } from 'vitest';
 
-import { DeliveryMode, PayloadKind, ScheduleKind, SessionTarget, WakeMode } from '../../../scheduledTask/constants';
+import {
+  DeliveryChannel,
+  DeliveryMode,
+  PayloadKind,
+  ScheduleKind,
+  SessionTarget,
+  WakeMode,
+} from '../../../scheduledTask/constants';
 import type { ScheduledTask } from '../../../scheduledTask/types';
 import { i18nService } from '../../services/i18n';
-import { createScheduledTaskFormState } from './TaskForm';
+import { buildScheduledTaskInputFromForm, createScheduledTaskFormState } from './TaskForm';
 import {
   SCHEDULED_TASK_TEMPLATES,
   ScheduledTaskTemplateId,
@@ -93,5 +100,83 @@ describe('createScheduledTaskFormState', () => {
     expect(form.minute).toBe(30);
     expect(form.weekdays).toEqual([1, 2, 3, 4, 5]);
     expect(form.modelId).toBe(fallbackModelRef);
+  });
+
+  test('builds manual task input for isolated OpenClaw run chats', () => {
+    const form = createScheduledTaskFormState(undefined, fallbackModelRef);
+    const input = buildScheduledTaskInputFromForm(
+      {
+        ...form,
+        name: 'Visible session task',
+        payloadText: 'Run in a visible session',
+        notifyChannel: 'none',
+      },
+      { kind: ScheduleKind.Cron, expr: '0 9 * * *' },
+      {
+        kind: PayloadKind.AgentTurn,
+        message: 'Run in a visible session',
+        model: fallbackModelRef,
+      },
+    );
+
+    expect(input.sessionTarget).toBe(SessionTarget.Isolated);
+    expect(input.payload).toEqual({
+      kind: PayloadKind.AgentTurn,
+      message: 'Run in a visible session',
+      model: fallbackModelRef,
+    });
+    expect(input.delivery).toEqual({ mode: DeliveryMode.None });
+  });
+
+  test('keeps announce delivery on isolated run chat tasks', () => {
+    const form = createScheduledTaskFormState(undefined, fallbackModelRef);
+    const input = buildScheduledTaskInputFromForm(
+      {
+        ...form,
+        name: 'Notify task',
+        notifyChannel: 'feishu',
+        notifyTo: 'ou_123',
+        notifyAccountId: 'acct-1',
+      },
+      { kind: ScheduleKind.Cron, expr: '0 9 * * *' },
+      {
+        kind: PayloadKind.AgentTurn,
+        message: 'Notify me',
+        model: fallbackModelRef,
+      },
+    );
+
+    expect(input.sessionTarget).toBe(SessionTarget.Isolated);
+    expect(input.payload).toEqual({
+      kind: PayloadKind.AgentTurn,
+      message: 'Notify me',
+      model: fallbackModelRef,
+    });
+    expect(input.delivery).toEqual({
+      mode: DeliveryMode.Announce,
+      channel: 'feishu',
+      to: 'ou_123',
+      accountId: 'acct-1',
+    });
+  });
+
+  test('treats last-channel placeholder as no delivery for run chat tasks', () => {
+    const form = createScheduledTaskFormState(undefined, fallbackModelRef);
+    const input = buildScheduledTaskInputFromForm(
+      {
+        ...form,
+        name: 'Run chat only',
+        notifyChannel: DeliveryChannel.Last,
+      },
+      { kind: ScheduleKind.Cron, expr: '0 9 * * *' },
+      {
+        kind: PayloadKind.AgentTurn,
+        message: 'Generate a run chat only',
+        model: fallbackModelRef,
+      },
+    );
+
+    expect(input.sessionTarget).toBe(SessionTarget.Isolated);
+    expect(input.delivery).toEqual({ mode: DeliveryMode.None });
   });
 });

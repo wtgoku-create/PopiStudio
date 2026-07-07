@@ -1067,6 +1067,13 @@ const bindOpenClawStatusForwarder = (): void => {
   const manager = getOpenClawEngineManager();
   manager.on('status', (status) => {
     forwardOpenClawStatus(status);
+    if (status.phase === 'running') {
+      try {
+        getCronJobService().notifyGatewayReady();
+      } catch {
+        // Cron service may not be initialized yet during early startup.
+      }
+    }
   });
   openClawStatusForwarderBound = true;
   forwardOpenClawStatus(manager.getStatus());
