@@ -3518,7 +3518,11 @@ if (!gotTheLock) {
   ipcMain.handle('cowork:session:get', async (_event, sessionId: string) => {
     try {
       const session = getCoworkStore().getSession(sessionId);
-      return { success: true, session };
+      if (!session) {
+        return { success: true, session };
+      }
+      const source = getCoworkStore().getSessionSources([session.id]).get(session.id)?.[0];
+      return { success: true, session: source ? { ...session, source } : session };
     } catch (error) {
       return {
         success: false,

@@ -106,6 +106,7 @@ export interface CoworkSession {
   messagesOffset: number;
   /** Total number of messages stored for this session. */
   totalMessages: number;
+  source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
 }

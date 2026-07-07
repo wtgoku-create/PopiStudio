@@ -53,6 +53,7 @@ interface CoworkSession {
   messages: CoworkMessage[];
   messagesOffset: number;
   totalMessages: number;
+  source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
 }

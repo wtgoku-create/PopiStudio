@@ -3,6 +3,7 @@ import React, { useEffect, useRef,useState } from 'react';
 import { useDispatch,useSelector } from 'react-redux';
 
 import { buildSessionTitleFromInput } from '../../../common/sessionTitle';
+import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -103,6 +104,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
   const currentAgentSelectedModel = useAgentSelectedModel(currentAgentId, currentAgent?.model ?? '');
   const hasCurrentSessionMessages = Boolean(
     currentSession && ((currentSession.totalMessages ?? 0) > 0 || currentSession.messages.length > 0),
+  );
+  const isCurrentSessionRemoteSource = currentSession?.source?.kind === CoworkSessionSourceKind.ScheduledTask
+    || currentSession?.source?.kind === CoworkSessionSourceKind.IM;
+  const shouldShowCurrentSessionDetail = Boolean(
+    currentSession
+      && (hasCurrentSessionMessages || isCurrentSessionRemoteSource),
   );
 
   const resolveEngineStatusText = (status: OpenClawEngineStatus): string => {
@@ -631,7 +638,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
 
   // When there's a current session with chat messages, show the session detail view.
   // Empty agentHome sessions still use the home prompt state.
-  if (currentSession && hasCurrentSessionMessages) {
+  if (shouldShowCurrentSessionDetail) {
     return (
       <div className="flex-1 flex flex-col h-full">
         {engineStatusBanner}
