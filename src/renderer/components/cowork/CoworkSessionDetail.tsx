@@ -63,6 +63,7 @@ import {
 } from './messageDisplayUtils';
 import PopiTVCanvasWorkspace from './PopiTVCanvasWorkspace';
 import UserMessageItem from './UserMessageItem';
+import { CoworkSessionSourceKind } from '@shared/cowork/constants';
 interface CoworkSessionDetailProps {
   onManageSkills?: () => void;
   onContinue: (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions) => boolean | void | Promise<boolean | void>;
@@ -2368,7 +2369,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             </span>
             <div className="min-w-0">
               <div className="truncate text-sm font-medium leading-4 text-foreground max-w-[360px]">
-                {headerAgentName}
+                {currentSession.source?.kind === CoworkSessionSourceKind.ScheduledTask ? currentSession.source.label || currentSession.title || i18nService.t('coworkNewSession') : headerAgentName}
               </div>
               <div className="mt-0.5 truncate text-[12px] leading-4 text-secondary max-w-[360px]">
                 {currentSession.title || i18nService.t('coworkNewSession')}
