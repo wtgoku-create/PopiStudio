@@ -327,11 +327,13 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(result.ok).toBe(true);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.models.pricing).toEqual({ enabled: false });
     expect(config.models.providers['openai-codex']).toBeDefined();
     expect(config.models.providers.deepseek).toBeDefined();
     expect(config.agents.defaults.models).toBeUndefined();
     expect(config.agents.defaults.workspace).toBe(path.join(stateDir, 'workspace-main'));
     expect(config.agents.defaults.cwd).toBe(path.resolve(tmpDir));
+    expect(config.agents.defaults.mediaMaxMb).toBe(30);
   });
 
   test('uses the main agent working directory for default agent cwd', async () => {
