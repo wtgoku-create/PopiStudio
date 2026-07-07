@@ -85,13 +85,17 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
   const isMenuOpen = menuPosition !== null;
   const agentName = getAgentDisplayName(agent);
   const isAgentHomeSession = task.source?.kind === CoworkSessionSourceKind.AgentHome;
+  const isScheduledTaskSession = task.source?.kind === CoworkSessionSourceKind.ScheduledTask;
   const canDeleteSession = !(isAgentHomeSession && isDefaultAgentId(agent.id));
   const sourceLabel = getSessionSourceLabel(task);
   const indicator = task.indicator;
   const showRunningIndicator = indicator === AgentSidebarIndicator.Running;
   const showUnreadIndicator = indicator === AgentSidebarIndicator.CompletedUnread;
   const relativeTime = formatAgentTaskRelativeTime(task.updatedAt || task.createdAt);
-  const subtitle = task.lastMessagePreview || task.title;
+  const title = isScheduledTaskSession ? task.source?.label || task.title : agentName;
+  const subtitle = isScheduledTaskSession
+    ? task.lastMessagePreview || agentName
+    : task.lastMessagePreview || task.title;
   const trailingMetaClassName = isMenuOpen ? 'opacity-0' : 'group-hover:opacity-0';
   const menuItemClassName =
     'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
@@ -167,7 +171,7 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate text-[14px] font-medium leading-[18px] text-[#333] dark:text-foreground">
-              {agentName}
+              {title}
             </span>
             {sourceLabel && (
               <span className="shrink-0 rounded px-1 py-px text-[10px] leading-3 text-primary bg-primary/10 dark:text-primary-foreground dark:bg-white/[0.08]">
