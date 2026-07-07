@@ -202,7 +202,6 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
   ipcMain.handle(ScheduledTaskIpc.Delete, async (_event, id: string) => {
     try {
       await getCronJobService().removeJob(id);
-      getCoworkStore?.().deleteSessionSourcesForTask(id);
       return { success: true, result: true };
     } catch (error) {
       return {
