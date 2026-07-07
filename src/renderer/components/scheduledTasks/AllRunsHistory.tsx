@@ -2,13 +2,14 @@ import { ClockIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
-import { TaskStatus } from '../../../scheduledTask/constants';
+import { ScheduledTaskDataStatus, TaskStatus } from '../../../scheduledTask/constants';
 import type { RunFilter, ScheduledTaskRunWithName } from '../../../scheduledTask/types';
 import { i18nService } from '../../services/i18n';
 import { scheduledTaskService } from '../../services/scheduledTask';
 import { RootState } from '../../store';
 import DateInput from './DateInput';
 import RunSessionModal from './RunSessionModal';
+import ScheduledTaskDataState from './ScheduledTaskDataState';
 import { formatDateTime, formatDuration } from './utils';
 
 const STATUS_OPTIONS = [
@@ -62,6 +63,8 @@ const EMPTY_FILTER: RunFilter = {};
 const AllRunsHistory: React.FC = () => {
   const allRuns = useSelector((state: RootState) => state.scheduledTask.allRuns);
   const allRunsHasMore = useSelector((state: RootState) => state.scheduledTask.allRunsHasMore);
+  const allRunsStatus = useSelector((state: RootState) => state.scheduledTask.allRunsStatus);
+  const allRunsError = useSelector((state: RootState) => state.scheduledTask.allRunsError);
   const [viewingRun, setViewingRun] = useState<ScheduledTaskRunWithName | null>(null);
   const [filter, setFilter] = useState<RunFilter>(EMPTY_FILTER);
 
@@ -102,12 +105,26 @@ const AllRunsHistory: React.FC = () => {
   };
 
   const handleViewSession = (run: ScheduledTaskRunWithName) => {
-    if (run.sessionId || run.sessionKey) {
+    if (run.sessionId || run.sessionKey || run.summary || run.error) {
       setViewingRun(run);
     }
   };
 
   const isEmpty = displayedRuns.length === 0;
+
+  if (allRunsStatus !== ScheduledTaskDataStatus.Ready) {
+    return (
+      <div className={historyPageClass}>
+        <div className={historyContentClass}>
+          <ScheduledTaskDataState
+            status={allRunsStatus}
+            error={allRunsError}
+            onRetry={() => loadInitial(filter)}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={historyPageClass}>
@@ -195,12 +212,12 @@ const AllRunsHistory: React.FC = () => {
             <div className="p-2">
               {displayedRuns.map(run => {
                 const cfg = statusConfig[run.status];
-                const hasSession = run.sessionId || run.sessionKey;
+                const canViewRun = run.sessionId || run.sessionKey || run.summary || run.error;
                 return (
                   <div
                     key={run.id}
                     className={`${historyGridClass} rounded-md px-3 py-3 transition-colors ${
-                      hasSession ? 'hover:bg-surface-raised/60 cursor-pointer' : ''
+                      canViewRun ? 'hover:bg-surface-raised/60 cursor-pointer' : ''
                     }`}
                     onClick={() => handleViewSession(run)}
                   >
@@ -268,6 +285,8 @@ const AllRunsHistory: React.FC = () => {
           <RunSessionModal
             sessionId={viewingRun.sessionId}
             sessionKey={viewingRun.sessionKey}
+            runSummary={viewingRun.summary}
+            runError={viewingRun.error}
             onClose={() => setViewingRun(null)}
           />
         )}

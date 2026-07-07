@@ -88,6 +88,16 @@ export const GatewayStatus = {
 } as const;
 export type GatewayStatus = typeof GatewayStatus[keyof typeof GatewayStatus];
 
+// ─── Renderer Data Status ──────────────────────────────────────────────────
+export const ScheduledTaskDataStatus = {
+  Starting: 'starting',
+  Loading: 'loading',
+  Ready: 'ready',
+  Error: 'error',
+} as const;
+export type ScheduledTaskDataStatus =
+  typeof ScheduledTaskDataStatus[keyof typeof ScheduledTaskDataStatus];
+
 // ─── Default Agent ID ───────────────────────────────────────────────────────
 export const DefaultAgentId = 'main' as const;
 

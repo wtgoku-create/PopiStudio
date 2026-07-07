@@ -3,7 +3,14 @@ import { PlatformRegistry } from '@shared/platform';
 import React, { useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
-import { DeliveryMode, PayloadKind, ScheduleKind, SessionTarget, WakeMode } from '../../../scheduledTask/constants';
+import {
+  DeliveryChannel,
+  DeliveryMode,
+  PayloadKind,
+  ScheduleKind,
+  SessionTarget,
+  WakeMode,
+} from '../../../scheduledTask/constants';
 import type {
   ScheduledTask,
   ScheduledTaskChannelOption,
@@ -194,7 +201,10 @@ export function createScheduledTaskFormState(
     weekdays: planInfo.weekdays,
     monthDay: planInfo.monthDay,
     payloadText: task.payload.kind === PayloadKind.SystemEvent ? task.payload.text : task.payload.message,
-    notifyChannel: task.delivery.channel || 'none',
+    notifyChannel:
+      task.delivery.mode === DeliveryMode.Announce && task.delivery.channel
+        ? task.delivery.channel
+        : 'none',
     notifyTo: task.delivery.to || '',
     cronExpr: rawCronExpr,
     cronTz: planInfo.cronTz ?? (task.schedule.kind === ScheduleKind.Cron ? (task.schedule.tz ?? '') : ''),
@@ -241,6 +251,32 @@ function buildScheduleInput(form: FormState): ScheduledTaskInput['schedule'] {
   }
 
   return { kind: ScheduleKind.Cron, expr: `${min} ${hr} ${form.monthDay} * *` };
+}
+
+export function buildScheduledTaskInputFromForm(
+  form: FormState,
+  schedule: ScheduledTaskInput['schedule'],
+  payload: ScheduledTaskInput['payload'],
+): ScheduledTaskInput {
+  const delivery: ScheduledTaskInput['delivery'] =
+    form.notifyChannel === 'none' || form.notifyChannel === DeliveryChannel.Last
+      ? { mode: DeliveryMode.None }
+      : {
+          mode: DeliveryMode.Announce,
+          channel: form.notifyChannel,
+          ...(form.notifyTo ? { to: form.notifyTo } : {}),
+          ...(form.notifyAccountId ? { accountId: form.notifyAccountId } : {}),
+        };
+  return {
+    name: form.name.trim(),
+    description: '',
+    enabled: true,
+    schedule,
+    sessionTarget: SessionTarget.Isolated,
+    wakeMode: WakeMode.Now,
+    payload,
+    delivery,
+  };
 }
 
 const WEEKDAY_KEYS = [
@@ -494,24 +530,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
             model: form.modelId,
           };
 
-      const input: ScheduledTaskInput = {
-        name: form.name.trim(),
-        description: '',
-        enabled: true,
-        schedule,
-        sessionTarget: SessionTarget.Isolated,
-        wakeMode: WakeMode.Now,
-        payload,
-        delivery:
-          form.notifyChannel === 'none'
-            ? { mode: DeliveryMode.None }
-            : {
-                mode: DeliveryMode.Announce,
-                channel: form.notifyChannel,
-                ...(form.notifyTo ? { to: form.notifyTo } : {}),
-                ...(form.notifyAccountId ? { accountId: form.notifyAccountId } : {}),
-              },
-      };
+      const input = buildScheduledTaskInputFromForm(form, schedule, payload);
 
       if (mode === 'create') {
         const newId = await scheduledTaskService.createTask(input);

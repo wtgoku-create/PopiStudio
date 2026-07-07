@@ -7,6 +7,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
+import { ScheduledTaskDataStatus } from '../../../scheduledTask/constants';
 import type { ScheduledTask } from '../../../scheduledTask/types';
 import { i18nService } from '../../services/i18n';
 import { scheduledTaskService } from '../../services/scheduledTask';
@@ -15,6 +16,7 @@ import { selectTask, setViewMode } from '../../store/slices/scheduledTaskSlice';
 import EditIcon from '../icons/EditIcon';
 import TrashIcon from '../icons/TrashIcon';
 import Switch from '../ui/Switch';
+import ScheduledTaskDataState from './ScheduledTaskDataState';
 import {
   formatNextRunRelative,
   formatScheduleLabel,
@@ -230,13 +232,20 @@ interface TaskListProps {
 
 const TaskList: React.FC<TaskListProps> = ({ onRequestDelete }) => {
   const tasks = useSelector((state: RootState) => state.scheduledTask.tasks);
-  const loading = useSelector((state: RootState) => state.scheduledTask.loading);
+  const status = useSelector((state: RootState) => state.scheduledTask.taskListStatus);
+  const error = useSelector((state: RootState) => state.scheduledTask.taskListError);
 
-  if (loading) {
+  if (status !== ScheduledTaskDataStatus.Ready) {
     return (
       <div className={listPageClass}>
-        <div className={`${listContentClass} flex items-center justify-center py-16`}>
-          <div className="text-secondary">{i18nService.t('loading')}</div>
+        <div className={listContentClass}>
+          <ScheduledTaskDataState
+            status={status}
+            error={error}
+            onRetry={() => {
+              void scheduledTaskService.loadTasks();
+            }}
+          />
         </div>
       </div>
     );

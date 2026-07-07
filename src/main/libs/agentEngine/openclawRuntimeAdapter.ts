@@ -27,6 +27,7 @@ import {
 import { OPENCLAW_AGENT_TIMEOUT_SECONDS } from '../openclawConfigSync';
 import {
   OpenClawEngineManager,
+  type OpenClawEngineStatus,
   type OpenClawGatewayConnectionInfo,
 } from '../openclawEngineManager';
 import {
@@ -1665,16 +1666,30 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
   }
 
+  getEngineStatusSnapshot(): OpenClawEngineStatus {
+    return this.engineManager.getStatus();
+  }
+
   /**
    * Fetch session history from OpenClaw by sessionKey and return a transient
    * CoworkSession object (not persisted to local database).
    * First checks if a local session already exists via channel sync.
    * Returns a CoworkSession if successful, or null.
    */
-  async fetchSessionByKey(sessionKey: string): Promise<CoworkSession | null> {
+  async fetchSessionByKey(
+    sessionKey: string,
+    options: { sessionId?: string | null } = {},
+  ): Promise<CoworkSession | null> {
     const managedSession = parseManagedSessionKey(sessionKey);
     if (managedSession) {
       return this.store.getSession(managedSession.sessionId) ?? null;
+    }
+
+    if (options.sessionId) {
+      const session = this.store.getSession(options.sessionId);
+      if (session && session.messages.length > 0) {
+        return session;
+      }
     }
 
     // 1. Try existing local session via channel/main-agent resolution

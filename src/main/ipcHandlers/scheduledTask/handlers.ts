@@ -10,6 +10,7 @@ import type { CronJobService } from '../../../scheduledTask/cronJobService';
 import type { ScheduledTask } from '../../../scheduledTask/types';
 import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { PlatformRegistry } from '../../../shared/platform';
+import type { OpenClawEnginePhase } from '../../libs/openclawEngineManager';
 import type { CoworkStore } from '../../coworkStore';
 import { parseManagedSessionKey } from '../../libs/openclawChannelSessionSync';
 import { listScheduledTaskChannels } from './helpers';
@@ -47,7 +48,12 @@ export interface ScheduledTaskHandlerDeps {
   } | null;
   getOpenClawRuntimeAdapter: () => {
     getGatewayClient: () => unknown;
-    fetchSessionByKey: (sessionKey: string) => Promise<unknown>;
+    getEngineStatusSnapshot: () => { phase: OpenClawEnginePhase };
+    connectGatewayIfNeeded: () => Promise<void>;
+    fetchSessionByKey: (
+      sessionKey: string,
+      options?: { sessionId?: string | null },
+    ) => Promise<unknown>;
   } | null;
   getCoworkStore?: () => CoworkStore;
 }
@@ -126,6 +132,21 @@ async function applyAnnounceDeliveryNormalization(
   }
 }
 
+async function ensureScheduledTaskGatewayClient(
+  getOpenClawRuntimeAdapter: ScheduledTaskHandlerDeps['getOpenClawRuntimeAdapter'],
+): Promise<boolean> {
+  const adapter = getOpenClawRuntimeAdapter();
+  if (!adapter) return false;
+  if (adapter.getGatewayClient()) return true;
+
+  if (adapter.getEngineStatusSnapshot().phase !== 'running') {
+    return false;
+  }
+
+  await adapter.connectGatewayIfNeeded();
+  return Boolean(adapter.getGatewayClient());
+}
+
 export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): void {
   const { getCronJobService, getIMGatewayManager, getOpenClawRuntimeAdapter, getCoworkStore } = deps;
 
@@ -134,11 +155,11 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
       // If OpenClaw gateway is not connected yet, return empty list immediately
       // to avoid blocking the renderer init. Tasks will be loaded later via the
       // onRefresh listener when the gateway becomes available.
-      if (!getOpenClawRuntimeAdapter()?.getGatewayClient()) {
-        return { success: true, tasks: [] };
+      if (!(await ensureScheduledTaskGatewayClient(getOpenClawRuntimeAdapter))) {
+        return { success: true, ready: false, tasks: [] };
       }
       const tasks = await getCronJobService().listJobs();
-      return { success: true, tasks };
+      return { success: true, ready: true, tasks };
     } catch (error) {
       return {
         success: false,
@@ -167,7 +188,7 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
 
       const task = await getCronJobService().addJob(normalizedInput);
       syncScheduledTaskSessionSource(task, getCoworkStore);
-      console.log('[IPC][scheduledTask:create] result task id:', task?.id, 'name:', task?.name);
+      console.log('[ScheduledTask] created scheduled task');
       return { success: true, task };
     } catch (error) {
       return {
@@ -189,7 +210,7 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
 
       const task = await getCronJobService().updateJob(id, normalizedInput);
       syncScheduledTaskSessionSource(task, getCoworkStore);
-      console.log('[IPC][scheduledTask:update] result task id:', task?.id, 'name:', task?.name);
+      console.log('[ScheduledTask] updated scheduled task');
       return { success: true, task };
     } catch (error) {
       return {
@@ -287,8 +308,11 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
       filter?: import('../../../scheduledTask/types').RunFilter,
     ) => {
       try {
+        if (!(await ensureScheduledTaskGatewayClient(getOpenClawRuntimeAdapter))) {
+          return { success: true, ready: false, runs: [] };
+        }
         const runs = await getCronJobService().listAllRuns(limit, offset, filter);
-        return { success: true, runs };
+        return { success: true, ready: true, runs };
       } catch (error) {
         return {
           success: false,
@@ -298,19 +322,29 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
     },
   );
 
-  ipcMain.handle(ScheduledTaskIpc.ResolveSession, async (_event, sessionKey: string) => {
-    try {
-      if (!sessionKey) return { success: true, session: null };
-      // Fetch session history from OpenClaw (returns transient session, not persisted)
-      const session = await getOpenClawRuntimeAdapter()?.fetchSessionByKey(sessionKey);
-      return { success: true, session: session ?? null };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to resolve session',
-      };
-    }
-  });
+  ipcMain.handle(
+    ScheduledTaskIpc.ResolveSession,
+    async (
+      _event,
+      input: string | { sessionId?: string | null; sessionKey?: string | null },
+    ) => {
+      try {
+        const sessionKey = typeof input === 'string' ? input : (input.sessionKey ?? '');
+        const sessionId = typeof input === 'string' ? null : (input.sessionId ?? null);
+        if (!sessionKey) return { success: true, session: null };
+        // Fetch session history from OpenClaw (returns transient session, not persisted)
+        const session = await getOpenClawRuntimeAdapter()?.fetchSessionByKey(sessionKey, {
+          sessionId,
+        });
+        return { success: true, session: session ?? null };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to resolve session',
+        };
+      }
+    },
+  );
 
   ipcMain.handle(ScheduledTaskIpc.ListChannels, async () => {
     try {
