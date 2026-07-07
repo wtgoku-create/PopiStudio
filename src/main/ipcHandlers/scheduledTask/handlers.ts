@@ -201,7 +201,12 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
 
   ipcMain.handle(ScheduledTaskIpc.Delete, async (_event, id: string) => {
     try {
-      await getCronJobService().removeJob(id);
+      const cronJobService = getCronJobService();
+      const task = await cronJobService.getJob(id);
+      if (task?.state.runningAtMs) {
+        return { success: false, error: 'Cannot delete a scheduled task while it is running.' };
+      }
+      await cronJobService.removeJob(id);
       return { success: true, result: true };
     } catch (error) {
       return {

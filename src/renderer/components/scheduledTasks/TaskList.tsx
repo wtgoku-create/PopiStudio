@@ -203,10 +203,13 @@ const TaskListItem: React.FC<TaskListItemProps> = ({ task, onRequestDelete }) =>
                   type="button"
                   onClick={event => {
                     event.stopPropagation();
+                    if (task.state.runningAtMs) return;
                     setShowMenu(false);
                     onRequestDelete(task.id, task.name);
                   }}
-                  className={destructiveMenuItemClassName}
+                  disabled={Boolean(task.state.runningAtMs)}
+                  title={task.state.runningAtMs ? i18nService.t('scheduledTasksCannotDeleteRunning') : undefined}
+                  className={`${destructiveMenuItemClassName} disabled:cursor-not-allowed disabled:opacity-50`}
                 >
                   <TrashIcon className={menuIconClassName} />
                   {i18nService.t('scheduledTasksDelete')}

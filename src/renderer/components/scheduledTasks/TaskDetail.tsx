@@ -82,8 +82,11 @@ const TaskDetail: React.FC<TaskDetailProps> = ({ task, onRequestDelete }) => {
           <button
             type="button"
             onClick={() => onRequestDelete(task.id, task.name)}
-            className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-            title={i18nService.t('scheduledTasksDelete')}
+            disabled={Boolean(task.state.runningAtMs)}
+            className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            title={task.state.runningAtMs
+              ? i18nService.t('scheduledTasksCannotDeleteRunning')
+              : i18nService.t('scheduledTasksDelete')}
           >
             <TrashIcon className="w-4 h-4" />
           </button>

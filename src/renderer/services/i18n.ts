@@ -1970,6 +1970,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     scheduledTasksEdit: '编辑',
     scheduledTasksDelete: '删除',
     scheduledTasksDeleteConfirm: '确定要删除任务「{name}」吗？此操作不可撤销。',
+    scheduledTasksCannotDeleteRunning: '任务运行中，无法删除',
     scheduledTasksRun: '立即运行',
     scheduledTasksStop: '停止',
     scheduledTasksEnabled: '已启用',
@@ -4277,6 +4278,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     scheduledTasksDelete: 'Delete',
     scheduledTasksDeleteConfirm:
       'Are you sure you want to delete task "{name}"? This cannot be undone.',
+    scheduledTasksCannotDeleteRunning: 'Cannot delete a running task',
     scheduledTasksRun: 'Run Now',
     scheduledTasksStop: 'Stop',
     scheduledTasksEnabled: 'Enabled',
