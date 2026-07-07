@@ -3293,6 +3293,112 @@ test('syncSystemMessagesFromHistory skips pure heartbeat ack system messages', (
   expect(getSystemMessages(session).map((message) => message.content)).toEqual(['Reminder fired']);
 });
 
+test('child lifecycle end marks matching subagent done before local session resolution', () => {
+  const runs = new Map<string, Record<string, unknown>>();
+  const subagentRunStore = {
+    insertSubagentRun: vi.fn((run: Record<string, unknown>) => {
+      runs.set(run.id as string, { ...run });
+    }),
+    updateSubagentRunStatus: vi.fn((id: string, status: string, endedAt?: number) => {
+      const run = runs.get(id);
+      if (run) {
+        run.status = status;
+        run.endedAt = endedAt;
+      }
+    }),
+    listSubagentRuns: () => [],
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    { getSession: () => null } as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const childSessionKey = 'agent:main:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31';
+
+  adapter.subagentTracker.onToolStart(
+    'call-fibonacci',
+    { taskName: 'fibonacci', task: 'calculate fibonacci' },
+    'parent-session',
+  );
+  adapter.subagentTracker.onSpawnResult(
+    'call-fibonacci',
+    JSON.stringify({
+      status: 'accepted',
+      childSessionKey,
+      runId: '7d6f0db8-1066-4900-b6ea-a47b23825c8e',
+    }),
+    {},
+  );
+
+  adapter.handleAgentEvent({
+    runId: '7d6f0db8-1066-4900-b6ea-a47b23825c8e',
+    sessionKey: childSessionKey,
+    stream: 'lifecycle',
+    data: { phase: 'end' },
+  }, 1);
+
+  expect(subagentRunStore.updateSubagentRunStatus).toHaveBeenCalledWith(
+    'call-fibonacci',
+    'done',
+    expect.any(Number),
+  );
+  expect(runs.get('call-fibonacci')?.status).toBe('done');
+});
+
+test('child chat final marks matching subagent done before local session resolution', () => {
+  const runs = new Map<string, Record<string, unknown>>();
+  const subagentRunStore = {
+    insertSubagentRun: vi.fn((run: Record<string, unknown>) => {
+      runs.set(run.id as string, { ...run });
+    }),
+    updateSubagentRunStatus: vi.fn((id: string, status: string, endedAt?: number) => {
+      const run = runs.get(id);
+      if (run) {
+        run.status = status;
+        run.endedAt = endedAt;
+      }
+    }),
+    listSubagentRuns: () => [],
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    { getSession: () => null } as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const childSessionKey = 'agent:main:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31';
+
+  adapter.subagentTracker.onToolStart(
+    'call-fibonacci',
+    { taskName: 'fibonacci', task: 'calculate fibonacci' },
+    'parent-session',
+  );
+  adapter.subagentTracker.onSpawnResult(
+    'call-fibonacci',
+    JSON.stringify({
+      status: 'accepted',
+      childSessionKey,
+      runId: '7d6f0db8-1066-4900-b6ea-a47b23825c8e',
+    }),
+    {},
+  );
+
+  adapter.handleChatEvent({
+    state: 'final',
+    runId: '7d6f0db8-1066-4900-b6ea-a47b23825c8e',
+    sessionKey: childSessionKey,
+    message: { role: 'assistant', content: 'completed' },
+  }, 1);
+
+  expect(subagentRunStore.updateSubagentRunStatus).toHaveBeenCalledWith(
+    'call-fibonacci',
+    'done',
+    expect.any(Number),
+  );
+  expect(runs.get('call-fibonacci')?.status).toBe('done');
+});
+
 test('collectChannelHistoryEntries skips heartbeat prompt and ack messages', () => {
   const { store } = createHistoryStore([]);
   const adapter = new OpenClawRuntimeAdapter(store, {});

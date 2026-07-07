@@ -96,5 +96,6 @@ export interface CoworkRuntime {
   respondToPermission(requestId: string, result: PermissionResult): void;
   isSessionActive(sessionId: string): boolean;
   getSessionConfirmationMode(sessionId: string): 'modal' | 'text' | null;
+  deleteSubagentSession?(parentSessionId: string, runId: string): Promise<boolean>;
   onSessionDeleted?(sessionId: string): void;
 }
