@@ -16,7 +16,11 @@ import {
   ContextCompactionStatus,
   CoworkSystemMessageKind,
 } from '../../../common/coworkSystemMessages';
-import { OpenClawRuntimeAdapter, pickPersistedAssistantSegment } from './openclawRuntimeAdapter';
+import {
+  isSignificantAssistantStreamReset,
+  OpenClawRuntimeAdapter,
+  pickPersistedAssistantSegment,
+} from './openclawRuntimeAdapter';
 
 test('pickPersistedAssistantSegment: stream authority keeps previous when same length or longer', () => {
   expect(pickPersistedAssistantSegment('aa', 'a', true)).toEqual({
@@ -56,6 +60,13 @@ test('pickPersistedAssistantSegment: empty branches', () => {
     content: 'prev',
     reason: 'previous_only',
   });
+});
+
+test('isSignificantAssistantStreamReset ignores tiny drops and accepts large resets', () => {
+  expect(isSignificantAssistantStreamReset(120, 118)).toBe(false);
+  expect(isSignificantAssistantStreamReset(120, 90)).toBe(false);
+  expect(isSignificantAssistantStreamReset(120, 70)).toBe(true);
+  expect(isSignificantAssistantStreamReset(5, 1)).toBe(false);
 });
 
 test('context usage ignores non-checkpoint compactionCount', () => {
