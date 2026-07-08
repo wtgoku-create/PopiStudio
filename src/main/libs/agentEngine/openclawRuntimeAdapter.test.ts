@@ -528,6 +528,22 @@ function createReconcileStore(messages: Array<Record<string, unknown>>) {
         session.messages.push(created);
         return created;
       },
+      insertMessageBeforeId: (sessionId: string, beforeMessageId: string, message: Record<string, unknown>) => {
+        expect(sessionId).toBe(session.id);
+        const created = {
+          id: `msg-${nextId++}`,
+          timestamp: nextId,
+          metadata: {},
+          ...message,
+        };
+        const targetIndex = session.messages.findIndex((item) => item.id === beforeMessageId);
+        if (targetIndex >= 0) {
+          session.messages.splice(targetIndex, 0, created);
+        } else {
+          session.messages.push(created);
+        }
+        return created;
+      },
       updateSession: (sessionId: string, patch: Record<string, unknown>) => {
         expect(sessionId).toBe(session.id);
         Object.assign(session, patch);
@@ -999,6 +1015,56 @@ test('lifecycle fallback waits when history sync returns a short assistant segme
   } finally {
     vi.useRealTimers();
   }
+});
+
+test('assistant stream inserts OpenAI reasoning block before visible assistant text', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'explain the plan', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:popiai:${session.id}`;
+  const messageSpy = vi.fn();
+  const updateSpy = vi.fn();
+
+  session.status = 'running';
+  adapter.on('message', messageSpy);
+  adapter.on('messageUpdate', updateSpy);
+  const turn = createActiveTurn(session.id, sessionKey, 'run-reasoning');
+  adapter.activeTurns.set(session.id, turn);
+  adapter.sessionIdByRunId.set('run-reasoning', session.id);
+  adapter.rememberSessionKey(session.id, sessionKey);
+
+  adapter.processAgentAssistantText({
+    runId: 'run-reasoning',
+    sessionKey,
+    stream: 'assistant',
+    data: { text: 'Visible answer.' },
+  });
+  adapter.processAgentAssistantText({
+    runId: 'run-reasoning',
+    sessionKey,
+    stream: 'assistant',
+    data: {
+      text: 'Visible answer.',
+      reasoning_content: 'Need to explain the plan first.',
+    },
+  });
+
+  const assistantMessages = session.messages.filter((message) => message.type === 'assistant');
+  expect(assistantMessages).toHaveLength(2);
+  expect(assistantMessages.map((message) => message.metadata?.isThinking === true)).toEqual([true, false]);
+  expect(assistantMessages.map((message) => message.content)).toEqual([
+    'Need to explain the plan first.',
+    'Visible answer.',
+  ]);
+  expect(messageSpy).toHaveBeenCalledWith(
+    session.id,
+    expect.objectContaining({
+      content: 'Need to explain the plan first.',
+      metadata: expect.objectContaining({ isThinking: true }),
+    }),
+    assistantMessages[1].id,
+  );
 });
 
 test('chat final backfills only current-turn tool results from history', async () => {
