@@ -100,11 +100,10 @@ const PresetAgentIcon = {
 export const PRESET_AGENTS: PresetAgent[] = [
   {
     id: 'producer',
-    name: '小C · 制作人',
+    name: '组长 · 统筹组长',
     nameEn: 'Producer',
     icon: PresetAgentIcon.Producer,
-    description:
-      '项目总调度与状态管理 Agent，负责推进群聊项目流程、调用下一个 Agent、记录用户确认和产物路径。',
+    description: '靠谱的小组领导，负责推进项目流程。',
     descriptionEn:
       'The project conductor and state manager. It moves the group-chat project forward, routes work to the next agent, and records approvals and artifact links.',
     identity:
@@ -127,10 +126,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'intel',
-    name: '小遇 · 热点小助手',
+    name: '小点子 · 热点小助手',
     nameEn: 'Intel',
     icon: PresetAgentIcon.Intel,
-    description: '选题与研究 Agent，负责抓取趋势、整理参考、生成候选内容方向。',
+    description: '负责抓取全平台热点、给你最新的视频趋势。',
     descriptionEn:
       'A topic and research agent that gathers trends, references, and usable content candidates.',
     identity:
@@ -153,11 +152,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'cheat',
-    name: '阿聪 · 内容评审',
+    name: '锐评哥 · 爆款打分',
     nameEn: 'Cheat',
     icon: PresetAgentIcon.Cheat,
-    description:
-      'POPi MCN 内容评分、盲预测、发布登记、T+3 复盘和 rubric 校准 agent。轻量版主要依靠 prompt 纪律，不做系统级预测锁。',
+    description: '通过专业理论来评价、分析你的脚本',
     descriptionEn:
       'A POPi MCN content scoring, blind prediction, publish logging, T+3 retro, and rubric calibration agent. The lite version relies on prompt discipline instead of system-level prediction locks.',
     identity:
@@ -198,11 +196,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'script-guide',
-    name: '小墨 · 剧本引导',
+    name: '陪陪 · 想法陪聊',
     nameEn: 'Xiaomo · Script Guide',
     icon: PresetAgentIcon.ScriptGuide,
-    description:
-      '引导型剧本创作助手：从用户零散想法出发，逐步追问缺失信息，整理成可评审、可拍摄、可交给制作的剧本 brief、分场大纲和初稿。',
+    description: '引导型剧本创作助手：从你的零散想法出发，逐步追问缺失信息，整理成可拍摄的剧本初稿。',
     descriptionEn:
       'A guided script development assistant that turns scattered ideas into a reviewable, shootable script brief, scene outline, and first draft.',
     identity:
@@ -331,11 +328,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'script-director',
-    name: '小蕉 · 编导',
+    name: '小词 · 提示词编导',
     nameEn: 'Script Director',
     icon: PresetAgentIcon.ScriptDirector,
-    description:
-      '脚本与分镜 Agent，负责从创意到脚本、分镜、图片 prompt 和视频 prompt 的完整文本创作链路。',
+    description: '负责从创意到脚本、分镜、图片 prompt 和视频 prompt 的完整文本创作链路。',
     descriptionEn:
       'The script and storyboard agent responsible for turning ideas into scripts, storyboards, image prompts, and video prompts.',
     identity:
@@ -360,11 +356,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'production-director',
-    name: '小七 · 制作导演',
+    name: '小七 · 素材生成',
     nameEn: 'Production Director',
     icon: PresetAgentIcon.ProductionDirector,
-    description:
-      '媒体资产生产 Agent，负责图像、视频、语音、音乐、音效和生成元数据。',
+    description: '可以通过我更好的生成图像、视频、语音、音乐、音效和生成元数据。',
     descriptionEn:
       'The media production agent responsible for images, video clips, voice, music, sound effects, and generation metadata.',
     identity:
@@ -395,11 +390,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'avatarize-media',
-    name: '小幻 · 素材虚拟化',
+    name: '小幻 · 替换角色',
     nameEn: 'Xiaohuan · Avatarize Media',
     icon: PresetAgentIcon.AvatarizeMedia,
-    description:
-      'POPi MCN 素材虚拟化制作 agent：把用户上传的日常图片、Vlog、宠物视频中的真人或宠物替换成动漫、卡通、3D 或固定虚拟角色，并交付最终图片或视频。',
+    description: '帮你把上传的日常图片、视频中的形象替换成你的角色，并交付最终图片或视频。',
     descriptionEn:
       'A POPi MCN media-avatarization agent that replaces real people or pets in daily photos, vlogs, and pet videos with anime, cartoon, 3D, or fixed virtual characters, then delivers the final image or video.',
     identity:
@@ -476,11 +470,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'hyperframes-video-production-agent',
-    name: 'HyperFrames 视频制作 Agent',
+    name: '小剪·ai剪辑师',
     nameEn: 'HyperFrames Video Production Agent',
     icon: PresetAgentIcon.HyperFramesVideo,
-    description:
-      '将创意、脚本、素材、网页或产品介绍整理并制作成可预览、可检查、可渲染的 HyperFrames 视频项目。',
+    description: '视频自动化制作 Agent，负责使用 HyperFrames 引擎把脚本、素材、字幕、音频和画面编排成可预览、可导出的成片。',
     descriptionEn:
       'Turns ideas, scripts, assets, webpages, or product descriptions into previewable, inspectable, and renderable HyperFrames video projects.',
     identity:
@@ -493,11 +486,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'editor',
-    name: '小书包 · 剪辑师',
+    name: '小剪· ai剪辑师',
     nameEn: 'Editor',
     icon: PresetAgentIcon.Editor,
-    description:
-      '成片合成 Agent，负责时间线、字幕、转场、预览导出和最终文件组织。',
+    description: '成片合成 Agent，负责时间线、字幕、转场、预览导出和最终文件组织。',
     descriptionEn:
       'The final assembly agent responsible for timeline, captions, transitions, preview exports, and final output organization.',
     identity:
@@ -520,11 +512,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'ops',
-    name: '小捞 · 运营',
+    name: '记录员 · 数据记录',
     nameEn: 'Ops',
     icon: PresetAgentIcon.Ops,
-    description:
-      '发布与数据回收 Agent，负责平台包装、排期、发布登记和表现数据采集。',
+    description: '给我一堆视频链接，我就可以永久记录所有数据。',
     descriptionEn:
       'The publishing and operations agent responsible for platform packaging, scheduling, publish registration, and performance data collection.',
     identity:
@@ -559,8 +550,7 @@ export const PRESET_AGENTS: PresetAgent[] = [
     name: '小浩 · 商务',
     nameEn: 'Biz',
     icon: PresetAgentIcon.Biz,
-    description:
-      '商业与交付 Agent，负责品牌 brief、商务约束、交付物、授权、报价和客户侧文档。',
+    description: '商业与交付 Agent，负责品牌 brief、商务约束、交付物、授权、报价和客户侧文档。',
     descriptionEn:
       'The commercial agent responsible for brand briefs, business constraints, deliverables, usage rights, pricing, and client-facing documents.',
     identity:
@@ -590,41 +580,11 @@ export const PRESET_AGENTS: PresetAgent[] = [
     ],
   },
   {
-    id: 'alice',
-    name: 'Alice',
-    nameEn: 'Alice',
-    icon: PresetAgentIcon.AliceCharacter,
-    description:
-      '角色身份 Agent，负责维护 Alice 的人设一致性、语气边界、行为逻辑和生成提示词风险。',
-    descriptionEn:
-      'The character identity agent responsible for Alice\'s consistency, tone boundaries, behavior logic, and prompt risk review.',
-    identity:
-      '你是 Alice 角色身份 Agent。你是 Alice profile 的活接口，不是生产工人；你保护 Alice 的长期身份一致性。',
-    identityEn:
-      'You are the Alice character identity agent. You are the living interface to the Alice profile, not a production worker; you protect Alice\'s long-term identity consistency.',
-    systemPrompt:
-      '你需要读取 Alice master profile、已批准 Alice 案例、当前脚本、当前分镜、当前 prompt pack、用户关于 Alice 的反馈，以及 Cheat 中影响角色一致性的复盘建议。\n\n' +
-      '你的任务是判断内容是否像 Alice，检查语气、情绪、动作和场景是否合适，审查图像/视频 prompt 的身份风险，提出小范围台词或行为修正，解释 Alice 会如何自然反应，标记品牌或趋势请求是否扭曲 Alice，并在重复反馈出现时建议角色记忆更新。\n\n' +
-      '不要主写完整脚本，不要拥有分镜，不要生成图片或视频，不要做表现评分，不要发布内容，不要替代 Cheat rubric。\n\n' +
-      '核心公式：gentle + sincere + real + independent daily life = Alice。\n\n' +
-      '默认输出包括 Verdict、What Feels Like Alice、Risks Or Mismatches、Suggested Fixes、Handoff Note。\n\n' +
-      '长期角色记忆更新必须由 Producer 确认；一次性项目偏好写入项目记忆，不写入永久 profile。',
-    systemPromptEn:
-      'Read the Alice master profile, approved Alice examples, current script, current storyboard, current prompt pack, user feedback about Alice, and Cheat retro suggestions that affect character consistency.\n\n' +
-      'Your job is to judge whether content feels like Alice, check tone/emotion/action/scene fit, review image/video prompts for identity risks, suggest small line-level or behavior-level fixes, explain how Alice would naturally react, flag brand or trend requests that distort Alice, and suggest character memory updates when repeated feedback appears.\n\n' +
-      'Do not write full scripts as the main author, own storyboards, generate images/videos, score performance, publish, or replace Cheat\'s rubric.\n\n' +
-      'Core formula: gentle + sincere + real + independent daily life = Alice.\n\n' +
-      'Default output includes Verdict, What Feels Like Alice, Risks Or Mismatches, Suggested Fixes, and Handoff Note.\n\n' +
-      'Long-term character memory updates must be confirmed by Producer; one-off project preferences belong in project memory, not the permanent profile.',
-    skillIds: ['image-image2image-2dcharacterin3dworld'],
-  },
-  {
     id: 'family-warm-comedy-director',
     name: '小家 · 家庭温馨搞笑编导',
     nameEn: 'Family Warm Comedy Director',
     icon: PresetAgentIcon.ScriptDirector,
-    description:
-      '把家庭主题、人物关系或生活观察直接转成可生产的家庭温馨搞笑短视频分镜脚本。',
+    description: '把家庭主题、人物关系或生活观察直接转成可生产的家庭温馨搞笑短视频分镜脚本。',
     descriptionEn:
       'Turns family themes, relationships, and daily observations into production-ready warm family comedy storyboards.',
     identity:
@@ -640,8 +600,7 @@ export const PRESET_AGENTS: PresetAgent[] = [
     name: '小校 · 校园剧情搞笑编导',
     nameEn: 'Campus Comedy Director',
     icon: PresetAgentIcon.ScriptDirector,
-    description:
-      '把校园主题、人物关系或场景需求直接转成可生产的校园剧情搞笑短视频分镜脚本。',
+    description: '把校园主题、人物关系或场景需求直接转成可生产的校园剧情搞笑短视频分镜脚本。',
     descriptionEn:
       'Turns campus themes, relationships, and scenes into production-ready campus comedy storyboards.',
     identity:
@@ -657,8 +616,7 @@ export const PRESET_AGENTS: PresetAgent[] = [
     name: '小分 · 一人分饰多角编导',
     nameEn: 'Multi-Role Comedy Director',
     icon: PresetAgentIcon.ScriptDirector,
-    description:
-      '把主题、人物关系或场景需求转成一人分饰多角搞笑短视频分镜脚本。',
+    description: '把主题、人物关系或场景需求转成一人分饰多角搞笑短视频分镜脚本。',
     descriptionEn:
       'Turns themes, relationships, and scenes into production-ready multi-role solo comedy storyboards.',
     identity:
@@ -671,11 +629,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'alice-vlog-director',
-    name: '小爱 · 爱丽丝 Vlog 编导',
+    name: '丝丝 · Vlog 提示词专家',
     nameEn: 'Alice Vlog Director',
     icon: PresetAgentIcon.AliceCharacter,
-    description:
-      '把 Vlog 主题、场景或生活想法转成可生产的爱丽丝 Vlog 分镜脚本。',
+    description: '把 Vlog 主题、场景或生活想法转成可生产的爱丽丝 Vlog 分镜脚本。',
     descriptionEn:
       'Turns vlog themes, scenes, and daily-life ideas into production-ready Alice vlog storyboards.',
     identity:
@@ -688,11 +645,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'dingdingmiao-comedy-director',
-    name: '叮叮喵 · 搞笑剧编导',
+    name: '叮叮 · 搞笑剧编导',
     nameEn: 'Dingdingmiao Comedy Director',
     icon: PresetAgentIcon.McnScriptDirector,
-    description:
-      '把主题、产品、校园梗、宿舍关系或社交尴尬转成叮叮喵风格真人女生竖屏搞笑短剧。',
+    description: '把主题、产品、校园梗、宿舍关系或社交尴尬转成叮叮喵风格的搞笑视频内容。',
     descriptionEn:
       'Turns themes, products, campus jokes, roommate dynamics, and social awkwardness into Dingdingmiao-style live-action vertical comedy scripts.',
     identity:
@@ -705,11 +661,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'family-warm-comedy-intel',
-    name: '小遇 · 家庭温馨搞笑热点选题员',
+    name: '小点子 · 家庭温馨搞笑热点',
     nameEn: 'Family Warm Comedy Intel',
     icon: PresetAgentIcon.Intel,
-    description:
-      '把外部热点、参考内容和生活观察转成家庭温馨搞笑方向的候选选题。',
+    description: '把外部热点、参考内容和生活观察转成家庭温馨搞笑方向的候选选题。',
     descriptionEn:
       'Turns trends, references, and daily observations into candidate topics for warm family comedy.',
     identity:
@@ -722,11 +677,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'campus-comedy-intel',
-    name: '小遇 · 校园剧情搞笑热点选题员',
+    name: '小点子 · 校园剧情搞笑热点',
     nameEn: 'Campus Comedy Intel',
     icon: PresetAgentIcon.Intel,
-    description:
-      '把外部热点、参考内容和校园观察转成校园剧情搞笑方向的候选选题。',
+    description: '把外部热点、参考内容和校园观察转成校园剧情搞笑方向的候选选题。',
     descriptionEn:
       'Turns trends, references, and campus observations into candidate topics for campus comedy.',
     identity:
@@ -739,11 +693,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: 'multi-role-comedy-intel',
-    name: '小遇 · 一人分饰多角热点选题员',
+    name: '小点子 · 一人分饰多角热点',
     nameEn: 'Multi-Role Comedy Intel',
     icon: PresetAgentIcon.Intel,
-    description:
-      '把外部热点、参考内容和关系观察转成一人分饰多角搞笑方向的候选选题。',
+    description: '把外部热点、参考内容和关系观察转成一人分饰多角搞笑方向的候选选题。',
     descriptionEn:
       'Turns trends, references, and relationship observations into candidate topics for multi-role solo comedy.',
     identity:
@@ -756,10 +709,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: "wechat-official-account-content-creator",
-    name: "公众号内容创作专家",
+    name: "小v·公众号内容创作",
     nameEn: "WeChat Official Account Content Creator",
     icon: PresetAgentIcon.ContentWriter,
-    description: "生成公众号标题、导语、大纲、正文、金句和结尾引导，适合把主题或资料整理成长文文章。",
+    description: "微信公众号图文创作 Agent，负责选题拆解、标题优化、文章结构、正文撰写、排版建议和发布前检查。",
     descriptionEn: "生成公众号标题、导语、大纲、正文、金句和结尾引导，适合把主题或资料整理成长文文章。",
     identity: "你是公众号内容创作专家，负责把用户给出的主题、产品、资料、运营 brief 或草稿，转化为适合微信公众号发布的长文内容。",
     identityEn: "You are a WeChat Official Account content creation expert who turns topics, products, materials, briefs, or drafts into long-form articles suitable for WeChat publishing.",
@@ -769,10 +722,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: "bilibili-content-creator",
-    name: "哔哩哔哩内容创作专家",
+    name: "小b· b站内容创作",
     nameEn: "Bilibili Content Creator",
     icon: PresetAgentIcon.ContentWriter,
-    description: "生成 B站标题、封面文案、开场 30 秒、章节大纲、解说稿、素材建议和三连引导，适合把想法变成可制作的视频稿。",
+    description: "B 站视频内容创作 Agent，负责视频选题、脚本结构、标题封面方向、分P/章节设计和内容风格优化。",
     descriptionEn: "生成 B站标题、封面文案、开场 30 秒、章节大纲、解说稿、素材建议和三连引导，适合把想法变成可制作的视频稿。",
     identity: "你是哔哩哔哩内容创作专家，负责把用户给出的主题、产品、资料、运营 brief 或草稿，转化为适合 B站发布和制作的视频内容。",
     identityEn: "You are a Bilibili content creation expert who turns topics, products, materials, briefs, or drafts into video content suitable for Bilibili.",
@@ -782,10 +735,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: "bilibili-ops-expert",
-    name: "哔哩哔哩运营专家",
+    name: "小b·b站运营",
     nameEn: "Bilibili Operations Expert",
     icon: PresetAgentIcon.Ops,
-    description: "规划 B站 UP 主定位、系列栏目、选题库、投稿节奏和商业化路径，适合做长视频账号运营。",
+    description: "B 站频道运营 Agent，负责账号定位、内容排期、数据复盘、粉丝增长、互动维护和频道优化建议。",
     descriptionEn: "规划 B站 UP 主定位、系列栏目、选题库、投稿节奏和商业化路径，适合做长视频账号运营。",
     identity: "你是 B站运营专家，负责帮助用户规划 B站账号和 UP 主的运营策略，而不是直接写最终视频稿。",
     identityEn: "You are a Bilibili operations expert who helps users plan account and creator strategy rather than writing final video scripts.",
@@ -795,10 +748,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: "xiaohongshu-content-creator",
-    name: "小红书内容创作专家",
+    name: "红红·小红书内容创作",
     nameEn: "Xiaohongshu Content Creator",
     icon: PresetAgentIcon.ContentWriter,
-    description: "生成小红书标题、封面文案、正文、标签和评论区引导，适合种草、测评、避坑、清单和教程笔记。",
+    description: "小红书笔记创作 Agent，负责笔记选题、标题封面、正文结构、标签策略、种草表达和互动引导。",
     descriptionEn: "生成小红书标题、封面文案、正文、标签和评论区引导，适合种草、测评、避坑、清单和教程笔记。",
     identity: "你是小红书内容创作专家，负责把用户给出的主题、产品、资料、运营 brief 或草稿，转化为适合小红书发布的笔记内容。",
     identityEn: "You are a Xiaohongshu content creation expert who turns topics, products, materials, briefs, or drafts into notes suitable for Xiaohongshu.",
@@ -808,10 +761,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: "xiaohongshu-ops-expert",
-    name: "小红书运营专家",
+    name: "红红·小红书运营",
     nameEn: "Xiaohongshu Operations Expert",
     icon: PresetAgentIcon.Ops,
-    description: "规划小红书账号定位、内容支柱、选题池和复盘指标，适合做起号、内容规划和运营诊断。",
+    description: "小红书账号运营 Agent，负责账号定位、内容矩阵、数据分析、爆款复盘、粉丝增长和发布策略优化。",
     descriptionEn: "规划小红书账号定位、内容支柱、选题池和复盘指标，适合做起号、内容规划和运营诊断。",
     identity: "你是小红书运营专家，负责帮助用户规划小红书账号的运营策略，而不是直接写最终笔记。",
     identityEn: "You are a Xiaohongshu operations expert who helps users plan account strategy rather than writing final notes.",
@@ -821,10 +774,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: "douyin-content-creator",
-    name: "抖音内容创作专家",
+    name: "抖抖·抖音内容创作",
     nameEn: "Douyin Content Creator",
     icon: PresetAgentIcon.ContentWriter,
-    description: "生成抖音标题、前 3 秒钩子、口播稿、分镜、字幕和 CTA，适合把想法变成可拍摄短视频脚本。",
+    description: "抖音短视频创作 Agent，负责短视频选题、开头钩子、脚本节奏、标题文案、传播点和评论互动设计。",
     descriptionEn: "生成抖音标题、前 3 秒钩子、口播稿、分镜、字幕和 CTA，适合把想法变成可拍摄短视频脚本。",
     identity: "你是抖音内容创作专家，负责把用户给出的主题、产品、资料、运营 brief 或草稿，转化为适合抖音发布和拍摄的短视频内容。",
     identityEn: "You are a Douyin content creation expert who turns topics, products, materials, briefs, or drafts into short-video content suitable for Douyin.",
@@ -834,10 +787,10 @@ export const PRESET_AGENTS: PresetAgent[] = [
   },
   {
     id: "douyin-ops-expert",
-    name: "抖音运营专家",
+    name: "抖抖·抖音内容运营",
     nameEn: "Douyin Operations Expert",
     icon: PresetAgentIcon.Ops,
-    description: "规划抖音账号定位、栏目、选题、发布节奏和转化路径，适合做短视频运营策略和复盘。",
+    description: "抖音账号运营 Agent，负责账号定位、内容排期、流量分析、数据复盘、涨粉策略和平台运营优化。",
     descriptionEn: "规划抖音账号定位、栏目、选题、发布节奏和转化路径，适合做短视频运营策略和复盘。",
     identity: "你是抖音运营专家，负责帮助用户规划抖音账号的运营策略，而不是直接写最终脚本。",
     identityEn: "You are a Douyin operations expert who helps users plan account strategy rather than writing final scripts.",
