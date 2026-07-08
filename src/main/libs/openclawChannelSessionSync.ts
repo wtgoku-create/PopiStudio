@@ -726,19 +726,6 @@ export class OpenClawChannelSessionSync {
       && delivery.channel
       && PlatformRegistry.isIMChannel(delivery.channel)
     ) {
-      if (delivery.to) {
-        const conversation = this.resolveConversationByDeliveryTarget(
-          delivery.channel,
-          delivery.to,
-          delivery.accountId,
-        );
-        if (conversation) {
-          this.syncedSessionKeys.set(cronKey.cacheKey, conversation.sessionId);
-          this.syncedSessionKeys.set(sessionKey, conversation.sessionId);
-          this.syncedSessionKeys.set(conversation.sessionKey, conversation.sessionId);
-          return conversation.sessionId;
-        }
-      }
       return null;
     }
 
