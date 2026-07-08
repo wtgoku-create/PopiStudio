@@ -445,6 +445,7 @@ export class OpenClawEngineManager extends EventEmitter {
         const healthy = await this.isGatewayHealthy(port);
         console.log(`[OpenClaw] startGateway: existing process health check (${elapsed()}), healthy=${healthy}`);
         if (healthy) {
+          this.gatewayPort = port;
           if (this.status.phase !== 'running') {
             this.setStatus({
               phase: 'running',
@@ -646,12 +647,14 @@ export class OpenClawEngineManager extends EventEmitter {
     const ready = await this.waitForGatewayReady(port, GATEWAY_BOOT_TIMEOUT_MS);
     console.log(`[OpenClaw] startGateway: waitForGatewayReady returned (${elapsed()}), ready=${ready}`);
     if (!ready) {
-      this.setStatus({
-        phase: 'error',
-        version: runtime.version,
-        message: 'OpenClaw gateway failed to become healthy in time.',
-        canRetry: true,
-      });
+      if (this.status.phase !== 'error') {
+        this.setStatus({
+          phase: 'error',
+          version: runtime.version,
+          message: 'OpenClaw gateway failed to become healthy in time.',
+          canRetry: true,
+        });
+      }
       this.stopGatewayProcess(child);
       return this.getStatus();
     }
