@@ -1140,6 +1140,39 @@ const pluginMatches = (
   ...ids: string[]
 ): boolean => ids.includes(plugin.packageId) || ids.includes(plugin.pluginId);
 
+const hasEnabledChannelAccountConfig = (
+  channels: Record<string, unknown>,
+  channelId: string,
+  requiredIdField: string,
+  options: { requireChannelEnabled?: boolean } = {},
+): boolean => {
+  const channel = channels[channelId];
+  if (!channel || typeof channel !== 'object') {
+    return false;
+  }
+
+  const config = channel as {
+    enabled?: unknown;
+    accounts?: unknown;
+  };
+  const requireChannelEnabled = options.requireChannelEnabled ?? true;
+  if (
+    (requireChannelEnabled && config.enabled !== true)
+    || !config.accounts
+    || typeof config.accounts !== 'object'
+  ) {
+    return false;
+  }
+
+  return Object.values(config.accounts as Record<string, unknown>).some((account) => (
+    !!account
+    && typeof account === 'object'
+    && (account as { enabled?: unknown }).enabled === true
+    && typeof (account as Record<string, unknown>)[requiredIdField] === 'string'
+    && String((account as Record<string, unknown>)[requiredIdField]).trim().length > 0
+  ));
+};
+
 const isBundledPluginAvailable = (pluginId: string): boolean => {
   return hasBundledOpenClawExtension(pluginId);
 };
@@ -1605,10 +1638,12 @@ export class OpenClawConfigSync {
     // See: openclaw/openclaw#58678, #33310, #61613
     let existingGateway: Record<string, unknown> = {};
     let existingPlugins: Record<string, unknown> = {};
+    let existingChannels: Record<string, unknown> = {};
     try {
       const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       existingGateway = (existing.gateway ?? {}) as Record<string, unknown>;
       existingPlugins = (existing.plugins ?? {}) as Record<string, unknown>;
+      existingChannels = (existing.channels ?? {}) as Record<string, unknown>;
     } catch {
       // First run or corrupt file — nothing to preserve.
     }
@@ -1620,12 +1655,28 @@ export class OpenClawConfigSync {
     const dingTalkInstances = this.getDingTalkInstances();
     // DingTalk runs through OpenClaw plugin but still needs the gateway HTTP endpoint (chatCompletions)
     const hasDingTalkOpenClaw = dingTalkInstances.some(i => i.enabled && i.clientId);
+    const hasDingTalkChannelConfig = hasEnabledChannelAccountConfig(
+      existingChannels,
+      DINGTALK_OPENCLAW_CHANNEL,
+      'clientId',
+    );
 
     const feishuInstances = this.getFeishuInstances();
+    const hasFeishuChannelConfig = hasEnabledChannelAccountConfig(
+      existingChannels,
+      'feishu',
+      'appId',
+    );
 
     const qqInstances = this.getQQInstances();
 
     const wecomInstances = this.getWecomInstances();
+    const hasWecomChannelConfig = hasEnabledChannelAccountConfig(
+      existingChannels,
+      'wecom',
+      'botId',
+      { requireChannelEnabled: false },
+    );
 
     const popoInstances = this.getPopoInstances();
 
@@ -1788,11 +1839,12 @@ export class OpenClawConfigSync {
               // When a channel is disabled in the UI, its plugin must also be
               // disabled so OpenClaw doesn't load it at all.
               const pluginEnabled = (() => {
-                if (pluginMatches(plugin, DINGTALK_OPENCLAW_CHANNEL, 'dingtalk')) return dingTalkInstances.some(i => i.enabled && i.clientId);
+                if (pluginMatches(plugin, DINGTALK_OPENCLAW_CHANNEL, 'dingtalk'))
+                  return dingTalkInstances.some(i => i.enabled && i.clientId) || hasDingTalkChannelConfig;
                 if (pluginMatches(plugin, 'openclaw-lark', 'feishu-openclaw-plugin'))
-                  return feishuInstances.some(i => i.enabled && i.appId);
-                if (pluginMatches(plugin, 'openclaw-qqbot')) return qqInstances.some(i => i.enabled && i.appId);
-                if (pluginMatches(plugin, 'wecom-openclaw-plugin')) return wecomInstances.some(i => i.enabled && i.botId);
+                  return feishuInstances.some(i => i.enabled && i.appId) || hasFeishuChannelConfig;
+                if (pluginMatches(plugin, 'openclaw-qqbot', 'qqbot')) return qqInstances.some(i => i.enabled && i.appId);
+                if (pluginMatches(plugin, 'wecom-openclaw-plugin')) return wecomInstances.some(i => i.enabled && i.botId) || hasWecomChannelConfig;
                 if (pluginMatches(plugin, 'moltbot-popo')) return popoInstances.some(i => i.enabled && i.appKey);
                 if (pluginMatches(plugin, 'openclaw-nim-channel', NIM_CHANNEL_PLUGIN_ID, 'nim'))
                   return nimInstances.some(i => i.enabled && ((i.nimToken && i.nimToken.trim()) || (i.appKey && i.account && i.token)));
