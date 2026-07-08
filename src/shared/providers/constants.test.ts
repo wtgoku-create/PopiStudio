@@ -67,6 +67,8 @@ describe('ProviderRegistry', () => {
     expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.DeepSeek, 'deepseek-v4-pro', false)).toBe(true);
     expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.Anthropic, 'claude-sonnet-4-6', false)).toBe(true);
     expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.Qwen, 'qwen3.6-plus', false)).toBe(false);
+    expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.PopiaiServer, 'server-model', undefined)).toBe(true);
+    expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.PopiaiServer, 'server-model', false)).toBe(false);
     expect(ProviderRegistry.resolveModelSupportsThinking('custom_0', 'custom-thinking-model', true)).toBe(true);
     expect(ProviderRegistry.resolveModelSupportsThinking('custom_0', 'custom-thinking-model', false)).toBe(false);
   });

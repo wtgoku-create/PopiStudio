@@ -693,6 +693,9 @@ class ProviderRegistryImpl {
     modelId: string,
     configuredSupportsThinking?: boolean,
   ): boolean {
+    if (providerName === ProviderName.PopiaiServer) {
+      return configuredSupportsThinking ?? true;
+    }
     const providerModelSupportsThinking = this.getProviderModelSupportsThinking(providerName, modelId);
     if (providerModelSupportsThinking !== undefined) {
       return providerModelSupportsThinking;

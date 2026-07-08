@@ -479,14 +479,17 @@ describe('OpenClawConfigSync runtime config output', () => {
       expect.objectContaining({
         id: 'qwen3.5-plus-YoudaoInner',
         input: ['text', 'image'],
+        reasoning: true,
       }),
       expect.objectContaining({
         id: 'qwen3.6-plus-YoudaoInner',
         input: ['text', 'image'],
+        reasoning: true,
       }),
       expect.objectContaining({
         id: 'deepseek-v3.2-YoudaoInner',
         input: ['text'],
+        reasoning: true,
       }),
     ]));
     expect(provider.models).toHaveLength(3);
