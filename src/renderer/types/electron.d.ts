@@ -647,9 +647,14 @@ interface IElectronAPI {
         sessionKey: string | null;
         status: 'running' | 'done' | 'error';
         createdAt: number;
+        endedAt?: number | null;
       }>;
       error?: string;
     }>;
+    deleteSubagentSession: (options: {
+      parentSessionId: string;
+      runId: string;
+    }) => Promise<{ success: boolean; deleted?: boolean; error?: string }>;
     respondToPermission: (options: {
       requestId: string;
       result: CoworkPermissionResult;
@@ -1001,6 +1006,7 @@ interface IElectronAPI {
   scheduledTasks: {
     list: () => Promise<{
       success: boolean;
+      ready?: boolean;
       tasks?: import('../../scheduledTask/types').ScheduledTask[];
       error?: string;
     }>;
@@ -1051,10 +1057,13 @@ interface IElectronAPI {
       filter?: import('../../scheduledTask/types').RunFilter,
     ) => Promise<{
       success: boolean;
+      ready?: boolean;
       runs?: import('../../scheduledTask/types').ScheduledTaskRunWithName[];
       error?: string;
     }>;
-    resolveSession: (sessionKey: string) => Promise<{
+    resolveSession: (
+      input: string | { sessionId?: string | null; sessionKey?: string | null },
+    ) => Promise<{
       success: boolean;
       session?: import('./cowork').CoworkSession | null;
       error?: string;
@@ -1132,7 +1141,7 @@ interface IElectronAPI {
     getKnowledgeToken: () => Promise<string | null>;
     getModels: () => Promise<{
       success: boolean;
-      models?: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }>;
+      models?: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean; supportsThinking?: boolean }>;
     }>;
     getProfileSummary: () => Promise<{ success: boolean; data?: ProfileSummaryData }>;
     onCallback: (callback: (data: { code: string }) => void) => () => void;

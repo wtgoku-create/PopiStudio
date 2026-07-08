@@ -1067,6 +1067,13 @@ const bindOpenClawStatusForwarder = (): void => {
   const manager = getOpenClawEngineManager();
   manager.on('status', (status) => {
     forwardOpenClawStatus(status);
+    if (status.phase === 'running') {
+      try {
+        getCronJobService().notifyGatewayReady();
+      } catch {
+        // Cron service may not be initialized yet during early startup.
+      }
+    }
   });
   openClawStatusForwarderBound = true;
   forwardOpenClawStatus(manager.getStatus());
@@ -3890,7 +3897,7 @@ if (!gotTheLock) {
 
   // ── Subagent tracking IPC ──────────────────────────────────────────────
 
-  ipcMain.handle('cowork:subTask:history', async (_event, options: {
+  ipcMain.handle(CoworkIpcChannel.SubTaskHistory, async (_event, options: {
     parentSessionId: string;
     agentId: string;
     sessionKey?: string;
@@ -3913,11 +3920,32 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('cowork:subagent:list', async (_event, options: { parentSessionId: string }) => {
+  ipcMain.handle(CoworkIpcChannel.SubagentList, async (_event, options: { parentSessionId: string }) => {
     if (!openClawRuntimeAdapter) return { success: true, runs: [] };
     const runs = openClawRuntimeAdapter.listSubagentRuns(options.parentSessionId);
     return { success: true, runs };
   });
+
+  ipcMain.handle(
+    CoworkIpcChannel.SubagentDelete,
+    async (_event, options: { parentSessionId: string; runId: string }) => {
+      if (!openClawRuntimeAdapter) {
+        return { success: false, error: 'Runtime adapter not available' };
+      }
+      try {
+        const deleted = await getCoworkEngineRouter().deleteSubagentSession(
+          options.parentSessionId,
+          options.runId,
+        );
+        return { success: true, deleted };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to delete subagent session',
+        };
+      }
+    },
+  );
 
   ipcMain.handle('cowork:permission:respond', async (_event, options: {
     requestId: string;

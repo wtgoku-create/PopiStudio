@@ -164,9 +164,6 @@ class CoworkService {
       if (message.type === 'user' || message.type === 'assistant' || message.type === 'tool_use' || message.type === 'tool_result') {
         store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Running }));
       }
-      if (beforeMessageId) {
-        console.log('[ThinkingOrder] renderer received message with beforeMessageId=', beforeMessageId, 'messageId=', message.id, 'isThinking=', !!(message.metadata as any)?.isThinking);
-      }
       store.dispatch(addMessage({ sessionId, message, beforeMessageId }));
       this.scheduleContextUsageRefresh(sessionId, true);
     });
@@ -957,6 +954,19 @@ class CoworkService {
       return null;
     }
     return window.electron.saveApiConfig(config);
+  }
+
+  async deleteSubagentSession(parentSessionId: string, runId: string): Promise<boolean> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.deleteSubagentSession) return false;
+
+    const result = await cowork.deleteSubagentSession({ parentSessionId, runId });
+    if (result.success) {
+      return result.deleted ?? true;
+    }
+
+    console.error('Failed to delete subagent session:', result.error);
+    return false;
   }
 
   async listMemoryEntries(input: {

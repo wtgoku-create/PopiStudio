@@ -88,6 +88,19 @@ const mapExecutionModeToSandboxMode = (
 export const OPENCLAW_AGENT_TIMEOUT_SECONDS = 3600;
 const DINGTALK_OPENCLAW_CHANNEL = 'dingtalk-connector';
 export const OPENCLAW_BINDING_ANY_ACCOUNT_ID = '*';
+const OPENCLAW_DEFAULT_MODEL_MAX_TOKENS = 8192;
+
+const OpenClawContextCacheProvider = {
+  DashScope: 'dashscope',
+  AnthropicCompatible: 'anthropic-compatible',
+} as const;
+
+const OpenClawContextCacheMode = {
+  Explicit: 'explicit',
+} as const;
+
+const EXPLICIT_CONTEXT_CACHE_LOG_PREFIX = '********************';
+const CUSTOM_PROVIDER_NAME_PATTERN = /^custom_[0-9]$/;
 
 function deriveNimAccountId(instance: Pick<NimInstanceConfig, 'nimToken' | 'appKey' | 'account'>): string | null {
   const nimToken = instance.nimToken?.trim();
@@ -497,6 +510,28 @@ type OpenClawAgentModelDefault = {
   params?: Record<string, unknown>;
 };
 
+const DASHSCOPE_EXPLICIT_CONTEXT_CACHE_PARAMS: OpenClawAgentModelDefault = {
+  params: {
+    cacheRetention: 'short',
+    contextCacheProvider: OpenClawContextCacheProvider.DashScope,
+    contextCacheMode: OpenClawContextCacheMode.Explicit,
+  },
+};
+
+const ANTHROPIC_COMPATIBLE_EXPLICIT_CONTEXT_CACHE_PARAMS: OpenClawAgentModelDefault = {
+  params: {
+    cacheRetention: 'short',
+    contextCacheProvider: OpenClawContextCacheProvider.AnthropicCompatible,
+    contextCacheMode: OpenClawContextCacheMode.Explicit,
+  },
+};
+
+const ANTHROPIC_EXPLICIT_CONTEXT_CACHE_PARAMS: OpenClawAgentModelDefault = {
+  params: {
+    cacheRetention: 'short',
+  },
+};
+
 const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 
 const normalizeBaseUrlPath = (rawBaseUrl: string, pathName: string): string => {
@@ -611,6 +646,33 @@ const resolveDeepSeekModelReasoning = (modelId: string): boolean | undefined => 
     return true;
   }
   return undefined;
+};
+
+const isPositiveModelLimit = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+const clampModelMaxTokens = (rawMaxTokens: number | undefined, contextWindow: number | undefined): number | undefined => {
+  if (!isPositiveModelLimit(rawMaxTokens)) {
+    return undefined;
+  }
+  if (!isPositiveModelLimit(contextWindow)) {
+    return rawMaxTokens;
+  }
+  return Math.min(rawMaxTokens, contextWindow);
+};
+
+const resolveModelMaxTokensForOpenClaw = (options: {
+  api: OpenClawProviderApi;
+  descriptor: ProviderDescriptor;
+  contextWindow?: number;
+}): number | undefined => {
+  const rawMaxTokens = options.descriptor.modelDefaults?.maxTokens
+    ?? (
+      options.api === OpenClawApiConst.AnthropicMessages
+        ? OPENCLAW_DEFAULT_MODEL_MAX_TOKENS
+        : undefined
+    );
+  return clampModelMaxTokens(rawMaxTokens, options.contextWindow);
 };
 
 const PROVIDER_REGISTRY: Record<string, ProviderDescriptor> = {
@@ -785,6 +847,7 @@ export const buildProviderSelection = (options: {
   authType?: 'apikey' | 'oauth';
   codingPlanEnabled?: boolean;
   supportsImage?: boolean;
+  supportsThinking?: boolean;
   modelName?: string;
   contextWindow?: number;
 }): OpenClawProviderSelection => {
@@ -816,6 +879,11 @@ export const buildProviderSelection = (options: {
     options.modelId,
     options.supportsImage,
   );
+  const supportsThinking = ProviderRegistry.resolveModelSupportsThinking(
+    providerName,
+    options.modelId,
+    options.supportsThinking,
+  );
   const modelInput: string[] = supportsImage ? ['text', 'image'] : ['text'];
   const auth = (
     (options.providerName === ProviderName.Minimax || options.providerName === ProviderName.OpenAI)
@@ -825,9 +893,16 @@ export const buildProviderSelection = (options: {
     : AuthType.ApiKey;
 
   // reasoning：descriptor 动态计算 > modelDefaults 静态值
-  const reasoning = descriptor.resolveModelReasoning
+  const descriptorReasoning = descriptor.resolveModelReasoning
     ? descriptor.resolveModelReasoning(options.modelId, !!options.codingPlanEnabled)
     : descriptor.modelDefaults?.reasoning;
+  const reasoning = supportsThinking ? true : descriptorReasoning;
+  const contextWindow = options.contextWindow ?? descriptor.modelDefaults?.contextWindow;
+  const modelMaxTokens = resolveModelMaxTokensForOpenClaw({
+    api,
+    descriptor,
+    contextWindow,
+  });
   const request = shouldUseEnvProxyForProviderBaseUrl(baseUrl)
     ? { proxy: { mode: 'env-proxy' as const } }
     : undefined;
@@ -856,11 +931,9 @@ export const buildProviderSelection = (options: {
           input: modelInput,
           ...(reasoning !== undefined ? { reasoning } : {}),
           ...(descriptor.modelDefaults?.cost ? { cost: descriptor.modelDefaults.cost } : {}),
-          ...((options.contextWindow ?? descriptor.modelDefaults?.contextWindow) !== undefined
-            ? { contextWindow: options.contextWindow ?? descriptor.modelDefaults!.contextWindow }
-            : {}),
-          ...(descriptor.modelDefaults?.maxTokens
-            ? { maxTokens: descriptor.modelDefaults.maxTokens }
+          ...(contextWindow !== undefined ? { contextWindow } : {}),
+          ...(modelMaxTokens !== undefined
+            ? { maxTokens: modelMaxTokens }
             : {}),
         },
       ],
@@ -886,6 +959,21 @@ const cloneAgentModelDefault = (
 ): OpenClawAgentModelDefault => (
   entry.params ? { params: { ...entry.params } } : {}
 );
+
+const mergeAgentModelDefault = (
+  current: OpenClawAgentModelDefault | undefined,
+  next: OpenClawAgentModelDefault,
+): OpenClawAgentModelDefault => ({
+  ...(current ?? {}),
+  ...(next.params
+    ? {
+        params: {
+          ...(current?.params ?? {}),
+          ...next.params,
+        },
+      }
+    : {}),
+});
 
 const buildCompleteAgentModelDefaults = (
   providers: Record<string, OpenClawProviderSelection['providerConfig']>,
@@ -932,6 +1020,91 @@ const upsertProviderModel = (
     return;
   }
   providerConfig.models.push(model);
+};
+
+const stripExplicitContextCacheProviderSuffix = (modelId: string, provider?: string): string => {
+  const normalizedProvider = provider?.trim();
+  if (!normalizedProvider) return modelId;
+  const suffix = `-${normalizedProvider}`.toLowerCase();
+  const normalized = modelId.toLowerCase();
+  return normalized.endsWith(suffix)
+    ? modelId.slice(0, modelId.length - suffix.length)
+    : modelId;
+};
+
+const normalizeExplicitContextCacheModelId = (modelId: string, provider?: string): string => {
+  const withoutProviderSuffix = stripExplicitContextCacheProviderSuffix(modelId.trim(), provider);
+  const slashIndex = withoutProviderSuffix.lastIndexOf('/');
+  return slashIndex >= 0
+    ? withoutProviderSuffix.slice(slashIndex + 1).trim()
+    : withoutProviderSuffix.trim();
+};
+
+const resolveExplicitContextCacheFamily = (
+  modelId: string,
+  provider?: string,
+): 'qwen' | 'claude' | null => {
+  const baseModelId = normalizeExplicitContextCacheModelId(modelId, provider).toLowerCase();
+  if (baseModelId.startsWith('qwen3.5') || baseModelId.startsWith('qwen3.6')) {
+    return 'qwen';
+  }
+  if (baseModelId.startsWith('claude-')) {
+    return 'claude';
+  }
+  return null;
+};
+
+const shouldApplyProviderExplicitContextCacheDefault = (providerName?: string): boolean => {
+  const normalizedProvider = providerName?.trim();
+  return normalizedProvider === ProviderName.Anthropic
+    || normalizedProvider === ProviderName.Qwen
+    || (!!normalizedProvider && CUSTOM_PROVIDER_NAME_PATTERN.test(normalizedProvider));
+};
+
+const resolveExplicitContextCacheDefault = (options: {
+  api: OpenClawProviderApi;
+  modelId: string;
+  provider?: string;
+  explicitContextCache?: boolean;
+}): OpenClawAgentModelDefault | null => {
+  const family = resolveExplicitContextCacheFamily(options.modelId, options.provider);
+  const enabled = options.explicitContextCache === true || family !== null;
+  if (!enabled || family === null) return null;
+  if (options.api === OpenClawApiConst.OpenAICompletions) {
+    return family === 'qwen'
+      ? DASHSCOPE_EXPLICIT_CONTEXT_CACHE_PARAMS
+      : ANTHROPIC_COMPATIBLE_EXPLICIT_CONTEXT_CACHE_PARAMS;
+  }
+  if (options.api === OpenClawApiConst.AnthropicMessages) {
+    return ANTHROPIC_EXPLICIT_CONTEXT_CACHE_PARAMS;
+  }
+  return null;
+};
+
+const addExplicitContextCacheDefault = (
+  defaults: Record<string, OpenClawAgentModelDefault>,
+  selection: OpenClawProviderSelection,
+  source: {
+    modelId: string;
+    provider?: string;
+    explicitContextCache?: boolean;
+  },
+): void => {
+  const model = selection.providerConfig.models[0];
+  if (!model) return;
+  const contextCacheDefault = resolveExplicitContextCacheDefault({
+    api: model.api,
+    modelId: source.modelId,
+    provider: source.provider,
+    explicitContextCache: source.explicitContextCache,
+  });
+  if (!contextCacheDefault) return;
+
+  const modelKey = `${selection.providerId}/${selection.sessionModelId}`;
+  defaults[modelKey] = mergeAgentModelDefault(defaults[modelKey], contextCacheDefault);
+  console.info(
+    `${EXPLICIT_CONTEXT_CACHE_LOG_PREFIX} [ExplicitCacheConfig] model=${selection.sessionModelId} api=${model.api} provider=${source.provider ?? selection.providerId} params=${JSON.stringify(contextCacheDefault.params ?? {})}`,
+  );
 };
 
 const readPreinstalledPluginIds = (): string[] => {
@@ -1277,10 +1450,15 @@ export class OpenClawConfigSync {
         authType: apiResolution.providerMetadata?.authType,
         codingPlanEnabled: apiResolution.providerMetadata?.codingPlanEnabled,
         supportsImage: apiResolution.providerMetadata?.supportsImage,
+        supportsThinking: apiResolution.providerMetadata?.supportsThinking,
         modelName: apiResolution.providerMetadata?.modelName,
         contextWindow: apiResolution.providerMetadata?.contextWindow,
       });
       primaryModel = providerSelection.primaryModel;
+      addExplicitContextCacheDefault(perModelCustomDefaults, providerSelection, {
+        modelId,
+        provider: apiResolution.providerMetadata?.providerName,
+      });
 
       for (const p of resolveAllEnabledProviderConfigs()) {
         for (const m of p.models) {
@@ -1293,6 +1471,7 @@ export class OpenClawConfigSync {
             authType: p.authType,
             codingPlanEnabled: p.codingPlanEnabled,
             supportsImage: m.supportsImage,
+            supportsThinking: m.supportsThinking,
             modelName: m.name,
             contextWindow: m.contextWindow,
           });
@@ -1309,7 +1488,15 @@ export class OpenClawConfigSync {
           // directly into the outgoing API request body, bypassing the whitelist.
           if (m.customParams && Object.keys(m.customParams).length > 0) {
             const modelKey = `${sel.providerId}/${sel.sessionModelId}`;
-            perModelCustomDefaults[modelKey] = { params: { extra_body: { ...m.customParams } } };
+            perModelCustomDefaults[modelKey] = mergeAgentModelDefault(perModelCustomDefaults[modelKey], {
+              params: { extra_body: { ...m.customParams } },
+            });
+          }
+          if (shouldApplyProviderExplicitContextCacheDefault(p.providerName)) {
+            addExplicitContextCacheDefault(perModelCustomDefaults, sel, {
+              modelId: m.id,
+              provider: p.providerName,
+            });
           }
         }
       }
@@ -1339,6 +1526,7 @@ export class OpenClawConfigSync {
             apiType: 'openai',
             providerName: ProviderName.PopiaiServer,
             supportsImage: serverModels[0]?.supportsImage,
+            supportsThinking: serverModels[0]?.supportsThinking,
           });
           const popiaiProviderConfig =
             allProvidersMap[providerId] ?? {
@@ -1358,8 +1546,13 @@ export class OpenClawConfigSync {
                 apiType: 'openai',
                 providerName: ProviderName.PopiaiServer,
                 supportsImage: sm.supportsImage,
+                supportsThinking: sm.supportsThinking,
                 modelName: sm.modelId,
                 contextWindow: sm.contextWindow,
+              });
+              addExplicitContextCacheDefault(perModelCustomDefaults, serverSel, {
+                modelId: sm.modelId,
+                provider: ProviderName.PopiaiServer,
               });
               upsertProviderModel(popiaiProviderConfig, serverSel.providerConfig.models[0]);
             }
@@ -1480,6 +1673,7 @@ export class OpenClawConfigSync {
       },
       models: {
         mode: 'replace',
+        pricing: { enabled: false },
         providers: allProvidersMap,
       },
       agents: {
@@ -1492,6 +1686,7 @@ export class OpenClawConfigSync {
             mode: sandboxMode,
           },
           workspace: path.resolve(mainWorkspacePath),
+          mediaMaxMb: 30,
           ...(taskWorkingDirectory ? { cwd: path.resolve(taskWorkingDirectory) } : {}),
           ...(coworkConfig.embeddingEnabled ? {
             memorySearch: {
@@ -1548,6 +1743,7 @@ export class OpenClawConfigSync {
       },
       cron: {
         enabled: true,
+        store: path.join(this.engineManager.getStateDir(), 'cron', 'jobs.json'),
         skipMissedJobs: coworkConfig.skipMissedJobs === true,
         maxConcurrentRuns: 3,
         sessionRetention: '7d',
@@ -1577,6 +1773,7 @@ export class OpenClawConfigSync {
           )),
         );
         const qqbotPluginEnabled = qqInstances.some(i => i.enabled && i.appId);
+        const userPlugins = this.getUserPlugins();
 
 
         const pluginEntries: Record<string, unknown> = {
@@ -1617,7 +1814,7 @@ export class OpenClawConfigSync {
           ...(hasQwenProvider && qwenPortalAuthPluginId ? { [qwenPortalAuthPluginId]: { enabled: true } } : {}),
           // User-installed plugins: merge enabled state and config from user_plugins table
           ...Object.fromEntries(
-            this.getUserPlugins().map(p => [p.pluginId, {
+            userPlugins.map(p => [p.pluginId, {
               enabled: p.enabled,
               ...(p.config && Object.keys(p.config).length > 0 ? { config: p.config } : {}),
             }]),
@@ -1627,6 +1824,15 @@ export class OpenClawConfigSync {
           // a process that always fails.  See openclaw/openclaw#62588.
           'acpx': { enabled: false },
         };
+        const existingAllow = Array.isArray((existingPlugins as Record<string, unknown>).allow)
+          ? ((existingPlugins as Record<string, unknown>).allow as unknown[])
+              .filter((id): id is string => typeof id === 'string' && id.length > 0)
+          : [];
+        const trustedPluginAllow = Array.from(new Set([
+          ...existingAllow,
+          ...preinstalledPlugins.map(plugin => plugin.pluginId),
+          ...userPlugins.filter(plugin => plugin.enabled).map(plugin => plugin.pluginId),
+        ])).sort();
 
         return Object.keys(pluginEntries).length > 0
           ? {
@@ -1650,6 +1856,7 @@ export class OpenClawConfigSync {
                 // from dist/extensions/ at build time (see prune-openclaw-runtime.cjs).
                 // OpenClaw validates deny IDs against discovered plugins, so denying
                 // a removed plugin causes "Config invalid: plugin not found" errors.
+                allow: trustedPluginAllow,
                 deny: [],
                 entries: pluginEntries,
               },

@@ -28,6 +28,11 @@ export const resolveModelSupportsImageForProvider = (
   model: { id: string; supportsImage?: boolean },
 ): boolean => ProviderRegistry.resolveModelSupportsImage(providerName, model.id, model.supportsImage);
 
+export const resolveModelSupportsThinkingForProvider = (
+  providerName: string,
+  model: { id: string; supportsThinking?: boolean },
+): boolean => ProviderRegistry.resolveModelSupportsThinking(providerName, model.id, model.supportsThinking);
+
 export const getOpenClawProviderIdForConfig = (
   providerName: string,
   providerConfig: ProviderConfig,
@@ -144,6 +149,7 @@ export const getDefaultProviders = (): ProvidersConfig => {
           ...model,
           name: model.name.replace('(Secure)', secureSuffix),
           supportsImage: resolveModelSupportsImageForProvider(providerKey, model),
+          supportsThinking: resolveModelSupportsThinkingForProvider(providerKey, model),
         })),
       },
     ])

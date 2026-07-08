@@ -1,6 +1,6 @@
-import { type ChildProcess,spawn } from 'child_process';
+import { type ChildProcess, spawn } from 'child_process';
 import crypto from 'crypto';
-import { app, type UtilityProcess,utilityProcess } from 'electron';
+import { app, type UtilityProcess, utilityProcess } from 'electron';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import net from 'net';
@@ -16,7 +16,9 @@ import {
   pruneGatewayLogs,
 } from './gatewayLogRotation';
 import { getCodexHomeDir } from './openaiCodexAuth';
-import { cleanupStaleThirdPartyPluginsFromBundledDir, listLocalOpenClawExtensionIds,syncLocalOpenClawExtensionsIntoRuntime } from './openclawLocalExtensions';
+import { migrateLegacyCronStorageWithDoctor } from './openclawCronLegacyMigration';
+import { cleanupStaleThirdPartyPluginsFromBundledDir, listLocalOpenClawExtensionIds, syncLocalOpenClawExtensionsIntoRuntime } from './openclawLocalExtensions';
+import { ensureOpenClawWorkerShims } from './openclawWorkerShims';
 import { appendPythonRuntimeToEnv } from './pythonRuntime';
 
 const gwDiagTs = (): string => {
@@ -37,6 +39,18 @@ const GATEWAY_PORT_SCAN_LIMIT = 80;
 const GATEWAY_BOOT_TIMEOUT_MS = 300 * 1000;
 const GATEWAY_MAX_RESTART_ATTEMPTS = 5;
 const GATEWAY_RESTART_DELAYS = [3_000, 5_000, 10_000, 20_000, 30_000];
+const OPENCLAW_GATEWAY_MAX_OLD_SPACE_MB = 4096;
+const OPENCLAW_GATEWAY_MAX_OLD_SPACE_OPTION = `--max-old-space-size=${OPENCLAW_GATEWAY_MAX_OLD_SPACE_MB}`;
+const NODE_MAX_OLD_SPACE_RE = /(?:^|\s)--max-old-space-size(?:=|\s|$)/;
+const GATEWAY_RECENT_OUTPUT_LINE_LIMIT = 80;
+const OPENCLAW_CONFIG_STARTUP_FAILURE_PATTERNS = [
+  /invalid config(?:\s+at|:|\s)/i,
+  /config validation failed:/i,
+  /json5 parse failed:/i,
+  /failed to parse .* as json5/i,
+  /openclaw\.json[\s\S]{0,240}(?:syntaxerror|unexpected token|invalid)/i,
+  /(?:syntaxerror|unexpected token|invalid)[\s\S]{0,240}openclaw\.json/i,
+];
 
 export type OpenClawEnginePhase =
   | 'not_installed'
@@ -51,6 +65,8 @@ export interface OpenClawEngineStatus {
   version: string | null;
   progressPercent?: number;
   message?: string;
+  gatewayPort?: number | null;
+  gatewayHttpUrl?: string | null;
   canRetry: boolean;
 }
 
@@ -156,6 +172,27 @@ const fetchWithTimeout = async (url: string, timeoutMs: number): Promise<Respons
   }
 };
 
+export const isOpenClawConfigStartupFailure = (text: string | null | undefined): boolean => {
+  if (!text) return false;
+  return OPENCLAW_CONFIG_STARTUP_FAILURE_PATTERNS.some((pattern) => pattern.test(text));
+};
+
+export function buildOpenClawGatewayExecArgv(existingNodeOptions: string | undefined): string[] {
+  if (NODE_MAX_OLD_SPACE_RE.test(existingNodeOptions?.trim() ?? '')) {
+    return [];
+  }
+  return [OPENCLAW_GATEWAY_MAX_OLD_SPACE_OPTION];
+}
+
+export function buildOpenClawCompileCacheEnv(compileCacheDir: string): NodeJS.ProcessEnv {
+  return {
+    NODE_COMPILE_CACHE: compileCacheDir,
+    // The cache is already configured by PopiStudio. Prevent the packaged
+    // launcher from respawning through Electron Helper as if it were Node.
+    OPENCLAW_PACKAGED_COMPILE_CACHE_RESPAWNED: '1',
+  };
+}
+
 export class OpenClawEngineManager extends EventEmitter {
   private readonly baseDir: string;
   private readonly logsDir: string;
@@ -167,6 +204,7 @@ export class OpenClawEngineManager extends EventEmitter {
   private desiredVersion: string;
   private status: OpenClawEngineStatus;
   private gatewayProcess: GatewayProcess | null = null;
+  private readonly gatewayRecentOutput = new WeakMap<GatewayProcess, string[]>();
   private readonly expectedGatewayExits = new WeakSet<object>();
   private gatewayRestartTimer: NodeJS.Timeout | null = null;
   private gatewayRestartAttempt = 0;
@@ -240,7 +278,7 @@ export class OpenClawEngineManager extends EventEmitter {
   }
 
   getStatus(): OpenClawEngineStatus {
-    return { ...this.status };
+    return this.withGatewayStatusFields(this.status);
   }
 
   setExternalError(message: string): OpenClawEngineStatus {
@@ -408,6 +446,7 @@ export class OpenClawEngineManager extends EventEmitter {
         const healthy = await this.isGatewayHealthy(port);
         console.log(`[OpenClaw] startGateway: existing process health check (${elapsed()}), healthy=${healthy}`);
         if (healthy) {
+          this.gatewayPort = port;
           if (this.status.phase !== 'running') {
             this.setStatus({
               phase: 'running',
@@ -495,11 +534,6 @@ export class OpenClawEngineManager extends EventEmitter {
       // bundled-channel-entry contract.  Third-party plugins (in extensions/)
       // are discovered separately via plugins.load.paths in openclaw.json.
       OPENCLAW_BUNDLED_PLUGINS_DIR: path.join(runtime.root, 'dist', 'extensions'),
-      // Disable model-pricing bootstrap to avoid startup delays.  The gateway
-      // fetches https://openrouter.ai on startup which times out (15s) in
-      // regions with slow external API access.  See openclaw/openclaw#60116.
-      // Requires the v2026.4.5 source patch (scripts/patches/v2026.4.5/).
-      OPENCLAW_SKIP_MODEL_PRICING: '1',
       // Disable Bonjour/mDNS LAN discovery advertising.  Popiai is a
       // desktop app with a loopback-only gateway — LAN service broadcast is
       // unnecessary and its watchdog can flood stderr with re-advertise
@@ -509,7 +543,7 @@ export class OpenClawEngineManager extends EventEmitter {
       OPENCLAW_LOG_LEVEL: 'debug',
       // Enable V8 compile cache for both CJS and ESM modules.
       // This env var works for import() (ESM), unlike enableCompileCache() which is CJS-only.
-      NODE_COMPILE_CACHE: compileCacheDir,
+      ...buildOpenClawCompileCacheEnv(compileCacheDir),
       POPIAI_ELECTRON_PATH: electronNodeRuntimePath.replace(/\\/g, '/'),
       POPIAI_OPENCLAW_ENTRY: openclawEntry.replace(/\\/g, '/'),
       // Inject secret values for ${VAR} placeholders in openclaw.json.
@@ -543,7 +577,7 @@ export class OpenClawEngineManager extends EventEmitter {
     // The shims wrap Electron as a Node.js runtime via ELECTRON_RUN_AS_NODE=1.
     const npmBinDir = app.isPackaged
       ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'npm', 'bin')
-      : undefined;
+      : path.join(app.getAppPath(), 'node_modules', 'npm', 'bin');
     const nodeShimDir = ensureElectronNodeShim(electronNodeRuntimePath, npmBinDir);
     if (nodeShimDir) {
       const curPath = env.PATH || env.Path || '';
@@ -562,7 +596,20 @@ export class OpenClawEngineManager extends EventEmitter {
       }
     }
 
+    await migrateLegacyCronStorageWithDoctor({
+      stateDir: this.stateDir,
+      runtimeRoot: runtime.root,
+      electronNodeRuntimePath,
+      env,
+    });
+
     const forkArgs = ['gateway', '--bind', 'loopback', '--port', String(port), '--token', token, '--verbose'];
+    const gatewayExecArgv = buildOpenClawGatewayExecArgv(process.env.NODE_OPTIONS);
+    if (gatewayExecArgv.length > 0) {
+      console.log(`[OpenClaw] gateway V8 old-space limit set to ${OPENCLAW_GATEWAY_MAX_OLD_SPACE_MB}MB`);
+    } else {
+      console.log('[OpenClaw] gateway V8 old-space limit is controlled by existing NODE_OPTIONS');
+    }
     console.log(`[OpenClaw] forking gateway: entry=${openclawEntry}, cwd=${runtime.root}, port=${port}, args=${JSON.stringify(forkArgs)}`);
 
     // On Windows, use child_process.spawn with ELECTRON_RUN_AS_NODE=1 instead of
@@ -572,7 +619,7 @@ export class OpenClawEngineManager extends EventEmitter {
     if (process.platform === 'win32') {
       child = spawn(
         process.execPath,
-        [openclawEntry, ...forkArgs],
+        [...gatewayExecArgv, openclawEntry, ...forkArgs],
         {
           cwd: runtime.root,
           env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
@@ -586,6 +633,7 @@ export class OpenClawEngineManager extends EventEmitter {
         forkArgs,
         {
           cwd: runtime.root,
+          execArgv: gatewayExecArgv,
           env,
           stdio: 'pipe',
           serviceName: 'OpenClaw Gateway',
@@ -607,12 +655,14 @@ export class OpenClawEngineManager extends EventEmitter {
     const ready = await this.waitForGatewayReady(port, GATEWAY_BOOT_TIMEOUT_MS);
     console.log(`[OpenClaw] startGateway: waitForGatewayReady returned (${elapsed()}), ready=${ready}`);
     if (!ready) {
-      this.setStatus({
-        phase: 'error',
-        version: runtime.version,
-        message: 'OpenClaw gateway failed to become healthy in time.',
-        canRetry: true,
-      });
+      if (this.status.phase !== 'error') {
+        this.setStatus({
+          phase: 'error',
+          version: runtime.version,
+          message: 'OpenClaw gateway failed to become healthy in time.',
+          canRetry: true,
+        });
+      }
       this.stopGatewayProcess(child);
       return this.getStatus();
     }
@@ -666,6 +716,26 @@ export class OpenClawEngineManager extends EventEmitter {
     this.gatewayRestartAttempt = 0;
     console.log(`${gwDiagTs()} restartGateway: starting gateway with new env...`);
     return this.startGateway(`restart:${reason}`);
+  }
+
+  private buildGatewayHttpUrl(port: number | null): string | null {
+    return port ? `http://localhost:${port}/` : null;
+  }
+
+  private resolveStatusGatewayPort(phase: OpenClawEnginePhase): number | null {
+    if (phase !== 'running' && phase !== 'starting') {
+      return null;
+    }
+    return this.gatewayPort ?? this.readGatewayPort();
+  }
+
+  private withGatewayStatusFields(status: OpenClawEngineStatus): OpenClawEngineStatus {
+    const port = status.gatewayPort ?? this.resolveStatusGatewayPort(status.phase);
+    return {
+      ...status,
+      gatewayPort: port,
+      gatewayHttpUrl: this.buildGatewayHttpUrl(port),
+    };
   }
 
   private resolveRuntimeMetadata(): RuntimeMetadata {
@@ -732,6 +802,7 @@ export class OpenClawEngineManager extends EventEmitter {
     if (fs.existsSync(bundlePath)) {
       console.log('[OpenClaw] ensureBareEntryFiles: bundle exists, skipping dist extraction');
       this.ensureControlUiFiles(runtimeRoot);
+      this.ensureOpenClawWorkerShimsForBundle(runtimeRoot);
       console.log(`[OpenClaw] ensureBareEntryFiles: completed in ${Date.now() - t0}ms`);
       return;
     }
@@ -794,6 +865,26 @@ export class OpenClawEngineManager extends EventEmitter {
       console.log('[OpenClaw] Extracted dist/control-ui/');
     } catch (err) {
       console.error('[OpenClaw] Failed to extract dist/control-ui/ from gateway.asar:', err);
+    }
+  }
+
+  private ensureOpenClawWorkerShimsForBundle(runtimeRoot: string): void {
+    try {
+      const result = ensureOpenClawWorkerShims(runtimeRoot);
+      const changedCount = result.created.length + result.updated.length;
+      if (changedCount > 0) {
+        console.log(`[OpenClaw] Ensured ${changedCount} worker shim(s) for bundled gateway.`);
+      }
+      if (result.missingTargets.length > 0) {
+        console.warn(`[OpenClaw] Skipped ${result.missingTargets.length} worker shim(s) because target files are missing.`);
+      }
+      if (result.protectedExisting.length > 0) {
+        console.warn(
+          `[OpenClaw] Skipped ${result.protectedExisting.length} worker shim(s) because existing files are not PopiStudio shims.`,
+        );
+      }
+    } catch (error) {
+      console.warn('[OpenClaw] Failed to ensure worker shims for bundled gateway:', error);
     }
   }
 
@@ -1392,7 +1483,23 @@ export class OpenClawEngineManager extends EventEmitter {
   private attachGatewayProcessLogs(child: GatewayProcess): void {
     ensureDir(this.logsDir);
     this.pruneGatewayLogsIfNeeded();
+    const appendRecentOutput = (chunk: Buffer | string, stream: 'stdout' | 'stderr') => {
+      const text = typeof chunk === 'string' ? chunk : chunk.toString();
+      const lines = text
+        .split(/\r?\n/)
+        .map((line) => line.trimEnd())
+        .filter((line) => line.length > 0)
+        .map((line) => `[${stream}] ${line}`);
+      if (lines.length === 0) return;
+      const recent = this.gatewayRecentOutput.get(child) ?? [];
+      recent.push(...lines);
+      if (recent.length > GATEWAY_RECENT_OUTPUT_LINE_LIMIT) {
+        recent.splice(0, recent.length - GATEWAY_RECENT_OUTPUT_LINE_LIMIT);
+      }
+      this.gatewayRecentOutput.set(child, recent);
+    };
     const appendLog = (chunk: Buffer | string, stream: 'stdout' | 'stderr') => {
+      appendRecentOutput(chunk, stream);
       this.pruneGatewayLogsIfNeeded();
       const text = typeof chunk === 'string' ? chunk : chunk.toString();
       const line = `[${new Date().toISOString()}] [${stream}] ${text}`;
@@ -1449,6 +1556,8 @@ export class OpenClawEngineManager extends EventEmitter {
 
     (child as NodeJS.EventEmitter).once('exit', (code: number | null, signal?: string) => {
       console.log(`${gwDiagTs()} gateway process exited with code=${code}, signal=${signal ?? 'none'}`);
+      const recentOutput = (this.gatewayRecentOutput.get(child) ?? []).join('\n');
+      this.gatewayRecentOutput.delete(child);
       if (this.gatewayProcess === child) {
         this.gatewayProcess = null;
       }
@@ -1458,10 +1567,23 @@ export class OpenClawEngineManager extends EventEmitter {
       }
       if (this.shutdownRequested) return;
 
+      let tail = recentOutput;
       try {
-        const tail = fs.readFileSync(this.getGatewayLogPath(), 'utf8').split('\n').slice(-30).join('\n');
+        tail = tail || fs.readFileSync(this.getGatewayLogPath(), 'utf8').split('\n').slice(-30).join('\n');
         console.error(`${gwDiagTs()} gateway log tail (last 30 lines before crash):\n${tail}`);
       } catch { /* log file may not exist */ }
+
+      if (isOpenClawConfigStartupFailure(tail)) {
+        console.error(`${gwDiagTs()} gateway exited during startup because OpenClaw config is invalid; auto-restart suppressed`);
+        this.gatewayRestartAttempt = 0;
+        this.setStatus({
+          phase: 'error',
+          version: this.status.version,
+          message: 'OpenClaw gateway startup stopped because openclaw.json is invalid. Repair the config or use Quick Repair before restarting.',
+          canRetry: true,
+        });
+        return;
+      }
 
       this.setStatus({
         phase: 'error',

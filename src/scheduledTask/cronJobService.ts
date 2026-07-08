@@ -279,12 +279,8 @@ function toGatewayPayload(payload: ScheduledTaskPayload): GatewayPayload {
 }
 
 function toGatewayDelivery(delivery?: ScheduledTaskDelivery): GatewayDelivery | undefined {
-  console.log(
-    '[CronJobService][toGatewayDelivery] input delivery:',
-    JSON.stringify(delivery, null, 2),
-  );
+  console.debug('[CronJobService] converting delivery settings for gateway');
   if (!delivery) {
-    console.log('[CronJobService][toGatewayDelivery] no delivery, returning undefined');
     return undefined;
   }
   if (delivery.mode === DeliveryMode.None) {
@@ -295,10 +291,6 @@ function toGatewayDelivery(delivery?: ScheduledTaskDelivery): GatewayDelivery | 
       ...(delivery.channel ? { channel: delivery.channel } : {}),
       ...(delivery.to ? { to: delivery.to } : {}),
     } as GatewayDelivery;
-    console.log(
-      '[CronJobService][toGatewayDelivery] mode=none with preserved channel/to:',
-      JSON.stringify(result),
-    );
     return result;
   }
 
@@ -318,10 +310,7 @@ function toGatewayDelivery(delivery?: ScheduledTaskDelivery): GatewayDelivery | 
     ...(delivery.accountId ? { accountId: delivery.accountId } : {}),
     ...(typeof delivery.bestEffort === 'boolean' ? { bestEffort: delivery.bestEffort } : {}),
   };
-  console.log(
-    '[CronJobService][toGatewayDelivery] output gatewayDelivery:',
-    JSON.stringify(result, null, 2),
-  );
+  console.debug('[CronJobService] converted delivery settings for gateway');
   return result;
 }
 
@@ -448,6 +437,8 @@ export function mapGatewayRun(entry: GatewayRunLogEntry): ScheduledTaskRun {
         : new Date(safeFiniteNumber(entry.ts, tsMs)).toISOString(),
     durationMs: safeFiniteNumberOrNull(entry.durationMs),
     error: status === TaskStatus.Success ? null : (entry.error ?? null),
+    summary: entry.summary ?? null,
+    deliveryError: entry.deliveryError ?? null,
   };
 }
 
@@ -514,28 +505,9 @@ export class CronJobService {
   }
 
   async addJob(input: ScheduledTaskInput): Promise<ScheduledTask> {
-    console.log('[CronJobService][addJob] full input:', JSON.stringify(input, null, 2));
-    console.log(
-      '[CronJobService][addJob] delivery details:',
-      JSON.stringify(
-        {
-          deliveryMode: input.delivery?.mode,
-          deliveryChannel: input.delivery?.channel,
-          deliveryTo: input.delivery?.to,
-          deliveryAccountId: input.delivery?.accountId,
-          sessionTarget: input.sessionTarget,
-          sessionKey: input.sessionKey,
-        },
-        null,
-        2,
-      ),
-    );
+    console.debug('[CronJobService] creating scheduled task');
     const client = await this.client();
     const gatewayDelivery = toGatewayDelivery(input.delivery);
-    console.log(
-      '[CronJobService][addJob] resolved gatewayDelivery:',
-      JSON.stringify(gatewayDelivery),
-    );
     const job = await client.request<GatewayJob>('cron.add', {
       name: input.name,
       description: input.description || undefined,
@@ -550,27 +522,12 @@ export class CronJobService {
     });
     const mapped = mapGatewayJob(job);
     this.jobNameCache.set(mapped.id, mapped.name);
-    console.log('[CronJobService][addJob] created job id:', mapped.id, 'name:', mapped.name);
+    console.log('[CronJobService] created scheduled task');
     return mapped;
   }
 
   async updateJob(id: string, input: Partial<ScheduledTaskInput>): Promise<ScheduledTask> {
-    console.log('[CronJobService][updateJob] id:', id, 'input:', JSON.stringify(input, null, 2));
-    console.log(
-      '[CronJobService][updateJob] delivery details:',
-      JSON.stringify(
-        {
-          deliveryMode: input.delivery?.mode,
-          deliveryChannel: input.delivery?.channel,
-          deliveryTo: input.delivery?.to,
-          deliveryAccountId: input.delivery?.accountId,
-          sessionTarget: input.sessionTarget,
-          sessionKey: input.sessionKey,
-        },
-        null,
-        2,
-      ),
-    );
+    console.debug('[CronJobService] updating scheduled task');
     const client = await this.client();
     const patch: Record<string, unknown> = {};
 
@@ -588,10 +545,9 @@ export class CronJobService {
     if (input.agentId !== undefined) patch.agentId = input.agentId?.trim() || null;
     if (input.sessionKey !== undefined) patch.sessionKey = input.sessionKey?.trim() || null;
 
-    console.log('[CronJobService][updateJob] final patch:', JSON.stringify(patch, null, 2));
     const job = await client.request<GatewayJob>('cron.update', { id, patch });
     const mapped = mapGatewayJob(job);
-    console.log('[CronJobService][updateJob] updated job id:', mapped.id, 'name:', mapped.name);
+    console.log('[CronJobService] updated scheduled task');
     return mapped;
   }
 
@@ -763,10 +719,18 @@ export class CronJobService {
   startPolling(): void {
     if (this.polling) return;
     this.polling = true;
-    this.pollOnce();
+    void this.pollOnce();
     this.pollingTimer = setInterval(() => {
       void this.pollOnce();
     }, CronJobService.POLL_INTERVAL_MS);
+  }
+
+  notifyGatewayReady(): void {
+    if (!this.polling) {
+      this.startPolling();
+      return;
+    }
+    void this.pollOnce(true);
   }
 
   stopPolling(): void {
@@ -782,7 +746,7 @@ export class CronJobService {
     this.firstPollDone = false;
   }
 
-  private async pollOnce(): Promise<void> {
+  private async pollOnce(forceFullRefresh = false): Promise<void> {
     if (!this.polling) return;
 
     try {
@@ -842,7 +806,7 @@ export class CronJobService {
         }
       }
 
-      if (!this.firstPollDone) {
+      if (!this.firstPollDone || forceFullRefresh) {
         this.firstPollDone = true;
         this.emitFullRefresh();
       }

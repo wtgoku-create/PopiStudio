@@ -63,6 +63,16 @@ describe('ProviderRegistry', () => {
     expect(ProviderRegistry.resolveModelSupportsImage('custom_0', 'unknown-model', true)).toBe(true);
   });
 
+  test('resolveModelSupportsThinking preserves known reasoning model metadata', () => {
+    expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.DeepSeek, 'deepseek-v4-pro', false)).toBe(true);
+    expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.Anthropic, 'claude-sonnet-4-6', false)).toBe(true);
+    expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.Qwen, 'qwen3.6-plus', false)).toBe(false);
+    expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.PopiaiServer, 'server-model', undefined)).toBe(true);
+    expect(ProviderRegistry.resolveModelSupportsThinking(ProviderName.PopiaiServer, 'server-model', false)).toBe(false);
+    expect(ProviderRegistry.resolveModelSupportsThinking('custom_0', 'custom-thinking-model', true)).toBe(true);
+    expect(ProviderRegistry.resolveModelSupportsThinking('custom_0', 'custom-thinking-model', false)).toBe(false);
+  });
+
   test('supportsCodingPlan is true for moonshot, qwen, zhipu, volcengine, qianfan, xiaomi', () => {
     expect(ProviderRegistry.supportsCodingPlan(ProviderName.Moonshot)).toBe(true);
     expect(ProviderRegistry.supportsCodingPlan(ProviderName.Qwen)).toBe(true);

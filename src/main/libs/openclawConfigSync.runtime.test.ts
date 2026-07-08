@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
 
 const mockRuntimeState = vi.hoisted(() => ({
   proxyPort: null as number | null,
-  serverModels: [] as Array<{ modelId: string; supportsImage?: boolean }>,
+  serverModels: [] as Array<{ modelId: string; supportsImage?: boolean; supportsThinking?: boolean }>,
   enabledProviders: [] as Array<{
     providerName: string;
     baseURL: string;
@@ -28,6 +28,7 @@ const mockRuntimeState = vi.hoisted(() => ({
       id: string;
       name: string;
       supportsImage?: boolean;
+      supportsThinking?: boolean;
       contextWindow?: number;
       customParams?: Record<string, unknown>;
     }>;
@@ -327,11 +328,13 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(result.ok).toBe(true);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.models.pricing).toEqual({ enabled: false });
     expect(config.models.providers['openai-codex']).toBeDefined();
     expect(config.models.providers.deepseek).toBeDefined();
     expect(config.agents.defaults.models).toBeUndefined();
     expect(config.agents.defaults.workspace).toBe(path.join(stateDir, 'workspace-main'));
     expect(config.agents.defaults.cwd).toBe(path.resolve(tmpDir));
+    expect(config.agents.defaults.mediaMaxMb).toBe(30);
   });
 
   test('uses the main agent working directory for default agent cwd', async () => {
@@ -476,18 +479,37 @@ describe('OpenClawConfigSync runtime config output', () => {
       expect.objectContaining({
         id: 'qwen3.5-plus-YoudaoInner',
         input: ['text', 'image'],
+        reasoning: true,
       }),
       expect.objectContaining({
         id: 'qwen3.6-plus-YoudaoInner',
         input: ['text', 'image'],
+        reasoning: true,
       }),
       expect.objectContaining({
         id: 'deepseek-v3.2-YoudaoInner',
         input: ['text'],
+        reasoning: true,
       }),
     ]));
     expect(provider.models).toHaveLength(3);
-    expect(config.agents.defaults.models).toBeUndefined();
+    expect(config.agents.defaults.models).toMatchObject({
+      'popiai-server/qwen3.5-plus-YoudaoInner': {
+        params: {
+          cacheRetention: 'short',
+          contextCacheProvider: 'dashscope',
+          contextCacheMode: 'explicit',
+        },
+      },
+      'popiai-server/qwen3.6-plus-YoudaoInner': {
+        params: {
+          cacheRetention: 'short',
+          contextCacheProvider: 'dashscope',
+          contextCacheMode: 'explicit',
+        },
+      },
+      'popiai-server/deepseek-v3.2-YoudaoInner': {},
+    });
   });
 
   test('writes a complete agent model allowlist when any model has custom params', async () => {
@@ -513,6 +535,21 @@ describe('OpenClawConfigSync runtime config output', () => {
       },
     };
     mockRuntimeState.enabledProviders = [
+      {
+        providerName: 'custom_0',
+        baseURL: 'https://example.com/v1',
+        apiKey: 'sk-custom',
+        apiType: 'openai',
+        codingPlanEnabled: false,
+        models: [
+          {
+            id: 'custom-thinking-model',
+            name: 'Custom Thinking Model',
+            supportsImage: false,
+            supportsThinking: true,
+          },
+        ],
+      },
       {
         providerName: ProviderName.DeepSeek,
         baseURL: 'https://api.deepseek.com',
@@ -541,6 +578,12 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(result.ok).toBe(true);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.models.providers.custom_0.models).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'custom-thinking-model',
+        reasoning: true,
+      }),
+    ]));
     const modelDefaults = config.agents.defaults.models;
 
     expect(modelDefaults).toEqual(expect.objectContaining({
@@ -552,12 +595,15 @@ describe('OpenClawConfigSync runtime config output', () => {
         },
       },
       'deepseek/deepseek-v4-pro': {},
+      'custom_0/custom-thinking-model': {},
       'popiai-server/MiniMax-M2.7-YoudaoInner': {},
       'popiai-server/kimi-k2.6-inhouse-ZhiYun': {},
     }));
+    expect(modelDefaults['custom_0/custom-thinking-model']?.params).toBeUndefined();
     expect(Object.keys(modelDefaults)).toEqual(expect.arrayContaining([
       'deepseek/deepseek-v4-flash',
       'deepseek/deepseek-v4-pro',
+      'custom_0/custom-thinking-model',
       'popiai-server/MiniMax-M2.7-YoudaoInner',
       'popiai-server/kimi-k2.6-inhouse-ZhiYun',
     ]));

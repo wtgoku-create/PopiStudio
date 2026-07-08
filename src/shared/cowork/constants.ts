@@ -15,6 +15,9 @@ export type CoworkSessionSourceKind =
 
 export const CoworkIpcChannel = {
   ListAgentSidebarSessions: 'cowork:session:listAgentSidebar',
+  SubTaskHistory: 'cowork:subTask:history',
+  SubagentList: 'cowork:subagent:list',
+  SubagentDelete: 'cowork:subagent:delete',
 } as const;
 
 export type CoworkIpcChannel =

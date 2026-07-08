@@ -18,6 +18,7 @@ export interface AppConfig {
       id: string;
       name: string;
       supportsImage?: boolean;
+      supportsThinking?: boolean;
     }>;
     defaultModel: string;
     defaultModelProvider?: string;

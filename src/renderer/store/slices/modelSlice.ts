@@ -11,6 +11,7 @@ export interface Model {
   providerKey?: string;
   openClawProviderId?: string;
   supportsImage?: boolean;
+  supportsThinking?: boolean;
   isServerModel?: boolean;
   serverApiFormat?: string;
 }

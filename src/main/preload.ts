@@ -305,9 +305,11 @@ contextBridge.exposeInMainWorld('electron', {
 
     // Subagent tracking
     getSubTaskHistory: (options: { parentSessionId: string; agentId: string; sessionKey?: string }) =>
-      ipcRenderer.invoke('cowork:subTask:history', options),
+      ipcRenderer.invoke(CoworkIpcChannel.SubTaskHistory, options),
     listSubagentSessions: (parentSessionId: string) =>
-      ipcRenderer.invoke('cowork:subagent:list', { parentSessionId }),
+      ipcRenderer.invoke(CoworkIpcChannel.SubagentList, { parentSessionId }),
+    deleteSubagentSession: (options: { parentSessionId: string; runId: string }) =>
+      ipcRenderer.invoke(CoworkIpcChannel.SubagentDelete, options),
 
     // Permission handling
     respondToPermission: (options: { requestId: string; result: any }) =>
@@ -688,8 +690,8 @@ contextBridge.exposeInMainWorld('electron', {
     countRuns: (taskId: string) => ipcRenderer.invoke(ScheduledTaskIpc.CountRuns, taskId),
     listAllRuns: (limit?: number, offset?: number, filter?: any) =>
       ipcRenderer.invoke(ScheduledTaskIpc.ListAllRuns, limit, offset, filter),
-    resolveSession: (sessionKey: string) =>
-      ipcRenderer.invoke(ScheduledTaskIpc.ResolveSession, sessionKey),
+    resolveSession: (input: string | { sessionId?: string | null; sessionKey?: string | null }) =>
+      ipcRenderer.invoke(ScheduledTaskIpc.ResolveSession, input),
 
     // Delivery channels
     listChannels: () => ipcRenderer.invoke(ScheduledTaskIpc.ListChannels),
