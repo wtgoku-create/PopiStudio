@@ -2,6 +2,7 @@ import { store } from '../store';
 import { setAuthLoading, setLoggedIn, setLoggedOut, setProfileSummary, updateQuota } from '../store/slices/authSlice';
 import type { Model } from '../store/slices/modelSlice';
 import { clearServerModels, setDefaultSelectedModel, setServerModels } from '../store/slices/modelSlice';
+import { ProviderName } from '@shared/providers';
 import { configService } from './config';
 
 class AuthService {
@@ -213,11 +214,11 @@ class AuthService {
           id: m.modelId,
           name: m.modelName,
           provider: m.provider,
-          providerKey: 'popiai-server',
+          providerKey: ProviderName.PopiaiServer,
           isServerModel: true,
           serverApiFormat: m.apiFormat,
           supportsImage: m.supportsImage ?? false,
-          supportsThinking: m.supportsThinking ?? false,
+          supportsThinking: m.supportsThinking ?? true,
         }));
         store.dispatch(setServerModels(serverModels));
         if (serverModels.length > 0) {

@@ -60,7 +60,7 @@ export type ServerModelMetadata = {
 };
 
 export const POPI_DEFAULT_SERVER_MODELS = [
-  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: true },
+  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: true, supportsThinking: true },
 ] as const;
 
 export type SkillMarketplacePageOptions = {
@@ -704,6 +704,7 @@ export class AuthManager {
           provider: ProviderName.PopiaiServer,
           apiFormat: 'openai',
           supportsImage: item.isSupportImages,
+          supportsThinking: true,
         };
       })
       .filter((model): model is ServerModelMetadata => model !== null);
