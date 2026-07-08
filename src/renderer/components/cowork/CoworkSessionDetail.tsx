@@ -51,6 +51,7 @@ import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload, SubagentPanelContent } from '../artifacts';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
+import SubagentIcon from '../icons/SubagentIcon';
 import AssistantTurnBlock, { ContextCompactionDivider } from './AssistantTurnBlock';
 import { type CoworkOpenShareOptionsEventDetail,CoworkUiEvent } from './constants';
 import ContextUsageIndicator from './ContextUsageIndicator';
@@ -394,15 +395,6 @@ const ArtifactBrowserTabIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) 
     <circle cx="8" cy="8" r="6" />
     <ellipse cx="8" cy="8" rx="2.5" ry="6" />
     <path d="M2 8h12" />
-  </svg>
-);
-
-const ArtifactSubagentTabIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <circle cx="8" cy="4.25" r="2" />
-    <path d="M4.75 10.75c.45-1.65 1.55-2.5 3.25-2.5s2.8.85 3.25 2.5" />
-    <path d="M3.25 12.75h9.5" />
-    <path d="M2.5 7.75h2M11.5 7.75h2" />
   </svg>
 );
 
@@ -2729,7 +2721,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                         className="flex min-w-0 items-center gap-1.5 px-2 text-left"
                         title={i18nService.t('subagentPanelTitle')}
                       >
-                        <ArtifactSubagentTabIcon className="h-3.5 w-3.5 shrink-0" />
+                        <SubagentIcon className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate">{i18nService.t('subagentPanelTitle')}</span>
                       </button>
                       <button
@@ -2878,7 +2870,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             onClick={handleOpenArtifactSubagentTab}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-surface"
           >
-            <ArtifactSubagentTabIcon className="h-4 w-4 shrink-0" />
+            <SubagentIcon className="h-4 w-4 shrink-0" />
             <span className="truncate">{i18nService.t('subagentPanelTitle')}</span>
           </button>
         </div>,
