@@ -12,6 +12,9 @@ describe('buildKnowledgeSourceReferencePrompt', () => {
     expect(prompt).not.toContain('Knowledge Retrieval Tool Routing');
     expect(prompt).toContain('Knowledge Upload Tool Routing');
     expect(prompt).toContain('upload_agent_knowledge_file');
+    expect(prompt).toContain('AskUserQuestion');
+    expect(prompt).toContain('userConfirmed: true');
+    expect(prompt).toContain('explicitly confirms this upload');
     expect(prompt).toContain('knowledge access token is missing');
   });
 });

@@ -28,9 +28,12 @@ describe('knowledge MCP bridge tools', () => {
       'upload_agent_knowledge_file',
     ]);
     const uploadTool = manifest.find(tool => tool.name === 'upload_agent_knowledge_file');
-    expect(uploadTool?.inputSchema.required).toEqual(['filePath']);
+    expect(uploadTool?.inputSchema.required).toEqual(['filePath', 'userConfirmed']);
     expect(uploadTool?.inputSchema.properties?.filePath).toEqual(
       expect.objectContaining({ type: 'string' }),
+    );
+    expect(uploadTool?.inputSchema.properties?.userConfirmed).toEqual(
+      expect.objectContaining({ type: 'boolean' }),
     );
   });
 
@@ -85,6 +88,7 @@ describe('knowledge MCP bridge tools', () => {
         apiKey: 'test-key',
         metadata: { source: 'agent' },
         channel: 'agent',
+        userConfirmed: true,
       },
       service,
     );
@@ -111,11 +115,28 @@ describe('knowledge MCP bridge tools', () => {
     const result = await executeKnowledgeMcpTool(
       KNOWLEDGE_MCP_SERVER_NAME,
       'upload_agent_knowledge_file',
-      { filePath: 'demo.md' },
+      { filePath: 'demo.md', userConfirmed: true },
       service,
     );
 
     expect(result?.isError).toBe(true);
     expect(result?.content[0].text).toContain('absolute');
+  });
+
+  test('rejects uploads without explicit user confirmation', async () => {
+    const service = {
+      uploadAgentKnowledgeFile: vi.fn(),
+    } as unknown as RemoteKnowledgeService;
+
+    const result = await executeKnowledgeMcpTool(
+      KNOWLEDGE_MCP_SERVER_NAME,
+      'upload_agent_knowledge_file',
+      { filePath: '/tmp/demo.md' },
+      service,
+    );
+
+    expect(result?.isError).toBe(true);
+    expect(result?.content[0].text).toContain('explicit user confirmation');
+    expect(service.uploadAgentKnowledgeFile).not.toHaveBeenCalled();
   });
 });
