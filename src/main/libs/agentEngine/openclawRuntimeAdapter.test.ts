@@ -3557,3 +3557,49 @@ test('getSessionKeysForSession prefers channel keys before managed fallback', ()
     'agent:main:popiai:session-1',
   ]);
 });
+
+test('onSessionDeleted deletes gateway transcripts for all session keys', async () => {
+  const request = vi.fn(async () => ({}));
+  const subagentRunStore = {
+    listSubagentRuns: () => [],
+    deleteSubagentRunsByParent: vi.fn(),
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    { getSession: () => null } as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const channelSessionKey = 'agent:main:openclaw-weixin:bot-1:direct:user-1@im.wechat';
+  const managedSessionKey = 'agent:main:popiai:session-1';
+
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request,
+  };
+  adapter.channelSessionSync = {
+    isChannelSessionKey: (key: string) => key === channelSessionKey,
+    onSessionDeleted: vi.fn(),
+  } as never;
+  adapter.sessionIdBySessionKey.set(channelSessionKey, 'session-1');
+  adapter.sessionIdBySessionKey.set(managedSessionKey, 'session-1');
+
+  adapter.onSessionDeleted('session-1');
+
+  await vi.waitFor(() => {
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledWith(
+      'sessions.delete',
+      { key: channelSessionKey, deleteTranscript: true },
+      { timeoutMs: 5_000 },
+    );
+    expect(request).toHaveBeenCalledWith(
+      'sessions.delete',
+      { key: managedSessionKey, deleteTranscript: true },
+      { timeoutMs: 5_000 },
+    );
+  });
+  expect(adapter.deletedChannelKeys.has(channelSessionKey)).toBe(false);
+  expect(adapter.deletedChannelKeys.has(managedSessionKey)).toBe(false);
+});

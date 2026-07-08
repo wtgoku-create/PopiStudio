@@ -344,7 +344,7 @@ test('channel sync reuses one local session for cron base and run keys', () => {
   });
 });
 
-test('channel sync reuses target IM session for IM announce delivery jobs', () => {
+test('channel sync suppresses local cron sessions for mapped IM announce delivery jobs', () => {
   const createSession = vi.fn();
   const sync = new OpenClawChannelSessionSync({
     coworkStore: {
@@ -389,9 +389,9 @@ test('channel sync reuses target IM session for IM announce delivery jobs', () =
     }),
   });
 
-  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe('cowork-1');
-  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1')).toBe('cowork-1');
-  expect(sync.resolveSession('agent:main:cron:job-1:run:run-2')).toBe('cowork-1');
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe(null);
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1')).toBe(null);
+  expect(sync.resolveSession('agent:main:cron:job-1:run:run-2')).toBe(null);
   expect(createSession).not.toHaveBeenCalled();
 });
 

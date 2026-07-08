@@ -1151,6 +1151,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
    */
   private readonly stoppedSessions = new Map<string, number>();
   private static readonly STOP_COOLDOWN_MS = 10_000; // 10 seconds
+  private static readonly GATEWAY_SESSION_DELETE_TIMEOUT_MS = 5_000;
   private static readonly RECENTLY_CLOSED_RUN_ID_TTL_MS = 120_000;
   private static readonly RECENTLY_CLOSED_RUN_ID_LIMIT = 1000;
   private static readonly LIFECYCLE_ERROR_FALLBACK_DELAY_MS = 20_000;
@@ -1176,8 +1177,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private readonly channelSyncCursor = new Map<string, number>();
   /** Sessions re-created after user deletion — use latestOnly sync to avoid replaying old history. */
   private readonly reCreatedChannelSessionIds = new Set<string>();
-  /** Channel sessionKeys explicitly deleted by the user. Polling will not re-create these. */
+  /** Channel sessionKeys explicitly deleted by the user. Polling re-creates them only after new gateway activity. */
   private readonly deletedChannelKeys = new Set<string>();
+  private readonly deletedChannelKeySnapshots = new Map<string, { updatedAt: number | null; contextTokens: number | null }>();
   /** Sessions that were manually stopped by the user. Used to suppress the timeout hint
    *  when the gateway sends back a late 'aborted' event after stopSession() already cleaned up the turn. */
   private readonly manuallyStoppedSessions = new Set<string>();
@@ -1981,6 +1983,38 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
   }
 
+  private getChannelRowSnapshot(row: unknown): { updatedAt: number | null; contextTokens: number | null } {
+    if (!isRecord(row)) {
+      return { updatedAt: null, contextTokens: null };
+    }
+    const updatedAt = typeof row.updatedAt === 'number' && Number.isFinite(row.updatedAt)
+      ? row.updatedAt
+      : null;
+    const contextTokens = typeof row.contextTokens === 'number' && Number.isFinite(row.contextTokens)
+      ? row.contextTokens
+      : null;
+    return { updatedAt, contextTokens };
+  }
+
+  private shouldSkipDeletedChannelRow(sessionKey: string, row: unknown): boolean {
+    if (!this.deletedChannelKeys.has(sessionKey)) {
+      return false;
+    }
+    const previous = this.deletedChannelKeySnapshots.get(sessionKey);
+    const current = this.getChannelRowSnapshot(row);
+    const hasNewActivity = !!previous && (
+      (previous.updatedAt !== null && current.updatedAt !== null && current.updatedAt > previous.updatedAt)
+      || (previous.contextTokens !== null && current.contextTokens !== null && current.contextTokens > previous.contextTokens)
+    );
+    if (!hasNewActivity) {
+      return true;
+    }
+    this.deletedChannelKeys.delete(sessionKey);
+    this.deletedChannelKeySnapshots.delete(sessionKey);
+    console.log('[ChannelSync] re-discovered deleted channel session after new activity');
+    return false;
+  }
+
   private async pollChannelSessions(): Promise<void> {
     if (!this.gatewayClient || !this.channelSessionSync) {
       console.warn('[ChannelSync] pollChannelSessions: skipped — gatewayClient:', !!this.gatewayClient, 'channelSessionSync:', !!this.channelSessionSync);
@@ -2015,8 +2049,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         }
         const isChannel = this.channelSessionSync.isChannelSessionKey(key);
         if (!isChannel) continue;
-        // Skip keys that were explicitly deleted by the user — only real-time events re-create them
-        if (this.deletedChannelKeys.has(key)) continue;
+        if (this.shouldSkipDeletedChannelRow(key, row)) continue;
         // Skip gateway sessions belonging to a previously-bound agent.
         // After an agent binding change, the gateway retains old sessions under the old agentId.
         // Only process sessions matching the current platformAgentBindings.
@@ -2059,7 +2092,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           const key = typeof row?.key === 'string' ? row.key : '';
           if (!key) continue;
           if (!this.channelSessionSync.isChannelSessionKey(key)) continue;
-          if (this.deletedChannelKeys.has(key)) continue;
+          if (this.shouldSkipDeletedChannelRow(key, row)) continue;
           if (this.heartbeatSessionKeys.has(key)) continue;
           // Skip sessions belonging to a previously-bound agent
           if (!this.channelSessionSync.isCurrentBindingKey(key)) continue;
@@ -6790,10 +6823,22 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
     }
 
+    const removedChannelKeys = removedKeys.filter((key) =>
+      this.channelSessionSync?.isChannelSessionKey(key) ?? false,
+    );
+
     // Suppress polling re-creation for deleted channel keys.
-    // Only real-time events (new IM messages) will re-create the session.
-    for (const key of removedKeys) {
+    // Polling re-creates them only after the gateway reports new activity.
+    for (const key of removedChannelKeys) {
       this.deletedChannelKeys.add(key);
+      this.deletedChannelKeySnapshots.set(key, {
+        updatedAt: null,
+        contextTokens: this.sessionContextTokensCache.get(key) ?? null,
+      });
+    }
+
+    if (removedKeys.length > 0) {
+      void this.deleteGatewaySessionTranscripts(removedKeys);
     }
 
     // Allow polling to rediscover channel sessions
@@ -6826,6 +6871,29 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     // Clean up subagent tracking state and persisted messages
     this.subagentTracker.onSessionDeleted(sessionId);
+  }
+
+  private async deleteGatewaySessionTranscripts(sessionKeys: string[]): Promise<void> {
+    const client = this.gatewayClient;
+    if (!client) {
+      console.warn('[OpenClawRuntime] could not delete gateway session transcripts because the gateway client is unavailable');
+      return;
+    }
+
+    const uniqueKeys = Array.from(new Set(sessionKeys.filter(Boolean)));
+    for (const sessionKey of uniqueKeys) {
+      try {
+        await client.request('sessions.delete', {
+          key: sessionKey,
+          deleteTranscript: true,
+        }, { timeoutMs: OpenClawRuntimeAdapter.GATEWAY_SESSION_DELETE_TIMEOUT_MS });
+        this.deletedChannelKeys.delete(sessionKey);
+        this.deletedChannelKeySnapshots.delete(sessionKey);
+        console.log(`[OpenClawRuntime] deleted gateway session transcript for ${sessionKey}`);
+      } catch (error) {
+        console.warn(`[OpenClawRuntime] failed to delete gateway session transcript for ${sessionKey}:`, error);
+      }
+    }
   }
 
   /**
