@@ -209,7 +209,7 @@ class AuthService {
     try {
       const modelsResult = await window.electron.auth.getModels();
       if (modelsResult.success && modelsResult.models) {
-        const serverModels: Model[] = modelsResult.models.map((m: { modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }) => ({
+        const serverModels: Model[] = modelsResult.models.map((m: { modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean; supportsThinking?: boolean }) => ({
           id: m.modelId,
           name: m.modelName,
           provider: m.provider,
@@ -217,6 +217,7 @@ class AuthService {
           isServerModel: true,
           serverApiFormat: m.apiFormat,
           supportsImage: m.supportsImage ?? false,
+          supportsThinking: m.supportsThinking ?? false,
         }));
         store.dispatch(setServerModels(serverModels));
         if (serverModels.length > 0) {
