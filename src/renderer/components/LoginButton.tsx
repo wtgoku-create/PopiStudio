@@ -98,7 +98,7 @@ const CreditItemRow: React.FC<{ item: CreditItem; isEn: boolean }> = ({ item, is
   );
 };
 
-const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> = ({ onClose, onShowSettings }) => {
+const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const user = useSelector((state: RootState) => state.auth.user);
   const profileSummary = useSelector((state: RootState) => state.auth.profileSummary);
   const [creditsExpanded, setCreditsExpanded] = useState(false);
@@ -110,11 +110,6 @@ const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> =
 
   const handleLogout = async () => {
     await authService.logout();
-    onClose();
-  };
-
-  const handleShowSettings = () => {
-    onShowSettings?.();
     onClose();
   };
 
@@ -206,15 +201,6 @@ const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> =
 
       {/* Actions */}
       <div className="py-1">
-        {onShowSettings && (
-          <button
-            type="button"
-            onClick={handleShowSettings}
-            className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-surface-raised transition-colors cursor-pointer"
-          >
-            {i18nService.t('settings')}
-          </button>
-        )}
         <button
           type="button"
           onClick={handleSubscribe}
@@ -241,10 +227,9 @@ const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> =
 
 interface LoginButtonProps {
   iconOnly?: boolean;
-  onShowSettings?: () => void;
 }
 
-const LoginButton: React.FC<LoginButtonProps> = ({ iconOnly = false, onShowSettings }) => {
+const LoginButton: React.FC<LoginButtonProps> = ({ iconOnly = false }) => {
   const { isLoggedIn, isLoading, user } = useSelector((state: RootState) => state.auth);
   const [showMenu, setShowMenu] = useState(false);
 
@@ -305,7 +290,7 @@ const LoginButton: React.FC<LoginButtonProps> = ({ iconOnly = false, onShowSetti
             collisionPadding={12}
             className="z-[1000] outline-none popover-enter"
           >
-            <UserMenu onClose={() => setShowMenu(false)} onShowSettings={onShowSettings} />
+            <UserMenu onClose={() => setShowMenu(false)} />
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       )}
