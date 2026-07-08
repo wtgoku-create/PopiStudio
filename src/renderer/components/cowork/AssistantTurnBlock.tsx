@@ -19,6 +19,7 @@ import {
   getVisibleAssistantItems,
   hasText,
   isContextCompactionMessage,
+  type ToolGroupItem,
 } from './messageDisplayUtils';
 import ThinkingBlock from './ThinkingBlock';
 import ToolCallGroup from './ToolCallGroup';
@@ -97,6 +98,7 @@ const AssistantTurnBlock: React.FC<{
   onOpenLocalService?: (artifact: Artifact) => void;
   showTypingIndicator?: boolean;
   showCopyButtons?: boolean;
+  renderToolGroupFooter?: (group: ToolGroupItem) => React.ReactNode;
 }> = ({
   turn,
   artifacts,
@@ -105,6 +107,7 @@ const AssistantTurnBlock: React.FC<{
   onOpenLocalService,
   showTypingIndicator = false,
   showCopyButtons = true,
+  renderToolGroupFooter,
 }) => {
   const visibleAssistantItems = getVisibleAssistantItems(turn.assistantItems);
 
@@ -236,6 +239,7 @@ const AssistantTurnBlock: React.FC<{
                     group={item.group}
                     isLastInSequence={isLastInSequence}
                     mapDisplayText={mapDisplayText}
+                    footer={renderToolGroupFooter?.(item.group)}
                   />
                 );
               }

@@ -5,10 +5,12 @@ import { i18nService } from '../../services/i18n';
 import DiffView, { extractDiffFromToolInput } from './DiffView';
 import {
   formatToolInput,
+  getLargeToolResultSummary,
   getToolDisplayName,
   getToolInputSummary,
+  getToolResultCollapsedDisplay,
   getToolResultDisplay,
-  getToolResultLineCount,
+  getToolResultLineCountSummary,
   hasText,
   isBashLikeToolName,
   isCronToolName,
@@ -67,10 +69,12 @@ const ToolCallGroup: React.FC<{
   group: ToolGroupItem;
   isLastInSequence?: boolean;
   mapDisplayText?: (value: string) => string;
+  footer?: React.ReactNode;
 }> = ({
   group,
   isLastInSequence = true,
   mapDisplayText,
+  footer,
 }) => {
   const { toolUse, toolResult } = group;
   const rawToolName = typeof toolUse.metadata?.toolName === 'string' ? toolUse.metadata.toolName : 'Tool';
@@ -84,18 +88,37 @@ const ToolCallGroup: React.FC<{
   const toolInputDisplay = toolInputDisplayRaw ? mapText(toolInputDisplayRaw) : null;
   const toolInputSummaryRaw = getToolInputSummary(rawToolName, toolInput) ?? toolInputDisplayRaw;
   const toolInputSummary = toolInputSummaryRaw ? mapText(toolInputSummaryRaw) : null;
-  const toolResultDisplayRaw = toolResult ? getToolResultDisplay(toolResult) : '';
-  const toolResultDisplay = mapText(toolResultDisplayRaw);
-  const hasToolResultText = hasText(toolResultDisplay);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const collapsedToolResult = useMemo(
+    () => toolResult ? getToolResultCollapsedDisplay(toolResult) : null,
+    [toolResult],
+  );
+  const toolResultDisplayRaw = useMemo(
+    () => toolResult && isExpanded ? getToolResultDisplay(toolResult) : '',
+    [isExpanded, toolResult],
+  );
+  const toolResultDisplay = toolResultDisplayRaw ? mapText(toolResultDisplayRaw) : '';
+  const hasExpandedToolResultText = hasText(toolResultDisplay);
+  const hasToolResultText = isExpanded
+    ? hasExpandedToolResultText
+    : Boolean(collapsedToolResult?.hasText);
   const isToolError = Boolean(toolResult?.metadata?.isError || toolResult?.metadata?.error);
   const showNoDetailError = isToolError && !hasToolResultText;
   const toolResultFallback = showNoDetailError ? i18nService.t('coworkToolNoErrorDetail') : '';
-  const displayToolResult = hasToolResultText ? toolResultDisplay : toolResultFallback;
-  const [isExpanded, setIsExpanded] = useState(false);
-  const resultLineCount = hasToolResultText ? getToolResultLineCount(toolResultDisplay) : 0;
-  const toolResultSummary = isCronTool && hasToolResultText
-    ? truncatePreview(toolResultDisplay.replace(/\s+/g, ' '))
-    : null;
+  const displayToolResult = hasExpandedToolResultText ? toolResultDisplay : toolResultFallback;
+  const collapsedToolResultPreview = collapsedToolResult?.text
+    ? mapText(collapsedToolResult.text)
+    : '';
+  const toolResultSummary = (() => {
+    if (!collapsedToolResult?.hasText) return null;
+    if (isCronTool && hasText(collapsedToolResultPreview)) {
+      return truncatePreview(collapsedToolResultPreview.replace(/\s+/g, ' '));
+    }
+    if (collapsedToolResult.isLarge && collapsedToolResult.sizeLabel) {
+      return getLargeToolResultSummary(collapsedToolResult.sizeLabel);
+    }
+    return getToolResultLineCountSummary(collapsedToolResult.lineCount);
+  })();
 
   const isBashTool = isBashLikeToolName(rawToolName);
 
@@ -139,9 +162,9 @@ const ToolCallGroup: React.FC<{
                 : showNoDetailError
                   ? 'text-red-500/80'
                   : 'text-muted'
-            }`}>
+              }`}>
               {hasToolResultText
-                ? (toolResultSummary ?? `${resultLineCount} ${resultLineCount === 1 ? 'line' : 'lines'} of output`)
+                ? toolResultSummary
                 : toolResultFallback}
             </div>
           )}
@@ -152,6 +175,11 @@ const ToolCallGroup: React.FC<{
           )}
         </div>
       </button>
+      {footer && (
+        <div className="ml-4 mt-2">
+          {footer}
+        </div>
+      )}
       {isExpanded && (
         <div className="ml-4 mt-2">
           {isBashTool ? (
@@ -169,11 +197,11 @@ const ToolCallGroup: React.FC<{
                     <span className="whitespace-pre-wrap break-words">{toolInputDisplay}</span>
                   </div>
                 )}
-                {toolResult && (hasToolResultText || showNoDetailError) && (
+                {toolResult && (hasExpandedToolResultText || showNoDetailError) && (
                   <div className={`mt-1.5 whitespace-pre-wrap break-words ${
                     isToolError
                       ? 'text-red-400'
-                      : hasToolResultText
+                      : hasExpandedToolResultText
                         ? 'text-secondary'
                         : 'text-muted italic'
                   }`}>
@@ -199,7 +227,7 @@ const ToolCallGroup: React.FC<{
                   filePath={diff.filePath}
                 />
               ))}
-              {toolResult && (hasToolResultText || showNoDetailError) && (
+              {toolResult && (hasExpandedToolResultText || showNoDetailError) && (
                 <div>
                   <div className="text-[10px] font-medium dark:text-claude-darkTextSecondary/70 text-claude-textSecondary/70 uppercase tracking-wider mb-1">
                     {i18nService.t('coworkToolResult')}
@@ -208,7 +236,7 @@ const ToolCallGroup: React.FC<{
                     <pre className={`text-xs whitespace-pre-wrap break-words font-mono ${
                       isToolError
                         ? 'text-red-500'
-                        : hasToolResultText
+                        : hasExpandedToolResultText
                           ? 'dark:text-claude-darkText text-claude-text'
                           : 'dark:text-claude-darkTextSecondary text-claude-textSecondary italic'
                     }`}>
@@ -232,7 +260,7 @@ const ToolCallGroup: React.FC<{
                   </div>
                 </div>
               )}
-              {toolResult && (hasToolResultText || showNoDetailError) && (
+              {toolResult && (hasExpandedToolResultText || showNoDetailError) && (
                 <div>
                   <div className="text-[10px] font-medium text-muted uppercase tracking-wider mb-1">
                     {i18nService.t('coworkToolResult')}
@@ -241,7 +269,7 @@ const ToolCallGroup: React.FC<{
                     <pre className={`text-xs whitespace-pre-wrap break-words font-mono ${
                       isToolError
                         ? 'text-red-500'
-                        : hasToolResultText
+                        : hasExpandedToolResultText
                           ? 'text-foreground'
                           : 'text-secondary italic'
                     }`}>

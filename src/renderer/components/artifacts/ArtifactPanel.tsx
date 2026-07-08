@@ -119,6 +119,7 @@ interface ArtifactPanelProps {
   onOpenFileListTab?: () => void;
   onOpenBrowserTab?: () => void;
   onBrowserAnnotationCaptured?: (payload: BrowserAnnotationPayload) => void;
+  subagentPanel?: React.ReactNode;
 }
 
 export const BrowserAnnotationShape = {
@@ -183,6 +184,7 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   onOpenFileListTab,
   onOpenBrowserTab,
   onBrowserAnnotationCaptured,
+  subagentPanel,
 }) => {
   const dispatch = useDispatch();
   const panelWidth = useSelector(selectPanelWidth);
@@ -699,6 +701,8 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
               )}
             </div>
           </div>
+        ) : activeSpecialTab === ArtifactSpecialTab.Subagents && subagentPanel ? (
+          subagentPanel
         ) : activeSpecialTab === ArtifactSpecialTab.Browser ? (
           <BrowserTabContent
             address={browserAddress}
