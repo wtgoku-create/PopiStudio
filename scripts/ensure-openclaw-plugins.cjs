@@ -174,6 +174,110 @@ function readJsonFile(filePath) {
   }
 }
 
+function patchWeixinGatewayMethods(channelPath, label) {
+  if (!fs.existsSync(channelPath)) {
+    return;
+  }
+
+  let src = fs.readFileSync(channelPath, 'utf8');
+  if (!src.includes('gatewayMethods')) {
+    const marker = 'configSchema: {';
+    const idx = src.indexOf(marker);
+    if (idx !== -1) {
+      src = src.slice(0, idx) + 'gatewayMethods: ["web.login.start", "web.login.wait"],\n  ' + src.slice(idx);
+      fs.writeFileSync(channelPath, src);
+      log(`Patched ${label}: added gatewayMethods declaration`);
+    }
+  } else {
+    log(`${label} already has gatewayMethods, skipping patch`);
+  }
+}
+
+function patchWeixinStartupActivation(manifestPath) {
+  if (!fs.existsSync(manifestPath)) {
+    return;
+  }
+
+  const manifest = readJsonFile(manifestPath);
+  if (!manifest) {
+    log('openclaw-weixin/openclaw.plugin.json could not be parsed, skipping startup activation patch');
+    return;
+  }
+
+  if (manifest?.activation?.onStartup !== true) {
+    manifest.activation = {
+      ...(manifest.activation && typeof manifest.activation === 'object' ? manifest.activation : {}),
+      onStartup: true,
+    };
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+    log('Patched openclaw-weixin/openclaw.plugin.json: enabled startup activation for QR login discovery');
+  } else {
+    log('openclaw-weixin/openclaw.plugin.json already has startup activation, skipping patch');
+  }
+}
+
+function patchWeixinDmPolicy(processMsgPath, label) {
+  if (!fs.existsSync(processMsgPath)) {
+    return;
+  }
+
+  let pmSrc = fs.readFileSync(processMsgPath, 'utf8');
+  const dmPolicyPatchMarker = 'chanCfg_dmPolicy_patch';
+  if (!pmSrc.includes(dmPolicyPatchMarker)) {
+    const oldAllowFrom = 'configuredAllowFrom: [],';
+    const oldDmPolicy = 'dmPolicy: "pairing",';
+    const patchedDmPolicy = `dmPolicy: (() => { /* ${dmPolicyPatchMarker} */ const _cc = (deps.config.channels)?.['openclaw-weixin'] ?? {}; return _cc.dmPolicy || 'pairing'; })(),`;
+    if (pmSrc.includes(oldDmPolicy) && pmSrc.includes(oldAllowFrom)) {
+      pmSrc = pmSrc.replaceAll(oldDmPolicy, patchedDmPolicy);
+      pmSrc = pmSrc.replace(
+        oldAllowFrom,
+        `configuredAllowFrom: (() => { const _cc = (deps.config.channels)?.['openclaw-weixin'] ?? {}; return Array.isArray(_cc.allowFrom) ? _cc.allowFrom.map(String) : []; })(),`
+      );
+      fs.writeFileSync(processMsgPath, pmSrc);
+      log(`Patched ${label}: dmPolicy/allowFrom now read from config`);
+    }
+  } else {
+    log(`${label} dmPolicy patch already applied, skipping`);
+  }
+}
+
+function patchWeixinAllowFromWildcard(processMsgPath, label) {
+  if (!fs.existsSync(processMsgPath)) {
+    return;
+  }
+
+  let pmSrc = fs.readFileSync(processMsgPath, 'utf8');
+  const wildcardNeedle = "list.includes('*')";
+  if (pmSrc.includes(wildcardNeedle)) {
+    log(`${label} allowFrom wildcard patch already applied, skipping`);
+    return;
+  }
+
+  const replacements = [
+    {
+      from: 'isSenderAllowed: (id: string, list: string[]) => list.length === 0 || list.includes(id),',
+      to: "isSenderAllowed: (id: string, list: string[]) => list.length === 0 || list.includes('*') || list.includes(id),",
+    },
+    {
+      from: 'isSenderAllowed: (id, list) => list.length === 0 || list.includes(id),',
+      to: "isSenderAllowed: (id, list) => list.length === 0 || list.includes('*') || list.includes(id),",
+    },
+  ];
+
+  let patched = false;
+  for (const { from, to } of replacements) {
+    if (pmSrc.includes(from)) {
+      pmSrc = pmSrc.replaceAll(from, to);
+      patched = true;
+    }
+  }
+
+  if (patched) {
+    fs.writeFileSync(processMsgPath, pmSrc);
+    log(`Patched ${label}: allowFrom now honors wildcard entries`);
+  }
+}
+
 function buildNpmPackEnv() {
   return {
     ...process.env,
@@ -662,21 +766,17 @@ function main() {
   // cannot discover the plugin for web.login.start/web.login.wait RPC calls
   // (used by our embedded web UI — the standard CLI login path uses
   // plugin.auth.login instead and does not need this).
-  const weixinChannelPath = path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'channel.ts');
-  if (fs.existsSync(weixinChannelPath)) {
-    let src = fs.readFileSync(weixinChannelPath, 'utf8');
-    if (!src.includes('gatewayMethods')) {
-      const marker = 'configSchema: {';
-      const idx = src.indexOf(marker);
-      if (idx !== -1) {
-        src = src.slice(0, idx) + 'gatewayMethods: ["web.login.start", "web.login.wait"],\n  ' + src.slice(idx);
-        fs.writeFileSync(weixinChannelPath, src);
-        log('Patched openclaw-weixin/src/channel.ts: added gatewayMethods declaration');
-      }
-    } else {
-      log('openclaw-weixin/src/channel.ts already has gatewayMethods, skipping patch');
-    }
-  }
+  patchWeixinGatewayMethods(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'channel.ts'),
+    'openclaw-weixin/src/channel.ts'
+  );
+  patchWeixinGatewayMethods(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'channel.js'),
+    'openclaw-weixin/dist/src/channel.js'
+  );
+  patchWeixinStartupActivation(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'openclaw.plugin.json')
+  );
 
   // --- Post-install patch: openclaw-weixin dmPolicy from config ---
   // The plugin hardcodes dmPolicy:"pairing" and configuredAllowFrom:[] in
@@ -684,31 +784,22 @@ function main() {
   // This causes all inbound messages from non-bot senders to be silently
   // dropped as "unauthorized" even when the config specifies dmPolicy:"open"
   // with allowFrom:["*"].  Patch it to read from deps.config.channels.
-  const weixinProcessMsgPath = path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'messaging', 'process-message.ts');
-  if (fs.existsSync(weixinProcessMsgPath)) {
-    let pmSrc = fs.readFileSync(weixinProcessMsgPath, 'utf8');
-    const dmPolicyPatchMarker = 'chanCfg_dmPolicy_patch';
-    if (!pmSrc.includes(dmPolicyPatchMarker)) {
-      const oldAllowFrom = 'configuredAllowFrom: [],';
-      // There are two occurrences of dmPolicy: "pairing" — one in
-      // resolveSenderCommandAuthorizationWithRuntime and one in
-      // resolveDirectDmAuthorizationOutcome.  Both must use the config value.
-      // We use replaceAll to patch both at once.
-      const oldDmPolicy = 'dmPolicy: "pairing",';
-      const patchedDmPolicy = `dmPolicy: (() => { /* ${dmPolicyPatchMarker} */ const _cc = (deps.config.channels)?.['openclaw-weixin'] ?? {}; return _cc.dmPolicy || 'pairing'; })(),`;
-      if (pmSrc.includes(oldDmPolicy) && pmSrc.includes(oldAllowFrom)) {
-        pmSrc = pmSrc.replaceAll(oldDmPolicy, patchedDmPolicy);
-        pmSrc = pmSrc.replace(
-          oldAllowFrom,
-          `configuredAllowFrom: (() => { const _cc = (deps.config.channels)?.['openclaw-weixin'] ?? {}; return Array.isArray(_cc.allowFrom) ? _cc.allowFrom.map(String) : []; })(),`
-        );
-        fs.writeFileSync(weixinProcessMsgPath, pmSrc);
-        log('Patched openclaw-weixin/src/messaging/process-message.ts: dmPolicy/allowFrom now read from config');
-      }
-    } else {
-      log('openclaw-weixin/src/messaging/process-message.ts dmPolicy patch already applied, skipping');
-    }
-  }
+  patchWeixinDmPolicy(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'messaging', 'process-message.ts'),
+    'openclaw-weixin/src/messaging/process-message.ts'
+  );
+  patchWeixinAllowFromWildcard(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'messaging', 'process-message.ts'),
+    'openclaw-weixin/src/messaging/process-message.ts'
+  );
+  patchWeixinDmPolicy(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'messaging', 'process-message.js'),
+    'openclaw-weixin/dist/src/messaging/process-message.js'
+  );
+  patchWeixinAllowFromWildcard(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'messaging', 'process-message.js'),
+    'openclaw-weixin/dist/src/messaging/process-message.js'
+  );
 
   // --- Post-install patch: openclaw-lark deferred startup loading ---
   // The openclaw-lark plugin eagerly loads the 86K-line @larksuiteoapi/node-sdk and
