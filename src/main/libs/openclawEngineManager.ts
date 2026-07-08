@@ -16,6 +16,7 @@ import {
   pruneGatewayLogs,
 } from './gatewayLogRotation';
 import { getCodexHomeDir } from './openaiCodexAuth';
+import { migrateLegacyCronStorageWithDoctor } from './openclawCronLegacyMigration';
 import { cleanupStaleThirdPartyPluginsFromBundledDir, listLocalOpenClawExtensionIds, syncLocalOpenClawExtensionsIntoRuntime } from './openclawLocalExtensions';
 import { ensureOpenClawWorkerShims } from './openclawWorkerShims';
 import { appendPythonRuntimeToEnv } from './pythonRuntime';
@@ -594,6 +595,13 @@ export class OpenClawEngineManager extends EventEmitter {
         console.log(`[OpenClaw] Injected system proxy for gateway via ${targetUrl}:`, proxyUrl);
       }
     }
+
+    await migrateLegacyCronStorageWithDoctor({
+      stateDir: this.stateDir,
+      runtimeRoot: runtime.root,
+      electronNodeRuntimePath,
+      env,
+    });
 
     const forkArgs = ['gateway', '--bind', 'loopback', '--port', String(port), '--token', token, '--verbose'];
     const gatewayExecArgv = buildOpenClawGatewayExecArgv(process.env.NODE_OPTIONS);
