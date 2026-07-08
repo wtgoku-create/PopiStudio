@@ -412,9 +412,16 @@ const TaskForm: React.FC<TaskFormProps> = ({
       setConversations(result);
       setConversationsLoading(false);
 
-        if (result.length > 0 && !form.notifyTo) {
-          setForm(current => ({ ...current, notifyTo: result[0].conversationId }));
-        }
+      if (result.length > 0) {
+        setForm(current => {
+          const currentExists = result.some(conv =>
+            conversationOptionMatchesValue(current.notifyChannel, conv.conversationId, current.notifyTo),
+          );
+          return currentExists ? current : { ...current, notifyTo: result[0].conversationId };
+        });
+      } else {
+        setForm(current => (current.notifyTo ? { ...current, notifyTo: '' } : current));
+      }
       });
 
     return () => {
@@ -505,6 +512,10 @@ const TaskForm: React.FC<TaskFormProps> = ({
 
     if (form.planType === 'weekly' && form.weekdays.length === 0) {
       nextErrors.schedule = i18nService.t('scheduledTasksFormValidationWeekdayRequired');
+    }
+
+    if (isIMChannel(form.notifyChannel) && !form.notifyTo.trim()) {
+      nextErrors.notifyTo = i18nService.t('scheduledTasksFormValidationNotifyTargetMissing');
     }
 
     setErrors(nextErrors);
@@ -1131,9 +1142,9 @@ const TaskForm: React.FC<TaskFormProps> = ({
     return (
       <div>
         <label className={labelClass}>{i18nService.t('scheduledTasksFormNotifyChannel')}</label>
-        <div className="flex items-center gap-3">
+        <div className="space-y-2">
           <div
-            className={`relative ${showConversationSelector ? 'flex-1 min-w-0' : 'w-full'}`}
+            className="relative w-full"
             ref={channelDropdownRef}
           >
             <button
@@ -1230,6 +1241,11 @@ const TaskForm: React.FC<TaskFormProps> = ({
                               notifyTo: '',
                               notifyAccountId: channel.accountId,
                             });
+                            setErrors(current => {
+                              if (!current.notifyTo) return current;
+                              const { notifyTo: _ignored, ...rest } = current;
+                              return rest;
+                            });
                             setChannelDropdownOpen(false);
                           }
                         }}
@@ -1263,7 +1279,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
             )}
           </div>
           {showConversationSelector && (
-            <div className="relative flex-1 min-w-0" ref={convDropdownRef}>
+            <div className="relative w-full" ref={convDropdownRef}>
               <button
                 type="button"
                 onClick={() => {
@@ -1275,7 +1291,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
                 <span className="truncate text-sm">
                   {conversationsLoading
                     ? i18nService.t('scheduledTasksFormNotifyConversationLoading')
-                    : selectedConversationLabel || i18nService.t('scheduledTasksFormNotifyConversationNone')}
+                    : selectedConversationLabel || i18nService.t('scheduledTasksFormNotifySelectConversation')}
                 </span>
                 <svg
                   className={`w-4 h-4 ml-2 flex-shrink-0 transition-transform ${convDropdownOpen ? 'rotate-180' : ''}`}
@@ -1292,10 +1308,10 @@ const TaskForm: React.FC<TaskFormProps> = ({
                 </svg>
               </button>
               {convDropdownOpen && !conversationsLoading && (
-                <div className="absolute z-50 w-full mt-1 rounded-xl border border-border bg-surface shadow-lg overflow-hidden">
+                <div className="absolute bottom-full z-50 mb-1 w-full rounded-xl border border-border bg-surface shadow-lg overflow-hidden">
                   {conversations.length === 0 ? (
                     <div className="px-3 py-2 text-sm text-foreground-secondary">
-                      {i18nService.t('scheduledTasksFormNotifyConversationNone')}
+                      {i18nService.t('scheduledTasksFormNotifyNoConversationHint')}
                     </div>
                   ) : (
                     conversations.map((conv) => {
@@ -1308,7 +1324,15 @@ const TaskForm: React.FC<TaskFormProps> = ({
                       <div
                         key={conv.conversationId}
                         className={`px-3 py-2 text-sm cursor-pointer hover:bg-surface-raised transition-colors truncate ${isActive ? 'bg-surface-raised text-foreground' : 'text-foreground'}`}
-                        onClick={() => { updateForm({ notifyTo: conv.conversationId }); setConvDropdownOpen(false); }}
+                        onClick={() => {
+                          updateForm({ notifyTo: conv.conversationId });
+                          setConvDropdownOpen(false);
+                          setErrors(current => {
+                            if (!current.notifyTo) return current;
+                            const { notifyTo: _ignored, ...rest } = current;
+                            return rest;
+                          });
+                        }}
                       >
                         {conv.conversationId}
                       </div>
@@ -1316,6 +1340,17 @@ const TaskForm: React.FC<TaskFormProps> = ({
                     })
                   )}
                 </div>
+              )}
+              {errors.notifyTo ? (
+                <p className={errorClass}>{errors.notifyTo}</p>
+              ) : conversations.length === 0 && !conversationsLoading ? (
+                <p className={errorClass}>
+                  {i18nService.t('scheduledTasksFormNotifyNoConversationHint')}
+                </p>
+              ) : (
+                <p className={hintClass}>
+                  {i18nService.t('scheduledTasksFormNotifySelectConversationHint')}
+                </p>
               )}
             </div>
           )}

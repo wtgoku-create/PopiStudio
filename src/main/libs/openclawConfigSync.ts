@@ -4,7 +4,6 @@ import fs from 'fs';
 import path from 'path';
 
 import { buildScheduledTaskEnginePrompt } from '../../scheduledTask/enginePrompt';
-import { buildKnowledgeSourceReferencePrompt } from '../knowledge/sourceReferencePrompt';
 import { AgentId, DefaultAgentProfile } from '../../shared/agent';
 import {
   BrowserNetworkMode,
@@ -23,6 +22,7 @@ import {
 import type { Agent, CoworkConfig, CoworkExecutionMode } from '../coworkStore';
 import type { DiscordInstanceConfig, IMSettings, TelegramInstanceConfig } from '../im/types';
 import type { DingTalkInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NeteaseBeeChanConfig, NimInstanceConfig, PopoInstanceConfig, QQInstanceConfig, WecomInstanceConfig, WeixinOpenClawConfig } from '../im/types';
+import { buildKnowledgeSourceReferencePrompt } from '../knowledge/sourceReferencePrompt';
 import { OpenClawSessionKeepAlive } from '../openclawSessionPolicy/constants';
 import { buildOpenClawSessionConfig } from '../openclawSessionPolicy/store';
 import { resolvePopiArtCliDir, resolvePopiArtConfigDir } from '../popiart/popiartCliManager';
@@ -2057,9 +2057,7 @@ export class OpenClawConfigSync {
             : { '*': { requireMention: true } },
         historyLimit: inst.historyLimit || 50,
         streaming: inst.streaming ?? true,
-        replyMode: inst.replyMode || 'auto',
         blockStreaming: inst.blockStreaming ?? false,
-        ...(inst.footer ? { footer: inst.footer } : {}),
         ...(inst.blockStreamingCoalesce
           ? { blockStreamingCoalesce: inst.blockStreamingCoalesce }
           : {}),

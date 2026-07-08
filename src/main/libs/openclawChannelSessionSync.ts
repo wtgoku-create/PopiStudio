@@ -5,6 +5,8 @@
  * to local Cowork sessions so that conversations are visible in the Popiai UI.
  */
 
+import { DeliveryMode as ScheduledTaskDeliveryMode } from '../../scheduledTask/constants';
+import type { ScheduledTaskDelivery } from '../../scheduledTask/types';
 import { CoworkSessionSourceKind } from '../../shared/cowork/constants';
 import { PlatformRegistry } from '../../shared/platform';
 import type { CoworkSession, CoworkStore } from '../coworkStore';
@@ -14,6 +16,19 @@ import type { Platform } from '../im/types';
 
 const POPIAI_SESSION_PREFIX = 'popiai:';
 export const DEFAULT_MANAGED_AGENT_ID = 'main';
+
+function parseImConversationId(value: string): { accountId?: string; peerId: string } {
+  const raw = value.trim();
+  if (!raw) return { peerId: '' };
+  const parts = raw.split(':');
+  if (parts.length >= 3 && ['direct', 'group', 'channel'].includes(parts[1])) {
+    return { accountId: parts[0], peerId: parts.slice(2).join(':') };
+  }
+  if (parts.length >= 2 && ['direct', 'group', 'channel'].includes(parts[0])) {
+    return { peerId: parts.slice(1).join(':') };
+  }
+  return { peerId: raw };
+}
 
 export interface ManagedSessionKey {
   agentId: string | null;
@@ -348,6 +363,8 @@ export interface ChannelSessionSyncDeps {
   getDefaultCwd: (agentId?: string) => string;
   /** Optional synchronous lookup: jobId → human-readable name (for cron session titles). */
   resolveJobName?: (jobId: string) => string | null;
+  /** Optional synchronous lookup: jobId → delivery routing. */
+  resolveJobDelivery?: (jobId: string) => ScheduledTaskDelivery | null;
 }
 
 export class OpenClawChannelSessionSync {
@@ -355,6 +372,7 @@ export class OpenClawChannelSessionSync {
   private readonly imStore: IMStore;
   private readonly getDefaultCwd: (agentId?: string) => string;
   private readonly resolveJobName: ((jobId: string) => string | null) | null;
+  private readonly resolveJobDelivery: ((jobId: string) => ScheduledTaskDelivery | null) | null;
 
   /** In-memory cache: openclawSessionKey → local sessionId. */
   private readonly syncedSessionKeys = new Map<string, string>();
@@ -374,6 +392,7 @@ export class OpenClawChannelSessionSync {
     this.imStore = deps.imStore;
     this.getDefaultCwd = deps.getDefaultCwd;
     this.resolveJobName = deps.resolveJobName ?? null;
+    this.resolveJobDelivery = deps.resolveJobDelivery ?? null;
   }
 
   private updateLocalSessionCwdIfNeeded(session: CoworkSession, agentId: string): void {
@@ -610,6 +629,29 @@ export class OpenClawChannelSessionSync {
     return null;
   }
 
+  resolveConversationByDeliveryTarget(
+    channel: string,
+    to: string,
+    accountId?: string,
+  ): { sessionId: string; sessionKey: string } | null {
+    const platform = PlatformRegistry.platformOfChannel(channel);
+    if (!platform) return null;
+    const peer = parseImConversationId(to).peerId.trim().toLowerCase();
+    if (!peer) return null;
+
+    for (const mapping of this.imStore.listSessionMappings(platform)) {
+      const parsed = parseImConversationId(mapping.imConversationId);
+      if (parsed.peerId.trim().toLowerCase() !== peer) continue;
+      if (accountId && parsed.accountId && parsed.accountId !== accountId) continue;
+      const sessionKey = mapping.openClawSessionKey?.trim();
+      if (!sessionKey) continue;
+      if (!this.coworkStore.getSession(mapping.coworkSessionId)) continue;
+      return { sessionId: mapping.coworkSessionId, sessionKey };
+    }
+
+    return null;
+  }
+
   getOpenClawSessionKeyForCoworkSession(sessionId: string): {
     isChannelSession: boolean;
     sessionKey: string | null;
@@ -672,6 +714,28 @@ export class OpenClawChannelSessionSync {
   resolveOrCreateCronSession(sessionKey: string): string | null {
     const cronKey = parseCronSessionKey(sessionKey);
     if (!cronKey) return null;
+
+    const delivery = this.resolveJobDelivery?.(cronKey.jobId) ?? null;
+    if (
+      delivery?.mode === ScheduledTaskDeliveryMode.Announce
+      && delivery.channel
+      && PlatformRegistry.isIMChannel(delivery.channel)
+    ) {
+      if (delivery.to) {
+        const conversation = this.resolveConversationByDeliveryTarget(
+          delivery.channel,
+          delivery.to,
+          delivery.accountId,
+        );
+        if (conversation) {
+          this.syncedSessionKeys.set(cronKey.cacheKey, conversation.sessionId);
+          this.syncedSessionKeys.set(sessionKey, conversation.sessionId);
+          this.syncedSessionKeys.set(conversation.sessionKey, conversation.sessionId);
+          return conversation.sessionId;
+        }
+      }
+      return null;
+    }
 
     const cached = this.syncedSessionKeys.get(cronKey.cacheKey)
       ?? this.syncedSessionKeys.get(sessionKey);

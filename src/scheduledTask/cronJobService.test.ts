@@ -91,6 +91,32 @@ describe('CronJobService internal task filtering', () => {
     expect(jobs.map(job => job.id)).toEqual(['user-job']);
   });
 
+  test('caches job delivery for synchronous channel session lookup', async () => {
+    const userJob = makeGatewayJob({
+      id: 'user-job',
+      name: 'User task',
+      delivery: {
+        mode: DeliveryMode.Announce,
+        channel: 'openclaw-weixin',
+        to: 'direct:user-1@im.wechat',
+      },
+    });
+    const service = new CronJobService({
+      getGatewayClient: () => ({
+        request: async <T>() => ({ jobs: [userJob] }) as T,
+      }),
+      ensureGatewayReady: async () => {},
+    });
+
+    await service.listJobs();
+
+    expect(service.getJobDeliverySync('user-job')).toEqual({
+      mode: DeliveryMode.Announce,
+      channel: 'openclaw-weixin',
+      to: 'direct:user-1@im.wechat',
+    });
+  });
+
   test('hides memory-core runs from the global run history', async () => {
     const userJob1 = makeGatewayJob({ id: 'user-job-1', name: 'User task 1' });
     const userJob2 = makeGatewayJob({ id: 'user-job-2', name: 'User task 2' });

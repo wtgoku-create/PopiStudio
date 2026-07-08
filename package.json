@@ -46,13 +46,6 @@
         "version": "2.4.3"
       },
       {
-        "id": "moltbot-popo",
-        "npm": "moltbot-popo",
-        "version": "2.1.13",
-        "registry": "https://npm.nie.netease.com",
-        "optional": true
-      },
-      {
         "id": "openclaw-nim-channel",
         "npm": "git+https://github.com/netease-im/openclaw-nim-channel.git#1.1.1",
         "version": "1.1.1",
