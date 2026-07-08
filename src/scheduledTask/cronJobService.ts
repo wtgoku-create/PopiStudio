@@ -284,14 +284,10 @@ function toGatewayDelivery(delivery?: ScheduledTaskDelivery): GatewayDelivery | 
     return undefined;
   }
   if (delivery.mode === DeliveryMode.None) {
-    // Preserve channel/to even with mode='none' so IM notification target round-trips
-    // through the gateway for the edit form to display.
-    const result: GatewayDelivery = {
-      mode: DeliveryMode.None,
-      ...(delivery.channel ? { channel: delivery.channel } : {}),
-      ...(delivery.to ? { to: delivery.to } : {}),
-    } as GatewayDelivery;
-    return result;
+    // mode='none' means no notification; send a clean patch. The gateway may
+    // patch-merge delivery fields, so mapGatewayJob also strips any residual
+    // target fields on the way back.
+    return { mode: DeliveryMode.None };
   }
 
   // Translate logical UI channel names to OpenClaw channel names.
@@ -387,12 +383,12 @@ export function mapGatewayJob(job: GatewayJob): ScheduledTask {
           },
     delivery: {
       mode: delivery.mode,
-      ...(delivery.channel || inferredChannel
+      ...(delivery.mode !== DeliveryMode.None && (delivery.channel || inferredChannel)
         ? { channel: delivery.channel ?? inferredChannel }
         : {}),
-      ...(delivery.to || inferredTo ? { to: delivery.to ?? inferredTo } : {}),
-      ...(delivery.accountId ? { accountId: delivery.accountId } : {}),
-      ...(typeof delivery.bestEffort === 'boolean' ? { bestEffort: delivery.bestEffort } : {}),
+      ...(delivery.mode !== DeliveryMode.None && (delivery.to || inferredTo) ? { to: delivery.to ?? inferredTo } : {}),
+      ...(delivery.mode !== DeliveryMode.None && delivery.accountId ? { accountId: delivery.accountId } : {}),
+      ...(delivery.mode !== DeliveryMode.None && typeof delivery.bestEffort === 'boolean' ? { bestEffort: delivery.bestEffort } : {}),
     },
     agentId: job.agentId ?? null,
     sessionKey: job.sessionKey ?? null,

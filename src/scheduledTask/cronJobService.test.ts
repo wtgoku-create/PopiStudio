@@ -4,6 +4,7 @@ import {
   DeliveryMode,
   GatewayStatus,
   PayloadKind,
+  ScheduleKind,
   SessionTarget,
   TaskStatus,
   WakeMode,
@@ -347,6 +348,49 @@ describe('mapGatewayJob', () => {
     expect(job.agentId).toBe('agent-42');
     expect(job.sessionKey).toBe('session-1');
     expect(job.state.lastStatus).toBe('skipped');
+  });
+
+  test('strips stale channel target when delivery mode is none', () => {
+    const job = mapGatewayJob({
+      id: 'job-1',
+      name: 'No notify',
+      enabled: true,
+      schedule: { kind: ScheduleKind.Cron, expr: '0 9 * * *' },
+      sessionTarget: SessionTarget.Isolated,
+      wakeMode: WakeMode.Now,
+      payload: { kind: PayloadKind.AgentTurn, message: 'Summarize updates' },
+      delivery: {
+        mode: DeliveryMode.None,
+        channel: 'moltbot-popo',
+        to: 'old-target',
+        accountId: 'old-account',
+        bestEffort: true,
+      },
+      state: {},
+      createdAtMs: 1_700_000_000_000,
+      updatedAtMs: 1_700_000_100_000,
+    });
+
+    expect(job.delivery).toEqual({ mode: DeliveryMode.None });
+  });
+
+  test('does not infer delivery target from sessionKey when delivery mode is none', () => {
+    const job = mapGatewayJob({
+      id: 'job-1',
+      name: 'No notify',
+      enabled: true,
+      schedule: { kind: ScheduleKind.Cron, expr: '0 9 * * *' },
+      sessionTarget: SessionTarget.Isolated,
+      wakeMode: WakeMode.Now,
+      payload: { kind: PayloadKind.AgentTurn, message: 'Summarize updates' },
+      delivery: { mode: DeliveryMode.None },
+      sessionKey: 'popo:old-target',
+      state: {},
+      createdAtMs: 1_700_000_000_000,
+      updatedAtMs: 1_700_000_100_000,
+    });
+
+    expect(job.delivery).toEqual({ mode: DeliveryMode.None });
   });
 });
 
