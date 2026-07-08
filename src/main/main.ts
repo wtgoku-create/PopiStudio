@@ -27,8 +27,9 @@ import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
 import {
-  KNOWLEDGE_DEFAULT_BASE_URL,
+  KnowledgeBaseUrl,
   KnowledgeBrowserPartition,
+  KnowledgePath,
 } from '../shared/knowledge/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import { PlatformRegistry } from '../shared/platform';
@@ -77,7 +78,7 @@ import { saveCoworkApiConfig } from './libs/coworkConfigStore';
 import { getCoworkLogPath } from './libs/coworkLogger';
 import { registerProxyTokenRefresher, startCoworkOpenAICompatProxy, stopCoworkOpenAICompatProxy } from './libs/coworkOpenAICompatProxy';
 import { generateSessionTitle, getElectronNodeRuntimePath, probeCoworkModelReadiness } from './libs/coworkUtil';
-import { getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
+import { getKnowledgeDefaultBaseUrl, getKnowledgeFrameSource, getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession, isPreviewServerUrl, stopHtmlPreviewServer } from './libs/htmlPreviewServer';
 import { getKeyfromAttribution, initializeKeyfromAttribution } from './libs/keyfromAttribution';
@@ -2262,7 +2263,7 @@ const prepareKnowledgeBrowserSession = (): void => {
 
   try {
     knowledgeSession.preconnect({
-      url: KNOWLEDGE_DEFAULT_BASE_URL,
+      url: getKnowledgeDefaultBaseUrl(),
       numSockets: 2,
     });
   } catch (error) {
@@ -6664,8 +6665,10 @@ end tell'`, { timeout: 5000 });
   const isKnowledgeBrowserUrl = (url: string): boolean => {
     try {
       const parsedUrl = new URL(url);
-      const baseUrl = new URL(KNOWLEDGE_DEFAULT_BASE_URL);
-      return parsedUrl.origin === baseUrl.origin && parsedUrl.pathname.startsWith('/kb');
+      return Object.values(KnowledgeBaseUrl).some(baseUrl => {
+        const parsedBaseUrl = new URL(baseUrl);
+        return parsedUrl.origin === parsedBaseUrl.origin && parsedUrl.pathname.startsWith(KnowledgePath.Root);
+      });
     } catch {
       return false;
     }
@@ -6697,7 +6700,7 @@ end tell'`, { timeout: 5000 });
         "'self'",
         'file:',
         'https://canvas.popi.art',
-        "https://weknora.popi.art/kb",
+        getKnowledgeFrameSource(),
         'http://localhost:5174',
         'http://127.0.0.1:5174',
         ...(isDev ? ['http://127.0.0.1:*', 'http://localhost:*'] : []),

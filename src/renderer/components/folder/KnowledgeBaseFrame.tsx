@@ -1,5 +1,4 @@
 import {
-  KNOWLEDGE_BASES_URL,
   KnowledgeBrowserPartition,
   KnowledgeWebviewMessage,
   type OpenKnowledgeGraphEventDetail,
@@ -8,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux';
 
 import { coworkService } from '../../services/cowork';
+import { getKnowledgeBasesUrl } from '../../services/endpoints';
 import { i18nService } from '../../services/i18n';
 import type { RootState } from '../../store';
 import type { CoworkSessionSummary } from '../../types/cowork';
@@ -57,8 +57,8 @@ const getKnowledgeTheme = (): string => {
   return document.documentElement.dataset.theme?.includes('dark') ? 'dark' : 'light';
 };
 
-const buildKnowledgeGraphUrl = (detail: OpenKnowledgeGraphEventDetail): string => {
-  const url = new URL(`${KNOWLEDGE_BASES_URL}/${encodeURIComponent(detail.knowledgeBaseId)}`);
+const buildKnowledgeGraphUrl = (detail: OpenKnowledgeGraphEventDetail, knowledgeBasesUrl: string): string => {
+  const url = new URL(`${knowledgeBasesUrl}/${encodeURIComponent(detail.knowledgeBaseId)}`);
   url.searchParams.set('tab', 'graph');
   url.searchParams.set('slug', detail.slug);
   return url.toString();
@@ -80,9 +80,10 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
   );
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
+  const [knowledgeBasesUrl, setKnowledgeBasesUrl] = useState(() => getKnowledgeBasesUrl());
   const initialKnowledgeUrl = useMemo(
-    () => graphTarget ? buildKnowledgeGraphUrl(graphTarget) : KNOWLEDGE_BASES_URL,
-    [graphTarget],
+    () => graphTarget ? buildKnowledgeGraphUrl(graphTarget, knowledgeBasesUrl) : knowledgeBasesUrl,
+    [graphTarget, knowledgeBasesUrl],
   );
   const initialKnowledgeUrlRef = useRef(initialKnowledgeUrl);
 
@@ -194,8 +195,22 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
   }, [postKnowledgeTheme, postKnowledgeToken]);
 
   useEffect(() => {
+    const handleConfigUpdated = () => {
+      const nextKnowledgeBasesUrl = getKnowledgeBasesUrl();
+      setKnowledgeBasesUrl(current => {
+        if (current === nextKnowledgeBasesUrl) return current;
+        webviewRef.current?.setAttribute('src', nextKnowledgeBasesUrl);
+        return nextKnowledgeBasesUrl;
+      });
+    };
+
+    window.addEventListener('config-updated', handleConfigUpdated);
+    return () => window.removeEventListener('config-updated', handleConfigUpdated);
+  }, []);
+
+  useEffect(() => {
     if (!graphTarget) return;
-    const targetUrl = buildKnowledgeGraphUrl(graphTarget);
+    const targetUrl = buildKnowledgeGraphUrl(graphTarget, knowledgeBasesUrl);
     const webview = webviewRef.current;
     if (webview?.loadURL) {
       void webview.loadURL(targetUrl);
@@ -204,7 +219,7 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
     }
     webview?.setAttribute('src', targetUrl);
     onGraphTargetConsumed?.();
-  }, [graphTarget, onGraphTargetConsumed]);
+  }, [graphTarget, knowledgeBasesUrl, onGraphTargetConsumed]);
 
   useEffect(() => {
     postKnowledgeTokenRef.current = () => {

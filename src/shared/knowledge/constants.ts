@@ -8,9 +8,32 @@ export const KnowledgeIpc = {
 } as const;
 
 export type KnowledgeIpc = typeof KnowledgeIpc[keyof typeof KnowledgeIpc];
-// https://weknora.popi.art
-export const KNOWLEDGE_DEFAULT_BASE_URL = 'https://weknora.popi.art';
-export const KNOWLEDGE_BASES_URL = `${KNOWLEDGE_DEFAULT_BASE_URL}/kb/platform/knowledge-bases`;
+
+export const KnowledgeBaseUrl = {
+  Production: 'https://rag.popi.art',
+  Test: 'https://weknora.popi.art',
+} as const;
+
+export type KnowledgeBaseUrl = typeof KnowledgeBaseUrl[keyof typeof KnowledgeBaseUrl];
+
+export const KnowledgePath = {
+  Root: '/kb',
+  Bases: '/kb/platform/knowledge-bases',
+} as const;
+
+export type KnowledgePath = typeof KnowledgePath[keyof typeof KnowledgePath];
+
+export const getKnowledgeDefaultBaseUrl = (testMode: boolean): KnowledgeBaseUrl => (
+  testMode ? KnowledgeBaseUrl.Test : KnowledgeBaseUrl.Production
+);
+
+export const getKnowledgeBasesUrl = (testMode: boolean): string => (
+  `${getKnowledgeDefaultBaseUrl(testMode)}${KnowledgePath.Bases}`
+);
+
+export const getKnowledgeFrameSource = (testMode: boolean): string => (
+  `${getKnowledgeDefaultBaseUrl(testMode)}${KnowledgePath.Root}`
+);
 
 export const KnowledgeNavigationEvent = {
   OpenGraph: 'knowledge:navigation:openGraph',

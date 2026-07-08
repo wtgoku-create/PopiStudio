@@ -1,7 +1,6 @@
 import type { IpcMain } from 'electron';
 
 import {
-  KNOWLEDGE_DEFAULT_BASE_URL,
   type GetChunkByIdRequest,
   KnowledgeIpc,
   type GetWikiPageRequest,
@@ -19,6 +18,7 @@ import {
   type UploadAgentKnowledgeFileResult,
   type WikiPage,
 } from '../../shared/knowledge/constants';
+import { getKnowledgeDefaultBaseUrl } from '../libs/endpoints';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -465,7 +465,7 @@ export class RemoteKnowledgeService {
       headers['X-API-Key'] = apiKey;
     }
 
-    const response = await fetch(`${KNOWLEDGE_DEFAULT_BASE_URL}${pathname}`, {
+    const response = await fetch(`${getKnowledgeDefaultBaseUrl()}${pathname}`, {
       method: init?.method ?? 'GET',
       body: init?.body,
       headers: {
