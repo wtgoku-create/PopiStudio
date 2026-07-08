@@ -154,37 +154,12 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   return (
     <div className="pb-3" role="list" aria-label={i18nService.t('myAgents')}>
       <MyAgentSidebarHeader
+        activeTab={activeTab}
         onAddFriend={() => setIsAddFriendOpen(true)}
         onCreateAgent={() => setIsCreateOpen(true)}
         onSearch={onSearch}
+        onTaskTabChange={onTaskTabChange}
       />
-
-      <div className="mb-2 flex items-center rounded-lg bg-black/[0.03] p-0.5 text-[12px] font-medium text-secondary dark:bg-white/[0.04]">
-        <button
-          type="button"
-          onClick={() => onTaskTabChange(AgentSidebarTaskTab.Main)}
-          className={`h-7 min-w-0 flex-1 rounded-md px-2 transition-colors ${
-            activeTab === AgentSidebarTaskTab.Main
-              ? 'bg-white text-foreground shadow-sm dark:bg-white/[0.08]'
-              : 'hover:text-foreground'
-          }`}
-          aria-pressed={activeTab === AgentSidebarTaskTab.Main}
-        >
-          {i18nService.t('myAgentSidebarMainTasks')}
-        </button>
-        <button
-          type="button"
-          onClick={() => onTaskTabChange(AgentSidebarTaskTab.Scheduled)}
-          className={`h-7 min-w-0 flex-1 rounded-md px-2 transition-colors ${
-            activeTab === AgentSidebarTaskTab.Scheduled
-              ? 'bg-white text-foreground shadow-sm dark:bg-white/[0.08]'
-              : 'hover:text-foreground'
-          }`}
-          aria-pressed={activeTab === AgentSidebarTaskTab.Scheduled}
-        >
-          {i18nService.t('myAgentSidebarScheduledTasks')}
-        </button>
-      </div>
 
       {agentNodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
