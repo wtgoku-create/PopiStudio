@@ -4,6 +4,7 @@
  */
 
 import { configService } from './config';
+import { getKnowledgeBasesUrl as resolveKnowledgeBasesUrl } from '../../shared/knowledge/constants';
 
 const isTestMode = () => {
   return configService.getConfig().app?.testMode === true;
@@ -43,3 +44,4 @@ export const getPortalLoginUrl = () => `${getPortalBase()}/login`;
 export const getPortalPricingUrl = () => `${getPortalBase()}`;
 export const getPortalProfileUrl = () => `${getPortalBase()}`;
 export const getPrivacyPolicyContentApiUrl = () => `${getPortalBase()}/api_client/content/privacyPolicy/latest`;
+export const getKnowledgeBasesUrl = () => resolveKnowledgeBasesUrl(isTestMode());

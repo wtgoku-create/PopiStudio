@@ -26,6 +26,30 @@ description_i18n:
 - **生成后默认下载到本地**：每次图片、视频、语音、音乐生成成功后，都要继续把产物下载到本地目录，不要只返回远端 URL 或只汇报 `artifact_id`。
 - **主站模式不要优先用单 artifact 下载**：`popiart artifacts pull <artifact_id>` 在主站模式下可能返回 `UNSUPPORTED_IN_POPI_ART_MODE`，优先使用 `artifacts list`、`artifacts get`、`artifacts pull-all`。
 
+## 常用全局参数
+
+Agent / CI 场景默认带：
+
+```bash
+--output json --quiet --non-interactive
+```
+
+常用参数：
+
+| 参数 | 用途 |
+| --- | --- |
+| `--output json` | 输出稳定 JSON；agent 应优先使用。 |
+| `--quiet` | 减少非结果输出。 |
+| `--non-interactive` | 不弹交互提示，缺参数时直接报错。 |
+| `--wait` | 等待任务完成后再返回。 |
+| `--async` | 只提交任务并立即返回 `job_id` / `task_id`。 |
+| `--dry-run` | 预览归一化后的请求，不执行生成。 |
+| `--endpoint <url>` | 临时切换 API endpoint。 |
+| `--project <id>` | 临时指定项目上下文。 |
+| `--model <model-code>` | 单次请求指定模型，优先用于 intent 命令。 |
+
+不要把 `--model` 理解成必须传；用户未指定模型时，让 CLI 根据当前 `model/list` 和默认候选池自动选择。
+
 ## 推荐入口
 
 - 文生图：`popiart image generate`
@@ -221,6 +245,105 @@ popiart music generate \
   --non-interactive
 ```
 
+## 模型与默认路由
+
+当默认模型不可用、命令返回 `MODEL_NOT_FOUND` / `MODEL_SUBTYPE_UNSUPPORTED`，或需要推荐模型时，先查询当前模型库存和默认路由，不要直接猜模型名：
+
+```bash
+popiart models list --output json --quiet --non-interactive
+popiart models list --capability text2image --output json --quiet --non-interactive
+popiart models routes --output json --quiet --non-interactive
+popiart models routes --route image.text2image --output json --quiet --non-interactive
+```
+
+常用 capability：
+
+- `text2image`：文生图
+- `img2img`：图生图 / 图片编辑
+- `image2video`：图生视频 / 视频生成
+- `text2speech`：语音合成
+- `image-describe`：图片理解
+
+常用 route：
+
+- `image.text2image`
+- `image.img2img`
+- `video.image2video`
+- `video.seedance`
+- `video.action-transfer`
+- `audio.tts`
+- `speech.synthesize`
+- `music.generate`
+
+CLI 的 intent 命令会先读主站 `model/list`，再按本地默认候选池选择可用模型；如果第一个默认模型缺失，后备候选仍可能可用。
+
+### 单次指定模型
+
+只影响本次请求时，在支持的 intent 命令上直接传 `--model`：
+
+```bash
+popiart image generate \
+  --model gemini-3-pro-image-preview \
+  --prompt "A clean editorial product photo" \
+  --aspect-ratio 1:1 \
+  --wait \
+  --output json \
+  --quiet \
+  --non-interactive
+```
+
+```bash
+popiart video generate \
+  --model viduq2-pro-fast \
+  --image ./source.png \
+  --prompt "Subtle camera push-in and natural motion" \
+  --duration 5 \
+  --wait \
+  --output json \
+  --quiet \
+  --non-interactive
+```
+
+`image describe` 通常需要显式 `--model`，例如：
+
+```bash
+popiart image describe \
+  --image ./source.png \
+  --model gemini-2.5-flash \
+  --prompt "Write a reusable text-to-image prompt" \
+  --output json \
+  --quiet \
+  --non-interactive
+```
+
+### 项目级模型覆盖
+
+只有用户明确要求“这个项目以后都用某模型”时，才使用 route override：
+
+```bash
+popiart models route-override set \
+  --project <project-id> \
+  --route image.img2img \
+  --model seedream-4-5-251128 \
+  --output json \
+  --quiet \
+  --non-interactive
+```
+
+查看和取消：
+
+```bash
+popiart models route-override list --project <project-id> --output json --quiet --non-interactive
+popiart models route-override unset --project <project-id> --route image.img2img --output json --quiet --non-interactive
+```
+
+### 模型使用规则
+
+- 单次请求用 `--model`。
+- 长期项目默认用 `models route-override set`。
+- 只有用户明确要直连底层模型时才用 `popiart models infer <model-id>`。
+- 推荐模型前先跑 `models list` 或 `models routes`，因为模型库存、价格、可用性会变化。
+
 ## 标准工作流
 
 ### 图片 / 视频生成
@@ -287,6 +410,22 @@ popiart artifacts pull-all <task-id> --dir ./output/popiart/<task-id>
 
 - `popiart artifacts pull <artifact_id>` 在主站模式下可能不可用，只有确认环境支持时再使用。
 - 回复用户时，除了说明任务状态，也要明确告知本地下载目录和关键文件路径。
+
+## 错误处理
+
+优先读取 JSON envelope 里的 `error.code`，不要只匹配自然语言报错。
+
+| 错误码 | 处理方式 |
+| --- | --- |
+| `UNAUTHENTICATED` | 停止并提示用户在 Settings 里重新登录；不要运行 `popiart auth`。 |
+| `FORBIDDEN` | 停止并说明权限或项目问题。 |
+| `NOT_FOUND` | 重新用 `skills list`、`jobs list`、`artifacts list` 或对应 get 命令确认 ID。 |
+| `MODEL_NOT_FOUND` | 先查 `models list` / `models routes`，再选择可用模型或让默认路由处理。 |
+| `MODEL_SUBTYPE_UNSUPPORTED` | 查模型 capability / route，换支持当前任务子类型的模型。 |
+| `VALIDATION_ERROR` | 修正参数，不要原样重试。 |
+| `POLL_TIMEOUT` | 继续 wait 同一个 `job_id` / `task_id`，不要重复提交生成。 |
+| `JOB_FAILED` | 展示 provider/task 失败信息，不要盲目重试。 |
+| `NETWORK_ERROR` / `SERVER_ERROR` | 可退避重试一次；持续失败则反馈问题。 |
 
 ## 超时与重试
 

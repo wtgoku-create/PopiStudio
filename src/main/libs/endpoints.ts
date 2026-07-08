@@ -2,6 +2,11 @@ import { app } from 'electron';
 
 import { APP_UPDATE_CHANNEL } from './appUpdateConfig';
 import type { SqliteStore } from '../sqliteStore';
+import {
+  getKnowledgeBasesUrl as resolveKnowledgeBasesUrl,
+  getKnowledgeDefaultBaseUrl as resolveKnowledgeDefaultBaseUrl,
+  getKnowledgeFrameSource as resolveKnowledgeFrameSource,
+} from '../../shared/knowledge/constants';
 
 let cachedTestMode: boolean | null = null;
 
@@ -60,4 +65,16 @@ export const getSkillHubListUrl = (): string => (
 
 export const getSkillHubCategoryListUrl = (): string => (
   `${getServerApiBaseUrl()}/api_client/skill/category/list?pageSize=99999`
+);
+
+export const getKnowledgeDefaultBaseUrl = (): string => (
+  resolveKnowledgeDefaultBaseUrl(isTestMode())
+);
+
+export const getKnowledgeBasesUrl = (): string => (
+  resolveKnowledgeBasesUrl(isTestMode())
+);
+
+export const getKnowledgeFrameSource = (): string => (
+  resolveKnowledgeFrameSource(isTestMode())
 );
