@@ -66,6 +66,8 @@ import type {
 const OPENCLAW_GATEWAY_TOOL_EVENTS_CAP = 'tool-events';
 const BRIDGE_MAX_MESSAGES = 20;
 const BRIDGE_MAX_MESSAGE_CHARS = 1200;
+const ASSISTANT_STREAM_RESET_MIN_DROP_CHARS = 40;
+const ASSISTANT_STREAM_RESET_RATIO = 0.7;
 // v2026.4.5 introduced a connect.challenge pre-auth step that can delay the
 // initial handshake when the gateway is busy loading plugins at startup.
 // The GatewayClient auto-reconnects and typically succeeds on the second
@@ -125,6 +127,18 @@ export function pickPersistedAssistantSegment(
     return { content: fin, reason: 'stream_shorter_prefer_chat_final' };
   }
   return { content: fin, reason: 'chat_path_prefer_final' };
+}
+
+export function isSignificantAssistantStreamReset(previousLength: number, nextLength: number): boolean {
+  if (previousLength <= 5 || nextLength >= previousLength) return false;
+  const drop = previousLength - nextLength;
+  return drop >= ASSISTANT_STREAM_RESET_MIN_DROP_CHARS
+    && nextLength <= previousLength * ASSISTANT_STREAM_RESET_RATIO;
+}
+
+function formatTimingOffset(startMs: number | undefined, endMs: number | undefined): string {
+  if (!startMs || !endMs) return 'n/a';
+  return `${Math.max(0, endMs - startMs)}ms`;
 }
 
 /**
@@ -237,6 +251,7 @@ type ActiveTurn = {
   turnToken: number;
   /** Timestamp when this turn was created (for abort diagnostics). */
   startedAtMs: number;
+  firstResponseTiming?: FirstResponseTiming;
   knownRunIds: Set<string>;
   assistantMessageId: string | null;
   committedAssistantText: string;
@@ -313,6 +328,12 @@ type ActiveTurn = {
   finalCompletionAllowLateContinuation?: boolean;
   allowRecentlyClosedRunRetryReopenOnCleanup?: boolean;
   suppressRecentlyClosedRunIdsOnCleanup?: boolean;
+};
+
+type FirstResponseTiming = {
+  turnStartedAtMs: number;
+  firstVisibleAssistantAtMs?: number;
+  firstVisibleAssistantSource?: 'agent' | 'chat';
 };
 
 type RecentlyClosedRunInfo = {
@@ -2379,6 +2400,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const completionPromise = new Promise<void>((resolve, reject) => {
       this.pendingTurns.set(sessionId, { resolve, reject });
     });
+    const turnStartedAtMs = Date.now();
     this.activeTurns.set(sessionId, {
       sessionId,
       sessionKey,
@@ -2399,7 +2421,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       toolResultMessageIdByToolCallId: new Map(),
       toolResultTextByToolCallId: new Map(),
       contextMaintenanceToolCallIds: new Set(),
-      startedAtMs: Date.now(),
+      startedAtMs: turnStartedAtMs,
+      firstResponseTiming: { turnStartedAtMs },
       stopRequested: false,
       thinkingMessageId: null,
       currentThinkingText: '',
@@ -4505,6 +4528,37 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     return normalizedFullText;
   }
 
+  private ensureFirstResponseTiming(turn: ActiveTurn): FirstResponseTiming {
+    if (!turn.firstResponseTiming) {
+      turn.firstResponseTiming = { turnStartedAtMs: turn.startedAtMs || Date.now() };
+    }
+    return turn.firstResponseTiming;
+  }
+
+  private logFirstResponseTiming(
+    sessionId: string,
+    turn: ActiveTurn,
+    source: 'agent' | 'chat',
+    visibleTextLength: number,
+  ): void {
+    const timing = this.ensureFirstResponseTiming(turn);
+    if (timing.firstVisibleAssistantAtMs) {
+      return;
+    }
+
+    const now = Date.now();
+    timing.firstVisibleAssistantAtMs = now;
+    timing.firstVisibleAssistantSource = source;
+    console.log(
+      '[OpenClawRuntimeTiming] first visible assistant content received.',
+      `Session ${sessionId}.`,
+      `Run ${turn.runId}.`,
+      `Source ${source}.`,
+      `Visible text length ${visibleTextLength}.`,
+      `Total ${formatTimingOffset(timing.turnStartedAtMs, now)}.`,
+    );
+  }
+
   private deleteAssistantMessage(sessionId: string, messageId: string): void {
     this.clearPendingStoreUpdate(messageId);
     this.clearPendingMessageUpdate(messageId);
@@ -4626,8 +4680,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // Detect text reset: new model call starts → text length drops significantly.
     // Only trigger when hwm is meaningful (> 5 chars) to avoid false positives
     // from early chat delta / agent event interleaving.
-    if (text.length < turn.agentAssistantTextLength
-        && turn.agentAssistantTextLength > 5
+    if (isSignificantAssistantStreamReset(turn.agentAssistantTextLength, text.length)
         && turn.assistantMessageId) {
       console.debug('[Debug:textReset] detected:', turn.agentAssistantTextLength, '->',
         text.length, 'splitting. prevText:', turn.currentText.slice(0, 80));
@@ -4646,6 +4699,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     turn.currentText = text;
     const displayText = stripTrailingSilentReplyTail(text);
     turn.currentAssistantSegmentText = this.resolveAssistantSegmentText(turn, displayText);
+    if (turn.currentAssistantSegmentText) {
+      this.logFirstResponseTiming(sessionId, turn, 'agent', turn.currentAssistantSegmentText.length);
+    }
 
     if (!turn.assistantMessageId && turn.currentAssistantSegmentText) {
       // Create a new message for the new text segment (after split).
@@ -4823,6 +4879,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const segmentText = this.resolveAssistantSegmentText(turn, displayStreamedText);
     if (!segmentText) return;
     if (segmentText === previousSegmentText && streamedText === previousText) return;
+    this.logFirstResponseTiming(sessionId, turn, 'chat', segmentText.length);
 
     if (!turn.assistantMessageId) {
       const msgTimestamp = isRecord(payload.message) && typeof (payload.message as Record<string, unknown>).timestamp === 'number'
@@ -4924,6 +4981,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
     const finalSegmentText = this.resolveAssistantSegmentText(turn, finalText);
     turn.currentAssistantSegmentText = finalSegmentText;
+    if (finalSegmentText) {
+      this.logFirstResponseTiming(sessionId, turn, 'chat', finalSegmentText.length);
+    }
 
     // Collect media URLs and backfill tool result text from chat.history.
     // The agent tool event does not carry the result text (gateway strips it),
@@ -6746,6 +6806,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       && !isManagedSessionKey(sessionKey)
       && this.channelSessionSync.isChannelSessionKey(sessionKey);
     console.log('[Debug:ensureActiveTurn] creating turn — sessionId:', sessionId, 'sessionKey:', sessionKey, 'runId:', turnRunId, 'isChannel:', !!isChannel, 'pendingUserSync:', !!isChannel);
+    const turnStartedAtMs = Date.now();
     this.activeTurns.set(sessionId, {
       sessionId,
       sessionKey,
@@ -6766,7 +6827,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       toolResultMessageIdByToolCallId: new Map(),
       toolResultTextByToolCallId: new Map(),
       contextMaintenanceToolCallIds: new Set(),
-      startedAtMs: Date.now(),
+      startedAtMs: turnStartedAtMs,
+      firstResponseTiming: { turnStartedAtMs },
       stopRequested: false,
       thinkingMessageId: null,
       currentThinkingText: '',
