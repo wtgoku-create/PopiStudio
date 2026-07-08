@@ -391,6 +391,7 @@ test('channel sync reuses target IM session for IM announce delivery jobs', () =
 
   expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe('cowork-1');
   expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1')).toBe('cowork-1');
+  expect(sync.resolveSession('agent:main:cron:job-1:run:run-2')).toBe('cowork-1');
   expect(createSession).not.toHaveBeenCalled();
 });
 

@@ -597,8 +597,13 @@ export class OpenClawChannelSessionSync {
     if (isManagedSessionKey(sessionKey)) return null;
 
     // Check in-memory cache
-    const cached = this.syncedSessionKeys.get(sessionKey);
-    if (cached) return cached;
+    const cronKey = parseCronSessionKey(sessionKey);
+    const cached = this.syncedSessionKeys.get(cronKey?.cacheKey ?? sessionKey)
+      ?? this.syncedSessionKeys.get(sessionKey);
+    if (cached) {
+      this.syncedSessionKeys.set(sessionKey, cached);
+      return cached;
+    }
 
     if (this.rejectedKeys.has(sessionKey)) return null;
 
