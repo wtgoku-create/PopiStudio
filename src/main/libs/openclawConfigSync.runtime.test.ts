@@ -489,7 +489,23 @@ describe('OpenClawConfigSync runtime config output', () => {
       }),
     ]));
     expect(provider.models).toHaveLength(3);
-    expect(config.agents.defaults.models).toBeUndefined();
+    expect(config.agents.defaults.models).toMatchObject({
+      'popiai-server/qwen3.5-plus-YoudaoInner': {
+        params: {
+          cacheRetention: 'short',
+          contextCacheProvider: 'dashscope',
+          contextCacheMode: 'explicit',
+        },
+      },
+      'popiai-server/qwen3.6-plus-YoudaoInner': {
+        params: {
+          cacheRetention: 'short',
+          contextCacheProvider: 'dashscope',
+          contextCacheMode: 'explicit',
+        },
+      },
+      'popiai-server/deepseek-v3.2-YoudaoInner': {},
+    });
   });
 
   test('writes a complete agent model allowlist when any model has custom params', async () => {
