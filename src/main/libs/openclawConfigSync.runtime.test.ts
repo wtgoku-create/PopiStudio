@@ -1086,6 +1086,7 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.plugins.entries).not.toHaveProperty('feishu');
     expect(config.plugins.entries.qqbot).toEqual({ enabled: true });
     expect(config.plugins.entries).not.toHaveProperty('openclaw-qqbot');
+    expect(config.plugins.allow).toContain('qqbot');
   });
 
   test('keeps wecom plugin enabled when existing channel config has accounts', async () => {
