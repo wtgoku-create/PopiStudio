@@ -64,6 +64,7 @@ vi.mock('./openclawLocalExtensions', () => ({
     const manifestIds: Record<string, string> = {
       'clawemail-email': 'email',
       'openclaw-nim-channel': 'nimsuite-openclaw-nim-channel',
+      'openclaw-qqbot': 'qqbot',
     };
     if (id === 'qwen-portal-auth') return null;
     return manifestIds[id] ?? id;
@@ -1085,6 +1086,70 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.plugins.entries).not.toHaveProperty('feishu');
     expect(config.plugins.entries.qqbot).toEqual({ enabled: true });
     expect(config.plugins.entries).not.toHaveProperty('openclaw-qqbot');
+  });
+
+  test('keeps wecom plugin enabled when existing channel config has accounts', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      channels: {
+        wecom: {
+          accounts: {
+            workbot: {
+              enabled: true,
+              botId: 'wecom-bot-id',
+            },
+          },
+        },
+      },
+      plugins: {
+        entries: {
+          'wecom-openclaw-plugin': { enabled: false },
+        },
+      },
+    }, null, 2));
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getTelegramInstances: () => [],
+      getDiscordOpenClawConfig: () => null,
+      getDingTalkInstances: () => [],
+      getFeishuInstances: () => [],
+      getQQInstances: () => [],
+      getWecomConfig: () => null,
+      getWecomInstances: () => [],
+      getPopoInstances: () => [],
+      getNimConfig: () => null,
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [],
+    });
+
+    const result = sync.sync('wecom-existing-channel');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.plugins.entries['wecom-openclaw-plugin']).toEqual({ enabled: true });
   });
 
   test('writes plugin entries using manifest ids and removes stale package ids', async () => {
