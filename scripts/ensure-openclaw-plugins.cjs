@@ -47,6 +47,17 @@ function copyDirRecursive(src, dest) {
   fs.cpSync(src, dest, { recursive: true, force: true });
 }
 
+function mergeDirectoryContents(src, dest) {
+  if (!fs.existsSync(src)) return;
+  ensureDir(dest);
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    fs.cpSync(path.join(src, entry.name), path.join(dest, entry.name), {
+      recursive: true,
+      force: true,
+    });
+  }
+}
+
 /**
  * Fix broken symlinks in node_modules/.bin/ directories.
  *
@@ -86,6 +97,136 @@ function fixBinSymlinks(baseDir) {
     }
   };
   walk(baseDir);
+}
+
+function listDirectories(dir) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(dir, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+function findFilesByName(root, fileName, maxDepth = 8) {
+  const results = [];
+  const walk = (dir, depth) => {
+    if (depth > maxDepth) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isFile() && entry.name === fileName) {
+        results.push(full);
+      } else if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' && depth > 1) continue;
+        walk(full, depth + 1);
+      }
+    }
+  };
+
+  walk(root, 0);
+  return results;
+}
+
+function pluginDirectoryMatches(dir, plugin) {
+  const manifest = readJsonFile(path.join(dir, 'openclaw.plugin.json'));
+  if (manifest?.id === plugin.id) return true;
+  if (Array.isArray(manifest?.channels) && manifest.channels.includes(plugin.id)) return true;
+
+  const pkg = readJsonFile(path.join(dir, 'package.json'));
+  if (pkg?.name === plugin.npm) return true;
+  if (pkg?.openclaw?.channel?.id === plugin.id) return true;
+  if (Array.isArray(pkg?.openclaw?.channels) && pkg.openclaw.channels.includes(plugin.id)) return true;
+  return false;
+}
+
+function hasPluginShape(dir) {
+  return fs.existsSync(path.join(dir, 'openclaw.plugin.json')) ||
+    fs.existsSync(path.join(dir, 'package.json'));
+}
+
+function packageNameToNodeModulesPath(packageName) {
+  const parts = String(packageName || '').split('/').filter(Boolean);
+  return parts.length > 0 ? path.join('node_modules', ...parts) : null;
+}
+
+function findInstallProjectDirForNestedPlugin(stagingDir, plugin, nestedPluginDir) {
+  const dependencyPath = packageNameToNodeModulesPath(plugin.npm);
+  if (!dependencyPath) return null;
+  const suffix = `${path.sep}${dependencyPath}`;
+  if (!nestedPluginDir.endsWith(suffix)) return null;
+  const projectDir = nestedPluginDir.slice(0, -suffix.length);
+  return projectDir && fs.existsSync(path.join(projectDir, 'package.json')) ? projectDir : null;
+}
+
+function findInstalledPluginDir(stagingDir, plugin) {
+  const expectedDir = path.join(stagingDir, 'extensions', plugin.id);
+  if (fs.existsSync(expectedDir)) {
+    return { pluginDir: expectedDir, installProjectDir: null };
+  }
+
+  const extensionDirs = listDirectories(path.join(stagingDir, 'extensions'));
+  const matchingExtensionDir = extensionDirs.find((dir) => pluginDirectoryMatches(dir, plugin));
+  if (matchingExtensionDir) {
+    return { pluginDir: matchingExtensionDir, installProjectDir: null };
+  }
+  if (extensionDirs.length === 1 && hasPluginShape(extensionDirs[0])) {
+    return { pluginDir: extensionDirs[0], installProjectDir: null };
+  }
+
+  const manifestDirs = findFilesByName(stagingDir, 'openclaw.plugin.json')
+    .map((file) => path.dirname(file));
+  const matchingManifestDir = manifestDirs.find((dir) => pluginDirectoryMatches(dir, plugin));
+  if (matchingManifestDir) {
+    return {
+      pluginDir: matchingManifestDir,
+      installProjectDir: findInstallProjectDirForNestedPlugin(stagingDir, plugin, matchingManifestDir),
+    };
+  }
+
+  const packageDirs = findFilesByName(stagingDir, 'package.json')
+    .map((file) => path.dirname(file));
+  const dependencyPath = packageNameToNodeModulesPath(plugin.npm);
+  if (dependencyPath) {
+    for (const dir of packageDirs) {
+      const pkg = readJsonFile(path.join(dir, 'package.json'));
+      const deps = {
+        ...(pkg?.dependencies && typeof pkg.dependencies === 'object' ? pkg.dependencies : {}),
+        ...(pkg?.devDependencies && typeof pkg.devDependencies === 'object' ? pkg.devDependencies : {}),
+        ...(pkg?.optionalDependencies && typeof pkg.optionalDependencies === 'object' ? pkg.optionalDependencies : {}),
+      };
+      if (!Object.prototype.hasOwnProperty.call(deps, plugin.npm)) continue;
+      const nestedPluginDir = path.join(dir, dependencyPath);
+      if (
+        fs.existsSync(nestedPluginDir) &&
+        pluginDirectoryMatches(nestedPluginDir, plugin)
+      ) {
+        return { pluginDir: nestedPluginDir, installProjectDir: dir };
+      }
+    }
+  }
+
+  const matchingPackageDir = packageDirs.find((dir) => pluginDirectoryMatches(dir, plugin));
+  if (matchingPackageDir) {
+    return {
+      pluginDir: matchingPackageDir,
+      installProjectDir: findInstallProjectDirForNestedPlugin(stagingDir, plugin, matchingPackageDir),
+    };
+  }
+
+  const shapedDirs = [...manifestDirs, ...packageDirs]
+    .filter((dir, index, dirs) => dirs.indexOf(dir) === index)
+    .filter((dir) => !dir.includes(`${path.sep}node_modules${path.sep}`));
+  return shapedDirs.length === 1
+    ? { pluginDir: shapedDirs[0], installProjectDir: null }
+    : null;
 }
 
 function ensureDir(dirPath) {
@@ -666,38 +807,35 @@ function main() {
 
         installPluginWithRetries(installSpec, stagingDir, plugin);
 
-        // The CLI installs to {OPENCLAW_STATE_DIR}/extensions/{pluginId}/
-        const installedDir = path.join(stagingDir, 'extensions', id);
-        if (!fs.existsSync(installedDir)) {
-          // Some plugins use a different directory name than the declared id.
-          // Scan the extensions directory for the installed plugin.
-          const extDir = path.join(stagingDir, 'extensions');
-          const entries = fs.existsSync(extDir) ? fs.readdirSync(extDir) : [];
-          if (entries.length === 0) {
-            throw new Error(`No plugin found in staging directory after install`);
-          }
-          // Use the first (and likely only) directory
-          const actualDir = path.join(extDir, entries[0]);
-          if (!fs.existsSync(path.join(actualDir, 'openclaw.plugin.json')) &&
-              !fs.existsSync(path.join(actualDir, 'package.json'))) {
-            throw new Error(`Installed plugin directory ${entries[0]} has no plugin manifest`);
-          }
-          // Copy the actual directory
-          if (fs.existsSync(cacheDir)) {
-            fs.rmSync(cacheDir, { recursive: true, force: true });
-          }
-          ensureDir(path.dirname(cacheDir));
-          copyDirRecursive(actualDir, cacheDir);
-          fixBinSymlinks(cacheDir);
-        } else {
-          // Replace cache dir with new content
-          if (fs.existsSync(cacheDir)) {
-            fs.rmSync(cacheDir, { recursive: true, force: true });
-          }
-          ensureDir(path.dirname(cacheDir));
-          copyDirRecursive(installedDir, cacheDir);
-          fixBinSymlinks(cacheDir);
+        // Older OpenClaw installs to {OPENCLAW_STATE_DIR}/extensions/{pluginId}/.
+        // Newer CLI builds may place npm installs under
+        // {OPENCLAW_STATE_DIR}/npm/projects/<pkg>/ and link them from config.
+        // Resolve both layouts by scanning for the installed plugin manifest.
+        const installedDir = findInstalledPluginDir(stagingDir, plugin);
+        if (!installedDir?.pluginDir) {
+          throw new Error(`No plugin found in staging directory after install`);
         }
+        if (!hasPluginShape(installedDir.pluginDir)) {
+          throw new Error(`Installed plugin directory ${path.basename(installedDir.pluginDir)} has no plugin manifest`);
+        }
+
+        // Replace cache dir with new content
+        if (fs.existsSync(cacheDir)) {
+          fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+        ensureDir(path.dirname(cacheDir));
+        copyDirRecursive(installedDir.pluginDir, cacheDir);
+        if (installedDir.installProjectDir) {
+          mergeDirectoryContents(
+            path.join(installedDir.installProjectDir, 'node_modules'),
+            path.join(cacheDir, 'node_modules')
+          );
+          const dependencyPath = packageNameToNodeModulesPath(npmSpec);
+          if (dependencyPath) {
+            fs.rmSync(path.join(cacheDir, dependencyPath), { recursive: true, force: true });
+          }
+        }
+        fixBinSymlinks(cacheDir);
 
         // Write install info for cache validation
         fs.writeFileSync(

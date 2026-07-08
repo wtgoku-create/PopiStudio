@@ -2089,6 +2089,11 @@ const translations: Record<LanguageType, Record<string, string>> = {
     scheduledTasksFormNotifyConversationPlaceholder: '选择通知目标会话',
     scheduledTasksFormNotifyConversationLoading: '加载会话列表...',
     scheduledTasksFormNotifyConversationNone: '无可用会话',
+    scheduledTasksFormNotifySelectConversation: '选择会话',
+    scheduledTasksFormNotifySelectConversationHint: '选择要推送执行结果的会话（群聊或私聊）',
+    scheduledTasksFormNotifyNoConversationHint: '该机器人还没有会话，请先在 IM 中给它发一条消息',
+    scheduledTasksFormValidationNotifyTargetMissing:
+      '该机器人还没有会话，无法确定通知对象。请先在 IM 中给它发一条消息，或暂时选择“不通知”',
     scheduledTasksToggleWarningAtPast: '该任务的执行时间已过，启用后将不会运行',
     scheduledTasksToggleWarningExpired: '该任务已过期，启用后将不会运行',
     scheduledTasksFormAdvancedEditAsCron: '转为可编辑 Cron',
@@ -4414,6 +4419,13 @@ const translations: Record<LanguageType, Record<string, string>> = {
     scheduledTasksFormNotifyConversationPlaceholder: 'Select target conversation',
     scheduledTasksFormNotifyConversationLoading: 'Loading conversations...',
     scheduledTasksFormNotifyConversationNone: 'No conversations available',
+    scheduledTasksFormNotifySelectConversation: 'Select conversation',
+    scheduledTasksFormNotifySelectConversationHint:
+      'Select the conversation where run results should be delivered.',
+    scheduledTasksFormNotifyNoConversationHint:
+      'This bot has no conversations yet. Send it a message in IM first.',
+    scheduledTasksFormValidationNotifyTargetMissing:
+      'This bot has no conversations, so the notification target cannot be determined. Send it a message in IM first, or choose "None".',
     scheduledTasksToggleWarningAtPast:
       'The execution time of this task has passed. It will not run after enabling',
     scheduledTasksToggleWarningExpired: 'This task has expired. It will not run after enabling',

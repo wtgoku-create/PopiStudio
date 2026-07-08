@@ -52,8 +52,6 @@ import {
 import { pollNimQrLogin, startNimQrLogin } from './im/nimQrLoginService';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NimInstanceConfig, Platform, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from './im/types';
 import { registerNimQrLoginHandlers } from './ipcHandlers/nimQrLogin';
-import { RemoteKnowledgeService } from './knowledge/remoteKnowledgeService';
-import { buildKnowledgeSourceReferencePrompt } from './knowledge/sourceReferencePrompt';
 import { POPIART_MEDIA_GENERATION_SERVICE_PROMPT } from './popiart/popiartCliManager';
 import {
   getCronJobService,
@@ -61,6 +59,8 @@ import {
   initScheduledTaskHelpers,
   registerScheduledTaskHandlers,
 } from './ipcHandlers/scheduledTask';
+import { RemoteKnowledgeService } from './knowledge/remoteKnowledgeService';
+import { buildKnowledgeSourceReferencePrompt } from './knowledge/sourceReferencePrompt';
 import {
   type CoworkAgentEngine,
   CoworkEngineRouter,
@@ -1850,6 +1850,7 @@ const getCoworkEngineRouter = () => {
             imStore,
             getDefaultCwd: (agentId?: string) => resolveAgentDefaultWorkingDirectory(agentId) || os.homedir(),
             resolveJobName: (jobId) => getCronJobService().getJobNameSync(jobId),
+            resolveJobDelivery: (jobId) => getCronJobService().getJobDeliverySync(jobId),
           });
           openClawRuntimeAdapter.setChannelSessionSync(channelSessionSync);
         }
