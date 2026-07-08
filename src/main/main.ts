@@ -1300,6 +1300,7 @@ const setScheduledTaskSessionSource = (
   label?: string,
 ): void => {
   if (!sessionId) return;
+  if (sourceBySessionId.get(sessionId)?.kind === CoworkSessionSourceKind.IM) return;
   const source = {
     kind: CoworkSessionSourceKind.ScheduledTask,
     taskId,
@@ -1341,9 +1342,15 @@ const annotateCoworkSessionSummaries = async (
     const imStore = getIMGatewayManager()?.getIMStore();
     if (imStore) {
       for (const session of sessions) {
-        if (sourceBySessionId.has(session.id)) continue;
+        const existingSource = sourceBySessionId.get(session.id);
+        if (existingSource && existingSource.kind !== CoworkSessionSourceKind.ScheduledTask) continue;
         const mapping = imStore.getSessionMappingByCoworkSessionId(session.id);
         if (!mapping) continue;
+        try {
+          getCoworkStore().deleteSessionSource(session.id, CoworkSessionSourceKind.ScheduledTask);
+        } catch {
+          // Source cleanup is best-effort for sidebar rendering.
+        }
         const source = {
           kind: CoworkSessionSourceKind.IM,
           platform: mapping.platform,
