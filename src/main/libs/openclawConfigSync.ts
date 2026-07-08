@@ -847,6 +847,7 @@ export const buildProviderSelection = (options: {
   authType?: 'apikey' | 'oauth';
   codingPlanEnabled?: boolean;
   supportsImage?: boolean;
+  supportsThinking?: boolean;
   modelName?: string;
   contextWindow?: number;
 }): OpenClawProviderSelection => {
@@ -878,6 +879,11 @@ export const buildProviderSelection = (options: {
     options.modelId,
     options.supportsImage,
   );
+  const supportsThinking = ProviderRegistry.resolveModelSupportsThinking(
+    providerName,
+    options.modelId,
+    options.supportsThinking,
+  );
   const modelInput: string[] = supportsImage ? ['text', 'image'] : ['text'];
   const auth = (
     (options.providerName === ProviderName.Minimax || options.providerName === ProviderName.OpenAI)
@@ -887,9 +893,10 @@ export const buildProviderSelection = (options: {
     : AuthType.ApiKey;
 
   // reasoning：descriptor 动态计算 > modelDefaults 静态值
-  const reasoning = descriptor.resolveModelReasoning
+  const descriptorReasoning = descriptor.resolveModelReasoning
     ? descriptor.resolveModelReasoning(options.modelId, !!options.codingPlanEnabled)
     : descriptor.modelDefaults?.reasoning;
+  const reasoning = supportsThinking ? true : descriptorReasoning;
   const contextWindow = options.contextWindow ?? descriptor.modelDefaults?.contextWindow;
   const modelMaxTokens = resolveModelMaxTokensForOpenClaw({
     api,
@@ -1443,6 +1450,7 @@ export class OpenClawConfigSync {
         authType: apiResolution.providerMetadata?.authType,
         codingPlanEnabled: apiResolution.providerMetadata?.codingPlanEnabled,
         supportsImage: apiResolution.providerMetadata?.supportsImage,
+        supportsThinking: apiResolution.providerMetadata?.supportsThinking,
         modelName: apiResolution.providerMetadata?.modelName,
         contextWindow: apiResolution.providerMetadata?.contextWindow,
       });
@@ -1463,6 +1471,7 @@ export class OpenClawConfigSync {
             authType: p.authType,
             codingPlanEnabled: p.codingPlanEnabled,
             supportsImage: m.supportsImage,
+            supportsThinking: m.supportsThinking,
             modelName: m.name,
             contextWindow: m.contextWindow,
           });
@@ -1517,6 +1526,7 @@ export class OpenClawConfigSync {
             apiType: 'openai',
             providerName: ProviderName.PopiaiServer,
             supportsImage: serverModels[0]?.supportsImage,
+            supportsThinking: serverModels[0]?.supportsThinking,
           });
           const popiaiProviderConfig =
             allProvidersMap[providerId] ?? {
@@ -1536,6 +1546,7 @@ export class OpenClawConfigSync {
                 apiType: 'openai',
                 providerName: ProviderName.PopiaiServer,
                 supportsImage: sm.supportsImage,
+                supportsThinking: sm.supportsThinking,
                 modelName: sm.modelId,
                 contextWindow: sm.contextWindow,
               });

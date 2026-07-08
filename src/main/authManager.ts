@@ -56,6 +56,7 @@ export type ServerModelMetadata = {
   provider: string;
   apiFormat: string;
   supportsImage?: boolean;
+  supportsThinking?: boolean;
 };
 
 export const POPI_DEFAULT_SERVER_MODELS = [
