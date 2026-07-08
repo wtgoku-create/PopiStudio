@@ -16,12 +16,12 @@ const message = (
   timestamp: 1,
 });
 
-test('buildConversationTurns displays thinking before other assistant items in the same turn', () => {
+test('buildConversationTurns preserves persisted thinking insertion order', () => {
   const messages: CoworkMessage[] = [
     message('user-1', 'user', 'start'),
+    message('thinking-1', 'assistant', 'reasoning', { isThinking: true }),
     message('assistant-1', 'assistant', 'visible answer'),
     message('tool-1', 'tool_use', 'Using tool', { toolUseId: 'call-1' }),
-    message('thinking-1', 'assistant', 'reasoning', { isThinking: true }),
   ];
 
   const turns = buildConversationTurns(buildDisplayItems(messages));

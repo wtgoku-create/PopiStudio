@@ -255,7 +255,6 @@ const coworkSlice = createSlice({
           let inserted = false;
           if (beforeMessageId) {
             const targetIndex = state.currentSession.messages.findIndex((item) => item.id === beforeMessageId);
-            console.log('[ThinkingOrder] Redux addMessage: beforeMessageId=', beforeMessageId, 'targetIndex=', targetIndex, 'messageId=', message.id, 'totalMessages=', state.currentSession.messages.length);
             if (targetIndex !== -1) {
               state.currentSession.messages.splice(targetIndex, 0, message);
               inserted = true;

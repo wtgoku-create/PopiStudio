@@ -4706,12 +4706,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // If assistant message already exists, insert thinking BEFORE it
       // (agent stream may deliver text before chat delta delivers thinking)
       const insertBeforeId = turn.assistantMessageId || undefined;
-      console.log('[ThinkingOrder] syncThinkingMessage CREATE: assistantMessageId=', turn.assistantMessageId, 'insertBeforeId=', insertBeforeId, 'sessionId=', sessionId);
       const thinkingMessage = insertBeforeId
         ? this.store.insertMessageBeforeId(sessionId, insertBeforeId, messagePayload)
         : this.store.addMessage(sessionId, messagePayload);
       turn.thinkingMessageId = thinkingMessage.id;
-      console.log('[ThinkingOrder] emitting message with beforeMessageId=', insertBeforeId, 'thinkingMessageId=', thinkingMessage.id);
       this.emit('message', sessionId, thinkingMessage, insertBeforeId);
       return;
     }
