@@ -1018,7 +1018,8 @@ const resolveCoworkRuntimePrompt = async (options: {
 
   const routingContext = [
     '[Popiai selected knowledge context]',
-    'The user selected knowledge sources for this turn. Before answering questions that depend on those sources, use knowledge tools in this priority order: 1. wiki tools such as `wiki_search` / `wiki_read_page`; 2. direct knowledge tools such as `knowledge_search`, `grep_chunks`, `list_knowledge_chunks`, or `get_document_info`; 3. the local MCP tool `preview_rag_context` from the `knowledge` server as the fallback.',
+    'The user selected knowledge sources for this turn. First decide whether the user request depends on those selected sources.',
+    'If the request depends on the selected sources, retrieve from them before answering. If the selected sources are unrelated, answer normally and do not mention them.',
     knowledgeBases.length > 0
       ? `Selected knowledgeBaseIds: ${JSON.stringify(knowledgeBases.map(item => ({
           id: item.id,
@@ -1033,7 +1034,12 @@ const resolveCoworkRuntimePrompt = async (options: {
           ...(item.fileType ? { fileType: item.fileType } : {}),
         })))}`
       : '',
-    'Pass these selected ids to whichever knowledge tool supports them. If you use `preview_rag_context`, call it with `query`, `knowledgeBaseIds`, and/or `knowledgeIds`. If retrieval fails or returns no relevant context, continue with the user request normally and mention the retrieval issue briefly when relevant.',
+    knowledgeFiles.length > 0
+      ? 'When selected knowledgeIds are present, prioritize document-specific retrieval first: `get_document_info`, `list_knowledge_chunks`, `grep_chunks`, or `knowledge_search`. Use the local MCP tool `preview_rag_context` from the `knowledge` server as the fallback.'
+      : 'When only selected knowledgeBaseIds are present, use `wiki_search` / `wiki_read_page` for curated wiki-style answers, use `knowledge_search`, `grep_chunks`, `list_knowledge_chunks`, or `get_document_info` for document evidence, and use the local MCP tool `preview_rag_context` from the `knowledge` server as the fallback.',
+    'Pass these selected ids to whichever knowledge tool supports them. If you use `preview_rag_context`, call it with `query`, `knowledgeBaseIds`, and/or `knowledgeIds`.',
+    'If the user explicitly asks to answer based on, summarize, compare, cite, or extract from the selected knowledge sources, do not answer from general knowledge when retrieval fails. Say that the selected sources could not be retrieved or did not contain relevant evidence.',
+    'If retrieval fails for an optional or unrelated selected source, continue with the user request normally and mention the retrieval issue briefly only when relevant.',
     '[/Popiai selected knowledge context]',
   ].filter(Boolean).join('\n');
 
