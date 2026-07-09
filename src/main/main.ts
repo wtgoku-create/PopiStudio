@@ -52,6 +52,7 @@ import {
 import { pollNimQrLogin, startNimQrLogin } from './im/nimQrLoginService';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NimInstanceConfig, Platform, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from './im/types';
 import { registerNimQrLoginHandlers } from './ipcHandlers/nimQrLogin';
+import { POPIART_MEDIA_GENERATION_SERVICE_PROMPT } from './popiart/popiartCliManager';
 import {
   getCronJobService,
   initCronJobServiceManager,
@@ -2241,6 +2242,7 @@ function mergeCoworkSystemPrompt(
   const sections = [
     buildScheduledTaskEnginePrompt(),
     buildKnowledgeSourceReferencePrompt(),
+    POPIART_MEDIA_GENERATION_SERVICE_PROMPT,
     systemPrompt?.trim() || '',
   ].filter(Boolean);
   return sections.length > 0 ? sections.join('\n\n') : undefined;
