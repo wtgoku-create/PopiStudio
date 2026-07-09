@@ -54,6 +54,7 @@ import type { DingTalkInstanceConfig, DiscordInstanceConfig, EmailMultiInstanceC
 import { registerNimQrLoginHandlers } from './ipcHandlers/nimQrLogin';
 import { RemoteKnowledgeService } from './knowledge/remoteKnowledgeService';
 import { buildKnowledgeSourceReferencePrompt } from './knowledge/sourceReferencePrompt';
+import { POPIART_MEDIA_GENERATION_SERVICE_PROMPT } from './popiart/popiartCliManager';
 import {
   getCronJobService,
   initCronJobServiceManager,
@@ -2220,6 +2221,7 @@ function mergeCoworkSystemPrompt(
   const sections = [
     buildScheduledTaskEnginePrompt(),
     buildKnowledgeSourceReferencePrompt(),
+    POPIART_MEDIA_GENERATION_SERVICE_PROMPT,
     systemPrompt?.trim() || '',
   ].filter(Boolean);
   return sections.length > 0 ? sections.join('\n\n') : undefined;

@@ -17,6 +17,15 @@ import { getServerApiBaseUrl } from '../libs/endpoints';
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
 
+export const POPIART_MEDIA_GENERATION_SERVICE_PROMPT = [
+  '## Media Generation Service',
+  '',
+  'When the user asks to generate or transform media, use the built-in `popiart` CLI. This includes image, video, speech, music, media upload, job status, and artifact download workflows.',
+  'Do not run `popiart auth`, and do not pass `--key` or `--api-key`; authentication is synchronized by the app.',
+  'Prefer agent-friendly CLI flags such as `--output json --quiet --non-interactive`, and add `--wait` when the user expects a completed result.',
+  'After successful media generation, download the generated artifacts to a local file before reporting the result.',
+].join('\n');
+
 function resolveBundledPopiArtCliPath(baseDir: string): string {
   const exe = process.platform === 'win32' ? 'popiart.exe' : 'popiart';
   return path.join(baseDir, 'bin', 'popiart', process.platform, process.arch, exe);
