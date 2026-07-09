@@ -198,8 +198,11 @@ const Sidebar: React.FC<SidebarProps> = ({
             label={i18nService.t('cowork')}
             active={activeView === MainView.Cowork && !isAgentPanelCollapsed}
             onClick={() => {
+              if (activeView === MainView.Cowork) {
+                onToggleAgentPanel();
+                return;
+              }
               onShowCowork();
-              onToggleAgentPanel();
             }}
           >
             <ChatRailIcon className={sidebarIconClassName} />
