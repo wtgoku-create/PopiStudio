@@ -80,15 +80,6 @@ export const TaskStatus = {
 } as const;
 export type TaskStatus = typeof TaskStatus[keyof typeof TaskStatus];
 
-// ─── Gateway Status (OpenClaw wire format) ────────────────────────────────���─
-export const GatewayStatus = {
-  Ok: 'ok',
-  Error: 'error',
-  Skipped: 'skipped',
-} as const;
-export type GatewayStatus = typeof GatewayStatus[keyof typeof GatewayStatus];
-
-// ─── Renderer Data Status ──────────────────────────────────────────────────
 export const ScheduledTaskDataStatus = {
   Starting: 'starting',
   Loading: 'loading',
@@ -97,6 +88,14 @@ export const ScheduledTaskDataStatus = {
 } as const;
 export type ScheduledTaskDataStatus =
   typeof ScheduledTaskDataStatus[keyof typeof ScheduledTaskDataStatus];
+
+// ─── Gateway Status (OpenClaw wire format) ────────────────────────────────���─
+export const GatewayStatus = {
+  Ok: 'ok',
+  Error: 'error',
+  Skipped: 'skipped',
+} as const;
+export type GatewayStatus = typeof GatewayStatus[keyof typeof GatewayStatus];
 
 // ─── Default Agent ID ───────────────────────────────────────────────────────
 export const DefaultAgentId = 'main' as const;

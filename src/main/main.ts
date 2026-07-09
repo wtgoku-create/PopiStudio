@@ -4540,7 +4540,7 @@ if (!gotTheLock) {
       ) => getIMGatewayManager().primeConversationReplyRoute(platform as Platform, conversationId, coworkSessionId),
     }),
     getOpenClawRuntimeAdapter: () => openClawRuntimeAdapter,
-    getCoworkStore,
+    getCoworkSessionTitle: (sessionId: string) => getCoworkStore().getSession(sessionId)?.title ?? null,
   });
 
   registerNimQrLoginHandlers({

@@ -976,6 +976,8 @@ export class CoworkStore {
       }
     }
 
+    const source = this.getSessionSources([id]).get(id)?.[0];
+
     return {
       id: row.id,
       title: row.title,
@@ -992,6 +994,7 @@ export class CoworkStore {
       messages,
       messagesOffset: messageOffset,
       totalMessages,
+      ...(source ? { source } : {}),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
