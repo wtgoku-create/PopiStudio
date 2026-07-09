@@ -8,12 +8,14 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
+import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import type { RootState } from '../../store';
 import type { AgentSummary } from '../../store/slices/agentSlice';
 import { getAgentDisplayName, isDefaultAgentId } from '../../utils/agentDisplay';
+import { sanitizeExportFileName, sessionToJSON, sessionToMarkdown } from '../../utils/coworkSessionExport';
 import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
@@ -28,56 +30,9 @@ interface ContactsViewProps {
 const DEFAULT_CONTACTS_PANEL_WIDTH = 306;
 const MIN_CONTACTS_PANEL_WIDTH = 260;
 const MAX_CONTACTS_PANEL_WIDTH = 420;
-const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
 
 const getAgentSearchText = (agent: AgentSummary): string => {
   return `${getAgentDisplayName(agent)} ${agent.description} ${agent.model}`.toLowerCase();
-};
-
-const sanitizeExportFileName = (value: string): string => {
-  const cleaned = value.replace(INVALID_FILE_NAME_PATTERN, '_').replace(/\s+/g, ' ').trim();
-  return cleaned || 'agent';
-};
-
-const agentToMarkdown = (agent: AgentSummary): string => {
-  const lines: string[] = [`# ${getAgentDisplayName(agent)}`, ''];
-
-  if (agent.description) {
-    lines.push(agent.description);
-    lines.push('');
-  }
-
-  lines.push('---');
-  lines.push('');
-  lines.push(`- ID: ${agent.id}`);
-  lines.push(`- Model: ${agent.model || '-'}`);
-  lines.push(`- Source: ${agent.source}`);
-  lines.push(`- Working Directory: ${agent.workingDirectory || '-'}`);
-  lines.push(`- Skills: ${agent.skillIds.length > 0 ? agent.skillIds.join(', ') : '-'}`);
-
-  return lines.join('\n');
-};
-
-const agentToJSON = (agent: AgentSummary): string => {
-  return JSON.stringify(
-    {
-      id: agent.id,
-      name: agent.name,
-      displayName: getAgentDisplayName(agent),
-      description: agent.description,
-      icon: agent.icon,
-      model: agent.model,
-      workingDirectory: agent.workingDirectory,
-      enabled: agent.enabled,
-      pinned: agent.pinned,
-      pinOrder: agent.pinOrder,
-      isDefault: agent.isDefault,
-      source: agent.source,
-      skillIds: agent.skillIds,
-    },
-    null,
-    2,
-  );
 };
 
 const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
@@ -157,24 +112,59 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
     window.dispatchEvent(new CustomEvent('app:showToast', { detail: message }));
   }, []);
 
-  const handleMessageAgent = useCallback(
-    async (agent: AgentSummary) => {
+  const openAgentHomeSession = useCallback(
+    async (agent: AgentSummary): Promise<string | null> => {
       agentService.switchAgent(agent.id);
-      await coworkService.loadSessions(agent.id);
-      coworkService.clearSession({ restoreAgentSkills: true });
       onShowCowork();
+
+      const sidebarSessionsResult = await coworkService.listAgentSidebarSessions();
+      const homeSession = sidebarSessionsResult.success
+        ? sidebarSessionsResult.sessions?.find((session) => (
+          session.agentId === agent.id && session.source?.kind === CoworkSessionSourceKind.AgentHome
+        ))
+        : null;
+
+      if (homeSession) {
+        await coworkService.loadSession(homeSession.id);
+        return homeSession.id;
+      }
+
+      await coworkService.loadSessions(agent.id);
+      return null;
     },
     [onShowCowork],
   );
 
-  const handleExportAgent = useCallback(
+  const handleMessageAgent = useCallback(
+    async (agent: AgentSummary) => {
+      await openAgentHomeSession(agent);
+    },
+    [openAgentHomeSession],
+  );
+
+  const handleExportAgentSession = useCallback(
     async (agent: AgentSummary, format: 'md' | 'json') => {
-      const content = format === 'md' ? agentToMarkdown(agent) : agentToJSON(agent);
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const fileName = sanitizeExportFileName(
-        `${getAgentDisplayName(agent)}-${timestamp}.${format}`,
-      );
       try {
+        const sidebarSessionsResult = await coworkService.listAgentSidebarSessions();
+        const homeSession = sidebarSessionsResult.success
+          ? sidebarSessionsResult.sessions?.find((session) => (
+            session.agentId === agent.id
+            && session.source?.kind === CoworkSessionSourceKind.AgentHome
+          ))
+          : null;
+
+        if (!homeSession) {
+          throw new Error('Agent home session not found');
+        }
+
+        const session = await coworkService.getSessionSnapshot(homeSession.id);
+        if (!session) {
+          throw new Error('Agent home session snapshot not found');
+        }
+
+        const content = format === 'md' ? sessionToMarkdown(session) : sessionToJSON(session);
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const fileName = sanitizeExportFileName(`${session.title}-${timestamp}.${format}`);
         const result = await window.electron.cowork.exportSessionText({
           content,
           defaultFileName: fileName,
@@ -188,7 +178,7 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
           throw new Error(result.error || 'Export failed');
         }
       } catch (error) {
-        console.error('Failed to export agent:', error);
+        console.error('Failed to export agent session:', error);
         showToast(i18nService.t('coworkExportTextFailed'));
       }
     },
@@ -427,7 +417,7 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
               onClick={() => {
                 const agent = shareAgent;
                 setShareAgent(null);
-                void handleExportAgent(agent, 'md');
+                void handleExportAgentSession(agent, 'md');
               }}
               className="flex w-full items-center gap-3 px-5 py-3 text-left text-sm text-foreground transition-colors hover:bg-surface-raised"
             >
@@ -444,7 +434,7 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
               onClick={() => {
                 const agent = shareAgent;
                 setShareAgent(null);
-                void handleExportAgent(agent, 'json');
+                void handleExportAgentSession(agent, 'json');
               }}
               className="flex w-full items-center gap-3 px-5 py-3 text-left text-sm text-foreground transition-colors hover:bg-surface-raised"
             >
