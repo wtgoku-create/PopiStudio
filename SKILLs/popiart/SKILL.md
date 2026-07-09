@@ -44,11 +44,6 @@ Agent / CI 场景默认带：
 | `--wait` | 等待任务完成后再返回。 |
 | `--async` | 只提交任务并立即返回 `job_id` / `task_id`。 |
 | `--dry-run` | 预览归一化后的请求，不执行生成。 |
-| `--endpoint <url>` | 临时切换 API endpoint。 |
-| `--project <id>` | 临时指定项目上下文。 |
-| `--model <model-code>` | 单次请求指定模型，优先用于 intent 命令。 |
-
-不要把 `--model` 理解成必须传；用户未指定模型时，让 CLI 根据当前 `model/list` 和默认候选池自动选择。
 
 ## 推荐入口
 
@@ -247,7 +242,7 @@ popiart music generate \
 
 ## 模型与默认路由
 
-当默认模型不可用、命令返回 `MODEL_NOT_FOUND` / `MODEL_SUBTYPE_UNSUPPORTED`，或需要推荐模型时，先查询当前模型库存和默认路由，不要直接猜模型名：
+CLI配置有默认模型，但是当用户指定模型或者命令返回 `MODEL_NOT_FOUND` / `MODEL_SUBTYPE_UNSUPPORTED`默认模型不可用时，需要先用 `popiart models list` 或 `popiart models routes` 查询可用模型，再指定 `--model` 或 `--route`。--model <model_id> 只影响本次请求，--route <route> 会覆盖项目默认路由。一般情况下都使用--model或者默认模型即可，不推荐--route
 
 ```bash
 popiart models list --output json --quiet --non-interactive
@@ -256,13 +251,7 @@ popiart models routes --output json --quiet --non-interactive
 popiart models routes --route image.text2image --output json --quiet --non-interactive
 ```
 
-常用 capability：
 
-- `text2image`：文生图
-- `img2img`：图生图 / 图片编辑
-- `image2video`：图生视频 / 视频生成
-- `text2speech`：语音合成
-- `image-describe`：图片理解
 
 常用 route：
 
@@ -275,15 +264,13 @@ popiart models routes --route image.text2image --output json --quiet --non-inter
 - `speech.synthesize`
 - `music.generate`
 
-CLI 的 intent 命令会先读主站 `model/list`，再按本地默认候选池选择可用模型；如果第一个默认模型缺失，后备候选仍可能可用。
-
 ### 单次指定模型
 
-只影响本次请求时，在支持的 intent 命令上直接传 `--model`：
+只影响本次请求时，在支持的 intent 命令上直接传 `--model`(model_id是models list中的ID)：
 
 ```bash
 popiart image generate \
-  --model gemini-3-pro-image-preview \
+  --model <model-id> \
   --prompt "A clean editorial product photo" \
   --aspect-ratio 1:1 \
   --wait \
@@ -294,7 +281,7 @@ popiart image generate \
 
 ```bash
 popiart video generate \
-  --model viduq2-pro-fast \
+  --model <model-id> \
   --image ./source.png \
   --prompt "Subtle camera push-in and natural motion" \
   --duration 5 \
@@ -304,12 +291,12 @@ popiart video generate \
   --non-interactive
 ```
 
-`image describe` 通常需要显式 `--model`，例如：
+`image describe` 通常需要显式 `--model`，例如:
 
 ```bash
 popiart image describe \
   --image ./source.png \
-  --model gemini-2.5-flash \
+  --model <model-id> \
   --prompt "Write a reusable text-to-image prompt" \
   --output json \
   --quiet \
@@ -324,25 +311,11 @@ popiart image describe \
 popiart models route-override set \
   --project <project-id> \
   --route image.img2img \
-  --model seedream-4-5-251128 \
+  --model <model-id> \
   --output json \
   --quiet \
   --non-interactive
 ```
-
-查看和取消：
-
-```bash
-popiart models route-override list --project <project-id> --output json --quiet --non-interactive
-popiart models route-override unset --project <project-id> --route image.img2img --output json --quiet --non-interactive
-```
-
-### 模型使用规则
-
-- 单次请求用 `--model`。
-- 长期项目默认用 `models route-override set`。
-- 只有用户明确要直连底层模型时才用 `popiart models infer <model-id>`。
-- 推荐模型前先跑 `models list` 或 `models routes`，因为模型库存、价格、可用性会变化。
 
 ## 标准工作流
 
