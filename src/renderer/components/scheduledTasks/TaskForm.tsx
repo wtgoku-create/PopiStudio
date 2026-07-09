@@ -249,6 +249,30 @@ function buildScheduleInput(form: FormState): ScheduledTaskInput['schedule'] {
   return { kind: ScheduleKind.Cron, expr: `${min} ${hr} ${form.monthDay} * *` };
 }
 
+function buildDeliveryInput(form: FormState): ScheduledTaskDelivery {
+  return form.notifyChannel === 'none'
+    ? { mode: DeliveryMode.None }
+    : {
+        mode: DeliveryMode.Announce,
+        channel: form.notifyChannel,
+        ...(form.notifyTo ? { to: form.notifyTo } : {}),
+        ...(form.notifyAccountId ? { accountId: form.notifyAccountId } : {}),
+      };
+}
+
+function buildSessionInputForDelivery(
+  delivery: ScheduledTaskDelivery,
+): Pick<ScheduledTaskInput, 'sessionTarget' | 'sessionKey'> {
+  if (delivery.mode === DeliveryMode.Announce) {
+    return { sessionTarget: SessionTarget.Isolated };
+  }
+
+  return {
+    sessionTarget: SessionTarget.Isolated,
+    sessionKey: null,
+  };
+}
+
 const WEEKDAY_KEYS = [
   'scheduledTasksFormWeekSun',
   'scheduledTasksFormWeekMon',
@@ -632,23 +656,16 @@ const TaskForm: React.FC<TaskFormProps> = ({
             model: form.modelId,
           };
 
+      const delivery = buildDeliveryInput(form);
       const input: ScheduledTaskInput = {
         name: form.name.trim(),
         description: '',
         enabled: true,
         schedule,
-        sessionTarget: SessionTarget.Isolated,
+        ...buildSessionInputForDelivery(delivery),
         wakeMode: WakeMode.Now,
         payload,
-        delivery:
-          form.notifyChannel === 'none'
-            ? { mode: DeliveryMode.None }
-            : {
-                mode: DeliveryMode.Announce,
-                channel: form.notifyChannel,
-                ...(form.notifyTo ? { to: form.notifyTo } : {}),
-                ...(form.notifyAccountId ? { accountId: form.notifyAccountId } : {}),
-              },
+        delivery,
       };
 
       if (mode === 'create') {
