@@ -52,6 +52,7 @@ import {
   formatCoworkContinuityCapsuleBridge,
 } from './coworkContinuityCapsule';
 import { buildCoworkWorkspaceRehydrationBridge } from './coworkWorkspaceRehydration';
+import { extractCronDeliveredTarget } from './cronDeliveryTarget';
 import {
   buildCronRunHistoryEntries,
   buildCronRunLocalHistoryEntries,
@@ -1152,6 +1153,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private readonly stoppedSessions = new Map<string, number>();
   private static readonly STOP_COOLDOWN_MS = 10_000; // 10 seconds
   private static readonly GATEWAY_SESSION_DELETE_TIMEOUT_MS = 5_000;
+  private static readonly CRON_DELIVERY_SYNC_DELAY_MS = 1_500;
   private static readonly RECENTLY_CLOSED_RUN_ID_TTL_MS = 120_000;
   private static readonly RECENTLY_CLOSED_RUN_ID_LIMIT = 1000;
   private static readonly LIFECYCLE_ERROR_FALLBACK_DELAY_MS = 20_000;
@@ -3562,7 +3564,37 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     if (event.event === 'cron') {
       console.debug('[OpenClawRuntime] received cron event:', JSON.stringify(event));
+      this.scheduleImConversationSyncAfterCronDelivery(event.payload);
     }
+  }
+
+  private scheduleImConversationSyncAfterCronDelivery(payload: unknown): void {
+    const target = extractCronDeliveredTarget(payload);
+    if (!target || !this.channelSessionSync) return;
+    const conversation = this.channelSessionSync.resolveConversationByDeliveryTarget(
+      target.channel,
+      target.to,
+      target.accountId,
+    );
+    if (!conversation) {
+      console.debug('[ChannelSync] no local conversation mapped for cron delivery target');
+      return;
+    }
+    setTimeout(() => {
+      void this.syncSessionHistoryFromGateway(conversation.sessionId, conversation.sessionKey)
+        .then(() => {
+          this.store.updateSession(conversation.sessionId, {}, { touchUpdatedAt: true });
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) {
+              win.webContents.send('cowork:sessions:changed');
+            }
+          }
+          console.log('[ChannelSync] synced IM conversation after cron delivery');
+        })
+        .catch((error) => {
+          console.warn('[ChannelSync] failed to sync IM conversation after cron delivery:', error);
+        });
+    }, OpenClawRuntimeAdapter.CRON_DELIVERY_SYNC_DELAY_MS);
   }
 
   private handleAgentEvent(payload: unknown, seq?: number): void {

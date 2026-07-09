@@ -929,11 +929,7 @@ const App: React.FC = () => {
                   readOnly={enterpriseConfig?.ui?.skills === 'readonly'}
                 />
               ) : mainView === MainView.ScheduledTasks ? (
-                <ScheduledTasksView
-                  isSidebarCollapsed={isAgentPanelCollapsed}
-                  onToggleSidebar={handleToggleSidebar}
-                  onNewChat={handleNewChat}
-                />
+                <ScheduledTasksView />
               ) : mainView === MainView.Mcp ? (
                 <McpView
                   isSidebarCollapsed={isAgentPanelCollapsed}

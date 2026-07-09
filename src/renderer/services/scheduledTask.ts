@@ -14,10 +14,11 @@ import {
   addTask,
   appendAllRuns,
   appendRuns,
+  markTaskRunning,
   removeTask,
+  setAllRuns,
   setAllRunsError,
   setAllRunsStatus,
-  setAllRuns,
   setError,
   setRuns,
   setTaskListError,
@@ -58,7 +59,7 @@ function checkTasksForAnomalies(tasks: ScheduledTask[]): void {
   showToast(msg);
 }
 
-class ScheduledTaskService {
+export class ScheduledTaskService {
   private cleanupFns: (() => void)[] = [];
   private initialized = false;
   private taskListRequestId = 0;
@@ -191,11 +192,14 @@ class ScheduledTaskService {
 
     try {
       const result = await api.delete(id);
-      if (result.success) {
-        store.dispatch(removeTask(id));
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to delete task');
       }
+      store.dispatch(removeTask(id));
     } catch (err: unknown) {
-      store.dispatch(setError(err instanceof Error ? err.message : String(err)));
+      const message = err instanceof Error ? err.message : String(err);
+      showToast(`${i18nService.t('scheduledTasksDeleteFailed')}: ${message}`);
+      store.dispatch(setError(message));
       throw err;
     }
   }
@@ -204,14 +208,28 @@ class ScheduledTaskService {
     const api = window.electron?.scheduledTasks;
     if (!api) return null;
 
+    const previous = store.getState().scheduledTask.tasks.find(t => t.id === id);
+    // Optimistic: flip the switch immediately so it reacts to the tap, then
+    // reconcile with the authoritative task (or roll back) once the call lands.
+    if (previous) {
+      store.dispatch(updateTask({ ...previous, enabled }));
+    }
     try {
       const result = await api.toggle(id, enabled);
-      if (result.success && result.task) {
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to toggle task');
+      }
+      if (result.task) {
         store.dispatch(updateTask(result.task));
       }
       return result.warning ?? null;
     } catch (err: unknown) {
-      store.dispatch(setError(err instanceof Error ? err.message : String(err)));
+      if (previous) {
+        store.dispatch(updateTask(previous));
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      showToast(`${i18nService.t('scheduledTasksToggleFailed')}: ${message}`);
+      store.dispatch(setError(message));
       throw err;
     }
   }
@@ -220,10 +238,27 @@ class ScheduledTaskService {
     const api = window.electron?.scheduledTasks;
     if (!api) return;
 
+    const task = store.getState().scheduledTask.tasks.find(t => t.id === id);
+    // Optimistic: flip the task to "running" right away so the button/status
+    // react instantly instead of waiting for the next gateway status poll.
+    store.dispatch(markTaskRunning(id));
     try {
-      await api.runManually(id);
+      const result = await api.runManually(id);
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to run task');
+      }
+      const name = task?.name?.trim();
+      showToast(
+        name
+          ? i18nService.t('scheduledTasksRunStartedToast').replace('{name}', name)
+          : i18nService.t('scheduledTasksRunStartedToastGeneric'),
+      );
     } catch (err: unknown) {
-      store.dispatch(setError(err instanceof Error ? err.message : String(err)));
+      const message = err instanceof Error ? err.message : String(err);
+      showToast(`${i18nService.t('scheduledTasksRunFailed')}: ${message}`);
+      store.dispatch(setError(message));
+      // Roll back the optimistic running state.
+      void this.loadTasks();
       throw err;
     }
   }
