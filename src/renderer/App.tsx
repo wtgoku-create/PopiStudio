@@ -302,6 +302,7 @@ const App: React.FC = () => {
 
   const handleShowCowork = useCallback(() => {
     setMainView(MainView.Cowork);
+    setIsAgentPanelCollapsed(false);
   }, []);
 
   const handleShowScheduledTasks = useCallback(() => {
