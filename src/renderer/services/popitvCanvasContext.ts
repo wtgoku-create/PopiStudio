@@ -116,16 +116,13 @@ export const buildPopiTVCanvasContextPrompt = (sessionId?: string): string => {
   ].join('\n');
 };
 
-export const appendPopiTVCanvasContext = (
-  skillPrompt: string | undefined,
+export const buildOptionalPopiTVCanvasContext = (
   options: {
     shouldInclude: boolean;
     sessionId?: string;
   },
 ): string | undefined => {
-  if (!options.shouldInclude) return skillPrompt;
+  if (!options.shouldInclude) return undefined;
 
-  return [skillPrompt?.trim(), buildPopiTVCanvasContextPrompt(options.sessionId)]
-    .filter(Boolean)
-    .join('\n\n');
+  return buildPopiTVCanvasContextPrompt(options.sessionId);
 };
