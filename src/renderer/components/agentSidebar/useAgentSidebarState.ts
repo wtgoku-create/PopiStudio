@@ -241,21 +241,27 @@ export const useAgentSidebarState = () => {
 
   useEffect(() => {
     if (sessions.length === 0) return;
+    const activeAgentIds = new Set(enabledAgents.map((agent) => agent.id));
     setSidebarSessions((previous) => {
       let changed = false;
       const byId = new Map(previous.map((session) => [session.id, session]));
       sessions.forEach((session) => {
+        if (!session.source) return;
+        if (!activeAgentIds.has(normalizeAgentId(session.agentId))) return;
+
         const existing = byId.get(session.id);
-        const patched = patchExistingAgentSidebarSession(existing, session);
+        const patched = existing
+          ? patchExistingAgentSidebarSession(existing, session)
+          : session;
         if (!patched) return;
-        if (hasSessionPreviewChanged(existing!, patched)) {
+        if (!existing || hasSessionPreviewChanged(existing, patched)) {
           byId.set(session.id, patched);
           changed = true;
         }
       });
       return changed ? sortSidebarSessions(Array.from(byId.values())) : previous;
     });
-  }, [sessions]);
+  }, [enabledAgents, sessions]);
 
   const patchTaskPreview = useCallback((
     sessionId: string,
