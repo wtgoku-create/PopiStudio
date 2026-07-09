@@ -279,6 +279,7 @@ describe('CronJobService delivery cache', () => {
         mode: DeliveryMode.Announce,
         channel: 'openclaw-weixin',
         to: 'o9cq809ZEC25-4jLkdw3AHTKPE9c@im.wechat',
+        accountId: 'bot-1',
       },
     });
     const updated = makeGatewayJob({ id: 'wx-job', delivery: { mode: DeliveryMode.None } });
@@ -302,6 +303,8 @@ describe('CronJobService delivery cache', () => {
     expect(service.getJobDeliverySync('wx-job')).toEqual({
       mode: DeliveryMode.Announce,
       channel: 'openclaw-weixin',
+      to: 'o9cq809ZEC25-4jLkdw3AHTKPE9c@im.wechat',
+      accountId: 'bot-1',
     });
 
     await service.updateJob('wx-job', { delivery: { mode: DeliveryMode.None } });

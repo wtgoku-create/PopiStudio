@@ -45,6 +45,7 @@ import {
 } from '../openclawHistory';
 import { buildOpenClawLocalTimeContextPrompt } from '../openclawLocalTimeContextPrompt';
 import { AgentLifecyclePhase, type AgentLifecyclePhase as AgentLifecyclePhaseValue } from './constants';
+import { resolveChannelSessionNextStatus } from './channelSessionRunStatus';
 import {
   buildCoworkContinuityCapsule,
   ContinuityCapsuleSource,
@@ -2059,6 +2060,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         channelCount++;
         // Use resolveOrCreateSession so new channel sessions are auto-created
         const sessionId = this.channelSessionSync.resolveOrCreateSession(key);
+        if (sessionId && isRecord(row)) {
+          this.syncChannelSessionRunStatus({
+            coworkSessionId: sessionId,
+            openClawSessionKey: key,
+            row: row as Record<string, unknown>,
+          });
+        }
         if (sessionId && !this.knownChannelSessionIds.has(sessionId)) {
           this.knownChannelSessionIds.add(sessionId);
           this.rememberSessionKey(sessionId, key);
@@ -2115,6 +2123,45 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     } catch (error) {
       console.error('[ChannelSync] pollChannelSessions: error during polling:', error);
     }
+  }
+
+  private syncChannelSessionRunStatus(options: {
+    coworkSessionId: string;
+    openClawSessionKey: string;
+    row: Record<string, unknown>;
+  }): boolean {
+    const { coworkSessionId, openClawSessionKey, row } = options;
+    const session = this.store.getSession(coworkSessionId);
+    if (!session) return false;
+
+    const hasActiveRun =
+      row.hasActiveRun === true
+        ? true
+        : row.hasActiveRun === false
+          ? false
+          : null;
+    const rawStatus = typeof row.status === 'string' ? row.status.trim().toLowerCase() : '';
+    const nextStatus = resolveChannelSessionNextStatus({
+      hasActiveRun,
+      rawStatus,
+      currentStatus: session.status,
+    });
+
+    if (!nextStatus || session.status === nextStatus) return false;
+    if (nextStatus !== 'running' && this.activeTurns.has(coworkSessionId)) {
+      return false;
+    }
+
+    this.store.updateSession(coworkSessionId, { status: nextStatus });
+    console.log(
+      '[ChannelSync] synced channel session run status.',
+      `Session ${coworkSessionId}.`,
+      `OpenClaw key ${openClawSessionKey}.`,
+      `Status ${session.status} -> ${nextStatus}.`,
+      `Active run ${hasActiveRun === null ? 'unknown' : String(hasActiveRun)}.`,
+    );
+    this.emitSessionStatus(coworkSessionId, nextStatus);
+    return true;
   }
 
   override on<U extends keyof CoworkRuntimeEvents>(
@@ -3580,18 +3627,28 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       console.debug('[ChannelSync] no local conversation mapped for cron delivery target');
       return;
     }
+    this.store.updateSession(conversation.sessionId, { status: 'running' });
+    this.emitSessionStatus(conversation.sessionId, 'running');
     setTimeout(() => {
       void this.syncSessionHistoryFromGateway(conversation.sessionId, conversation.sessionKey)
         .then(() => {
-          this.store.updateSession(conversation.sessionId, {}, { touchUpdatedAt: true });
+          this.store.updateSession(conversation.sessionId, { status: 'completed' }, { touchUpdatedAt: true });
+          this.emitSessionStatus(conversation.sessionId, 'completed');
           for (const win of BrowserWindow.getAllWindows()) {
             if (!win.isDestroyed()) {
-              win.webContents.send('cowork:sessions:changed');
+              win.webContents.send('cowork:sessions:changed', { sessionId: conversation.sessionId });
             }
           }
           console.log('[ChannelSync] synced IM conversation after cron delivery');
         })
         .catch((error) => {
+          this.store.updateSession(conversation.sessionId, { status: 'error' }, { touchUpdatedAt: true });
+          this.emitSessionStatus(conversation.sessionId, 'error');
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) {
+              win.webContents.send('cowork:sessions:changed', { sessionId: conversation.sessionId });
+            }
+          }
           console.warn('[ChannelSync] failed to sync IM conversation after cron delivery:', error);
         });
     }, OpenClawRuntimeAdapter.CRON_DELIVERY_SYNC_DELAY_MS);
