@@ -7,7 +7,7 @@ import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
-import { appendPopiTVCanvasContext } from '../../services/popitvCanvasContext';
+import { buildOptionalPopiTVCanvasContext } from '../../services/popitvCanvasContext';
 import { registerPopiTVCanvasAutoOpenHandler } from '../../services/popitvCanvasToolRouter';
 import { quickActionService } from '../../services/quickAction';
 import { RootState } from '../../store';
@@ -271,11 +271,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         const popitvContextSkillIds = sessionSkillIds.length > 0
           ? sessionSkillIds
           : loadedSession?.activeSkillIds ?? [];
-        const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+        const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
           shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
           sessionId: existingSessionSummary.id,
         });
-        const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
+        const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
         const sent = await coworkService.continueSession({
           sessionId: existingSessionSummary.id,
           prompt,
@@ -348,10 +348,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       // auto-routing prompt to avoid injecting Claude SDK tool-calling instructions
       // that confuse non-Claude models (e.g. kimi-k2.5 falls back to text-based
       // tool calls, producing empty tool names and err=true failures).
-      const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+      const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
         shouldInclude: sessionSkillIds.includes(POPITV_SKILL_ID),
       });
-      const combinedSystemPrompt = buildCoworkSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
+      const combinedSystemPrompt = buildCoworkSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
 
       // Start the actual session immediately with fallback title
       const sessionModelOverride = currentAgentSelectedModel ? toOpenClawModelRef(currentAgentSelectedModel) : '';
@@ -427,11 +427,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       const popitvContextSkillIds = sessionSkillIds.length > 0
         ? sessionSkillIds
         : currentSession.activeSkillIds;
-      const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+      const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
         shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
         sessionId: currentSession.id,
       });
-      const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
+      const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
 
       const sent = await coworkService.continueSession({
         sessionId: currentSession.id,
