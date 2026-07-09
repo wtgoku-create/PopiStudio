@@ -91,11 +91,11 @@ export function createTray(getWindow: () => BrowserWindow | null): Tray {
   let icon = nativeImage.createFromPath(iconPath);
 
   if (process.platform === 'darwin') {
-    icon.setTemplateImage(false);
+    icon.setTemplateImage(true);
     // Keep the tray icon within macOS menu bar bounds.
     if (icon.getSize().height > 18) {
       icon = icon.resize({ height: 18 });
-      icon.setTemplateImage(false);
+      icon.setTemplateImage(true);
     }
   }
 
