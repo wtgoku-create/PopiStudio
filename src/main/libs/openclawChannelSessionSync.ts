@@ -739,7 +739,11 @@ export class OpenClawChannelSessionSync {
           return conversation.sessionId;
         }
       }
-      return null;
+      console.warn(
+        '[ChannelSessionSync] could not resolve mapped IM conversation for cron delivery; using a scheduled-task session fallback.',
+        `Job ${cronKey.jobId}.`,
+        `Channel ${delivery.channel}.`,
+      );
     }
 
     const cached = this.syncedSessionKeys.get(cronKey.cacheKey)

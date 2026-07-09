@@ -135,6 +135,9 @@ interface CronJobServiceDeps {
 export interface ScheduledTaskJobDelivery {
   mode: DeliveryModeType;
   channel?: string;
+  to?: string;
+  accountId?: string;
+  bestEffort?: boolean;
 }
 
 type InternalScheduledTaskCandidate = {
@@ -536,11 +539,14 @@ export class CronJobService {
 
   private cacheJobDelivery(
     jobId: string,
-    delivery?: { mode: DeliveryModeType; channel?: string } | null,
+    delivery?: ScheduledTaskDelivery | GatewayDelivery | null,
   ): void {
     this.jobDeliveryCache.set(jobId, {
       mode: delivery?.mode ?? DeliveryMode.None,
       ...(delivery?.channel ? { channel: delivery.channel } : {}),
+      ...(delivery?.to ? { to: delivery.to } : {}),
+      ...(delivery?.accountId ? { accountId: delivery.accountId } : {}),
+      ...(typeof delivery?.bestEffort === 'boolean' ? { bestEffort: delivery.bestEffort } : {}),
     });
   }
 
