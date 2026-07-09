@@ -4373,21 +4373,10 @@ if (!gotTheLock) {
       const previousWorkingDir = previousConfig.workingDirectory;
       getCoworkStore().setConfig(normalizedConfig);
       if (normalizedConfig.workingDirectory !== undefined && normalizedConfig.workingDirectory !== previousWorkingDir) {
-        const mainAgent = getAgentManager().getAgent(AgentId.Main);
-        const previousMainAgentWorkingDirectory = resolveMainAgentWorkingDirectory(previousWorkingDir);
-        const nextMainAgentWorkingDirectory = resolveMainAgentWorkingDirectory(normalizedConfig.workingDirectory);
-        if (
-          mainAgent
-          && (
-            !mainAgent.workingDirectory.trim()
-            || mainAgent.workingDirectory.trim() === previousMainAgentWorkingDirectory
-          )
-        ) {
-          getAgentManager().updateAgent(AgentId.Main, {
-            workingDirectory: nextMainAgentWorkingDirectory,
-          });
-        }
         getSkillManager().handleWorkingDirectoryChange();
+        // Main agent workspace is decoupled from workingDirectory. OpenClaw
+        // bootstrap files live under {STATE_DIR}/workspace-main, while cwd is
+        // resolved per agent/session and must not be rewritten implicitly here.
       }
 
       const nextConfig = getCoworkStore().getConfig();

@@ -46,6 +46,7 @@ import {
 } from './openclawAgentModels';
 import { parseChannelSessionKey } from './openclawChannelSessionSync';
 import type { OpenClawEngineManager } from './openclawEngineManager';
+import { repairHeartbeatFile, stripProactiveHeartbeatSection } from './openclawHeartbeatRepair';
 import { getMainAgentWorkspacePath, readBootstrapFile } from './openclawMemoryFile';
 
 const gwDiagTs = (): string => {
@@ -429,7 +430,7 @@ const readBundledOpenClawAgentsTemplate = (): string => {
       const content = fs.readFileSync(templatePath, 'utf8');
       const trimmed = stripTemplateFrontMatter(content);
       if (trimmed) {
-        return trimmed;
+        return stripProactiveHeartbeatSection(trimmed);
       }
     } catch {
       // Ignore missing/unreadable bundled templates and fall back below.
@@ -3207,12 +3208,24 @@ export class OpenClawConfigSync {
     const stateDir = this.engineManager.getStateDir();
     const userContent = readBootstrapFile(mainWorkspaceDir, 'USER.md');
 
+    try {
+      if (repairHeartbeatFile(mainWorkspaceDir)) {
+        console.log('[OpenClawConfigSync] repaired legacy HEARTBEAT.md in main workspace');
+      }
+    } catch (error) {
+      console.warn('[OpenClawConfigSync] failed to repair HEARTBEAT.md in main workspace:', error);
+    }
+
     for (const agent of agents) {
       if (agent.id === 'main' || !agent.enabled) continue;
 
       const agentWorkspace = path.join(stateDir, `workspace-${agent.id}`);
       try {
         ensureDir(agentWorkspace);
+
+        if (repairHeartbeatFile(agentWorkspace)) {
+          console.log(`[OpenClawConfigSync] repaired legacy HEARTBEAT.md for agent ${agent.id}`);
+        }
 
         // Sync SOUL.md — agent's system prompt
         const soulPath = path.join(agentWorkspace, 'SOUL.md');
