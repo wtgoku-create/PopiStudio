@@ -61,6 +61,10 @@ import {
   hasCronRunHistoryForSession,
   shouldReplaceLocalConversationWithCronHistory,
 } from './openclawCronRunHistorySync';
+import {
+  buildGatewayMediaMetadata,
+  isSameReconciledEntry,
+} from './openclawConversationReconciliation';
 import { SubagentTracker } from './subagentTracker';
 import type {
   CoworkContextUsage,
@@ -1769,12 +1773,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       let msgIndex = 0;
 
       for (const entry of extractGatewayHistoryEntries(history.messages)) {
+        const mediaMetadata = buildGatewayMediaMetadata(entry);
         messages.push({
           id: `transient-${msgIndex++}`,
           type: entry.role,
           content: entry.text,
           timestamp: now,
-          metadata: entry.role === 'assistant' ? { isStreaming: false, isFinal: true } : {},
+          metadata: {
+            ...(entry.role === 'assistant' ? { isStreaming: false, isFinal: true } : {}),
+            ...(mediaMetadata ?? {}),
+          },
         });
       }
 
@@ -6144,8 +6152,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         if (role !== 'user' && role !== 'assistant') continue;
         const text = normalizeEntryText(role, entry.text, platformFlags);
         if (!text || shouldSuppressHeartbeatText(role, text)) continue;
-        // Carry usage/model metadata for assistant messages
+        // Carry usage/model metadata for assistant messages and media metadata for user history.
         let metadata: Record<string, unknown> | undefined;
+        const mediaMetadata = buildGatewayMediaMetadata(entry);
         if (role === 'assistant' && (entry.usage || entry.model)) {
           metadata = {};
           if (entry.usage) {
@@ -6157,6 +6166,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           if (entry.model) {
             metadata.model = entry.model;
           }
+        }
+        if (mediaMetadata) {
+          metadata = {
+            ...(metadata ?? {}),
+            ...mediaMetadata,
+          };
         }
         authoritativeEntries.push({
           role: role as 'user' | 'assistant',
@@ -6193,21 +6208,25 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // Apply the same normalization as authoritativeEntries so alignment
       // works even when local messages still carry raw platform prefixes.
       const session = this.store.getSession(sessionId);
-      const localEntries: Array<{ role: 'user' | 'assistant'; text: string; timestamp?: number }> = [];
+      const localEntries: Array<{ role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown>; timestamp?: number }> = [];
       if (session) {
         for (const msg of session.messages) {
           if (msg.type !== 'user' && msg.type !== 'assistant') continue;
           const text = normalizeEntryText(msg.type, msg.content, platformFlags);
           if (!text || shouldSuppressHeartbeatText(msg.type, text)) continue;
-          localEntries.push({ role: msg.type, text, timestamp: msg.timestamp });
+          localEntries.push({
+            role: msg.type,
+            text,
+            metadata: msg.metadata,
+            timestamp: msg.timestamp,
+          });
         }
       }
 
       // Fast path: if already in sync, skip
       const isInSync = localEntries.length === authoritativeEntries.length
         && localEntries.every((entry, idx) =>
-          entry.role === authoritativeEntries[idx].role
-          && entry.text === authoritativeEntries[idx].text,
+          isSameReconciledEntry(entry, authoritativeEntries[idx]),
         );
 
       if (isInSync) {
@@ -6227,7 +6246,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         const tail = localEntries.slice(alignment.localIdx);
         const tailInSync = tail.length === authoritativeTail.length
           && tail.every((entry, idx) =>
-            isSameHistoryEntry(entry, authoritativeTail[idx]),
+            isSameReconciledEntry(entry, authoritativeTail[idx]),
           );
         if (tailInSync) {
           console.log(

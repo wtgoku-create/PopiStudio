@@ -18,6 +18,7 @@ import CodeBlock from './CodeBlock';
 
 const SAFE_URL_PROTOCOLS = new Set(['http', 'https', 'mailto', 'tel', 'file', 'localfile', 'popiai-source-ref']);
 const LINK_CLASS_NAME = 'text-primary hover:text-primary-hover underline decoration-primary/50 hover:decoration-primary transition-colors break-words [overflow-wrap:anywhere]';
+type MarkdownSpacing = 'normal' | 'compact';
 
 const encodeFileUrl = (url: string): string => {
   const encoded = encodeURI(url);
@@ -347,6 +348,7 @@ const createMarkdownComponents = (
   showRevealInFolderAction = false,
   onImageClick?: (image: { src: string; alt?: string | null }) => void,
   onSourceReferenceClick?: (reference: SourceReference) => void,
+  spacing: MarkdownSpacing = 'normal',
 ) => ({
   p: ({ node: _node, className: _className, children, ...props }: any) => (
     <p className="my-1 first:mt-0 last:mb-0 leading-[23px] text-foreground/90" {...props}>
@@ -389,7 +391,7 @@ const createMarkdownComponents = (
     </li>
   ),
   blockquote: ({ node: _node, className: _className, children, ...props }: any) => (
-    <blockquote className="border-l-4 border-primary pl-4 py-1 my-2 bg-surface-raised/30 rounded-r-lg text-foreground/90 overflow-x-auto" {...props}>
+    <blockquote className={`border-l-4 border-primary pl-4 py-1 ${spacing === 'compact' ? 'my-1.5' : 'my-2'} bg-surface-raised/30 rounded-r-lg text-foreground/90 overflow-x-auto`} {...props}>
       {children}
     </blockquote>
   ),
@@ -398,7 +400,7 @@ const createMarkdownComponents = (
   ),
   code: CodeBlock,
   table: ({ node: _node, className: _className, children, ...props }: any) => (
-    <div className="my-4 overflow-x-auto rounded-xl border border-border">
+    <div className={`${spacing === 'compact' ? 'my-2' : 'my-4'} overflow-x-auto rounded-xl border border-border`}>
       <table className="border-collapse w-full" {...props}>
         {children}
       </table>
@@ -434,7 +436,7 @@ const createMarkdownComponents = (
     const altText = typeof alt === 'string' ? alt : null;
     return (
       <img
-        className={`max-w-full max-h-96 object-contain rounded-xl my-4${onImageClick ? ' cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+        className={`max-w-full max-h-96 object-contain rounded-xl ${spacing === 'compact' ? 'my-2' : 'my-4'}${onImageClick ? ' cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
         src={resolvedSrc}
         alt={altText ?? undefined}
         onClick={onImageClick && resolvedSrc ? () => onImageClick({ src: resolvedSrc, alt: altText }) : undefined}
@@ -443,7 +445,7 @@ const createMarkdownComponents = (
     );
   },
   hr: ({ node: _node, ...props }: any) => (
-    <hr className="my-5 border-border" {...props} />
+    <hr className={`${spacing === 'compact' ? 'my-2' : 'my-5'} border-border`} {...props} />
   ),
   a: ({ node: _node, href, className: _className, children, ...props }: any) => {
     if (typeof href === 'string' && href.startsWith('#artifact-')) {
@@ -644,6 +646,7 @@ const createMarkdownComponents = (
 interface MarkdownContentProps {
   content: string;
   className?: string;
+  spacing?: MarkdownSpacing;
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   showRevealInFolderAction?: boolean;
   onImageClick?: (image: { src: string; alt?: string | null }) => void;
@@ -653,6 +656,7 @@ interface MarkdownContentProps {
 const MarkdownContent: React.FC<MarkdownContentProps> = ({
   content,
   className = '',
+  spacing = 'normal',
   resolveLocalFilePath,
   showRevealInFolderAction = false,
   onImageClick,
@@ -664,8 +668,9 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
       showRevealInFolderAction,
       onImageClick,
       onSourceReferenceClick,
+      spacing,
     ),
-    [resolveLocalFilePath, showRevealInFolderAction, onImageClick, onSourceReferenceClick]
+    [resolveLocalFilePath, showRevealInFolderAction, onImageClick, onSourceReferenceClick, spacing]
   );
   const normalizedContent = useMemo(
     () => normalizeDisplayMath(encodeFileUrlsInMarkdown(encodeSourceReferencesForMarkdown(content))),

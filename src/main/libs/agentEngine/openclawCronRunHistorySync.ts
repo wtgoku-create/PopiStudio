@@ -3,6 +3,7 @@ import {
   extractGatewayHistoryEntries,
   shouldSuppressHeartbeatText,
 } from '../openclawHistory';
+import { buildGatewayMediaMetadata } from './openclawConversationReconciliation';
 
 export type CronRunHistoryEntry = {
   role: 'user' | 'assistant';
@@ -61,6 +62,7 @@ export const buildCronRunHistoryEntries = (
     if (!text || shouldSuppressHeartbeatText(role, text)) continue;
 
     let metadata: Record<string, unknown> | undefined;
+    const mediaMetadata = buildGatewayMediaMetadata(entry);
     if (role === 'assistant' && (entry.usage || entry.model)) {
       metadata = {};
       if (entry.usage) {
@@ -72,6 +74,12 @@ export const buildCronRunHistoryEntries = (
       if (entry.model) {
         metadata.model = entry.model;
       }
+    }
+    if (mediaMetadata) {
+      metadata = {
+        ...(metadata ?? {}),
+        ...mediaMetadata,
+      };
     }
 
     entries.push(withCronRunHistoryMetadata({

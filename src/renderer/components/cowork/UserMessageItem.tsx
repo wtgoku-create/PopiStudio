@@ -11,7 +11,6 @@ import AcademicCapIcon from '../icons/AcademicCapIcon';
 import EditIcon from '../icons/EditIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
 import SkillIcon from '../icons/SkillIcon';
-import MarkdownContent from '../MarkdownContent';
 import ImagePreviewModal, { type ImagePreviewSource } from './ImagePreviewModal';
 import { MessageCopyButton } from './MessageActionButton';
 import {
@@ -20,6 +19,7 @@ import {
   getMessageModelLabel,
   messageMetaClassName,
 } from './messageDisplayUtils';
+import UserMessageContent from './UserMessageContent';
 
 // ── ReEditButton ─────────────────────────────────────────────────────────────
 
@@ -121,22 +121,27 @@ const UserMessageItem: React.FC<{
     setIsHovered(false);
   }, []);
 
+  const metadata = message.metadata as CoworkMessageMetadata | undefined;
   const displayContent = useMemo(
-    () => parseUserMessageForDisplay(message.content || ''),
-    [message.content]
+    () => parseUserMessageForDisplay(message.content || '', {
+      localMediaAttachments: Array.isArray(metadata?.localMediaAttachments)
+        ? metadata.localMediaAttachments as Array<{ localPath: string; mimeType?: string; name?: string }>
+        : undefined,
+    }),
+    [message.content, metadata?.localMediaAttachments]
   );
 
-  const messageSkillIds = (message.metadata as CoworkMessageMetadata)?.skillIds || [];
+  const messageSkillIds = metadata?.skillIds || [];
   const messageSkills = messageSkillIds
     .map(id => skills.find(s => s.id === id))
     .filter((s): s is NonNullable<typeof s> => s !== undefined);
-  const messageKnowledgeBases = ((message.metadata as CoworkMessageMetadata)?.knowledgeBases ?? [])
+  const messageKnowledgeBases = (metadata?.knowledgeBases ?? [])
     .filter((base): base is { id: string; name: string } => Boolean(base?.id));
-  const messageKnowledgeFiles = ((message.metadata as CoworkMessageMetadata)?.knowledgeFiles ?? [])
+  const messageKnowledgeFiles = (metadata?.knowledgeFiles ?? [])
     .filter((file): file is { id: string; title: string; knowledgeBaseName?: string; fileType?: string } => Boolean(file?.id));
   const hasContextBadges = messageSkills.length > 0 || messageKnowledgeBases.length > 0 || messageKnowledgeFiles.length > 0;
 
-  const imageAttachments = ((message.metadata as CoworkMessageMetadata)?.imageAttachments ?? []) as CoworkImageAttachment[];
+  const imageAttachments = (metadata?.imageAttachments ?? []) as CoworkImageAttachment[];
 
   return (
     <div
@@ -161,9 +166,9 @@ const UserMessageItem: React.FC<{
                   </div>
                 )}
                 {displayContent?.trim() && (
-                  <MarkdownContent
+                  <UserMessageContent
                     content={displayContent}
-                    className="max-w-none whitespace-pre-wrap break-words"
+                    className="max-w-none"
                     onImageClick={setExpandedImage}
                   />
                 )}
