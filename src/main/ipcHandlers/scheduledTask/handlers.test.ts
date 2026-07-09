@@ -32,6 +32,10 @@ function makeDeps(
     listJobs: vi.fn(async () => []),
     listAllRuns: vi.fn(async () => []),
     addJob: vi.fn(async (input: { name?: string }) => ({ id: 'job-1', name: input?.name ?? '' })),
+    updateJob: vi.fn(async (id: string, input: { name?: string }) => ({
+      id,
+      name: input?.name ?? '',
+    })),
   };
   const adapter = {
     getGatewayClient: vi.fn(() => gatewayClient),
@@ -221,5 +225,33 @@ describe('registerScheduledTaskHandlers', () => {
       channel: 'openclaw-weixin',
       to: 'o9cq809zec25-4jlkdw3ahtkpe9c@im.wechat',
     });
+  });
+
+  test('clears the old IM session binding when delivery is disabled on update', async () => {
+    const { cronJobService, deps } = makeDeps();
+    registerScheduledTaskHandlers(deps);
+
+    const handler = registeredHandlers.get(ScheduledTaskIpc.Update);
+    const result = await handler?.(undefined, 'job-feishu', {
+      name: 'no notify',
+      enabled: true,
+      schedule: { kind: 'cron', expr: '0 9 * * *' },
+      sessionTarget: SessionTarget.Isolated,
+      sessionKey: 'agent:main:feishu:dm:ou_123',
+      wakeMode: WakeMode.Now,
+      payload: { kind: PayloadKind.AgentTurn, message: 'hi' },
+      delivery: { mode: DeliveryMode.None },
+    });
+
+    expect(cronJobService.updateJob).toHaveBeenCalledTimes(1);
+    const input = cronJobService.updateJob.mock.calls[0][1] as {
+      sessionTarget: string;
+      sessionKey: string | null;
+      delivery: Record<string, unknown>;
+    };
+    expect(input.sessionTarget).toBe(SessionTarget.Isolated);
+    expect(input.sessionKey).toBeNull();
+    expect(input.delivery).toEqual({ mode: DeliveryMode.None });
+    expect(result).toEqual({ success: true, task: { id: 'job-feishu', name: 'no notify' } });
   });
 });

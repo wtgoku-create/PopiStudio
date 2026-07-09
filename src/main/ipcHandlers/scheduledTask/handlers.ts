@@ -209,6 +209,14 @@ async function applyAnnounceDeliveryNormalization(
   }
 }
 
+function applyInactiveDeliverySessionNormalization(normalizedInput: Record<string, any>): void {
+  const delivery = normalizedInput.delivery;
+  if (!delivery || delivery.mode !== STDeliveryMode.None) return;
+
+  normalizedInput.sessionTarget = STSessionTarget.Isolated;
+  normalizedInput.sessionKey = null;
+}
+
 async function ensureScheduledTaskGatewayClient(
   getOpenClawRuntimeAdapter: ScheduledTaskHandlerDeps['getOpenClawRuntimeAdapter'],
 ): Promise<boolean> {
@@ -265,6 +273,7 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
         getIMGatewayManager,
         getOpenClawRuntimeAdapter,
       });
+      applyInactiveDeliverySessionNormalization(normalizedInput);
 
       const task = await getCronJobService().addJob(normalizedInput);
       console.log('[IPC][scheduledTask:create] result task id:', task?.id, 'name:', task?.name);
@@ -289,6 +298,7 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
         getIMGatewayManager,
         getOpenClawRuntimeAdapter,
       });
+      applyInactiveDeliverySessionNormalization(normalizedInput);
 
       const task = await getCronJobService().updateJob(id, normalizedInput);
       console.log('[IPC][scheduledTask:update] result task id:', task?.id, 'name:', task?.name);
