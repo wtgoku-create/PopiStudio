@@ -332,6 +332,7 @@ const App: React.FC = () => {
     coworkService.clearSession({ restoreAgentSkills: true });
     dispatch(clearSelection());
     setMainView(MainView.Cowork);
+    setIsAgentPanelCollapsed(false);
     window.setTimeout(() => {
       window.dispatchEvent(
         new CustomEvent('cowork:focus-input', {
@@ -346,6 +347,7 @@ const App: React.FC = () => {
     coworkService.clearSession();
     dispatch(clearSelection());
     setMainView(MainView.Cowork);
+    setIsAgentPanelCollapsed(false);
   }, [dispatch]);
 
   const showToast = useCallback((message: string) => {
@@ -601,6 +603,7 @@ const App: React.FC = () => {
       const text = (e as CustomEvent<string>).detail;
       setShowSettings(false);
       setMainView(MainView.Cowork);
+      setIsAgentPanelCollapsed(false);
       window.setTimeout(() => {
         window.dispatchEvent(
           new CustomEvent('cowork:focus-input', {
