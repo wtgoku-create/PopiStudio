@@ -6745,7 +6745,7 @@ end tell'`, { timeout: 5000 });
       ...(isMac
         ? {
           titleBarStyle: 'hiddenInset' as const,
-          trafficLightPosition: { x: 12, y: 20 },
+          trafficLightPosition: { x: 12, y: 12 },
         }
         : isWindows
           ? {
@@ -6776,6 +6776,10 @@ end tell'`, { timeout: 5000 });
       autoHideMenuBar: true,
       enableLargerThanScreen: false
     });
+
+    if (isMac) {
+      mainWindow.setWindowButtonPosition({ x: 12, y: 12 });
+    }
 
     // 设置 macOS Dock 图标（开发模式下 Electron 默认图标不是应用 Logo）
     if (isMac && isDev && app.dock) {

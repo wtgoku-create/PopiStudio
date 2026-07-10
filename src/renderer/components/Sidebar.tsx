@@ -24,15 +24,15 @@ interface SidebarProps {
   hideLogin?: boolean;
 }
 
-const SIDEBAR_WIDTH = 60;
+const SIDEBAR_WIDTH = 54;
 const sidebarIconButtonBaseClassName =
-  'relative inline-flex h-10 w-10 items-center justify-center rounded-[10px] transition-colors hover:bg-surface hover:text-[#333333] dark:hover:bg-white/[0.06] dark:hover:text-foreground';
+  'relative inline-flex h-9 w-9 items-center justify-center rounded-[9px] transition-colors hover:bg-surface hover:text-[#333333] dark:hover:bg-white/[0.06] dark:hover:text-foreground';
 const sidebarIconButtonClassName = `${sidebarIconButtonBaseClassName} text-muted`;
 const activeSidebarIconButtonClassName = `${sidebarIconButtonBaseClassName} bg-surface text-[#333333] dark:bg-white/[0.08] dark:text-foreground`;
-const sidebarIconClassName = 'h-[25px] w-[25px] shrink-0';
+const sidebarIconClassName = 'h-[23px] w-[23px] shrink-0';
 
 const PopiRailLogo: React.FC = () => (
-  <img src="logo.png" alt="Popi" className="h-[30px] w-[30px] object-contain" draggable={false} />
+  <img src="logo.png" alt="Popi" className="h-7 w-7 object-contain" draggable={false} />
 );
 
 const ChatRailIcon: React.FC<{ className?: string }> = ({ className }) => {
@@ -193,7 +193,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <PopiRailLogo />
           </div>
         )}
-        <div className="non-draggable flex flex-col items-center gap-2 px-[10px] pt-0">
+        <div className="non-draggable flex flex-col items-center gap-2 px-[9px] pt-0">
           <SidebarIconButton
             label={i18nService.t('cowork')}
             active={activeView === MainView.Cowork && !isAgentPanelCollapsed}
@@ -215,7 +215,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               onCollapseAgentPanel();
             }}
           >
-            <TeamOutlinedIcon className={sidebarIconClassName + ' h-[20px] w-[20px]'} />
+            <TeamOutlinedIcon className={sidebarIconClassName + ' h-[19px] w-[19px]'} />
           </SidebarIconButton>
           <SidebarIconButton
             label={i18nService.t('scheduledTasks')}
@@ -249,14 +249,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           </SidebarIconButton>
         </div>
         <div className="flex-1" />
-        <div className="non-draggable flex flex-col items-center gap-2 px-[10px] pb-3">
+        <div className="non-draggable flex flex-col items-center gap-2 px-[9px] pb-3">
           {updateBadge && (
-            <div className="flex min-h-10 w-10 items-center justify-center overflow-hidden rounded-[9px] border border-border bg-surface-raised px-[5px] py-0.5">
+            <div className="flex min-h-9 w-9 items-center justify-center overflow-hidden rounded-[9px] border border-border bg-surface-raised px-1 py-0.5">
               {updateBadge}
             </div>
           )}
           <SidebarIconButton label={i18nService.t('settings')} onClick={onShowSettings}>
-            <SettingsRailIcon className="h-[22px] w-[22px] shrink-0" />
+            <SettingsRailIcon className="h-5 w-5 shrink-0" />
           </SidebarIconButton>
           {!hideLogin && (
             <div className="flex h-9 w-9 items-center justify-center">
