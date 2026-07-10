@@ -286,7 +286,9 @@ contextBridge.exposeInMainWorld('electron', {
     listAgentSidebarSessions: () =>
       ipcRenderer.invoke(CoworkIpcChannel.ListAgentSidebarSessions),
     getSessionMessages: (options: { sessionId: string; limit?: number; offset?: number }) =>
-      ipcRenderer.invoke('cowork:session:getMessages', options),
+      ipcRenderer.invoke(CoworkIpcChannel.GetMessages, options),
+    getSessionMessageRailIndex: (sessionId: string, limit?: number) =>
+      ipcRenderer.invoke(CoworkIpcChannel.GetMessageRailIndex, { sessionId, limit }),
     getContextUsage: (sessionId: string) =>
       ipcRenderer.invoke('cowork:session:contextUsage', sessionId),
     compactContext: (sessionId: string) =>

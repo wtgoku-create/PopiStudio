@@ -3588,7 +3588,7 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('cowork:session:getMessages', async (_event, options: { sessionId: string; limit?: number; offset?: number }) => {
+  ipcMain.handle(CoworkIpcChannel.GetMessages, async (_event, options: { sessionId: string; limit?: number; offset?: number }) => {
     try {
       const { sessionId, limit = COWORK_MESSAGE_PAGE_SIZE, offset = 0 } = options;
       const store = getCoworkStore();
@@ -3599,6 +3599,21 @@ if (!gotTheLock) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to get session messages',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.GetMessageRailIndex, async (_event, options: { sessionId: string; limit?: number }) => {
+    try {
+      const { sessionId, limit } = options;
+      const store = getCoworkStore();
+      const total = store.countSessionMessages(sessionId);
+      const items = store.getMessageRailIndex(sessionId, limit);
+      return { success: true, items, total };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get message rail index',
       };
     }
   });

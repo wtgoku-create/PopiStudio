@@ -6,7 +6,8 @@ import {
 } from '../../common/coworkSystemMessages';
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
 import { AgentId } from '../../shared/agent';
-import { COWORK_SESSION_PAGE_SIZE, CoworkSessionSourceKind } from '../../shared/cowork/constants';
+import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkSessionSourceKind } from '../../shared/cowork/constants';
+import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import { CoworkUiEvent } from '../components/cowork/constants';
 import { store } from '../store';
 import {
@@ -27,6 +28,9 @@ import {
   setContextUsage,
   setCurrentSession,
   setHasMoreSessions,
+  setMessageRailIndex,
+  setMessageRailIndexLoading,
+  setMessageWindow,
   setRemoteManaged,
   setSessions,
   setStreaming,
@@ -270,6 +274,7 @@ class CoworkService {
         const currentId = state.currentSessionId;
         if (currentId) {
           void this.loadSession(currentId);
+          void this.loadSessionMessageRailIndex(currentId);
         }
       }).catch((err) => {
         console.error('[CoworkService] onSessionsChanged: loadSessions FAILED:', err);
@@ -810,6 +815,7 @@ class CoworkService {
       store.dispatch(setCurrentSession(result.session));
       store.dispatch(setStreaming(result.session.status === 'running'));
       this.refreshContextUsageForSessionEntry(sessionId);
+      void this.loadSessionMessageRailIndex(sessionId);
 
       void cowork.remoteManaged(sessionId).then((imResult) => {
         if (requestId === this.latestLoadSessionRequestId) {
@@ -822,6 +828,31 @@ class CoworkService {
 
     console.error('Failed to load session:', result.error);
     return null;
+  }
+
+  async loadSessionMessageRailIndex(sessionId: string): Promise<CoworkMessageRailIndexItem[]> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSessionMessageRailIndex) return [];
+
+    const state = store.getState().cowork;
+    if (state.messageRailIndexLoadingBySessionId[sessionId]) {
+      return state.messageRailIndexBySessionId[sessionId] ?? [];
+    }
+
+    store.dispatch(setMessageRailIndexLoading({ sessionId, loading: true }));
+    try {
+      const result = await cowork.getSessionMessageRailIndex(sessionId);
+      if (result.success && result.items) {
+        store.dispatch(setMessageRailIndex({ sessionId, items: result.items }));
+        return result.items;
+      }
+      console.warn(`[CoworkService] failed to load message rail index for session ${sessionId}: ${result.error ?? 'unknown error'}`);
+    } catch (error) {
+      console.warn(`[CoworkService] failed to load message rail index for session ${sessionId}:`, error);
+    } finally {
+      store.dispatch(setMessageRailIndexLoading({ sessionId, loading: false }));
+    }
+    return [];
   }
 
   async getSessionSnapshot(sessionId: string): Promise<CoworkSession | null> {
@@ -857,6 +888,37 @@ class CoworkService {
       store.dispatch(prependMessages({ sessionId, messages: result.messages, newOffset }));
       return true;
     }
+    return false;
+  }
+
+  async loadMessageWindowAroundIndex(sessionId: string, absoluteIndex: number, pageSize = 50): Promise<boolean> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSessionMessages) return false;
+
+    const state = store.getState().cowork;
+    if (state.currentSession?.id !== sessionId) return false;
+
+    const totalMessages = state.currentSession.totalMessages;
+    const safeAbsoluteIndex = Number.isFinite(absoluteIndex) ? Math.max(0, Math.floor(absoluteIndex)) : 0;
+    const safePageSize = Number.isFinite(pageSize) ? Math.floor(pageSize) : 50;
+    const boundedPageSize = Math.max(COWORK_MESSAGE_PAGE_SIZE, Math.min(100, safePageSize));
+    const offset = Math.max(0, Math.min(
+      Math.max(0, totalMessages - boundedPageSize),
+      safeAbsoluteIndex - Math.floor(boundedPageSize / 2),
+    ));
+
+    const result = await cowork.getSessionMessages({ sessionId, limit: boundedPageSize, offset });
+    if (result.success && result.messages && result.messages.length > 0) {
+      store.dispatch(setMessageWindow({
+        sessionId,
+        messages: result.messages,
+        messagesOffset: result.offset ?? offset,
+        totalMessages: result.total ?? totalMessages,
+      }));
+      return true;
+    }
+
+    console.warn(`[CoworkService] message window load for session ${sessionId} returned no messages at offset ${offset}: ${result.error ?? 'empty result'}`);
     return false;
   }
 

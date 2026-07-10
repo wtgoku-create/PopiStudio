@@ -154,7 +154,7 @@ interface CoworkPromptInputProps {
   isStreaming?: boolean;
   placeholder?: string;
   disabled?: boolean;
-  size?: 'normal' | 'large';
+  size?: 'normal' | 'large' | 'compact';
   workingDirectory?: string;
   showFolderSelector?: boolean;
   showModelSelector?: boolean;
@@ -319,9 +319,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   });
 
   const isLarge = size === 'large';
+  const isCompact = size === 'compact';
   const useHomeContextLayout = isLarge && showAgentSelector;
   const useCompactSendButton = isLarge && (useHomeContextLayout || showReadOnlyContext);
-  const minHeight = isLarge
+  const minHeight = isCompact
+    ? 32
+    : isLarge
     ? useHomeContextLayout
       ? hasContextBadges ? 36 : 52
       : hasContextBadges ? 44 : 60
@@ -606,17 +609,19 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   };
 
-  const containerClass = isLarge
+  const containerClass = isLarge || isCompact
     ? useHomeContextLayout
       ? 'relative rounded-2xl'
       : `relative rounded-2xl border border-border bg-surface ${showReadOnlyContext ? '' : 'shadow-card'}`
     : 'relative flex items-end gap-2 p-3 rounded-xl border border-border bg-surface';
 
-  const textareaClass = isLarge
+  const textareaClass = isLarge || isCompact
     ? `w-full resize-none bg-transparent px-4 pb-2 text-foreground placeholder:dark:text-foregroundSecondary/60 placeholder:text-secondary/60 focus:outline-none min-h-[${minHeight}px] max-h-[${maxHeight}px] ${
-      useHomeContextLayout
-        ? `${hasContextBadges ? 'pt-2' : 'pt-3'} text-[14px] leading-[22px]`
-        : `${hasContextBadges ? 'pt-2' : 'pt-2.5'} text-[15px] leading-[23px]`
+      isCompact
+        ? 'pt-2 text-[14px] leading-[21px]'
+        : useHomeContextLayout
+          ? `${hasContextBadges ? 'pt-2' : 'pt-3'} text-[14px] leading-[22px]`
+          : `${hasContextBadges ? 'pt-2' : 'pt-2.5'} text-[15px] leading-[23px]`
     }`
     : 'flex-1 resize-none bg-transparent text-foreground placeholder:placeholder:text-secondary focus:outline-none text-sm leading-relaxed min-h-[24px] max-h-[200px]';
 
@@ -1255,7 +1260,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             {i18nService.t('coworkDropFileHint')}
           </div>
         )}
-        {isLarge ? (
+        {isLarge || isCompact ? (
           useHomeContextLayout ? (
             <>
               <div className="relative z-10 rounded-2xl border border-border bg-surface shadow-card">

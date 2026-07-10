@@ -13,7 +13,11 @@ import coworkReducer, {
   prependMessages,
   setCurrentSession,
   setHasMoreSessions,
+  setMessageRailIndex,
+  setMessageRailIndexLoading,
+  setMessageWindow,
   setSessions,
+  updateMessageContent,
 } from '../renderer/store/slices/coworkSlice';
 import type { CoworkMessage,CoworkSession, CoworkSessionSummary } from '../renderer/types/cowork';
 
@@ -53,8 +57,8 @@ function makeFullSession(id: string, messages: CoworkMessage[] = [], messagesOff
   };
 }
 
-function makeMessage(id: string, content = 'hello'): CoworkMessage {
-  return { id, type: 'user', content, timestamp: Date.now() };
+function makeMessage(id: string, content = 'hello', type: CoworkMessage['type'] = 'user'): CoworkMessage {
+  return { id, type, content, timestamp: Date.now() };
 }
 
 const emptyState = coworkReducer(undefined, { type: '@@INIT' });
@@ -283,4 +287,80 @@ test('setCurrentSession: falls back to messages.length when totalMessages missin
   const state = coworkReducer(emptyState, setCurrentSession(session));
 
   expect(state.currentSession?.totalMessages).toBe(2);
+});
+
+// ---------------------------------------------------------------------------
+// Rail index and message windows
+// ---------------------------------------------------------------------------
+
+test('setMessageRailIndex: stores full lightweight rail index by session', () => {
+  const state = coworkReducer(emptyState, setMessageRailIndex({
+    sessionId: 'sess1',
+    items: [
+      {
+        messageId: 'm1',
+        type: 'user',
+        sequence: 1,
+        messageOffset: 0,
+        timestamp: 100,
+        preview: 'hello',
+        contentLen: 5,
+      },
+    ],
+  }));
+
+  expect(state.messageRailIndexBySessionId.sess1).toHaveLength(1);
+  expect(state.messageRailIndexBySessionId.sess1[0].messageOffset).toBe(0);
+});
+
+test('updateMessageContent: preserves rail index messageOffset from full index', () => {
+  const session = makeFullSession('sess1', [makeMessage('m1', 'old answer', 'assistant')], 50);
+  let state = coworkReducer(emptyState, setCurrentSession(session));
+  state = coworkReducer(state, setMessageRailIndex({
+    sessionId: 'sess1',
+    items: [
+      {
+        messageId: 'm1',
+        type: 'assistant',
+        sequence: 51,
+        messageOffset: 50,
+        timestamp: 100,
+        preview: 'old answer',
+        contentLen: 10,
+      },
+    ],
+  }));
+
+  state = coworkReducer(state, updateMessageContent({
+    sessionId: 'sess1',
+    messageId: 'm1',
+    content: 'new streamed answer',
+  }));
+
+  expect(state.messageRailIndexBySessionId.sess1[0].messageOffset).toBe(50);
+  expect(state.messageRailIndexBySessionId.sess1[0].preview).toBe('new streamed answer');
+});
+
+test('setMessageRailIndexLoading: clears loading flag when loading finishes', () => {
+  let state = coworkReducer(emptyState, setMessageRailIndexLoading({ sessionId: 'sess1', loading: true }));
+  expect(state.messageRailIndexLoadingBySessionId.sess1).toBe(true);
+
+  state = coworkReducer(state, setMessageRailIndexLoading({ sessionId: 'sess1', loading: false }));
+  expect(state.messageRailIndexLoadingBySessionId.sess1).toBeUndefined();
+});
+
+test('setMessageWindow: replaces current message window and preserves pagination fields', () => {
+  const session = makeFullSession('sess1', [makeMessage('m1'), makeMessage('m2')], 0);
+  let state = coworkReducer(emptyState, setCurrentSession(session));
+
+  state = coworkReducer(state, setMessageWindow({
+    sessionId: 'sess1',
+    messages: [makeMessage('m51'), makeMessage('m52', 'answer', 'assistant')],
+    messagesOffset: 50,
+    totalMessages: 120,
+  }));
+
+  expect(state.currentSession?.messages.map(message => message.id)).toEqual(['m51', 'm52']);
+  expect(state.currentSession?.messagesOffset).toBe(50);
+  expect(state.currentSession?.totalMessages).toBe(120);
 });

@@ -13,6 +13,11 @@ import {
   CoworkSessionSourceKind,
   type CoworkSessionSourceKind as CoworkSessionSourceKindType,
 } from '../shared/cowork/constants';
+import {
+  type CoworkMessageRailIndexItem,
+  COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
+  getCoworkRailPreview,
+} from '../shared/cowork/rail';
 import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 
 
@@ -1307,6 +1312,71 @@ export class CoworkStore {
       content: row.content,
       timestamp: row.created_at,
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+    }));
+  }
+
+  getMessageRailIndex(sessionId: string, limit = 5000): CoworkMessageRailIndexItem[] {
+    const boundedLimit = Math.max(1, Math.min(20000, Math.floor(limit)));
+    const rows = this.getAll<{
+      id: string;
+      type: string;
+      preview_content: string;
+      content_len: number;
+      metadata: string | null;
+      created_at: number;
+      sequence: number | null;
+      message_offset: number;
+    }>(
+      `
+      SELECT id, type, preview_content, content_len, metadata, created_at, sequence, message_offset
+      FROM (
+        SELECT
+          id,
+          type,
+          substr(content, 1, 2000) as preview_content,
+          length(content) as content_len,
+          metadata,
+          created_at,
+          sequence,
+          ROW_NUMBER() OVER (
+            ORDER BY COALESCE(sequence, created_at) ASC, created_at ASC, ROWID ASC
+          ) - 1 as message_offset,
+          CASE
+            WHEN type IN ('user', 'assistant') AND TRIM(COALESCE(content, '')) <> '' THEN 1
+            ELSE 0
+          END as is_visible
+        FROM cowork_messages
+        WHERE session_id = ?
+      )
+      WHERE is_visible = 1
+      ORDER BY message_offset ASC
+      LIMIT ?
+    `,
+      [sessionId, boundedLimit],
+    );
+
+    const visibleRows = rows.filter((row) => {
+      if (row.type !== 'assistant' || !row.metadata) return true;
+      try {
+        const metadata = JSON.parse(row.metadata) as CoworkMessage['metadata'];
+        return metadata?.isThinking !== true;
+      } catch {
+        return true;
+      }
+    });
+
+    return visibleRows.map((row, index) => ({
+      messageId: row.id,
+      type: row.type === 'user' ? 'user' : 'assistant',
+      sequence: row.sequence,
+      messageOffset: row.message_offset,
+      timestamp: row.created_at,
+      preview: getCoworkRailPreview(
+        row.preview_content,
+        row.type === 'user' ? `Turn ${index + 1}` : 'Popiai',
+        COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
+      ),
+      contentLen: row.content_len,
     }));
   }
 

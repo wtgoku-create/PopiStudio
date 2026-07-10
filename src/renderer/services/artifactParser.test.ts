@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import { normalizeFilePathForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseToolArtifact } from './artifactParser';
+import { dedupeArtifactsForDisplay, normalizeFilePathForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseRemoteImageArtifactsFromText, parseToolArtifact, parseToolResultMediaArtifacts, shouldParseFilePathsFromToolResult } from './artifactParser';
+import type { Artifact } from '../types/artifact';
 
 describe('normalizeFilePathForDedup', () => {
   test('strips leading / before Windows drive letter', () => {
@@ -188,5 +189,128 @@ describe('parseToolArtifact', () => {
 
     expect(normalizeFilePathForDedup(toolPath))
       .toBe(normalizeFilePathForDedup(linkArtifacts[0].filePath!));
+  });
+});
+
+describe('parseRemoteImageArtifactsFromText', () => {
+  test('parses markdown and bare remote image URLs', () => {
+    const content = '![result](https://cdn.example.com/a.png)\nhttps://cdn.example.com/b.webp';
+    const artifacts = parseRemoteImageArtifactsFromText(content, 'msg1', 'sess1');
+
+    expect(artifacts).toHaveLength(2);
+    expect(artifacts[0].type).toBe('image');
+    expect(artifacts[0].content).toBe('https://cdn.example.com/a.png');
+    expect(artifacts[1].content).toBe('https://cdn.example.com/b.webp');
+  });
+
+  test('deduplicates repeated remote image URLs within one message', () => {
+    const content = 'https://cdn.example.com/a.png\nhttps://cdn.example.com/a.png';
+    const artifacts = parseRemoteImageArtifactsFromText(content, 'msg1', 'sess1');
+
+    expect(artifacts).toHaveLength(1);
+  });
+});
+
+describe('parseToolResultMediaArtifacts', () => {
+  test('parses image and video assets from toolResultDetails', () => {
+    const toolResultMsg = {
+      id: 'result1',
+      type: 'tool_result' as const,
+      content: '',
+      timestamp: 123,
+      metadata: {
+        toolResultDetails: {
+          assets: [
+            { type: 'image', url: 'https://cdn.example.com/image.png', filename: 'image.png' },
+            { type: 'video', filePath: '/tmp/movie.mp4' },
+          ],
+        },
+      },
+    };
+
+    const artifacts = parseToolResultMediaArtifacts(toolResultMsg, 'sess1');
+    expect(artifacts).toHaveLength(2);
+    expect(artifacts[0].content).toBe('https://cdn.example.com/image.png');
+    expect(artifacts[1].filePath).toBe('/tmp/movie.mp4');
+  });
+
+  test('ignores errored tool results', () => {
+    const artifacts = parseToolResultMediaArtifacts({
+      id: 'result1',
+      type: 'tool_result' as const,
+      content: '',
+      timestamp: 123,
+      metadata: {
+        isError: true,
+        toolResultDetails: {
+          assets: [{ type: 'image', url: 'https://cdn.example.com/image.png' }],
+        },
+      },
+    }, 'sess1');
+
+    expect(artifacts).toHaveLength(0);
+  });
+});
+
+describe('shouldParseFilePathsFromToolResult', () => {
+  test('allows image generation tools only', () => {
+    expect(shouldParseFilePathsFromToolResult('image_generate')).toBe(true);
+    expect(shouldParseFilePathsFromToolResult('lobsterai_image_generate')).toBe(true);
+    expect(shouldParseFilePathsFromToolResult('bash')).toBe(false);
+    expect(shouldParseFilePathsFromToolResult(undefined)).toBe(false);
+  });
+});
+
+describe('dedupeArtifactsForDisplay', () => {
+  const artifact = (overrides: Partial<Artifact>): Artifact => ({
+    id: 'artifact-1',
+    messageId: 'msg1',
+    sessionId: 'sess1',
+    type: 'image',
+    title: 'image.png',
+    content: '',
+    createdAt: 100,
+    ...overrides,
+  });
+
+  test('deduplicates artifacts with the same normalized file path', () => {
+    const artifacts = dedupeArtifactsForDisplay([
+      artifact({ id: 'a', filePath: 'D:\\Project\\image.png', createdAt: 100 }),
+      artifact({ id: 'b', filePath: 'd:/project/image.png', createdAt: 200 }),
+    ]);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].id).toBe('b');
+  });
+
+  test('prefers local file artifact over remote-only artifact for the same remote url', () => {
+    const artifacts = dedupeArtifactsForDisplay([
+      artifact({ id: 'remote', content: 'https://cdn.example.com/image.png', remoteUrl: 'https://cdn.example.com/image.png' }),
+      artifact({ id: 'local', filePath: '/tmp/image.png', remoteUrl: 'https://cdn.example.com/image.png' }),
+    ]);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].id).toBe('local');
+  });
+
+  test('deduplicates local service artifacts by normalized url', () => {
+    const artifacts = dedupeArtifactsForDisplay([
+      artifact({
+        id: 'svc-a',
+        type: 'local-service',
+        content: 'http://localhost:3000/',
+        url: 'http://localhost:3000/',
+      }),
+      artifact({
+        id: 'svc-b',
+        type: 'local-service',
+        content: 'http://localhost:3000',
+        url: 'http://localhost:3000',
+        createdAt: 200,
+      }),
+    ]);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].id).toBe('svc-b');
   });
 });

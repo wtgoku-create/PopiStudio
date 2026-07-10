@@ -39,6 +39,8 @@ export interface Artifact {
   fileName?: string;
   filePath?: string;
   url?: string;
+  remoteUrl?: string;
+  source?: 'tool' | 'message' | 'manual';
   contentVersion?: number;
   metadata?: Record<string, unknown>;
   createdAt: number;

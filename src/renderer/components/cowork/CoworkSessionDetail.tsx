@@ -1,14 +1,20 @@
 import {
   ArrowDownIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   DocumentArrowDownIcon,
   PhotoIcon,
 } from '@heroicons/react/24/outline';
 import { CoworkSessionSourceKind } from '@shared/cowork/constants';
+import {
+  COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
+  type CoworkMessageRailIndexItem,
+} from '@shared/cowork/rail';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo,useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { normalizeFilePathForDedup, normalizeLocalServiceUrlForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseToolArtifact, stripFileLinksFromText } from '../../services/artifactParser';
+import { dedupeArtifactsForDisplay, normalizeFilePathForDedup, normalizeLocalServiceUrlForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseRemoteImageArtifactsFromText, parseToolArtifact, parseToolResultMediaArtifacts, shouldParseFilePathsFromToolResult, stripFileLinksFromText } from '../../services/artifactParser';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { knowledgeService } from '../../services/knowledge';
@@ -47,12 +53,19 @@ import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata, Subage
 import { CoworkSessionStatusValue } from '../../types/cowork';
 import { type SourceReference,SourceReferenceKind } from '../../types/sourceReference';
 import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
-import { sanitizeExportFileName, sessionToJSON, sessionToMarkdown } from '../../utils/coworkSessionExport';
+import { mergeCoworkTextExportMessages, sanitizeExportFileName, sessionToJSON, sessionToMarkdown } from '../../utils/coworkSessionExport';
+import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import { ArtifactPanel, type BrowserAnnotationPayload, SubagentPanelContent } from '../artifacts';
+import {
+  ArtifactAutoPreviewOpenTarget,
+  getAutoPreviewOpenTarget,
+  selectAutoPreviewArtifact,
+} from '../artifacts/autoPreviewPolicy';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
 import SubagentIcon from '../icons/SubagentIcon';
+import MarkdownContent from '../MarkdownContent';
 import AssistantTurnBlock, { ContextCompactionDivider } from './AssistantTurnBlock';
 import { type CoworkOpenShareOptionsEventDetail,CoworkUiEvent } from './constants';
 import ContextUsageIndicator from './ContextUsageIndicator';
@@ -70,6 +83,7 @@ import {
 } from './messageDisplayUtils';
 import PopiTVCanvasWorkspace from './PopiTVCanvasWorkspace';
 import SubagentTurnLinks from './SubagentTurnLinks';
+import UserMessageContent from './UserMessageContent';
 import UserMessageItem from './UserMessageItem';
 interface CoworkSessionDetailProps {
   onManageSkills?: () => void;
@@ -97,6 +111,10 @@ const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
 const COWORK_DETAIL_MIN_WIDTH = 480;
 const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
 const SUBAGENT_PANEL_POLL_INTERVAL_MS = 3000;
+const AUTO_PREVIEW_ARTIFACT_SETTLE_MS = 600;
+const EXPANDED_CONVERSATION_PREVIEW_ITEM_LIMIT = 6;
+const EXPANDED_CONVERSATION_PREVIEW_ITEM_MAX_LENGTH = 140;
+const EXPANDED_CONVERSATION_PREVIEW_COLLAPSED_MAX_LENGTH = 90;
 const toWikiArtifactId = (sessionId: string, kbId: string, slug: string): string => (
   `artifact-wiki-${sessionId}-${encodeURIComponent(kbId)}-${encodeURIComponent(slug)}`
 );
@@ -194,15 +212,31 @@ const loadImageFromBase64 = (pngBase64: string): Promise<HTMLImageElement> =>
 
 type RailItem = {
   key: string;
+  messageId: string | null;
   turnIndex: number;
+  absoluteIndex: number;
   label: string;
   summary: string;
   contentLen: number;
   isUser: boolean;
+  isLoaded: boolean;
+  isPlaceholder?: boolean;
 };
 
 type RailNavigationDecision = {
   behavior: ScrollBehavior;
+};
+
+type ExpandedConversationPreviewItem = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  summary: string;
+};
+
+type ExpandedConversationPreview = {
+  latest: ExpandedConversationPreviewItem;
+  items: ExpandedConversationPreviewItem[];
 };
 
 const prefersReducedMotion = (): boolean => (
@@ -255,48 +289,251 @@ const getRailLabel = (content: string, fallback: string, maxLength = 50): string
   return stripped.slice(0, maxLength) || fallback;
 };
 
-const buildRailItems = (turns: ConversationTurn[]): RailItem[] => {
+const isAssistantRailContentMessage = (message: CoworkMessage): boolean => (
+  message.type === 'assistant'
+  && !message.metadata?.isThinking
+  && Boolean(message.content)
+);
+
+const getAssistantRailMessageId = (turn: ConversationTurn): string | null => {
+  for (const item of turn.assistantItems) {
+    if (item.type === 'assistant' && isAssistantRailContentMessage(item.message)) {
+      return item.message.id;
+    }
+  }
+  return null;
+};
+
+const buildRailItems = (
+  turns: ConversationTurn[],
+  messageOffsetById: Map<string, number>,
+): RailItem[] => {
   const items: RailItem[] = [];
 
   for (let index = 0; index < turns.length; index += 1) {
     const turn = turns[index];
-    if (turn.userMessage) {
-      const content = turn.userMessage.content ?? '';
-      items.push({
-        key: `${turn.id}-user`,
-        turnIndex: index,
-        label: getRailLabel(content, `Turn ${index + 1}`),
-        summary: '',
-        contentLen: content.length,
-        isUser: true,
-      });
-    }
-
     let assistantContent = '';
     for (const item of turn.assistantItems) {
-      if (item.type === 'assistant' && item.message?.content) {
+      if (item.type === 'assistant' && isAssistantRailContentMessage(item.message)) {
         assistantContent += item.message.content;
       }
     }
-    if (assistantContent) {
-      items.push({
-        key: `${turn.id}-asst`,
-        turnIndex: index,
-        label: getRailLabel(assistantContent, 'Popiai'),
-        summary: getRailLabel(assistantContent, 'Popiai', 140),
-        contentLen: assistantContent.length,
-        isUser: false,
-      });
-    }
+
+    const assistantMessageId = getAssistantRailMessageId(turn);
+    const primaryMessageId = turn.userMessage?.id ?? assistantMessageId;
+    if (!primaryMessageId) continue;
+
+    const userContent = turn.userMessage?.content ?? '';
+    items.push({
+      key: `${turn.id}-turn`,
+      messageId: primaryMessageId,
+      turnIndex: index,
+      absoluteIndex: messageOffsetById.get(primaryMessageId) ?? items.length,
+      label: turn.userMessage ? getRailLabel(userContent, `Turn ${index + 1}`) : 'Popiai',
+      summary: assistantContent
+        ? getRailLabel(assistantContent, 'Popiai', COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH)
+        : '',
+      contentLen: userContent.length + assistantContent.length,
+      isUser: false,
+      isLoaded: true,
+    });
   }
 
   return items;
+};
+
+const buildLoadedRailTurnMap = (turns: ConversationTurn[]): Map<string, number> => {
+  const map = new Map<string, number>();
+  turns.forEach((turn, index) => {
+    if (turn.userMessage) {
+      map.set(turn.userMessage.id, index);
+    }
+    const assistantMessageId = getAssistantRailMessageId(turn);
+    if (assistantMessageId) {
+      map.set(assistantMessageId, index);
+    }
+  });
+  return map;
+};
+
+const getTurnMessageIds = (turn: ConversationTurn): Set<string> => {
+  const messageIds = new Set<string>();
+  if (turn.userMessage) {
+    messageIds.add(turn.userMessage.id);
+  }
+  for (const item of turn.assistantItems) {
+    if (item.type === 'assistant' || item.type === 'system' || item.type === 'tool_result') {
+      messageIds.add(item.message.id);
+      continue;
+    }
+    if (item.type === 'tool_group') {
+      messageIds.add(item.group.toolUse.id);
+      if (item.group.toolResult) {
+        messageIds.add(item.group.toolResult.id);
+      }
+    }
+  }
+  return messageIds;
+};
+
+const findLatestAssistantTurn = (turns: ConversationTurn[]): ConversationTurn | null => {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn.assistantItems.length > 0) return turn;
+  }
+  return null;
+};
+
+function normalizeExpandedConversationPreviewText(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[#>*_~]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function truncateExpandedConversationPreviewText(value: string, maxLength: number): string {
+  const characters = Array.from(value);
+  if (characters.length <= maxLength) return value;
+  return `${characters.slice(0, maxLength).join('')}...`;
+}
+
+function getExpandedConversationPreview(messages: CoworkMessage[]): ExpandedConversationPreview | null {
+  const items: ExpandedConversationPreviewItem[] = [];
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.type !== 'user' && message.type !== 'assistant') continue;
+    if (message.metadata?.isThinking) continue;
+
+    const content = message.type === 'user'
+      ? parseUserMessageForDisplay(message.content || '')
+      : message.content;
+    const text = normalizeExpandedConversationPreviewText(content);
+    if (!text) continue;
+
+    items.push({
+      id: message.id,
+      role: message.type,
+      content,
+      summary: truncateExpandedConversationPreviewText(text, EXPANDED_CONVERSATION_PREVIEW_ITEM_MAX_LENGTH),
+    });
+
+    if (items.length >= EXPANDED_CONVERSATION_PREVIEW_ITEM_LIMIT) break;
+  }
+
+  if (items.length === 0) return null;
+
+  const orderedItems = items.reverse();
+  const latestItem = orderedItems[orderedItems.length - 1];
+
+  return {
+    latest: {
+      ...latestItem,
+      summary: truncateExpandedConversationPreviewText(
+        latestItem.summary,
+        EXPANDED_CONVERSATION_PREVIEW_COLLAPSED_MAX_LENGTH,
+      ),
+    },
+    items: orderedItems,
+  };
+}
+
+const buildRailItemsFromIndex = (
+  indexItems: CoworkMessageRailIndexItem[],
+  loadedTurnByMessageId: Map<string, number>,
+): RailItem[] => {
+  const items: RailItem[] = [];
+  let index = 0;
+
+  while (index < indexItems.length) {
+    const current = indexItems[index];
+
+    if (current.type === 'user') {
+      const assistantItems: CoworkMessageRailIndexItem[] = [];
+      let nextIndex = index + 1;
+      while (nextIndex < indexItems.length && indexItems[nextIndex].type === 'assistant') {
+        assistantItems.push(indexItems[nextIndex]);
+        nextIndex += 1;
+      }
+
+      const loadedAssistantTurnIndex = assistantItems
+        .map(item => loadedTurnByMessageId.get(item.messageId))
+        .find((turnIndex): turnIndex is number => turnIndex !== undefined);
+      const loadedTurnIndex = loadedTurnByMessageId.get(current.messageId) ?? loadedAssistantTurnIndex ?? -1;
+      items.push({
+        key: [current.messageId, ...assistantItems.map(item => item.messageId)].join(':'),
+        messageId: current.messageId,
+        turnIndex: loadedTurnIndex,
+        absoluteIndex: current.messageOffset,
+        label: current.preview,
+        summary: assistantItems.map(item => item.preview).join(' '),
+        contentLen: current.contentLen + assistantItems.reduce((acc, item) => acc + item.contentLen, 0),
+        isUser: false,
+        isLoaded: loadedTurnIndex >= 0,
+      });
+      index = nextIndex;
+      continue;
+    }
+
+    const loadedTurnIndex = loadedTurnByMessageId.get(current.messageId) ?? -1;
+    items.push({
+      key: current.messageId,
+      messageId: current.messageId,
+      turnIndex: loadedTurnIndex,
+      absoluteIndex: current.messageOffset,
+      label: 'Popiai',
+      summary: current.preview,
+      contentLen: current.contentLen,
+      isUser: false,
+      isLoaded: loadedTurnIndex >= 0,
+    });
+    index += 1;
+  }
+
+  return items;
+};
+
+const buildPlaceholderRailItems = (
+  totalMessages: number,
+  localItems: RailItem[],
+): RailItem[] => {
+  const count = Math.max(0, Math.floor(totalMessages));
+  if (count <= localItems.length) return localItems;
+  const estimatedTurnCount = Math.max(localItems.length, Math.ceil(count / 2));
+
+  const localByRailIndex = new Map<number, RailItem>();
+  localItems.forEach((item) => {
+    localByRailIndex.set(Math.floor(item.absoluteIndex / 2), item);
+  });
+
+  return Array.from({ length: estimatedTurnCount }, (_, index) => {
+    const localItem = localByRailIndex.get(index);
+    if (localItem) return localItem;
+
+    return {
+      key: `placeholder-${index}`,
+      messageId: null,
+      turnIndex: -1,
+      absoluteIndex: Math.min(Math.max(0, count - 1), index * 2),
+      label: `Turn ${index + 1}`,
+      summary: '',
+      contentLen: 1,
+      isUser: false,
+      isLoaded: false,
+      isPlaceholder: true,
+    };
+  });
 };
 
 const buildTurnToRailRange = (railItems: RailItem[]): { first: number; last: number }[] => {
   const rangeMap: { first: number; last: number }[] = [];
   for (let index = 0; index < railItems.length; index += 1) {
     const turnIndex = railItems[index].turnIndex;
+    if (turnIndex < 0) continue;
     if (!rangeMap[turnIndex]) {
       rangeMap[turnIndex] = { first: index, last: index };
     } else {
@@ -520,6 +757,38 @@ const ArtifactBrowserTabIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) 
     <circle cx="8" cy="8" r="6" />
     <ellipse cx="8" cy="8" rx="2.5" ry="6" />
     <path d="M2 8h12" />
+  </svg>
+);
+
+const ArtifactPanelExpandIcon: React.FC<React.SVGProps<SVGSVGElement> & { expanded?: boolean }> = ({ expanded, ...props }) => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    {expanded ? (
+      <>
+        <path d="M2.75 5.25h3v-3" />
+        <path d="M5.75 5.25 2.5 2" />
+        <path d="M13.25 10.75h-3v3" />
+        <path d="M10.25 10.75 13.5 14" />
+      </>
+    ) : (
+      <>
+        <path d="M6.5 2.5h-4v4" />
+        <path d="M2.5 2.5l4.25 4.25" />
+        <path d="M9.5 13.5h4v-4" />
+        <path d="M13.5 13.5 9.25 9.25" />
+      </>
+    )}
+  </svg>
+);
+
+const PromptInputCollapseIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M4.5 6.25L8 9.75l3.5-3.5" />
+  </svg>
+);
+
+const PromptInputExpandIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M4.5 9.75L8 6.25l3.5 3.5" />
   </svg>
 );
 
@@ -783,10 +1052,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const remoteManaged = useSelector(selectRemoteManaged);
   const lastMessageContent = useSelector(selectLastMessageContent);
   const messagesLength = useSelector(selectCurrentMessagesLength);
+  const sessionId = currentSession?.id;
   const skills = useSelector((state: RootState) => state.skill.skills);
   const agents = useSelector((state: RootState) => state.agent.agents);
   const contextUsage = useSelector((state: RootState) =>
     currentSession?.id ? state.cowork.contextUsageBySessionId[currentSession.id] : undefined
+  );
+  const messageRailIndex = useSelector((state: RootState) =>
+    currentSession?.id ? state.cowork.messageRailIndexBySessionId[currentSession.id] : undefined
   );
   const isContextCompacting = useSelector((state: RootState) =>
     currentSession?.id ? state.cowork.compactingSessionIds.includes(currentSession.id) : false
@@ -816,13 +1089,39 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const prevScrollHeightRef = useRef<number | null>(null);
   const scrollToBottomIntentRef = useRef(false);
   const scrollToBottomSettleTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const autoPreviewHandledTurnIdsRef = useRef<Record<string, Set<string>>>({});
+  const autoPreviewArtifactSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousAutoPreviewSessionIdRef = useRef<string | undefined>(sessionId);
+  const previousAutoPreviewStreamingRef = useRef(isStreaming);
+  const previousAutoPreviewMessagesLengthRef = useRef(messagesLength);
+  const previousAutoPreviewLatestTurnIdRef = useRef<string | null>(null);
+  const [autoPreviewPendingTurnId, setAutoPreviewPendingTurnId] = useState<string | null>(null);
   const clearScrollToBottomSettleTimers = useCallback(() => {
     scrollToBottomSettleTimersRef.current.forEach(timer => clearTimeout(timer));
     scrollToBottomSettleTimersRef.current = [];
   }, []);
+  const clearAutoPreviewArtifactSettleTimer = useCallback(() => {
+    if (autoPreviewArtifactSettleTimerRef.current) {
+      clearTimeout(autoPreviewArtifactSettleTimerRef.current);
+      autoPreviewArtifactSettleTimerRef.current = null;
+    }
+  }, []);
+  const getAutoPreviewHandledTurnIds = useCallback((targetSessionId: string): Set<string> => {
+    let handled = autoPreviewHandledTurnIdsRef.current[targetSessionId];
+    if (!handled) {
+      handled = new Set<string>();
+      autoPreviewHandledTurnIdsRef.current[targetSessionId] = handled;
+    }
+    return handled;
+  }, []);
+  const markAutoPreviewTurnHandled = useCallback((targetSessionId: string, turnId: string) => {
+    getAutoPreviewHandledTurnIds(targetSessionId).add(turnId);
+    if (targetSessionId === sessionId && autoPreviewPendingTurnId === turnId) {
+      setAutoPreviewPendingTurnId(null);
+    }
+  }, [autoPreviewPendingTurnId, getAutoPreviewHandledTurnIds, sessionId]);
 
   // Clear lazy-render height cache when session changes
-  const sessionId = currentSession?.id;
   useEffect(() => {
     clearHeightCache();
   }, [sessionId]);
@@ -866,6 +1165,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [currentRailIndex, setCurrentRailIndex] = useState(-1);
   const currentRailIndexRef = useRef(-1);
   const railItemCountRef = useRef(0);
+  const railItemsRef = useRef<RailItem[]>([]);
+  const isLoadingRailTargetRef = useRef(false);
+  const [forcedRailTurnIndex, setForcedRailTurnIndex] = useState<number | null>(null);
+  const [loadingRailIndex, setLoadingRailIndex] = useState<number | null>(null);
   // Mapping: turnIndex → { first: firstRailIdx, last: lastRailIdx }
   const turnToRailRangeRef = useRef<{ first: number; last: number }[]>([]);
   const isNavigatingRef = useRef(false);
@@ -927,6 +1230,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [shouldRenderArtifactPanel, setShouldRenderArtifactPanel] = useState(isPanelOpen);
   const [isArtifactPanelVisible, setIsArtifactPanelVisible] = useState(isPanelOpen);
   const [isArtifactPanelTransitioning, setIsArtifactPanelTransitioning] = useState(false);
+  const [isArtifactPanelExpanded, setIsArtifactPanelExpanded] = useState(false);
+  const [isExpandedConversationPreviewOpen, setIsExpandedConversationPreviewOpen] = useState(false);
+  const [isExpandedPromptInputHidden, setIsExpandedPromptInputHidden] = useState(false);
   const [isFileListPreviewTabOpen, setIsFileListPreviewTabOpen] = useState(isPanelOpen);
   const [isBrowserPreviewTabOpen, setIsBrowserPreviewTabOpen] = useState(false);
   const [isSubagentPreviewTabOpen, setIsSubagentPreviewTabOpen] = useState(false);
@@ -943,6 +1249,13 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [artifactTabsIsOverflowing, setArtifactTabsIsOverflowing] = useState(false);
   const [artifactPanelMinWidth, setArtifactPanelMinWidth] = useState(MIN_PANEL_WIDTH);
   const [artifactPanelMaxWidth, setArtifactPanelMaxWidth] = useState(MAX_PANEL_WIDTH);
+  const [contentRowWidth, setContentRowWidth] = useState(0);
+  const [promptInputAreaHeight, setPromptInputAreaHeight] = useState(0);
+
+  useEffect(() => {
+    setIsExpandedConversationPreviewOpen(false);
+    setIsExpandedPromptInputHidden(false);
+  }, [sessionId]);
   const previousArtifactPanelOpenRef = useRef(isPanelOpen);
   const fileListPreviewTabOpenBySessionRef = useRef<Record<string, boolean>>({});
   const browserPreviewTabOpenBySessionRef = useRef<Record<string, boolean>>({});
@@ -954,8 +1267,13 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const artifactAddMenuRef = useRef<HTMLDivElement>(null);
   const artifactTabsScrollRef = useRef<HTMLDivElement>(null);
   const contentRowRef = useRef<HTMLDivElement>(null);
-  const sessionArtifacts = useSelector((state: RootState) =>
+  const promptInputAreaRef = useRef<HTMLDivElement>(null);
+  const rawSessionArtifacts = useSelector((state: RootState) =>
     sessionId ? selectSessionArtifacts(state, sessionId) : EMPTY_ARTIFACTS
+  );
+  const sessionArtifacts = useMemo(
+    () => dedupeArtifactsForDisplay(rawSessionArtifacts),
+    [rawSessionArtifacts],
   );
   const artifactPreviewTabs = useSelector((state: RootState) =>
     sessionId ? selectPreviewTabs(state, sessionId) : EMPTY_ARTIFACT_PREVIEW_TABS
@@ -1106,6 +1424,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const updateArtifactPanelMaxWidth = useCallback(() => {
     const contentWidth = contentRowRef.current?.clientWidth ?? 0;
     if (contentWidth <= 0) return;
+    setContentRowWidth(contentWidth);
     const availablePanelWidth = contentWidth - COWORK_DETAIL_MIN_WIDTH - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH;
     const nextMaxWidth = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, availablePanelWidth));
     const proportionalMinWidth = Math.floor(contentWidth * ARTIFACT_PANEL_MIN_WIDTH_RATIO);
@@ -1132,6 +1451,29 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       window.removeEventListener('resize', updateArtifactPanelMaxWidth);
     };
   }, [currentSession?.id, updateArtifactPanelMaxWidth]);
+
+  const updatePromptInputAreaHeight = useCallback(() => {
+    setPromptInputAreaHeight(promptInputAreaRef.current?.offsetHeight ?? 0);
+  }, []);
+
+  useLayoutEffect(() => {
+    updatePromptInputAreaHeight();
+    const element = promptInputAreaRef.current;
+    window.addEventListener('resize', updatePromptInputAreaHeight);
+
+    if (typeof ResizeObserver === 'undefined' || !element) {
+      return () => {
+        window.removeEventListener('resize', updatePromptInputAreaHeight);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(updatePromptInputAreaHeight);
+    resizeObserver.observe(element);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updatePromptInputAreaHeight);
+    };
+  }, [currentSession?.id, isExpandedPromptInputHidden, updatePromptInputAreaHeight]);
 
   useEffect(() => {
     setIsFileListPreviewTabOpen(sessionId ? fileListPreviewTabOpenBySessionRef.current[sessionId] ?? false : false);
@@ -1679,6 +2021,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const handleToggleArtifactPanel = useCallback(() => {
     if (isPanelOpen) {
       setShowArtifactAddMenu(false);
+      setIsArtifactPanelExpanded(false);
+      setIsExpandedConversationPreviewOpen(false);
+      setIsExpandedPromptInputHidden(false);
       dispatch(closePanel(sessionId ? { sessionId } : undefined));
       return;
     }
@@ -1707,6 +2052,27 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setSessionActiveSpecialPreviewTab,
     setSessionFileListPreviewTabOpen,
   ]);
+
+  const handleCloseArtifactPanel = useCallback(() => {
+    setShowArtifactAddMenu(false);
+    setIsArtifactPanelExpanded(false);
+    setIsExpandedConversationPreviewOpen(false);
+    setIsExpandedPromptInputHidden(false);
+    dispatch(closePanel(sessionId ? { sessionId } : undefined));
+  }, [dispatch, sessionId]);
+
+  const handleToggleArtifactPanelExpanded = useCallback(() => {
+    setIsArtifactPanelExpanded((value) => {
+      if (value) {
+        setIsExpandedPromptInputHidden(false);
+      }
+      return !value;
+    });
+  }, []);
+
+  const handleToggleExpandedPromptInput = useCallback(() => {
+    setIsExpandedPromptInputHidden(value => !value);
+  }, []);
 
   const handleToggleArtifactAddMenu = useCallback(() => {
     setShowArtifactAddMenu(open => !open);
@@ -1858,50 +2224,108 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     try {
       const messages = currentSession.messages;
       const detected: Artifact[] = [];
-      const seenFilePaths = new Set<string>();
-      const seenLocalServiceUrls = new Set<string>();
+      const pushFileArtifactIfNew = (artifact: Artifact, seenFilePaths: Set<string>) => {
+        const normalized = artifact.filePath ? normalizeFilePathForDedup(artifact.filePath) : '';
+        if (!artifact.filePath || seenFilePaths.has(normalized)) return;
+        seenFilePaths.add(normalized);
+        detected.push(artifact);
+      };
+      const pushLocalServiceArtifactIfNew = (artifact: Artifact, seenLocalServiceUrls: Set<string>) => {
+        const url = artifact.url || artifact.content;
+        const normalized = normalizeLocalServiceUrlForDedup(url);
+        if (!url || seenLocalServiceUrls.has(normalized)) return;
+        seenLocalServiceUrls.add(normalized);
+        detected.push(artifact);
+      };
 
       for (const msg of messages) {
         if (msg.type === 'assistant' && !msg.metadata?.isThinking && msg.content) {
+          const seenFilePaths = new Set<string>();
+          const seenLocalServiceUrls = new Set<string>();
           const localServiceArtifacts = parseLocalServiceUrlsFromText(msg.content, msg.id, sessionId);
           for (const serviceArtifact of localServiceArtifacts) {
-            const url = serviceArtifact.url || serviceArtifact.content;
-            const normalized = normalizeLocalServiceUrlForDedup(url);
-            if (url && !seenLocalServiceUrls.has(normalized)) {
-              seenLocalServiceUrls.add(normalized);
-              detected.push(serviceArtifact);
-            }
+            pushLocalServiceArtifactIfNew(serviceArtifact, seenLocalServiceUrls);
           }
 
           const fileLinks = parseFileLinksFromMessage(msg.content, msg.id, sessionId);
           for (const fl of fileLinks) {
-            const normalized = fl.filePath ? normalizeFilePathForDedup(fl.filePath) : '';
-            if (fl.filePath && !seenFilePaths.has(normalized)) {
-              seenFilePaths.add(normalized);
-              detected.push(fl);
-            }
+            pushFileArtifactIfNew(fl, seenFilePaths);
           }
 
           const contentWithoutFileLinks = stripFileLinksFromText(msg.content);
           const pathArtifacts = parseFilePathsFromText(contentWithoutFileLinks, msg.id, sessionId);
           for (const pa of pathArtifacts) {
-            const normalized = pa.filePath ? normalizeFilePathForDedup(pa.filePath) : '';
-            if (pa.filePath && !seenFilePaths.has(normalized)) {
-              seenFilePaths.add(normalized);
-              detected.push(pa);
-            }
+            pushFileArtifactIfNew(pa, seenFilePaths);
           }
+
+          detected.push(...parseRemoteImageArtifactsFromText(msg.content, msg.id, sessionId, 'artifact-remote-assistant'));
         }
 
-        if (msg.type === 'tool_result' && msg.content) {
+        if (msg.type === 'tool_result') {
+          const seenFilePaths = new Set<string>();
+          const toolMediaArtifacts = parseToolResultMediaArtifacts(msg, sessionId);
+          if (toolMediaArtifacts.length > 0) {
+            for (const mediaArtifact of toolMediaArtifacts) {
+              if (mediaArtifact.filePath) {
+                pushFileArtifactIfNew(mediaArtifact, seenFilePaths);
+              } else {
+                detected.push(mediaArtifact);
+              }
+            }
+            continue;
+          }
+
+          if (!msg.content) continue;
+
           const mediaArtifacts = parseMediaTokensFromText(msg.content, msg.id, sessionId);
           for (const ma of mediaArtifacts) {
-            const normalized = ma.filePath ? normalizeFilePathForDedup(ma.filePath) : '';
-            if (ma.filePath && !seenFilePaths.has(normalized)) {
-              seenFilePaths.add(normalized);
-              detected.push(ma);
+            pushFileArtifactIfNew(ma, seenFilePaths);
+          }
+
+          const toolUseId = msg.metadata?.toolUseId;
+          const pairedToolUse = toolUseId
+            ? messages.find(m => m.type === 'tool_use' && m.metadata?.toolUseId === toolUseId)
+            : undefined;
+          const toolName = pairedToolUse?.metadata?.toolName
+            ? String(pairedToolUse.metadata.toolName)
+            : '';
+          if (shouldParseFilePathsFromToolResult(toolName)) {
+            const pathArtifacts = parseFilePathsFromText(msg.content, msg.id, sessionId, 'artifact-toolresult');
+            for (const pa of pathArtifacts) {
+              pushFileArtifactIfNew(pa, seenFilePaths);
             }
           }
+          detected.push(...parseRemoteImageArtifactsFromText(msg.content, msg.id, sessionId, 'artifact-remote-toolresult'));
+        }
+
+        if (msg.type === 'system') {
+          const seenFilePaths = new Set<string>();
+          const toolMediaArtifacts = parseToolResultMediaArtifacts(msg, sessionId);
+          if (toolMediaArtifacts.length > 0) {
+            for (const mediaArtifact of toolMediaArtifacts) {
+              if (mediaArtifact.filePath) {
+                pushFileArtifactIfNew(mediaArtifact, seenFilePaths);
+              } else {
+                detected.push(mediaArtifact);
+              }
+            }
+            continue;
+          }
+
+          if (!msg.content) continue;
+
+          const fileLinks = parseFileLinksFromMessage(msg.content, msg.id, sessionId);
+          for (const fl of fileLinks) {
+            pushFileArtifactIfNew(fl, seenFilePaths);
+          }
+
+          const contentWithoutFileLinks = stripFileLinksFromText(msg.content);
+          const pathArtifacts = parseFilePathsFromText(contentWithoutFileLinks, msg.id, sessionId, 'artifact-system-path');
+          for (const pa of pathArtifacts) {
+            pushFileArtifactIfNew(pa, seenFilePaths);
+          }
+
+          detected.push(...parseRemoteImageArtifactsFromText(msg.content, msg.id, sessionId, 'artifact-remote-system'));
         }
       }
 
@@ -1914,11 +2338,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             : messages[i + 1]?.type === 'tool_result' ? messages[i + 1] : undefined;
           const toolArtifact = parseToolArtifact(msg, toolResult, sessionId);
           if (toolArtifact && toolArtifact.filePath) {
-            const normalized = normalizeFilePathForDedup(toolArtifact.filePath);
-            if (!seenFilePaths.has(normalized)) {
-              seenFilePaths.add(normalized);
-              detected.push(toolArtifact);
-            }
+            detected.push(toolArtifact);
           }
         }
       }
@@ -2012,7 +2432,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       const messages = currentSession.messages;
       const cwd = currentSession.cwd;
       const toLoad: Artifact[] = [];
-      const seenFilePaths = new Set<string>();
 
       for (const msg of messages) {
         if (msg.type !== 'tool_result' || !msg.content || !msg.metadata?.isFinal) continue;
@@ -2020,6 +2439,23 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
         // Only detect explicit MEDIA: tokens in tool results — do NOT parse bare file paths
         // here, because tool output (e.g. `ls`) may contain many irrelevant file paths.
+        const seenFilePaths = new Set<string>();
+        const toolMediaArtifacts = parseToolResultMediaArtifacts(msg, sessionId);
+        for (const mediaArtifact of toolMediaArtifacts) {
+          if (!mediaArtifact.filePath) {
+            if (!loadedFileIdsRef.current.has(mediaArtifact.id)) {
+              loadedFileIdsRef.current.add(mediaArtifact.id);
+              dispatch(addArtifact({ sessionId, artifact: mediaArtifact }));
+            }
+            continue;
+          }
+          const normalized = normalizeFilePathForDedup(mediaArtifact.filePath);
+          if (!seenFilePaths.has(normalized) && !loadedFileIdsRef.current.has(mediaArtifact.id)) {
+            seenFilePaths.add(normalized);
+            toLoad.push(mediaArtifact);
+          }
+        }
+
         const mediaArtifacts = parseMediaTokensFromText(msg.content, msg.id, sessionId);
         for (const ma of mediaArtifacts) {
           const normalized = ma.filePath ? normalizeFilePathForDedup(ma.filePath) : '';
@@ -2093,8 +2529,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   useEffect(() => {
     return () => {
       if (navigatingTimerRef.current) clearTimeout(navigatingTimerRef.current);
+      clearAutoPreviewArtifactSettleTimer();
     };
-  }, []);
+  }, [clearAutoPreviewArtifactSettleTimer]);
 
   // Reset nav state when session changes
   useEffect(() => {
@@ -2104,8 +2541,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     isNavigatingRef.current = false;
     turnElsCacheRef.current = [];
     if (navigatingTimerRef.current) clearTimeout(navigatingTimerRef.current);
+    clearAutoPreviewArtifactSettleTimer();
+    setAutoPreviewPendingTurnId(null);
     setHoveredRailIndex(null);
-  }, [currentSession?.id]);
+  }, [clearAutoPreviewArtifactSettleTimer, currentSession?.id]);
 
   useEffect(() => {
     const handleOpenShareOptions = (event: Event) => {
@@ -2120,12 +2559,50 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     };
   }, [currentSession?.id]);
 
+  const loadTextExportMessages = useCallback(async (): Promise<CoworkMessage[]> => {
+    if (!currentSession) return [];
+
+    const loadedMessages = currentSession.messages;
+    const totalMessages = Math.max(currentSession.totalMessages ?? 0, loadedMessages.length);
+    const hasLoadedFullHistory = (currentSession.messagesOffset ?? 0) <= 0 && loadedMessages.length >= totalMessages;
+    if (hasLoadedFullHistory) {
+      return loadedMessages;
+    }
+
+    const result = await window.electron.cowork.getSessionMessages({
+      sessionId: currentSession.id,
+      limit: Math.max(totalMessages, 1),
+      offset: 0,
+    });
+    if (!result.success || !result.messages) {
+      throw new Error(result.error || 'Failed to load session messages for export');
+    }
+
+    let storedMessages = result.messages;
+    const returnedTotal = result.total ?? totalMessages;
+    if (returnedTotal > storedMessages.length) {
+      const retryResult = await window.electron.cowork.getSessionMessages({
+        sessionId: currentSession.id,
+        limit: returnedTotal,
+        offset: 0,
+      });
+      if (retryResult.success && retryResult.messages) {
+        storedMessages = retryResult.messages;
+      }
+    }
+
+    return mergeCoworkTextExportMessages(storedMessages, loadedMessages);
+  }, [currentSession]);
+
   const handleExportText = useCallback(async (format: 'md' | 'json') => {
     if (!currentSession) return;
-    const content = format === 'md' ? sessionToMarkdown(currentSession) : sessionToJSON(currentSession);
     const timestamp = new Date().toISOString().slice(0, 10);
     const fileName = sanitizeExportFileName(`${currentSession.title}-${timestamp}.${format}`);
     try {
+      const messages = await loadTextExportMessages();
+      const content = format === 'md'
+        ? sessionToMarkdown(currentSession, messages)
+        : sessionToJSON(currentSession, messages);
       const result = await window.electron.cowork.exportSessionText({
         content,
         defaultFileName: fileName,
@@ -2144,7 +2621,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         detail: i18nService.t('coworkExportTextFailed'),
       }));
     }
-  }, [currentSession]);
+  }, [currentSession, loadTextExportMessages]);
 
   const handleShareClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -2517,16 +2994,20 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     container.scrollTop = nextScrollTop;
   }, [clearScrollToBottomSettleTimers]);
 
-  const navigateToRailItem = useCallback((railIndex: number) => {
+  const navigateToRailItem = useCallback(async (railIndex: number) => {
     if (railIndex < 0 || railIndex >= railItemCountRef.current) return;
+    const railItem = railItemsRef.current[railIndex];
+    if (!railItem) return;
 
     // Find the turn that contains this rail item
     const ranges = turnToRailRangeRef.current;
-    let targetTurnIdx = -1;
-    for (let t = 0; t < ranges.length; t++) {
-      if (ranges[t] && railIndex >= ranges[t].first && railIndex <= ranges[t].last) {
-        targetTurnIdx = t;
-        break;
+    let targetTurnIdx = railItem.turnIndex;
+    if (targetTurnIdx < 0) {
+      for (let t = 0; t < ranges.length; t++) {
+        if (ranges[t] && railIndex >= ranges[t].first && railIndex <= ranges[t].last) {
+          targetTurnIdx = t;
+          break;
+        }
       }
     }
 
@@ -2534,27 +3015,69 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     if (navigatingTimerRef.current) clearTimeout(navigatingTimerRef.current);
     navigatingTimerRef.current = setTimeout(() => { isNavigatingRef.current = false; }, NAV_SCROLL_LOCK_DURATION);
 
-    // Try to scroll to the exact data-rail-index element if it's in the DOM
-    const container = scrollContainerRef.current;
-    if (container) {
-      const el = container.querySelector<HTMLElement>(`[data-rail-index="${railIndex}"]`);
-      if (el) {
-        const decision = getRailNavigationDecision(container, el);
-        el.scrollIntoView({ behavior: decision.behavior, block: 'start' });
-      } else if (targetTurnIdx >= 0) {
-        // Fallback: scroll to the turn element (always in DOM)
-        const turnEls = turnElsCacheRef.current;
-        if (targetTurnIdx < turnEls.length) {
-          const targetEl = turnEls[targetTurnIdx];
-          const decision = getRailNavigationDecision(container, targetEl);
-          targetEl.scrollIntoView({ behavior: decision.behavior, block: 'start' });
+    const scrollToLoadedTarget = () => {
+      const container = scrollContainerRef.current;
+      if (!container) return false;
+
+      const selectors = [
+        railItem.messageId ? `[data-rail-message-id="${CSS.escape(railItem.messageId)}"]` : null,
+        `[data-rail-index="${railIndex}"]`,
+      ].filter((selector): selector is string => Boolean(selector));
+      for (const selector of selectors) {
+        const el = container.querySelector<HTMLElement>(selector);
+        if (el) {
+          const decision = getRailNavigationDecision(container, el);
+          el.scrollIntoView({ behavior: decision.behavior, block: 'start' });
+          return true;
         }
       }
+
+      const turnEls = turnElsCacheRef.current;
+      if (targetTurnIdx >= 0 && targetTurnIdx < turnEls.length) {
+        const targetEl = turnEls[targetTurnIdx];
+        const decision = getRailNavigationDecision(container, targetEl);
+        targetEl.scrollIntoView({ behavior: decision.behavior, block: 'start' });
+        return true;
+      }
+      return false;
+    };
+
+    if (!railItem.isLoaded && currentSession?.id && !isLoadingRailTargetRef.current) {
+      isLoadingRailTargetRef.current = true;
+      setLoadingRailIndex(railIndex);
+      setForcedRailTurnIndex(null);
+      try {
+        const loaded = await coworkService.loadMessageWindowAroundIndex(
+          currentSession.id,
+          railItem.absoluteIndex,
+          50,
+        );
+        if (loaded) {
+          requestAnimationFrame(() => {
+            const latestRailItems = railItemsRef.current;
+            const latestRailItem = latestRailItems[railIndex];
+            if (latestRailItem?.turnIndex != null && latestRailItem.turnIndex >= 0) {
+              setForcedRailTurnIndex(latestRailItem.turnIndex);
+            }
+            requestAnimationFrame(() => {
+              scrollToLoadedTarget();
+            });
+          });
+        }
+      } finally {
+        isLoadingRailTargetRef.current = false;
+        setLoadingRailIndex(null);
+      }
+    } else if (railItem.isLoaded && targetTurnIdx >= 0) {
+      setForcedRailTurnIndex(targetTurnIdx);
     }
+
+    // Try to scroll to the exact data-rail-index element if it's in the DOM
+    scrollToLoadedTarget();
 
     currentRailIndexRef.current = railIndex;
     setCurrentRailIndex(railIndex);
-  }, []);
+  }, [currentSession?.id]);
 
   // lastMessageContent and messagesLength are now sourced from memoized
   // selectors (selectLastMessageContent / selectCurrentMessagesLength)
@@ -2628,7 +3151,22 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const messages = currentSession?.messages;
   const displayItems = useMemo(() => messages ? buildDisplayItems(messages) : [], [messages]);
   const turns = useMemo(() => buildConversationTurns(displayItems), [displayItems]);
-  const railItems = useMemo(() => buildRailItems(turns), [turns]);
+  const messageOffsetById = useMemo(() => {
+    const map = new Map<string, number>();
+    const offset = currentSession?.messagesOffset ?? 0;
+    currentSession?.messages.forEach((message, index) => {
+      map.set(message.id, offset + index);
+    });
+    return map;
+  }, [currentSession?.messages, currentSession?.messagesOffset]);
+  const localRailItems = useMemo(() => buildRailItems(turns, messageOffsetById), [messageOffsetById, turns]);
+  const loadedRailTurnByMessageId = useMemo(() => buildLoadedRailTurnMap(turns), [turns]);
+  const railItems = useMemo(() => {
+    if (messageRailIndex?.length) {
+      return buildRailItemsFromIndex(messageRailIndex, loadedRailTurnByMessageId);
+    }
+    return buildPlaceholderRailItems(currentSession?.totalMessages ?? localRailItems.length, localRailItems);
+  }, [currentSession?.totalMessages, loadedRailTurnByMessageId, localRailItems, messageRailIndex]);
   const resolvedRailIndex = currentRailIndex < 0 || currentRailIndex >= railItems.length
     ? railItems.length - 1
     : currentRailIndex;
@@ -2639,6 +3177,114 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const railTooltipSummary = railTooltipItem?.isUser
     ? railTooltipItem.label
     : railTooltipItem?.summary;
+  const railIndexByMessageId = useMemo(() => {
+    const map = new Map<string, number>();
+    railItems.forEach((item, index) => {
+      if (item.messageId) {
+        map.set(item.messageId, index);
+      }
+    });
+    return map;
+  }, [railItems]);
+  const latestAssistantTurn = useMemo(() => findLatestAssistantTurn(turns), [turns]);
+
+  useEffect(() => {
+    const previousSessionId = previousAutoPreviewSessionIdRef.current;
+    const sessionChanged = previousSessionId !== sessionId;
+    const wasStreaming = previousAutoPreviewStreamingRef.current;
+    const previousMessagesLength = previousAutoPreviewMessagesLengthRef.current;
+    const previousLatestTurnId = previousAutoPreviewLatestTurnIdRef.current;
+    const latestTurnId = latestAssistantTurn?.id ?? null;
+
+    previousAutoPreviewSessionIdRef.current = sessionId;
+    previousAutoPreviewStreamingRef.current = isStreaming;
+    previousAutoPreviewMessagesLengthRef.current = messagesLength;
+    previousAutoPreviewLatestTurnIdRef.current = latestTurnId;
+
+    if (sessionChanged) {
+      clearAutoPreviewArtifactSettleTimer();
+      setAutoPreviewPendingTurnId(null);
+      return;
+    }
+
+    if (!sessionId || !latestAssistantTurn) {
+      clearAutoPreviewArtifactSettleTimer();
+      setAutoPreviewPendingTurnId(null);
+      return;
+    }
+
+    const completedStreamingTurn = wasStreaming && !isStreaming;
+    const latestTurnChanged = latestTurnId !== null && latestTurnId !== previousLatestTurnId;
+    const appendedCompletedTurn = !isStreaming && messagesLength > previousMessagesLength && latestTurnChanged;
+    if (!completedStreamingTurn && !appendedCompletedTurn) return;
+
+    if (getAutoPreviewHandledTurnIds(sessionId).has(latestAssistantTurn.id)) return;
+    setAutoPreviewPendingTurnId(latestAssistantTurn.id);
+  }, [
+    clearAutoPreviewArtifactSettleTimer,
+    getAutoPreviewHandledTurnIds,
+    isStreaming,
+    latestAssistantTurn,
+    messagesLength,
+    sessionId,
+  ]);
+
+  useEffect(() => {
+    if (!sessionId || !autoPreviewPendingTurnId || !currentSession) return;
+    if (getAutoPreviewHandledTurnIds(sessionId).has(autoPreviewPendingTurnId)) {
+      clearAutoPreviewArtifactSettleTimer();
+      setAutoPreviewPendingTurnId(null);
+      return;
+    }
+
+    const pendingTurn = turns.find(turn => turn.id === autoPreviewPendingTurnId);
+    if (!pendingTurn) return;
+
+    if (isPanelOpen) {
+      markAutoPreviewTurnHandled(sessionId, autoPreviewPendingTurnId);
+      return;
+    }
+
+    const turnMessageIds = getTurnMessageIds(pendingTurn);
+    const turnArtifacts = rawSessionArtifacts.filter(
+      artifact => turnMessageIds.has(artifact.messageId) && PREVIEWABLE_ARTIFACT_TYPES.has(artifact.type),
+    );
+    const artifact = selectAutoPreviewArtifact(turnArtifacts);
+    if (!artifact) return;
+
+    clearAutoPreviewArtifactSettleTimer();
+    autoPreviewArtifactSettleTimerRef.current = setTimeout(() => {
+      autoPreviewArtifactSettleTimerRef.current = null;
+      if (getAutoPreviewHandledTurnIds(sessionId).has(autoPreviewPendingTurnId)) return;
+
+      switch (getAutoPreviewOpenTarget(artifact)) {
+        case ArtifactAutoPreviewOpenTarget.LocalServiceBrowser:
+          handleOpenLocalServiceArtifact(artifact);
+          break;
+        case ArtifactAutoPreviewOpenTarget.PreviewTab:
+          dispatch(openArtifactPreviewTab({ sessionId, artifactId: artifact.id }));
+          break;
+        default:
+          return;
+      }
+
+      markAutoPreviewTurnHandled(sessionId, autoPreviewPendingTurnId);
+    }, AUTO_PREVIEW_ARTIFACT_SETTLE_MS);
+
+    return clearAutoPreviewArtifactSettleTimer;
+  }, [
+    autoPreviewPendingTurnId,
+    clearAutoPreviewArtifactSettleTimer,
+    currentSession,
+    dispatch,
+    getAutoPreviewHandledTurnIds,
+    handleOpenLocalServiceArtifact,
+    isPanelOpen,
+    markAutoPreviewTurnHandled,
+    rawSessionArtifacts,
+    sessionId,
+    turns,
+  ]);
   const subagentPanel = (
     <SubagentPanelContent
       subagents={subagents}
@@ -2660,6 +3306,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
   useEffect(() => {
     railItemCountRef.current = railItems.length;
+    railItemsRef.current = railItems;
     turnToRailRangeRef.current = buildTurnToRailRange(railItems);
   }, [railItems]);
 
@@ -2730,21 +3377,45 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     return null;
   }
 
+  const defaultArtifactPanelContentWidth = Math.max(
+    artifactPanelMinWidth,
+    Math.min(panelWidth, artifactPanelMaxWidth),
+  );
+  const expandedArtifactPanelContentWidth = Math.max(
+    MIN_PANEL_WIDTH,
+    contentRowWidth - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH,
+  );
+  const artifactPanelContentWidth = isArtifactPanelExpanded
+    ? expandedArtifactPanelContentWidth
+    : defaultArtifactPanelContentWidth;
   const artifactPanelFrameWidth = isArtifactPanelVisible
-    ? Math.max(artifactPanelMinWidth, Math.min(panelWidth, artifactPanelMaxWidth)) + ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH
+    ? artifactPanelContentWidth + ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH
     : 0;
   const artifactHeaderWidth = isArtifactPanelVisible
-    ? Math.max(0, artifactPanelFrameWidth - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH)
+    ? isArtifactPanelExpanded
+      ? contentRowWidth || artifactPanelFrameWidth
+      : Math.max(0, artifactPanelFrameWidth - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH)
     : undefined;
+  const artifactPanelRenderMinWidth = isArtifactPanelExpanded
+    ? expandedArtifactPanelContentWidth
+    : artifactPanelMinWidth;
+  const artifactPanelRenderMaxWidth = isArtifactPanelExpanded
+    ? expandedArtifactPanelContentWidth
+    : artifactPanelMaxWidth;
+  const artifactPanelIsOverlay = isArtifactPanelVisible && isArtifactPanelExpanded;
+  const artifactPanelOverlayBottom = artifactPanelIsOverlay && !isExpandedPromptInputHidden
+    ? promptInputAreaHeight
+    : 0;
+  const artifactPanelInnerWidth = artifactPanelIsOverlay ? '100%' : artifactPanelFrameWidth;
   const shouldShowTurnNavigationRail = railItems.length > 1 && isScrollable;
   const isPopiTVSession = currentSession.activeSkillIds.includes('popitv')
     || currentSession.messages.some((message) => {
       const skillIds = (message.metadata as CoworkMessageMetadata | undefined)?.skillIds;
       return Array.isArray(skillIds) && skillIds.includes('popitv');
     });
+  const expandedConversationPreview = getExpandedConversationPreview(currentSession.messages);
 
   const renderConversationTurns = () => {
-    let railCounter = 0;
     if (turns.length === 0) {
       if (!isStreaming) return null;
       return (
@@ -2767,7 +3438,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       const showTypingIndicator = isStreaming && isLastTurn && !hasRenderableAssistantContent(turn);
       const showAssistantBlock = turn.assistantItems.length > 0 || showTypingIndicator;
       // Always render last 3 turns (needed for streaming, auto-scroll, and smooth UX)
-      const alwaysRender = index >= turns.length - 3;
+      const alwaysRender = index >= turns.length - 3 || index === forcedRailTurnIndex;
 
       // Compute rail indices for user/assistant messages (must match rail IIFE logic)
       let asstContent = '';
@@ -2776,8 +3447,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           asstContent += item.message.content;
         }
       }
-      const userRailIdx = turn.userMessage ? railCounter++ : -1;
-      const asstRailIdx = asstContent ? railCounter++ : -1;
+      const assistantMessageId = getAssistantRailMessageId(turn);
+      const userRailIdx = turn.userMessage ? railIndexByMessageId.get(turn.userMessage.id) ?? -1 : -1;
+      const asstRailIdx = assistantMessageId ? railIndexByMessageId.get(assistantMessageId) ?? -1 : -1;
 
       const turnMessageIds = new Set<string>();
       for (const item of turn.assistantItems) {
@@ -2796,12 +3468,22 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       return (
         <LazyRenderTurn key={turn.id} turnId={turn.id} alwaysRender={alwaysRender} data-turn-index={index}>
           {turn.userMessage && (
-            <div data-export-role="user-message" className={isLastTurn ? 'animate-message-in' : undefined} {...(userRailIdx >= 0 ? { 'data-rail-index': userRailIdx } : undefined)}>
+            <div
+              data-export-role="user-message"
+              data-rail-message-id={turn.userMessage.id}
+              className={isLastTurn ? 'animate-message-in' : undefined}
+              {...(userRailIdx >= 0 ? { 'data-rail-index': userRailIdx } : undefined)}
+            >
               <UserMessageItem message={turn.userMessage} skills={skills} onReEdit={remoteManaged ? undefined : handleReEdit} />
             </div>
           )}
           {showAssistantBlock && (
-            <div data-export-role="assistant-block" className={isLastTurn ? 'animate-message-in' : undefined} {...(asstRailIdx >= 0 ? { 'data-rail-index': asstRailIdx } : undefined)}>
+            <div
+              data-export-role="assistant-block"
+              {...(assistantMessageId ? { 'data-rail-message-id': assistantMessageId } : undefined)}
+              className={isLastTurn ? 'animate-message-in' : undefined}
+              {...(asstRailIdx >= 0 ? { 'data-rail-index': asstRailIdx } : undefined)}
+            >
               <AssistantTurnBlock
                 turn={turn}
                 artifacts={turnArtifacts}
@@ -3090,6 +3772,21 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               </div>
             </div>
           )}
+          {isArtifactPanelVisible && (
+            <button
+              type="button"
+              onClick={handleToggleArtifactPanelExpanded}
+              className={`relative h-8 w-8 inline-flex items-center justify-center rounded-lg transition-colors ${
+                isArtifactPanelExpanded
+                  ? 'bg-surface-raised text-foreground'
+                  : 'text-secondary hover:bg-surface-raised hover:text-foreground'
+              }`}
+              aria-label={i18nService.t(isArtifactPanelExpanded ? 'artifactPanelRestore' : 'artifactPanelExpand')}
+              title={i18nService.t(isArtifactPanelExpanded ? 'artifactPanelRestore' : 'artifactPanelExpand')}
+            >
+              <ArtifactPanelExpandIcon className="h-4 w-4" expanded={isArtifactPanelExpanded} />
+            </button>
+          )}
           {/* Artifact panel toggle */}
           <button
             type="button"
@@ -3193,7 +3890,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       )}
 
       {/* Content row: chat + artifact panel */}
-      <div ref={contentRowRef} className="flex-1 flex overflow-hidden">
+      <div ref={contentRowRef} className="relative flex-1 flex overflow-hidden">
       {isPopiTVSession && (
         <PopiTVCanvasWorkspace
           sessionId={currentSession.id}
@@ -3203,7 +3900,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       <div
         ref={detailRootRef}
         className={`${isPopiTVSession ? 'w-[420px] 2xl:w-[500px] shrink-0 border-l border-border' : 'flex-1'} flex flex-col bg-background h-full`}
-        style={{ minWidth: isPopiTVSession ? 380 : COWORK_DETAIL_MIN_WIDTH }}
+        style={{ minWidth: isArtifactPanelExpanded ? 0 : (isPopiTVSession ? 380 : COWORK_DETAIL_MIN_WIDTH) }}
       >
       <div className="relative flex-1 min-h-0">
         <div
@@ -3275,11 +3972,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               {railItems.map((msg, idx) => {
                 const isActive = idx === resolvedRailIndex;
                 const isHighlighted = hoveredRailIndex === null ? isActive : idx === hoveredRailIndex;
+                const isLoadingTarget = loadingRailIndex === idx;
+                const isUnavailableDuringLoad = loadingRailIndex !== null && loadingRailIndex !== idx;
                 const lineWidth = getRailLineWidth(idx, resolvedRailIndex, hoveredRailIndex);
                 return (
                   <button
                     key={msg.key}
                     type="button"
+                    disabled={isUnavailableDuringLoad}
                     onClick={() => {
                       navigateToRailItem(idx);
                     }}
@@ -3294,18 +3994,25 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                       });
                     }}
                     onMouseLeave={() => setRailTooltip(null)}
-                    className="flex items-center justify-end cursor-pointer w-5 py-[5px]"
+                    className={`flex items-center justify-end w-5 py-[5px] ${
+                      isUnavailableDuringLoad ? 'cursor-wait opacity-60' : 'cursor-pointer'
+                    }`}
                   >
                     <span
-                      className={`block shrink-0 border-solid transition-[width,border-color] ${
-                        isHighlighted
+                      className={`block shrink-0 border-solid transition-[width,border-color,opacity] ${
+                        isLoadingTarget
+                          ? 'animate-pulse border-neutral-700 dark:border-neutral-200'
+                          : isHighlighted
                           ? 'border-neutral-800 dark:border-neutral-200'
+                          : msg.isLoaded
+                            ? 'border-neutral-300 dark:border-neutral-600'
                           : 'border-neutral-300 dark:border-neutral-600'
                       }`}
                       style={{
-                        width: lineWidth,
+                        width: isLoadingTarget ? Math.max(lineWidth, RAIL_LINE_ACTIVE_WIDTH) : lineWidth,
                         height: 0,
                         borderTopWidth: RAIL_LINE_HEIGHT,
+                        opacity: msg.isLoaded || isLoadingTarget ? 1 : 0.45,
                       }}
                     />
                   </button>
@@ -3397,7 +4104,106 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       {isSessionBusy && <StreamingActivityBar messages={currentSession.messages} isContextMaintenance={isContextMaintenance} />}
 
       {/* Input Area */}
-      <div className={`pt-0 pb-4 shrink-0 ${COWORK_DETAIL_GUTTER_CLASS}`}>
+      <div
+        ref={promptInputAreaRef}
+        className={`relative shrink-0 ${COWORK_DETAIL_GUTTER_CLASS} ${
+          isArtifactPanelExpanded ? 'z-50 bg-background pb-2 pt-1' : 'pb-4 pt-0'
+        } ${isArtifactPanelExpanded && isExpandedPromptInputHidden ? 'hidden' : ''}`}
+      >
+        {isArtifactPanelExpanded && !isExpandedPromptInputHidden && (
+          <button
+            type="button"
+            onClick={handleToggleExpandedPromptInput}
+            className="absolute right-3 top-1 z-20 inline-flex h-5 w-5 items-center justify-center rounded-md border border-border bg-surface-raised text-muted shadow-sm transition-colors hover:bg-surface-hover hover:text-foreground"
+            aria-label={i18nService.t('artifactBrowserHideInput')}
+            title={i18nService.t('artifactBrowserHideInput')}
+          >
+            <PromptInputCollapseIcon className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {isArtifactPanelExpanded && (expandedConversationPreview || isSessionBusy) && (
+          <div className={`${COWORK_DETAIL_CONTENT_CLASS} mb-1`}>
+            <div className="overflow-hidden rounded-2xl border border-border bg-surface-raised shadow-subtle">
+              <button
+                type="button"
+                onClick={() => setIsExpandedConversationPreviewOpen(value => !value)}
+                className="flex h-8 w-full items-center gap-2 px-3 pr-8 text-left text-xs text-secondary transition-colors hover:bg-surface-hover hover:text-foreground"
+                aria-label={i18nService.t(
+                  isExpandedConversationPreviewOpen
+                    ? 'coworkExpandedConversationPreviewCollapse'
+                    : 'coworkExpandedConversationPreviewExpand',
+                )}
+                title={i18nService.t(
+                  isExpandedConversationPreviewOpen
+                    ? 'coworkExpandedConversationPreviewCollapse'
+                    : 'coworkExpandedConversationPreviewExpand',
+                )}
+              >
+                <span className="shrink-0 font-medium text-muted">
+                  {i18nService.t(
+                    isExpandedConversationPreviewOpen
+                      ? 'coworkExpandedConversationPreviewMessages'
+                      : 'coworkExpandedConversationPreviewLatest',
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  {expandedConversationPreview?.latest.summary ?? i18nService.t('coworkExpandedConversationPreviewEmpty')}
+                </span>
+                {isSessionBusy && (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium leading-4 text-primary">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" aria-hidden="true" />
+                    {i18nService.t('coworkExpandedConversationStatusRunning')}
+                  </span>
+                )}
+                {isExpandedConversationPreviewOpen ? (
+                  <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-muted" />
+                ) : (
+                  <ChevronUpIcon className="h-3.5 w-3.5 shrink-0 text-muted" />
+                )}
+              </button>
+              {isExpandedConversationPreviewOpen && (
+                <div className="max-h-44 overflow-y-auto border-t border-border/70 px-3 py-2">
+                  <div className="space-y-2">
+                    {expandedConversationPreview?.items.map(item => (
+                      <div
+                        key={item.id}
+                        className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={
+                            item.role === 'user'
+                              ? 'max-w-[82%] rounded-2xl bg-background px-3 py-2 text-foreground shadow-subtle'
+                              : 'min-w-0 flex-1 px-1 py-1 text-foreground'
+                          }
+                        >
+                          {item.role === 'user' ? (
+                            <UserMessageContent
+                              content={item.content}
+                              className="max-w-none text-xs leading-5"
+                            />
+                          ) : (
+                            <MarkdownContent
+                              content={item.content}
+                              className="prose dark:prose-invert max-w-none text-xs leading-5"
+                              resolveLocalFilePath={resolveLocalFilePath}
+                              showRevealInFolderAction
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {isSessionBusy && (
+                      <div className="flex items-center gap-2 rounded-xl bg-primary/10 px-2.5 py-2 text-xs font-medium text-primary">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" aria-hidden="true" />
+                        {i18nService.t('coworkExpandedConversationStatusRunning')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         <div className={COWORK_DETAIL_CONTENT_CLASS}>
           <CoworkPromptInput
             ref={promptInputRef}
@@ -3406,12 +4212,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             isStreaming={isSessionBusy}
             placeholder={i18nService.t(remoteManaged ? 'coworkRemoteManagedPlaceholder' : 'coworkContinuePlaceholder')}
             disabled={remoteManaged}
-            size="large"
+            size={isArtifactPanelExpanded ? 'compact' : 'large'}
             remoteManaged={remoteManaged}
             onManageSkills={remoteManaged ? undefined : onManageSkills}
             showModelSelector={true}
-            showReadOnlyContext={true}
-            readOnlyContextTrailingText={i18nService.t('aiGeneratedDisclaimer')}
+            showReadOnlyContext={!isArtifactPanelExpanded}
+            readOnlyContextTrailingText={isArtifactPanelExpanded ? undefined : i18nService.t('aiGeneratedDisclaimer')}
             workingDirectory={currentSession?.cwd ?? ''}
             sessionId={currentSession?.id}
             contextUsageControl={(
@@ -3448,31 +4254,52 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           />
         </div>
       </div>
+      {isArtifactPanelExpanded && isExpandedPromptInputHidden && (
+        <button
+          type="button"
+          onClick={handleToggleExpandedPromptInput}
+          className="absolute bottom-2 right-2 z-50 inline-flex h-5 w-5 items-center justify-center rounded-md border border-border bg-surface-raised text-muted shadow-sm transition-colors hover:bg-surface-hover hover:text-foreground"
+          aria-label={i18nService.t('artifactBrowserShowInput')}
+          title={i18nService.t('artifactBrowserShowInput')}
+        >
+          <PromptInputExpandIcon className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
     {shouldRenderArtifactPanel && (
       <div
-        className={`h-full shrink-0 overflow-hidden ${
+        className={`${
+          artifactPanelIsOverlay
+            ? 'absolute inset-x-0 top-0 z-40 overflow-hidden bg-background'
+            : 'h-full shrink-0 overflow-hidden bg-background'
+        } ${
           isArtifactPanelTransitioning
             ? 'transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none'
             : ''
         } ${isArtifactPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
-        style={{
-          width: artifactPanelFrameWidth,
-          maxWidth: artifactPanelMaxWidth + ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH,
-        }}
+        style={artifactPanelIsOverlay
+          ? {
+              bottom: artifactPanelOverlayBottom,
+              width: 'auto',
+              maxWidth: 'none',
+            }
+          : {
+              width: artifactPanelFrameWidth,
+              maxWidth: artifactPanelRenderMaxWidth + ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH,
+            }}
         aria-hidden={!isPanelOpen}
       >
         <div
           className="flex h-full"
-          style={{ width: artifactPanelFrameWidth }}
+          style={{ width: artifactPanelInnerWidth }}
         >
-          <ArtifactPanelErrorBoundary onClose={() => dispatch(closePanel({ sessionId: currentSession.id }))}>
+          <ArtifactPanelErrorBoundary onClose={handleCloseArtifactPanel}>
             <ArtifactPanel
               sessionId={currentSession.id}
               artifacts={sessionArtifacts}
               activeSpecialTab={activeSpecialPreviewTab}
-              minPanelWidth={artifactPanelMinWidth}
-              maxPanelWidth={artifactPanelMaxWidth}
+              minPanelWidth={artifactPanelRenderMinWidth}
+              maxPanelWidth={artifactPanelRenderMaxWidth}
               browserAddress={browserPreviewAddress}
               browserUrl={browserPreviewUrl}
               onBrowserAddressChange={handleBrowserPreviewAddressChange}

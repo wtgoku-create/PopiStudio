@@ -20,6 +20,7 @@ import type {
   WikiPage,
 } from '../../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
+import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 interface ApiResponse {
   ok: boolean;
   status: number;
@@ -590,6 +591,15 @@ interface IElectronAPI {
       success: boolean;
       messages?: CoworkMessage[];
       offset?: number;
+      total?: number;
+      error?: string;
+    }>;
+    getSessionMessageRailIndex: (
+      sessionId: string,
+      limit?: number,
+    ) => Promise<{
+      success: boolean;
+      items?: CoworkMessageRailIndexItem[];
       total?: number;
       error?: string;
     }>;
