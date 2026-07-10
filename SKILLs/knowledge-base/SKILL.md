@@ -27,9 +27,31 @@ When the prompt contains `[Popiai selected knowledge sources]`, treat it as turn
 - If the user explicitly asks to answer based on, summarize, compare, cite, or extract from selected sources, do not answer from general knowledge when retrieval fails. Say that the selected sources could not be retrieved or did not contain relevant evidence.
 - If retrieval fails for an optional or unrelated selected source, continue with the user request normally and mention the retrieval issue briefly only when relevant.
 
+## Intent Check Before Search
+
+Before calling any knowledge query tool, identify the user's intent for this turn. Do this silently; do not expose an "intent classification" section unless it helps the user.
+
+Classify the request into one of these intents:
+
+- `selected-source-required`: The user explicitly asks to use, summarize, compare, cite, extract from, quote, verify against, or answer based on the selected knowledge source.
+- `knowledge-likely`: The request probably depends on selected knowledge, internal documents, wiki pages, policies, uploaded files, product/project notes, or application knowledge-base data.
+- `general-task`: The request can be handled without selected knowledge, such as rewriting text, brainstorming, coding, general explanation, casual chat, or workflow help.
+- `upload-intent`: The user wants to upload, import, add, ingest, save, index, or put a local file into a knowledge base.
+- `unclear`: The user request is ambiguous about whether selected knowledge should be used.
+
+Routing by intent:
+
+- For `selected-source-required`, search selected knowledge before answering.
+- For `knowledge-likely`, search selected knowledge before answering unless the selected source is clearly unrelated.
+- For `general-task`, do not search just because a knowledge base is selected. Answer normally.
+- For `upload-intent`, follow "Upload Tool Routing" instead of query routing.
+- For `unclear`, prefer a short clarification question when the answer would materially change. If the task can proceed safely, answer normally and mention that selected knowledge was not used.
+
+When constructing a search query, rewrite the user's request into a concise knowledge-search query that captures the actual information need. Remove UI phrasing such as "use this knowledge base" unless it affects the search target.
+
 ## Query Tool Routing
 
-Use knowledge query tools only when the user asks for information that may depend on selected knowledge sources, wiki pages, uploaded documents, or application knowledge-base data.
+Use knowledge query tools only after the intent check says the request is `selected-source-required` or `knowledge-likely`.
 
 Available tool names can vary by runtime. Prefer the most specific available tool, and fall back to the local MCP tool `preview_rag_context` from the `knowledge` server when document/wiki-specific tools are unavailable or insufficient.
 
