@@ -324,15 +324,15 @@ popiart models route-override set \
 1. 使用 `popiart image generate`、`popiart image img2img`、`popiart video generate` 或 `popiart video seedance` 提交任务。
 2. 如果带了 `--wait`，直接从 JSON 结果中提取 `task_id`、`job_id`、`artifact_ids`、`outputs`、`result_url` 或 `last_frame_url`。
 3. 如果没有带 `--wait`，先取回 `job_id` 或 `task_id`，再用 `popiart jobs get <job_id>` 或 `popiart jobs wait <job_id>`。
-4. 任务完成后，优先使用 `task_id` 立即下载全部结果到本地目录，例如 `./output/popiart/<task-id>/`。
-5. 下载命令优先用 `popiart artifacts pull-all <task-id> --dir ./output/popiart/<task-id>`。
+4. 任务完成后，优先使用 `task_id` 立即下载全部结果到本地目录。先确认当前工作目录，不要在已经位于 `output/popiart/<task-id>` 或其子目录时再次拼接 `./output/popiart/<task-id>`。
+5. 下载命令优先使用项目根目录下的绝对路径：`popiart artifacts pull-all <task-id> --dir "<project-root>/output/popiart/<task-id>"`。如果无法确认项目根目录，则使用当前目录下的 `./artifacts`，不要再次拼接 `output/popiart/<task-id>`。
 6. 只有在确认拿不到 `task_id` 时，才退回到 `popiart artifacts list <task-id>`、`popiart artifacts get <artifact-id>` 等查询步骤补齐信息。
 
 ### 语音 / 音乐生成
 
 1. 使用 `popiart speech synthesize` 或 `popiart music generate` 提交任务，优先带 `--wait`。
 2. 从结果中提取 `task_id`、`artifact_ids`、输出 URL 或其他产物元数据。
-3. 生成成功后同样立即下载到本地，优先使用 `popiart artifacts pull-all <task-id> --dir ./output/popiart/<task-id>`。
+3. 生成成功后同样立即下载到本地，优先使用项目根目录下的绝对路径：`popiart artifacts pull-all <task-id> --dir "<project-root>/output/popiart/<task-id>"`。如果当前目录已经在该输出目录内，则改用 `./artifacts`。
 4. 如果接口只返回 URL 而没有可用的 `task_id`，至少要把最终媒体文件保存到本地，并在回复中明确本地路径。
 
 ### 本地文件作为输入
@@ -362,7 +362,9 @@ popiart media get <media-id>
 
 - 产物优先看 `artifact_id`。
 - 任务级轮询优先用 `popiart jobs get <job_id>` 或 `popiart jobs wait <job_id>`。
-- 默认把生成结果下载到 `./output/popiart/<task-id>/`；如果暂时拿不到 `task_id`，使用能稳定标识任务的目录名。
+- 默认把生成结果下载到项目根目录下的 `output/popiart/<task-id>/`；如果暂时拿不到 `task_id`，使用能稳定标识任务的目录名。
+- 下载前必须确认输出目录是绝对路径或相对于项目根目录的路径。不要从 `output/popiart/<task-id>` 内部再执行 `--dir ./output/popiart/<task-id>`，这会生成嵌套目录。
+- 回复用户时只写实际存在的下载路径；不要手写推测路径。必要时用 `ls` 或等价方式确认文件存在。
 - 查看任务结果列表：
 
 ```bash
@@ -378,7 +380,7 @@ popiart artifacts get <artifact-id>
 - 下载任务全部产物：
 
 ```bash
-popiart artifacts pull-all <task-id> --dir ./output/popiart/<task-id>
+popiart artifacts pull-all <task-id> --dir "<project-root>/output/popiart/<task-id>"
 ```
 
 - `popiart artifacts pull <artifact_id>` 在主站模式下可能不可用，只有确认环境支持时再使用。
