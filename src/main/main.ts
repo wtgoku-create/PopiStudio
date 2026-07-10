@@ -60,7 +60,7 @@ import {
   registerScheduledTaskHandlers,
 } from './ipcHandlers/scheduledTask';
 import { RemoteKnowledgeService } from './knowledge/remoteKnowledgeService';
-import { buildKnowledgeSourceReferencePrompt } from './knowledge/sourceReferencePrompt';
+import { buildSelectedKnowledgeContextPrompt } from './knowledge/sourceReferencePrompt';
 import {
   type CoworkAgentEngine,
   CoworkEngineRouter,
@@ -1009,41 +1009,27 @@ const resolveCoworkRuntimePrompt = async (options: {
   knowledgeBases?: Array<{ id: string; name?: string }>;
   knowledgeFiles?: Array<{ id: string; title?: string; knowledgeBaseName?: string; fileType?: string }>;
 }): Promise<string> => {
-  const query = options.prompt.trim();
-  const knowledgeBases = options.knowledgeBases?.filter(item => Boolean(item.id)) ?? [];
-  const knowledgeFiles = options.knowledgeFiles?.filter(item => Boolean(item.id)) ?? [];
-  if (!query || (knowledgeBases.length === 0 && knowledgeFiles.length === 0)) {
+  const selectedKnowledgeContext = buildSelectedKnowledgeContextPrompt(options);
+  if (!selectedKnowledgeContext) {
     return options.prompt;
   }
+  return `${selectedKnowledgeContext}\n\n${options.prompt}`;
+};
 
-  const routingContext = [
-    '[Popiai selected knowledge context]',
-    'The user selected knowledge sources for this turn. First decide whether the user request depends on those selected sources.',
-    'If the request depends on the selected sources, retrieve from them before answering. If the selected sources are unrelated, answer normally and do not mention them.',
-    knowledgeBases.length > 0
-      ? `Selected knowledgeBaseIds: ${JSON.stringify(knowledgeBases.map(item => ({
-          id: item.id,
-          ...(item.name ? { name: item.name } : {}),
-        })))}`
-      : '',
-    knowledgeFiles.length > 0
-      ? `Selected knowledgeIds: ${JSON.stringify(knowledgeFiles.map(item => ({
-          id: item.id,
-          ...(item.title ? { title: item.title } : {}),
-          ...(item.knowledgeBaseName ? { knowledgeBaseName: item.knowledgeBaseName } : {}),
-          ...(item.fileType ? { fileType: item.fileType } : {}),
-        })))}`
-      : '',
-    knowledgeFiles.length > 0
-      ? 'When selected knowledgeIds are present, prioritize document-specific retrieval first: `get_document_info`, `list_knowledge_chunks`, `grep_chunks`, or `knowledge_search`. Use the local MCP tool `preview_rag_context` from the `knowledge` server as the fallback.'
-      : 'When only selected knowledgeBaseIds are present, use `wiki_search` / `wiki_read_page` for curated wiki-style answers, use `knowledge_search`, `grep_chunks`, `list_knowledge_chunks`, or `get_document_info` for document evidence, and use the local MCP tool `preview_rag_context` from the `knowledge` server as the fallback.',
-    'Pass these selected ids to whichever knowledge tool supports them. If you use `preview_rag_context`, call it with `query`, `knowledgeBaseIds`, and/or `knowledgeIds`.',
-    'If the user explicitly asks to answer based on, summarize, compare, cite, or extract from the selected knowledge sources, do not answer from general knowledge when retrieval fails. Say that the selected sources could not be retrieved or did not contain relevant evidence.',
-    'If retrieval fails for an optional or unrelated selected source, continue with the user request normally and mention the retrieval issue briefly only when relevant.',
-    '[/Popiai selected knowledge context]',
-  ].filter(Boolean).join('\n');
+const KNOWLEDGE_BASE_SKILL_ID = 'knowledge-base';
 
-  return `${routingContext}\n\n${options.prompt}`;
+const resolveRuntimeSkillIds = (options: {
+  activeSkillIds?: string[];
+  knowledgeBases?: Array<{ id: string }>;
+  knowledgeFiles?: Array<{ id: string }>;
+}): string[] | undefined => {
+  const nextSkillIds = options.activeSkillIds ? [...options.activeSkillIds] : [];
+  const hasSelectedKnowledge = Boolean(options.knowledgeBases?.some(item => item.id))
+    || Boolean(options.knowledgeFiles?.some(item => item.id));
+  if (hasSelectedKnowledge && !nextSkillIds.includes(KNOWLEDGE_BASE_SKILL_ID)) {
+    nextSkillIds.push(KNOWLEDGE_BASE_SKILL_ID);
+  }
+  return nextSkillIds.length > 0 ? nextSkillIds : undefined;
 };
 
 const forwardCoworkMessage = (sessionId: string, message: unknown, beforeMessageId?: string): void => {
@@ -2241,7 +2227,6 @@ function mergeCoworkSystemPrompt(
 ): string | undefined {
   const sections = [
     buildScheduledTaskEnginePrompt(),
-    buildKnowledgeSourceReferencePrompt(),
     POPIART_MEDIA_GENERATION_SERVICE_PROMPT,
     systemPrompt?.trim() || '',
   ].filter(Boolean);
@@ -3295,12 +3280,13 @@ if (!gotTheLock) {
 
       // Start the session asynchronously (skip initial user message since we already added it)
       const runtime = getCoworkEngineRouter();
+      const runtimeSkillIds = resolveRuntimeSkillIds(options);
       (async () => {
         const runtimePrompt = await resolveCoworkRuntimePrompt(options);
         await runtime.startSession(session.id, runtimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt,
-          skillIds: options.activeSkillIds,
+          skillIds: runtimeSkillIds,
           workspaceRoot: taskWorkingDirectory,
           confirmationMode: 'modal',
           imageAttachments: options.imageAttachments,
@@ -3400,13 +3386,14 @@ if (!gotTheLock) {
         });
       }
       (async () => {
+        const runtimeSkillIds = resolveRuntimeSkillIds(options);
         const runtimePrompt = await resolveCoworkRuntimePrompt(options);
         await runtime.continueSession(options.sessionId, runtimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt: mergeCoworkSystemPrompt(
             options.systemPrompt ?? existingSession?.systemPrompt,
           ),
-          skillIds: options.activeSkillIds,
+          skillIds: runtimeSkillIds,
           imageAttachments: options.imageAttachments,
         });
       })().catch(error => {

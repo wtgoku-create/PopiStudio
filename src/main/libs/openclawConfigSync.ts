@@ -22,7 +22,6 @@ import {
 import type { Agent, CoworkConfig, CoworkExecutionMode } from '../coworkStore';
 import type { DiscordInstanceConfig, IMSettings, TelegramInstanceConfig } from '../im/types';
 import type { DingTalkInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NeteaseBeeChanConfig, NimInstanceConfig, PopoInstanceConfig, QQInstanceConfig, WecomInstanceConfig, WeixinOpenClawConfig } from '../im/types';
-import { buildKnowledgeSourceReferencePrompt } from '../knowledge/sourceReferencePrompt';
 import { OpenClawSessionKeepAlive } from '../openclawSessionPolicy/constants';
 import { buildOpenClawSessionConfig } from '../openclawSessionPolicy/store';
 import { resolvePopiArtCliDir, resolvePopiArtConfigDir } from '../popiart/popiartCliManager';
@@ -2993,7 +2992,6 @@ export class OpenClawConfigSync {
       // in openclaw.json, so we no longer embed the skills routing prompt here.
 
       sections.push(MANAGED_WEB_SEARCH_POLICY_PROMPT);
-      sections.push(buildKnowledgeSourceReferencePrompt());
       sections.push(MANAGED_BROWSER_POLICY_PROMPT);
       sections.push(MANAGED_EXEC_SAFETY_PROMPT);
       sections.push(MANAGED_REPLY_MEDIA_PATH_PROMPT);
