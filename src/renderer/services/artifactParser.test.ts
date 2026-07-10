@@ -94,6 +94,54 @@ describe('parseLocalServiceUrlsFromText', () => {
     const artifacts = parseLocalServiceUrlsFromText('https://example.com/app', 'msg1', 'sess1');
     expect(artifacts).toHaveLength(0);
   });
+
+  test('attaches explicit project directory metadata', () => {
+    const artifacts = parseLocalServiceUrlsFromText(
+      '项目目录：/Users/admin/project/fanren-vote\n服务已启动：http://localhost:4173/',
+      'msg1',
+      'sess1',
+      { projectDirectory: '/Users/admin/project' },
+    );
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].localService).toEqual({
+      url: 'http://localhost:4173/',
+      origin: 'http://localhost:4173',
+      projectDirectory: '/Users/admin/project/fanren-vote',
+      projectCandidates: [
+        expect.objectContaining({
+          directory: '/Users/admin/project/fanren-vote',
+          source: 'text-labeled-path',
+          confidence: 85,
+          messageId: 'msg1',
+        }),
+      ],
+    });
+  });
+
+  test('resolves relative cd command against current project directory', () => {
+    const artifacts = parseLocalServiceUrlsFromText(
+      'cd ./web\nhttp://localhost:5173/',
+      'msg1',
+      'sess1',
+      { projectDirectory: '/Users/admin/project/fanren' },
+    );
+    expect(artifacts[0].localService?.projectDirectory).toBe('/Users/admin/project/fanren/web');
+  });
+
+  test('uses local file links as project directory candidates', () => {
+    const artifacts = parseLocalServiceUrlsFromText(
+      'Preview: http://localhost:4173/\nFiles: [index.html](file:///Users/admin/project/app/index.html)',
+      'msg1',
+      'sess1',
+    );
+    expect(artifacts[0].localService?.projectDirectory).toBe('/Users/admin/project/app');
+    expect(artifacts[0].localService?.projectCandidates).toEqual([
+      expect.objectContaining({
+        directory: '/Users/admin/project/app',
+        source: 'text-file-link',
+      }),
+    ]);
+  });
 });
 
 describe('parseMediaTokensFromText', () => {
@@ -312,5 +360,51 @@ describe('dedupeArtifactsForDisplay', () => {
 
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0].id).toBe('svc-b');
+  });
+
+  test('prefers local service artifact with detected project metadata', () => {
+    const artifacts = dedupeArtifactsForDisplay([
+      artifact({
+        id: 'plain-service',
+        type: 'local-service',
+        content: 'http://localhost:5173/',
+        url: 'http://localhost:5173/',
+        createdAt: 300,
+      }),
+      artifact({
+        id: 'project-service',
+        type: 'local-service',
+        content: 'http://localhost:5173/app',
+        url: 'http://localhost:5173/app',
+        createdAt: 200,
+        localService: {
+          url: 'http://localhost:5173/app',
+          origin: 'http://localhost:5173',
+          projectDirectory: '/Users/admin/project/app',
+        },
+      }),
+    ]);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].id).toBe('project-service');
+  });
+
+  test('keeps local service artifacts on different ports', () => {
+    const artifacts = dedupeArtifactsForDisplay([
+      artifact({
+        id: 'service-3000',
+        type: 'local-service',
+        content: 'http://localhost:3000/',
+        url: 'http://localhost:3000/',
+      }),
+      artifact({
+        id: 'service-5174',
+        type: 'local-service',
+        content: 'http://localhost:5174/',
+        url: 'http://localhost:5174/',
+      }),
+    ]);
+
+    expect(artifacts.map(item => item.id)).toEqual(['service-3000', 'service-5174']);
   });
 });

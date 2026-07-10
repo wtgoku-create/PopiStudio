@@ -1272,8 +1272,11 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     sessionId ? selectSessionArtifacts(state, sessionId) : EMPTY_ARTIFACTS
   );
   const sessionArtifacts = useMemo(
-    () => dedupeArtifactsForDisplay(rawSessionArtifacts),
-    [rawSessionArtifacts],
+    () => dedupeArtifactsForDisplay(
+      rawSessionArtifacts,
+      { defaultProjectDirectory: currentSession?.cwd },
+    ),
+    [currentSession?.cwd, rawSessionArtifacts],
   );
   const artifactPreviewTabs = useSelector((state: RootState) =>
     sessionId ? selectPreviewTabs(state, sessionId) : EMPTY_ARTIFACT_PREVIEW_TABS
@@ -2242,7 +2245,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         if (msg.type === 'assistant' && !msg.metadata?.isThinking && msg.content) {
           const seenFilePaths = new Set<string>();
           const seenLocalServiceUrls = new Set<string>();
-          const localServiceArtifacts = parseLocalServiceUrlsFromText(msg.content, msg.id, sessionId);
+          const localServiceArtifacts = parseLocalServiceUrlsFromText(
+            msg.content,
+            msg.id,
+            sessionId,
+            { projectDirectory: currentSession?.cwd },
+          );
           for (const serviceArtifact of localServiceArtifacts) {
             pushLocalServiceArtifactIfNew(serviceArtifact, seenLocalServiceUrls);
           }
