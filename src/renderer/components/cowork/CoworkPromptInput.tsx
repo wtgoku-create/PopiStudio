@@ -4,7 +4,7 @@ import * as PopoverPrimitive from '@radix-ui/react-popover';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
-import type { RemoteKnowledgeBase, RemoteKnowledgeFile } from '../../../shared/knowledge/constants';
+import type { RemoteKnowledgeBase } from '../../../shared/knowledge/constants';
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
 import { configService } from '../../services/config';
 import { coworkService } from '../../services/cowork';
@@ -207,9 +207,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [isKnowledgeMenuOpen, setIsKnowledgeMenuOpen] = useState(false);
     const [isLoadingKnowledgeBases, setIsLoadingKnowledgeBases] = useState(false);
     const [knowledgeBases, setKnowledgeBases] = useState<RemoteKnowledgeBase[]>([]);
-    const [recentKnowledgeFiles, setRecentKnowledgeFiles] = useState<RemoteKnowledgeFile[]>([]);
     const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
-    const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState<string[]>([]);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const dragDepthRef = useRef(0);
@@ -295,10 +293,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const selectedKnowledgeBases = selectedKnowledgeBaseIds
     .map(id => knowledgeBases.find(base => base.id === id))
     .filter((base): base is RemoteKnowledgeBase => Boolean(base));
-  const selectedKnowledgeFiles = selectedKnowledgeIds
-    .map(id => recentKnowledgeFiles.find(file => file.id === id))
-    .filter((file): file is RemoteKnowledgeFile => Boolean(file));
-  const hasSelectedKnowledge = selectedKnowledgeBases.length > 0 || selectedKnowledgeFiles.length > 0;
+  const hasSelectedKnowledge = selectedKnowledgeBases.length > 0;
   const hasContextBadges = hasActiveSkills || hasSelectedKnowledge;
   const modelTargetAgentId = currentSession && currentSession.id === sessionId
     ? currentSession.agentId
@@ -425,6 +420,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     // setShowFolderRequiredWarning(false);
 
     // Get active skills prompts and combine them
+    const knowledgeBases = selectedKnowledgeBases.map(base => ({ id: base.id, name: base.name }));
+    const hasSelectedKnowledgeBases = knowledgeBases.length > 0;
     const activeSkills = activeSkillIds
       .map(id => skills.find(s => s.id === id))
       .filter((s): s is Skill => s !== undefined);
@@ -502,17 +499,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         })),
       });
     }
-    const knowledgeBases = selectedKnowledgeBases.map(base => ({ id: base.id, name: base.name }));
-    const knowledgeFiles = selectedKnowledgeFiles.map(file => ({
-      id: file.id,
-      title: file.title || file.file_name || file.id,
-      knowledgeBaseName: file.knowledge_base_name || undefined,
-      fileType: file.file_type || undefined,
-    }));
-    const submitOptions: CoworkPromptSubmitOptions | undefined = knowledgeBases.length > 0 || knowledgeFiles.length > 0
+    const submitOptions: CoworkPromptSubmitOptions | undefined = hasSelectedKnowledgeBases
       ? {
-        ...(knowledgeBases.length > 0 ? { knowledgeBases } : {}),
-        ...(knowledgeFiles.length > 0 ? { knowledgeFiles } : {}),
+        knowledgeBases,
       }
       : undefined;
     const result = await onSubmit(finalPrompt, skillPrompt, imageAtts.length > 0 ? imageAtts : undefined, submitOptions);
@@ -521,7 +510,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
     setImageVisionHint(false);
-  }, [value, isStreaming, disabled, isPatchingModel, onSubmit, activeSkillIds, skills, attachments, dispatch, draftKey, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeIds, selectedKnowledgeBases, selectedKnowledgeFiles]);
+  }, [value, isStreaming, disabled, isPatchingModel, onSubmit, activeSkillIds, skills, attachments, dispatch, draftKey, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     dispatch(toggleActiveSkill(skill.id));
@@ -537,10 +526,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     if (isLoadingKnowledgeBases) return;
     setIsLoadingKnowledgeBases(true);
     try {
-      const [basesResult, filesResult] = await Promise.all([
-        knowledgeService.listBases(),
-        knowledgeService.searchRecentKnowledge({ recent: true, offset: 0, limit: 20 }),
-      ]);
+      const basesResult = await knowledgeService.listBases();
       if (basesResult.success && basesResult.data) {
         const nextKnowledgeBases = basesResult.data;
         const nextKnowledgeBaseIds = new Set(nextKnowledgeBases.map(base => base.id));
@@ -550,21 +536,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         setKnowledgeBases([]);
         setSelectedKnowledgeBaseIds([]);
       }
-
-      if (filesResult.success && filesResult.data) {
-        const nextKnowledgeFiles = filesResult.data.items;
-        const nextKnowledgeIds = new Set(nextKnowledgeFiles.map(file => file.id));
-        setRecentKnowledgeFiles(nextKnowledgeFiles);
-        setSelectedKnowledgeIds(current => current.filter(id => nextKnowledgeIds.has(id)));
-      } else {
-        setRecentKnowledgeFiles([]);
-        setSelectedKnowledgeIds([]);
-      }
     } catch (error) {
       setKnowledgeBases([]);
-      setRecentKnowledgeFiles([]);
       setSelectedKnowledgeBaseIds([]);
-      setSelectedKnowledgeIds([]);
     } finally {
       setIsLoadingKnowledgeBases(false);
     }
@@ -572,10 +546,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const handleKnowledgeMenuOpenChange = useCallback((open: boolean) => {
     setIsKnowledgeMenuOpen(open);
-    if (open && knowledgeBases.length === 0 && recentKnowledgeFiles.length === 0) {
+    if (open && knowledgeBases.length === 0) {
       void loadKnowledgeBases();
     }
-  }, [knowledgeBases.length, loadKnowledgeBases, recentKnowledgeFiles.length]);
+  }, [knowledgeBases.length, loadKnowledgeBases]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isComposing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
@@ -1070,11 +1044,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         <button
           type="button"
           className={`flex h-[34px] max-w-[180px] items-center gap-1.5 rounded-lg px-2 text-[13px] transition-colors ${
-            selectedKnowledgeBaseIds.length > 0 || selectedKnowledgeIds.length > 0
+            selectedKnowledgeBaseIds.length > 0
               ? 'bg-primary/10 text-primary hover:bg-primary/15'
               : 'text-secondary hover:bg-surface-raised hover:text-foreground'
           }`}
-          title={[...selectedKnowledgeBases.map(base => base.name), ...selectedKnowledgeFiles.map(file => file.title || file.file_name || file.id)].join(', ') || i18nService.t('knowledgeBase')}
+          title={selectedKnowledgeBases.map(base => base.name).join(', ') || i18nService.t('knowledgeBase')}
           aria-label={i18nService.t('knowledgeBase')}
           disabled={disabled || isStreaming}
         >
@@ -1100,14 +1074,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             {isLoadingKnowledgeBases && (
               <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('folderLoading')}</div>
             )}
-            {!isLoadingKnowledgeBases && knowledgeBases.length === 0 && recentKnowledgeFiles.length === 0 && (
+            {!isLoadingKnowledgeBases && knowledgeBases.length === 0 && (
               <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('knowledgeBaseEmpty')}</div>
             )}
             {!isLoadingKnowledgeBases && knowledgeBases.length > 0 && (
               <div className="py-1">
-                <div className="px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-                  {i18nService.t('knowledgeBase')}
-                </div>
                 {knowledgeBases.map((base) => {
                   const selected = selectedKnowledgeBaseIds.includes(base.id);
                   return (
@@ -1134,43 +1105,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                         {base.documentCount !== undefined
                           ? `${base.documentCount} ${i18nService.t('knowledgeBaseDocuments')}`
                           : base.description || base.id}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-            {!isLoadingKnowledgeBases && recentKnowledgeFiles.length > 0 && (
-              <div className="border-t border-border py-1">
-                <div className="px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-                  {i18nService.t('knowledgeRecentFiles')}
-                </div>
-                {recentKnowledgeFiles.map((file) => {
-                  const selected = selectedKnowledgeIds.includes(file.id);
-                  const title = file.title || file.file_name || file.id;
-                  const subtitle = [file.knowledge_base_name, file.file_type].filter(Boolean).join(' · ');
-                  return (
-                    <label
-                      key={file.id}
-                      className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised ${
-                        selected ? 'text-primary' : 'text-foreground'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => {
-                          setSelectedKnowledgeIds((current) => (
-                            current.includes(file.id)
-                              ? current.filter(id => id !== file.id)
-                              : [...current, file.id]
-                          ));
-                        }}
-                        className="h-4 w-4 shrink-0 rounded border-border accent-primary"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
-                      <span className="max-w-[96px] shrink-0 truncate text-xs text-secondary">
-                        {subtitle || file.id}
                       </span>
                     </label>
                   );
@@ -1253,27 +1187,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           <span className="min-w-0 truncate">{base.name}</span>
         </button>
       ))}
-      {selectedKnowledgeFiles.map(file => {
-        const title = file.title || file.file_name || file.id;
-        return (
-          <button
-            type="button"
-            key={`knowledge:${file.id}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              setSelectedKnowledgeIds(current => current.filter(id => id !== file.id));
-            }}
-            className="group inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground transition-all hover:bg-primary/15 hover:ring-1 hover:ring-primary/30"
-            title={i18nService.t('knowledgeRecentFiles')}
-          >
-            <span className="relative flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-colors group-hover:bg-primary/15">
-              <PaperClipIcon className="h-3.5 w-3.5 text-primary transition-opacity group-hover:opacity-0" />
-              <XMarkIcon className="absolute h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100" />
-            </span>
-            <span className="min-w-0 truncate">{title}</span>
-          </button>
-        );
-      })}
     </div>
   ) : null;
 
