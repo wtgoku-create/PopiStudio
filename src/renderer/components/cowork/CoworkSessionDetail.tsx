@@ -1874,10 +1874,18 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     handleOpenArtifactFileListTab();
   }, [handleOpenArtifactFileListTab]);
 
+  const resetArtifactPanelExpandedState = useCallback(() => {
+    setShowArtifactAddMenu(false);
+    setIsArtifactPanelExpanded(false);
+    setIsExpandedConversationPreviewOpen(false);
+    setIsExpandedPromptInputHidden(false);
+  }, []);
+
   const handleCloseArtifactFileListTab = useCallback(() => {
     const wasActive = !activeArtifactPreviewTab && activeSpecialPreviewTab === ArtifactSpecialTab.FileList;
     setSessionFileListPreviewTabOpen(false);
     if (!sessionId) {
+      resetArtifactPanelExpandedState();
       dispatch(closePanel(undefined));
       return;
     }
@@ -1902,6 +1910,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       return;
     }
 
+    resetArtifactPanelExpandedState();
     dispatch(closePanel({ sessionId }));
   }, [
     activeArtifactPreviewTab,
@@ -1909,6 +1918,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     artifactTabsWithArtifacts,
     dispatch,
     isBrowserPreviewTabOpen,
+    resetArtifactPanelExpandedState,
     isSubagentPreviewTabOpen,
     sessionId,
     setSessionActiveSpecialPreviewTab,
@@ -1927,6 +1937,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setSessionBrowserPreviewTabOpen(false);
     clearBrowserPreviewState();
     if (!sessionId) {
+      resetArtifactPanelExpandedState();
       dispatch(closePanel(undefined));
       return;
     }
@@ -1951,6 +1962,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       return;
     }
 
+    resetArtifactPanelExpandedState();
     dispatch(closePanel({ sessionId }));
   }, [
     activeArtifactPreviewTab,
@@ -1959,6 +1971,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     dispatch,
     clearBrowserPreviewState,
     isFileListPreviewTabOpen,
+    resetArtifactPanelExpandedState,
     isSubagentPreviewTabOpen,
     sessionId,
     setSessionActiveSpecialPreviewTab,
@@ -1970,6 +1983,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setSessionSubagentPreviewTabOpen(false);
     setSelectedSubagent(null);
     if (!sessionId) {
+      resetArtifactPanelExpandedState();
       dispatch(closePanel(undefined));
       return;
     }
@@ -1994,6 +2008,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       return;
     }
 
+    resetArtifactPanelExpandedState();
     dispatch(closePanel({ sessionId }));
   }, [
     activeArtifactPreviewTab,
@@ -2002,6 +2017,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     dispatch,
     isBrowserPreviewTabOpen,
     isFileListPreviewTabOpen,
+    resetArtifactPanelExpandedState,
     sessionId,
     setSessionActiveSpecialPreviewTab,
     setSessionSubagentPreviewTabOpen,
@@ -2017,16 +2033,22 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const remainingTabs = artifactTabsWithArtifacts.filter(({ tab }) => tab.id !== tabId);
     dispatch(closeArtifactPreviewTab({ sessionId, tabId }));
     if (remainingTabs.length === 0 && !isFileListPreviewTabOpen && !isBrowserPreviewTabOpen && !isSubagentPreviewTabOpen) {
+      resetArtifactPanelExpandedState();
       dispatch(closePanel({ sessionId }));
     }
-  }, [artifactTabsWithArtifacts, dispatch, isBrowserPreviewTabOpen, isFileListPreviewTabOpen, isSubagentPreviewTabOpen, sessionId]);
+  }, [
+    artifactTabsWithArtifacts,
+    dispatch,
+    isBrowserPreviewTabOpen,
+    isFileListPreviewTabOpen,
+    isSubagentPreviewTabOpen,
+    resetArtifactPanelExpandedState,
+    sessionId,
+  ]);
 
   const handleToggleArtifactPanel = useCallback(() => {
     if (isPanelOpen) {
-      setShowArtifactAddMenu(false);
-      setIsArtifactPanelExpanded(false);
-      setIsExpandedConversationPreviewOpen(false);
-      setIsExpandedPromptInputHidden(false);
+      resetArtifactPanelExpandedState();
       dispatch(closePanel(sessionId ? { sessionId } : undefined));
       return;
     }
@@ -2051,18 +2073,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     isFileListPreviewTabOpen,
     isSubagentPreviewTabOpen,
     isPanelOpen,
+    resetArtifactPanelExpandedState,
     sessionId,
     setSessionActiveSpecialPreviewTab,
     setSessionFileListPreviewTabOpen,
   ]);
 
   const handleCloseArtifactPanel = useCallback(() => {
-    setShowArtifactAddMenu(false);
-    setIsArtifactPanelExpanded(false);
-    setIsExpandedConversationPreviewOpen(false);
-    setIsExpandedPromptInputHidden(false);
+    resetArtifactPanelExpandedState();
     dispatch(closePanel(sessionId ? { sessionId } : undefined));
-  }, [dispatch, sessionId]);
+  }, [dispatch, resetArtifactPanelExpandedState, sessionId]);
 
   const handleToggleArtifactPanelExpanded = useCallback(() => {
     setIsArtifactPanelExpanded((value) => {
@@ -3400,7 +3420,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     ? artifactPanelContentWidth + ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH
     : 0;
   const artifactHeaderWidth = isArtifactPanelVisible
-    ? isArtifactPanelExpanded
+    ? isArtifactPanelExpanded && contentRowWidth > 0
       ? contentRowWidth || artifactPanelFrameWidth
       : Math.max(0, artifactPanelFrameWidth - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH)
     : undefined;
@@ -3522,9 +3542,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       {/* Header — spans full width */}
-      <div className="draggable flex h-12 items-center justify-between px-4 border-b border-border bg-background shrink-0">
+      <div className={`draggable flex h-12 items-center justify-between border-b border-border bg-background shrink-0 ${
+        isArtifactPanelExpanded ? 'pl-0 pr-4' : 'px-4'
+      }`}
+      >
         {/* Left side: Toggle buttons (when collapsed) + Title */}
-        <div className="flex h-full flex-1 items-center gap-2 min-w-0">
+        <div className={`h-full flex-1 items-center gap-2 min-w-0 ${
+          isArtifactPanelExpanded ? 'hidden' : 'flex'
+        }`}>
           {/* {isSidebarCollapsed && (
             <div className={`non-draggable flex items-center gap-1 ${isMac ? 'pl-[68px]' : ''}`}>
               <button
@@ -3561,8 +3586,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
         {/* Right side: Artifact toggle */}
         <div
-          className={`non-draggable flex h-full shrink-0 items-center gap-1 ${
-            isArtifactPanelVisible ? '-mr-4 border-l border-border pr-4' : ''
+          className={`non-draggable flex h-full items-center gap-1 ${
+            isArtifactPanelExpanded ? 'min-w-0 flex-1' : 'shrink-0'
+          } ${
+            isArtifactPanelVisible
+              ? isArtifactPanelExpanded
+                ? 'pr-0'
+                : '-mr-4 border-l border-border pr-4'
+              : ''
           }`}
           style={artifactHeaderWidth !== undefined ? { width: artifactHeaderWidth } : undefined}
         >
@@ -3573,7 +3604,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                   ref={artifactTabsScrollRef}
                   className="scrollbar-hidden flex h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
                 >
-                  <div className="flex h-full min-w-max items-center gap-1 pl-4 pr-3">
+                  <div className={`flex h-full min-w-max items-center gap-1 pr-3 ${
+                    isArtifactPanelExpanded ? 'pl-3' : 'pl-4'
+                  }`}
+                  >
                   {isFileListPreviewTabOpen && (
                     <div
                       data-artifact-preview-active={
@@ -4308,6 +4342,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               activeSpecialTab={activeSpecialPreviewTab}
               minPanelWidth={artifactPanelRenderMinWidth}
               maxPanelWidth={artifactPanelRenderMaxWidth}
+              isPanelExpanded={isArtifactPanelExpanded}
               browserAddress={browserPreviewAddress}
               browserUrl={browserPreviewUrl}
               onBrowserAddressChange={handleBrowserPreviewAddressChange}

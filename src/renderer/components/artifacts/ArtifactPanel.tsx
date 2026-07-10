@@ -112,6 +112,7 @@ interface ArtifactPanelProps {
   activeSpecialTab?: ArtifactSpecialTab;
   minPanelWidth?: number;
   maxPanelWidth?: number;
+  isPanelExpanded?: boolean;
   browserAddress?: string;
   browserUrl?: string;
   onBrowserAddressChange?: (value: string) => void;
@@ -177,6 +178,7 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   activeSpecialTab = ArtifactSpecialTab.FileList,
   minPanelWidth = MIN_PANEL_WIDTH,
   maxPanelWidth = MAX_PANEL_WIDTH,
+  isPanelExpanded = false,
   browserAddress: controlledBrowserAddress,
   browserUrl: controlledBrowserUrl,
   onBrowserAddressChange,
@@ -210,7 +212,9 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   const startWidth = useRef(0);
   const previousBodyCursor = useRef('');
   const [panelIsResizing, setPanelIsResizing] = useState(false);
-  const constrainedMaxPanelWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, maxPanelWidth));
+  const constrainedMaxPanelWidth = isPanelExpanded
+    ? Math.max(MIN_PANEL_WIDTH, maxPanelWidth)
+    : Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, maxPanelWidth));
   const constrainedMinPanelWidth = Math.min(
     constrainedMaxPanelWidth,
     Math.max(MIN_PANEL_WIDTH, minPanelWidth),
@@ -564,16 +568,19 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
 
   return (
     <>
-      {/* Drag handle */}
-      <div
-        className="w-1 shrink-0 touch-none cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
-        onPointerDown={handleResizeStart}
-      />
+      {!isPanelExpanded && (
+        <div
+          className="w-1 shrink-0 touch-none cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
+          onPointerDown={handleResizeStart}
+        />
+      )}
       <aside
-        style={{ width: constrainedPanelWidth, maxWidth: constrainedMaxPanelWidth }}
-        className="shrink border-l border-border bg-background flex flex-col h-full overflow-hidden relative"
+        style={isPanelExpanded
+          ? { width: '100%', maxWidth: 'none' }
+          : { width: constrainedPanelWidth, maxWidth: constrainedMaxPanelWidth }}
+        className={`${isPanelExpanded ? 'min-w-0 flex-1' : 'shrink border-l border-border'} bg-background flex flex-col h-full overflow-hidden relative`}
       >
-        {panelIsResizing && (
+        {!isPanelExpanded && panelIsResizing && (
           <div className="absolute inset-0 z-30 cursor-col-resize bg-transparent" />
         )}
 
