@@ -1,9 +1,10 @@
 import http from 'http';
 import { net } from 'electron';
+import { getKnowledgeDefaultBaseUrl } from './endpoints';
 
 const PROXY_BIND_HOST = '127.0.0.1';
 const WEKNORA_OPENCLAW_MCP_PROXY_PATH = '/mcp/weknora-openclaw';
-const WEKNORA_OPENCLAW_MCP_UPSTREAM_URL = 'https://weknora.popi.art/mcp';
+const WEKNORA_OPENCLAW_MCP_UPSTREAM_URL = `${getKnowledgeDefaultBaseUrl()}/mcp`;
 const WEKNORA_OPENCLAW_MCP_RETRY_DELAYS_MS = [250, 750, 1500];
 const POPIAI_LLM_CHAT_PATH = '/api_client/anime/task/llmChat';
 
