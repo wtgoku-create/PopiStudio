@@ -24,6 +24,7 @@ import {
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
+import { stripNullChars } from '../shared/cowork/text';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
 import {
@@ -3225,8 +3226,9 @@ if (!gotTheLock) {
         };
       }
 
+      const prompt = stripNullChars(options.prompt);
       const fallbackTitle = buildSessionTitleFromInput(
-        options.prompt,
+        prompt,
         t('coworkDefaultSessionTitle')
       );
       const title = options.title?.trim() || fallbackTitle;
@@ -3274,7 +3276,7 @@ if (!gotTheLock) {
       }
       coworkStoreInstance.addMessage(session.id, {
         type: 'user',
-        content: options.prompt,
+        content: prompt,
         metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
       });
 
@@ -3282,7 +3284,7 @@ if (!gotTheLock) {
       const runtime = getCoworkEngineRouter();
       const runtimeSkillIds = resolveRuntimeSkillIds(options);
       (async () => {
-        const runtimePrompt = await resolveCoworkRuntimePrompt(options);
+        const runtimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
         await runtime.startSession(session.id, runtimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt,
@@ -3355,6 +3357,7 @@ if (!gotTheLock) {
         };
       }
 
+      const prompt = stripNullChars(options.prompt);
       const messageMetadata: Record<string, unknown> = {};
       if (options.activeSkillIds?.length) {
         messageMetadata.skillIds = options.activeSkillIds;
@@ -3370,7 +3373,7 @@ if (!gotTheLock) {
       }
       const userMessage = coworkStoreInstance.addMessage(options.sessionId, {
         type: 'user',
-        content: options.prompt,
+        content: prompt,
         metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
       });
       forwardCoworkMessage(options.sessionId, userMessage);
@@ -3387,7 +3390,7 @@ if (!gotTheLock) {
       }
       (async () => {
         const runtimeSkillIds = resolveRuntimeSkillIds(options);
-        const runtimePrompt = await resolveCoworkRuntimePrompt(options);
+        const runtimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
         await runtime.continueSession(options.sessionId, runtimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt: mergeCoworkSystemPrompt(

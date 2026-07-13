@@ -87,6 +87,7 @@ const mapExecutionModeToSandboxMode = (
  */
 export const OPENCLAW_AGENT_TIMEOUT_SECONDS = 3600;
 const DINGTALK_OPENCLAW_CHANNEL = 'dingtalk-connector';
+const OPENCLAW_MEMORY_CORE_PLUGIN_ID = 'memory-core';
 export const OPENCLAW_BINDING_ANY_ACCOUNT_ID = '*';
 const OPENCLAW_DEFAULT_MODEL_MAX_TOKENS = 8192;
 
@@ -1882,6 +1883,7 @@ export class OpenClawConfigSync {
           : [];
         const trustedPluginAllow = Array.from(new Set([
           ...existingAllow,
+          OPENCLAW_MEMORY_CORE_PLUGIN_ID,
           ...preinstalledPlugins.map(plugin => plugin.pluginId),
           ...userPlugins.filter(plugin => plugin.enabled).map(plugin => plugin.pluginId),
         ])).sort();
@@ -1910,6 +1912,10 @@ export class OpenClawConfigSync {
                 // a removed plugin causes "Config invalid: plugin not found" errors.
                 allow: trustedPluginAllow,
                 deny: [],
+                slots: {
+                  ...((existingPlugins as Record<string, unknown>).slots as Record<string, unknown> | undefined),
+                  memory: OPENCLAW_MEMORY_CORE_PLUGIN_ID,
+                },
                 entries: pluginEntries,
               },
             }
@@ -1945,11 +1951,12 @@ export class OpenClawConfigSync {
     if (managedConfig.plugins) {
       const plugins = managedConfig.plugins as Record<string, unknown>;
       const entries = plugins.entries as Record<string, Record<string, unknown>>;
-      const existingMemoryCore = entries['memory-core'] ?? {};
+      const existingMemoryCore = entries[OPENCLAW_MEMORY_CORE_PLUGIN_ID] ?? {};
       const existingMemoryCoreConfig = (existingMemoryCore as Record<string, unknown>).config as Record<string, unknown> | undefined;
       if (coworkConfig.dreamingEnabled) {
-        entries['memory-core'] = {
+        entries[OPENCLAW_MEMORY_CORE_PLUGIN_ID] = {
           ...existingMemoryCore,
+          enabled: true,
           config: {
             ...existingMemoryCoreConfig,
             dreaming: {
@@ -1958,12 +1965,16 @@ export class OpenClawConfigSync {
             },
           },
         };
-      } else if (existingMemoryCoreConfig?.dreaming) {
-        // Remove dreaming config when disabled
-        const { dreaming: _, ...restConfig } = existingMemoryCoreConfig;
-        entries['memory-core'] = {
+      } else {
+        entries[OPENCLAW_MEMORY_CORE_PLUGIN_ID] = {
           ...existingMemoryCore,
-          config: Object.keys(restConfig).length > 0 ? restConfig : undefined,
+          enabled: true,
+          config: {
+            ...existingMemoryCoreConfig,
+            dreaming: {
+              enabled: false,
+            },
+          },
         };
       }
     }

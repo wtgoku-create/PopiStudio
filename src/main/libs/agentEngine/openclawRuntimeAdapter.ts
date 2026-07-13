@@ -44,6 +44,7 @@ import {
   stripTrailingSilentReplyToken,
 } from '../openclawHistory';
 import { buildOpenClawLocalTimeContextPrompt } from '../openclawLocalTimeContextPrompt';
+import { stripNullChars } from '../../../shared/cowork/text';
 import { AgentLifecyclePhase, type AgentLifecyclePhase as AgentLifecyclePhaseValue } from './constants';
 import { resolveChannelSessionNextStatus } from './channelSessionRunStatus';
 import {
@@ -2187,7 +2188,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   }
 
   async startSession(sessionId: string, prompt: string, options: CoworkStartOptions = {}): Promise<void> {
-    await this.runTurn(sessionId, prompt, {
+    await this.runTurn(sessionId, stripNullChars(prompt), {
       skipInitialUserMessage: options.skipInitialUserMessage,
       skillIds: options.skillIds,
       systemPrompt: options.systemPrompt,
@@ -2198,10 +2199,11 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   }
 
   async continueSession(sessionId: string, prompt: string, options: CoworkContinueOptions = {}): Promise<void> {
-    await this.runTurn(sessionId, prompt, {
+    await this.runTurn(sessionId, stripNullChars(prompt), {
       skipInitialUserMessage: options.skipInitialUserMessage,
       systemPrompt: options.systemPrompt,
       skillIds: options.skillIds,
+      confirmationMode: options.confirmationMode,
       imageAttachments: options.imageAttachments,
     });
   }
@@ -2494,12 +2496,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       throw error;
     }
 
-    const outboundMessage = await this.buildOutboundPrompt(
+    const outboundMessage = stripNullChars(await this.buildOutboundPrompt(
       sessionId,
       prompt,
       options.systemPrompt ?? session.systemPrompt,
       agentId,
-    );
+    ));
     const runCwd = session.cwd?.trim() ? path.resolve(session.cwd.trim()) : undefined;
     const completionPromise = new Promise<void>((resolve, reject) => {
       this.pendingTurns.set(sessionId, { resolve, reject });
