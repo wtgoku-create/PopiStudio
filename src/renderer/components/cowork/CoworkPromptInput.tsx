@@ -1191,26 +1191,26 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </button>
   ) : null;
 
-  const knowledgeBaseSelector = !remoteManaged ? (
-    <PopoverPrimitive.Root open={isKnowledgeMenuOpen} onOpenChange={handleKnowledgeMenuOpenChange}>
-      <PopoverPrimitive.Trigger asChild>
-        <button
-          type="button"
-          className={`flex h-[34px] max-w-[180px] items-center gap-1.5 rounded-lg px-2 text-[13px] transition-colors ${
-            selectedKnowledgeBaseIds.length > 0
-              ? 'bg-primary/10 text-primary hover:bg-primary/15'
-              : 'text-secondary hover:bg-surface-raised hover:text-foreground'
-          }`}
-          title={selectedKnowledgeBases.map(base => base.name).join(', ') || i18nService.t('knowledgeBase')}
-          aria-label={i18nService.t('knowledgeBase')}
-          disabled={disabled || isStreaming}
-        >
-          <AcademicCapIcon className="h-4 w-4 shrink-0" />
-          <span className="min-w-0 truncate">
-            {i18nService.t('knowledgeBase')}
-          </span>
-        </button>
-      </PopoverPrimitive.Trigger>
+  const renderKnowledgeBaseSelector = (compact = false) => {
+    const tooltip = selectedKnowledgeBases.map(base => base.name).join(', ') || i18nService.t('knowledgeBase');
+
+    return !remoteManaged ? (
+      <PopoverPrimitive.Root open={isKnowledgeMenuOpen} onOpenChange={handleKnowledgeMenuOpenChange}>
+        <PopoverPrimitive.Trigger asChild>
+          <button
+            type="button"
+            className={`flex ${compact ? 'h-7 w-7 flex-shrink-0' : 'h-[34px] w-[34px]'} items-center justify-center rounded-lg transition-colors ${
+              selectedKnowledgeBaseIds.length > 0
+                ? 'bg-primary/10 text-primary hover:bg-primary/15'
+                : 'text-secondary hover:bg-surface-raised hover:text-foreground'
+            }`}
+            title={tooltip}
+            aria-label={i18nService.t('knowledgeBase')}
+            disabled={disabled || isStreaming}
+          >
+            <AcademicCapIcon className={`${compact ? 'h-[18px] w-[18px]' : 'h-5 w-5'} shrink-0`} />
+          </button>
+        </PopoverPrimitive.Trigger>
       {isKnowledgeMenuOpen && (
         <PopoverPrimitive.Portal>
           <PopoverPrimitive.Content
@@ -1268,8 +1268,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       )}
-    </PopoverPrimitive.Root>
-  ) : null;
+      </PopoverPrimitive.Root>
+    ) : null;
+  };
 
   const largeInputActions = !remoteManaged ? (
     <div className="flex items-center gap-0.5">
@@ -1287,7 +1288,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         onSelectSkill={handleSelectSkill}
         onManageSkills={handleManageSkills}
       />
-      {knowledgeBaseSelector}
+      {renderKnowledgeBaseSelector()}
     </div>
   ) : null;
   const largeSendButtonSizeClass = useCompactSendButton ? 'h-7 w-7' : 'h-8 w-8';
@@ -1656,7 +1657,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 >
                   <PaperClipIcon className="h-5 w-5" />
                 </button>
-                {knowledgeBaseSelector}
+                {renderKnowledgeBaseSelector(true)}
               </div>
             )}
 

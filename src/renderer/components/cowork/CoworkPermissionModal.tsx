@@ -1,7 +1,8 @@
+import { ExclamationTriangleIcon, MinusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useEffect, useMemo, useState } from 'react';
-import type { CoworkPermissionRequest, CoworkPermissionResult } from '../../types/cowork';
-import { ExclamationTriangleIcon, XMarkIcon } from '@heroicons/react/24/outline';
+
 import { i18nService } from '../../services/i18n';
+import type { CoworkPermissionRequest, CoworkPermissionResult } from '../../types/cowork';
 
 type DangerLevel = 'safe' | 'caution' | 'destructive';
 
@@ -70,6 +71,8 @@ function detectDangerLevelFromCommand(command: string): DangerLevel {
 interface CoworkPermissionModalProps {
   permission: CoworkPermissionRequest;
   onRespond: (result: CoworkPermissionResult) => void;
+  onMinimize?: () => void;
+  hidden?: boolean;
 }
 
 type QuestionOption = {
@@ -116,6 +119,8 @@ const resolveConfirmModeButtons = (question: QuestionItem): { primary: QuestionO
 const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
   permission,
   onRespond,
+  onMinimize,
+  hidden = false,
 }) => {
   const toolInput = permission.toolInput ?? {};
 
@@ -341,7 +346,7 @@ const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center modal-backdrop ${hidden ? 'hidden' : ''}`}>
       <div className="modal-content w-full max-w-lg mx-4 bg-surface rounded-2xl shadow-modal overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
@@ -360,6 +365,17 @@ const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
                 : i18nService.t('coworkPermissionDescription')}
             </p>
           </div>
+          {onMinimize && (
+            <button
+              type="button"
+              onClick={onMinimize}
+              className="p-2 rounded-lg hover:bg-surface-raised text-secondary transition-colors"
+              aria-label={i18nService.t('collapse')}
+              title={i18nService.t('collapse')}
+            >
+              <MinusIcon className="h-5 w-5" />
+            </button>
+          )}
           <button
             onClick={handleDeny}
             className="p-2 rounded-lg hover:bg-surface-raised text-secondary transition-colors"

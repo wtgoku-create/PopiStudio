@@ -3,7 +3,9 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   DocumentArrowDownIcon,
+  ExclamationTriangleIcon,
   PhotoIcon,
+  QuestionMarkCircleIcon,
 } from '@heroicons/react/24/outline';
 import { CoworkSessionSourceKind } from '@shared/cowork/constants';
 import {
@@ -49,7 +51,7 @@ import {
 import { setActiveSkillIds } from '../../store/slices/skillSlice';
 import type { Artifact } from '../../types/artifact';
 import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
-import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata, SubagentSessionSummary } from '../../types/cowork';
+import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata, CoworkPermissionRequest, CoworkPermissionResult, SubagentSessionSummary } from '../../types/cowork';
 import { CoworkSessionStatusValue } from '../../types/cowork';
 import { type SourceReference,SourceReferenceKind } from '../../types/sourceReference';
 import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
@@ -93,6 +95,9 @@ interface CoworkSessionDetailProps {
   onToggleSidebar?: () => void;
   onNewChat?: () => void;
   updateBadge?: React.ReactNode;
+  minimizedPermission?: CoworkPermissionRequest | null;
+  onRestorePermission?: () => void;
+  onRespondToPermission?: (result: CoworkPermissionResult) => void;
 }
 
 const AUTO_SCROLL_THRESHOLD = 120;
@@ -145,6 +150,32 @@ interface HeaderAgent {
   name?: string;
   icon?: string;
 }
+
+const getPermissionPreviewText = (permission: CoworkPermissionRequest): string => {
+  const toolInput = permission.toolInput ?? {};
+  if (permission.toolName === 'AskUserQuestion') {
+    const rawQuestions = (toolInput as Record<string, unknown>).questions;
+    if (Array.isArray(rawQuestions)) {
+      const firstQuestion = rawQuestions.find((question): question is Record<string, unknown> => (
+        !!question && typeof question === 'object' && !Array.isArray(question)
+      ));
+      if (typeof firstQuestion?.question === 'string') {
+        return firstQuestion.question;
+      }
+    }
+  }
+
+  const command = (toolInput as Record<string, unknown>).command;
+  if (typeof command === 'string' && command.trim()) {
+    return command.trim();
+  }
+
+  try {
+    return JSON.stringify(toolInput);
+  } catch {
+    return permission.toolName;
+  }
+};
 
 const HeaderAgentAvatar: React.FC<{ agent: HeaderAgent }> = ({ agent }) => {
   if (shouldUseDefaultAgentIcon(agent)) {
@@ -1045,6 +1076,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   onManageSkills,
   onContinue,
   onStop,
+  minimizedPermission,
+  onRestorePermission,
+  onRespondToPermission,
 }) => {
   const dispatch = useDispatch();
   const currentSession = useSelector(selectCurrentSession);
@@ -1055,6 +1089,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const sessionId = currentSession?.id;
   const skills = useSelector((state: RootState) => state.skill.skills);
   const agents = useSelector((state: RootState) => state.agent.agents);
+  const minimizedPermissionPreview = minimizedPermission
+    ? getPermissionPreviewText(minimizedPermission)
+    : '';
+  const isMinimizedQuestionPermission = minimizedPermission?.toolName === 'AskUserQuestion';
+  const handleDenyMinimizedPermission = useCallback(() => {
+    onRespondToPermission?.({
+      behavior: 'deny',
+      message: 'Permission denied',
+    });
+  }, [onRespondToPermission]);
   const contextUsage = useSelector((state: RootState) =>
     currentSession?.id ? state.cowork.contextUsageBySessionId[currentSession.id] : undefined
   );
@@ -4170,6 +4214,84 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           >
             <PromptInputCollapseIcon className="h-3.5 w-3.5" />
           </button>
+        )}
+        {minimizedPermission && (
+          <div className={`${COWORK_DETAIL_CONTENT_CLASS} mb-2`}>
+            <div
+              className={`flex min-w-0 items-center gap-1 rounded-xl border p-1 text-sm shadow-subtle ${
+                isMinimizedQuestionPermission
+                  ? 'border-border bg-surface'
+                  : 'border-amber-200 bg-amber-50/95 dark:border-amber-900/70 dark:bg-amber-950/35'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={onRestorePermission}
+                disabled={!onRestorePermission}
+                className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                  isMinimizedQuestionPermission
+                    ? 'enabled:hover:bg-surface-raised'
+                    : 'enabled:hover:bg-amber-100/70 dark:enabled:hover:bg-amber-900/40'
+                }`}
+                title={minimizedPermissionPreview}
+              >
+                {isMinimizedQuestionPermission ? (
+                  <QuestionMarkCircleIcon className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                ) : (
+                  <ExclamationTriangleIcon className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+                )}
+                <span
+                  className={`shrink-0 font-medium ${
+                    isMinimizedQuestionPermission ? 'text-foreground' : 'text-amber-900 dark:text-amber-100'
+                  }`}
+                >
+                  {i18nService.t(
+                    isMinimizedQuestionPermission ? 'coworkQuestionAwaitingAnswer' : 'coworkPermissionAwaiting'
+                  )}
+                </span>
+                {!isMinimizedQuestionPermission && (
+                  <span className="shrink-0 text-amber-700/80 dark:text-amber-200/75">
+                    {minimizedPermission.toolName}
+                  </span>
+                )}
+                <span
+                  className={`min-w-0 flex-1 truncate ${
+                    isMinimizedQuestionPermission
+                      ? 'text-secondary'
+                      : 'text-amber-800/85 dark:text-amber-100/80'
+                  }`}
+                >
+                  {minimizedPermissionPreview}
+                </span>
+                {onRestorePermission && (
+                  <span
+                    className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium ${
+                      isMinimizedQuestionPermission
+                        ? 'bg-primary/10 text-primary'
+                        : 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-50'
+                    }`}
+                  >
+                    {i18nService.t(
+                      isMinimizedQuestionPermission ? 'coworkQuestionResume' : 'coworkPermissionRestore'
+                    )}
+                  </span>
+                )}
+              </button>
+              {onRespondToPermission && (
+                <button
+                  type="button"
+                  onClick={handleDenyMinimizedPermission}
+                  className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    isMinimizedQuestionPermission
+                      ? 'text-secondary hover:bg-surface-raised hover:text-foreground'
+                      : 'text-amber-800 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-900/60'
+                  }`}
+                >
+                  {i18nService.t('coworkDeny')}
+                </button>
+              )}
+            </div>
+          </div>
         )}
         {isArtifactPanelExpanded && (expandedConversationPreview || isSessionBusy) && (
           <div className={`${COWORK_DETAIL_CONTENT_CLASS} mb-1`}>

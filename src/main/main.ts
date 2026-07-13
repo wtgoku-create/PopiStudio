@@ -22,7 +22,7 @@ import {
   normalizeBrowserWebAccessConfig,
 } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
-import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
+import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel, SESSION_AGNOSTIC_PERMISSION_SESSION_ID } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import {
   CoworkSteerRejectReason,
@@ -1904,7 +1904,7 @@ const startAskUserServer = async (): Promise<void> => {
       if (win.isDestroyed()) return;
       try {
         win.webContents.send('cowork:stream:permission', {
-          sessionId: '__askuser__',
+          sessionId: SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
           request: {
             requestId: request.requestId,
             toolName: 'AskUserQuestion',

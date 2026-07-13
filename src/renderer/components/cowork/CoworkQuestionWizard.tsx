@@ -1,11 +1,14 @@
+import { ChevronLeftIcon, ChevronRightIcon, MinusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useEffect, useMemo, useState } from 'react';
-import type { CoworkPermissionRequest, CoworkPermissionResult } from '../../types/cowork';
-import { ChevronLeftIcon, ChevronRightIcon, XMarkIcon } from '@heroicons/react/24/outline';
+
 import { i18nService } from '../../services/i18n';
+import type { CoworkPermissionRequest, CoworkPermissionResult } from '../../types/cowork';
 
 interface CoworkQuestionWizardProps {
   permission: CoworkPermissionRequest;
   onRespond: (result: CoworkPermissionResult) => void;
+  onMinimize?: () => void;
+  hidden?: boolean;
 }
 
 type QuestionOption = {
@@ -23,6 +26,8 @@ type QuestionItem = {
 const CoworkQuestionWizard: React.FC<CoworkQuestionWizardProps> = ({
   permission,
   onRespond,
+  onMinimize,
+  hidden = false,
 }) => {
   const toolInput = permission.toolInput ?? {};
 
@@ -239,7 +244,7 @@ const CoworkQuestionWizard: React.FC<CoworkQuestionWizardProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center modal-backdrop ${hidden ? 'hidden' : ''}`}>
       <div className="modal-content w-full max-w-2xl mx-4 bg-surface rounded-2xl shadow-modal overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
@@ -248,6 +253,17 @@ const CoworkQuestionWizard: React.FC<CoworkQuestionWizardProps> = ({
               {i18nService.t('coworkQuestionWizardTitle')}
             </h2>
           </div>
+          {onMinimize && (
+            <button
+              type="button"
+              onClick={onMinimize}
+              className="p-2 rounded-lg hover:bg-surface-raised text-secondary transition-colors"
+              aria-label={i18nService.t('collapse')}
+              title={i18nService.t('collapse')}
+            >
+              <MinusIcon className="h-5 w-5" />
+            </button>
+          )}
           <button
             onClick={handleDeny}
             className="p-2 rounded-lg hover:bg-surface-raised text-secondary transition-colors"

@@ -2409,8 +2409,27 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.cleanupSessionTurn(sessionId);
     this.clearPendingApprovalsBySession(sessionId);
     this.store.updateSession(sessionId, { status: 'idle' });
+    this.emitSessionStatus(sessionId, 'idle');
     this.emit('sessionStopped', sessionId);
     this.resolveTurn(sessionId);
+  }
+
+  private cancelTurnStartupIfStopped(sessionId: string, checkpoint: string): boolean {
+    if (!this.stoppedSessions.has(sessionId)) {
+      return false;
+    }
+    console.log(
+      '[OpenClawRuntime] cancelled turn startup after user stop.',
+      `Session ${sessionId}.`,
+      `Checkpoint ${checkpoint}.`,
+    );
+    this.cleanupSessionTurn(sessionId);
+    this.stoppedSessions.delete(sessionId);
+    this.manuallyStoppedSessions.delete(sessionId);
+    this.store.updateSession(sessionId, { status: 'idle' });
+    this.emitSessionStatus(sessionId, 'idle');
+    this.resolveTurn(sessionId);
+    return true;
   }
 
   stopAllSessions(): void {
@@ -2594,6 +2613,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.emitSessionStatus(sessionId, 'running');
     setCoworkProxySessionId(sessionId);
     await this.ensureGatewayClientReady();
+    if (this.cancelTurnStartupIfStopped(sessionId, 'gateway client became ready')) {
+      return;
+    }
     this.startChannelPolling();
 
     const runId = randomUUID();
@@ -2616,11 +2638,19 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         model: currentModel,
         source: session.modelOverride ? 'sessionOverride' : 'agentModel',
       });
+      if (this.cancelTurnStartupIfStopped(sessionId, 'session model sync finished')) {
+        return;
+      }
     } catch (error) {
       this.store.updateSession(sessionId, { status: 'error' });
       const message = error instanceof Error ? error.message : String(error);
       this.emit('error', sessionId, message);
       throw error;
+    }
+
+    if (this.stoppedSessions.has(sessionId)) {
+      console.log(`[OpenClawRuntime] turn aborted after model sync because the user stopped session ${sessionId} while waiting.`);
+      return;
     }
 
     const outboundMessage = stripNullChars(await this.buildOutboundPrompt(
@@ -2629,6 +2659,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       options.systemPrompt ?? session.systemPrompt,
       agentId,
     ));
+    if (this.cancelTurnStartupIfStopped(sessionId, 'outbound prompt built')) {
+      return;
+    }
     const runCwd = session.cwd?.trim() ? path.resolve(session.cwd.trim()) : undefined;
     const completionPromise = new Promise<void>((resolve, reject) => {
       this.pendingTurns.set(sessionId, { resolve, reject });
