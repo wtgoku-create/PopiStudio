@@ -227,7 +227,7 @@ describe('registerScheduledTaskHandlers', () => {
     });
   });
 
-  test('clears the old IM session binding when delivery is disabled on update', async () => {
+  test('keeps main cron payload valid when delivery is disabled on update', async () => {
     const { cronJobService, deps } = makeDeps();
     registerScheduledTaskHandlers(deps);
 
@@ -236,10 +236,10 @@ describe('registerScheduledTaskHandlers', () => {
       name: 'no notify',
       enabled: true,
       schedule: { kind: 'cron', expr: '0 9 * * *' },
-      sessionTarget: SessionTarget.Isolated,
+      sessionTarget: SessionTarget.Main,
       sessionKey: 'agent:main:feishu:dm:ou_123',
       wakeMode: WakeMode.Now,
-      payload: { kind: PayloadKind.AgentTurn, message: 'hi' },
+      payload: { kind: PayloadKind.SystemEvent, text: 'hi' },
       delivery: { mode: DeliveryMode.None },
     });
 
@@ -247,10 +247,12 @@ describe('registerScheduledTaskHandlers', () => {
     const input = cronJobService.updateJob.mock.calls[0][1] as {
       sessionTarget: string;
       sessionKey: string | null;
+      payload: Record<string, unknown>;
       delivery: Record<string, unknown>;
     };
-    expect(input.sessionTarget).toBe(SessionTarget.Isolated);
-    expect(input.sessionKey).toBeNull();
+    expect(input.sessionTarget).toBe(SessionTarget.Main);
+    expect(input.sessionKey).toBe('agent:main:feishu:dm:ou_123');
+    expect(input.payload).toEqual({ kind: PayloadKind.SystemEvent, text: 'hi' });
     expect(input.delivery).toEqual({ mode: DeliveryMode.None });
     expect(result).toEqual({ success: true, task: { id: 'job-feishu', name: 'no notify' } });
   });

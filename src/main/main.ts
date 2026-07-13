@@ -58,7 +58,9 @@ import {
   getCronJobService,
   initCronJobServiceManager,
   initScheduledTaskHelpers,
+  migrateScheduledTaskAnnounceJobs,
   registerScheduledTaskHandlers,
+  type ScheduledTaskHandlerDeps,
 } from './ipcHandlers/scheduledTask';
 import { RemoteKnowledgeService } from './knowledge/remoteKnowledgeService';
 import { buildSelectedKnowledgeContextPrompt } from './knowledge/sourceReferencePrompt';
@@ -4524,13 +4526,19 @@ if (!gotTheLock) {
       getConfig: () => getIMGatewayManager().getConfig() as unknown as Record<string, unknown>,
     }),
   });
-  registerScheduledTaskHandlers({
+  const scheduledTaskHandlerDeps: ScheduledTaskHandlerDeps = {
     getCronJobService,
     getIMGatewayManager: () => ({
       getIMStore: () => ({
         getSessionMapping: (conversationId: string, platform: string) => {
           const mapping = getIMGatewayManager().getIMStore().getSessionMapping(conversationId, platform as Platform);
           return mapping ? { coworkSessionId: mapping.coworkSessionId } : undefined;
+        },
+        getIMSettings: () => {
+          const settings = getIMGatewayManager().getIMStore().getIMSettings();
+          return {
+            platformAgentBindings: settings.platformAgentBindings,
+          };
         },
         listSessionMappings: (platform: string, agentId?: string) =>
           getIMGatewayManager().getIMStore().listSessionMappings(platform as Platform, agentId).map((mapping) => ({
@@ -4546,7 +4554,8 @@ if (!gotTheLock) {
     }),
     getOpenClawRuntimeAdapter: () => openClawRuntimeAdapter,
     getCoworkSessionTitle: (sessionId: string) => getCoworkStore().getSession(sessionId)?.title ?? null,
-  });
+  };
+  registerScheduledTaskHandlers(scheduledTaskHandlerDeps);
 
   registerNimQrLoginHandlers({
     startNimQrLogin,
@@ -7397,6 +7406,9 @@ end tell'`, { timeout: 5000 });
       } catch (err) {
         console.warn('[Main] CronJobService not available after OpenClaw startup:', err);
       }
+      void migrateScheduledTaskAnnounceJobs(scheduledTaskHandlerDeps).catch(err => {
+        console.warn('[Main] Scheduled task IM announce job migration failed:', err);
+      });
     }).catch((error) => {
       console.error('[OpenClaw] Failed to auto-start gateway on app startup:', error);
     });

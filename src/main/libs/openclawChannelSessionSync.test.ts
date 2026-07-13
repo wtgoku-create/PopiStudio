@@ -212,7 +212,7 @@ test('channel sync backfills the real OpenClaw session key for existing mappings
   const sessionKey = 'agent:main:feishu:dm:ou_123';
 
   expect(sync.resolveOrCreateSession(sessionKey)).toBe('cowork-1');
-  expect(updateSessionOpenClawSessionKey).toHaveBeenCalledWith('dm:ou_123', 'feishu', sessionKey);
+  expect(updateSessionOpenClawSessionKey).toHaveBeenCalledWith('dm:ou_123', 'feishu', sessionKey, 'main');
 });
 
 test('channel sync corrects existing mapping cwd from the current bound agent', () => {
@@ -389,8 +389,8 @@ test('channel sync reuses target IM session for IM announce delivery jobs', () =
     }),
   });
 
-  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe('cowork-1');
-  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1')).toBe('cowork-1');
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe(null);
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1')).toBe(null);
   expect(createSession).not.toHaveBeenCalled();
 });
 
@@ -438,8 +438,8 @@ test('channel sync falls back to a cron session for unmapped IM announce deliver
     }),
   });
 
-  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe('cowork-cron-fallback');
-  expect(createSession).toHaveBeenCalledOnce();
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe(null);
+  expect(createSession).not.toHaveBeenCalled();
 });
 
 test('channel sync resolves existing conversation by delivery target', () => {
@@ -537,9 +537,9 @@ test('channel sync reuses mapped conversations for IM announce delivery jobs', (
     }),
   });
 
-  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe('cowork-1');
-  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1')).toBe('cowork-1');
-  expect(sync.resolveSession('agent:main:cron:job-1:run:run-2')).toBe('cowork-1');
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe(null);
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1')).toBe(null);
+  expect(sync.resolveSession('agent:main:cron:job-1:run:run-2')).toBe(null);
   expect(createSession).not.toHaveBeenCalled();
 });
 
@@ -587,8 +587,8 @@ test('channel sync falls back to a cron session when mapped IM target is unavail
     }),
   });
 
-  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe('cowork-cron-fallback');
-  expect(createSession).toHaveBeenCalledOnce();
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe(null);
+  expect(createSession).not.toHaveBeenCalled();
 });
 
 test('channel sync resolves existing conversation by delivery target', () => {

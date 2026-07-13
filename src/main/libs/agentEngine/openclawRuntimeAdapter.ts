@@ -3628,10 +3628,11 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private scheduleImConversationSyncAfterCronDelivery(payload: unknown): void {
     const target = extractCronDeliveredTarget(payload);
     if (!target || !this.channelSessionSync) return;
-    const conversation = this.channelSessionSync.resolveConversationByDeliveryTarget(
+    const conversation = this.channelSessionSync.resolveOrCreateConversationForDeliveryMirror(
       target.channel,
       target.to,
       target.accountId,
+      target.agentId,
     );
     if (!conversation) {
       console.debug('[ChannelSync] no local conversation mapped for cron delivery target');

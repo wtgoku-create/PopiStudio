@@ -6,29 +6,17 @@
  */
 
 import { DeliveryMode as ScheduledTaskDeliveryMode } from '../../scheduledTask/constants';
-import type { ScheduledTaskDelivery } from '../../scheduledTask/types';
+import type { ScheduledTaskJobDelivery } from '../../scheduledTask/cronJobService';
 import { CoworkSessionSourceKind } from '../../shared/cowork/constants';
-import { PlatformRegistry } from '../../shared/platform';
+import { parseImConversationId, PlatformRegistry } from '../../shared/platform';
 import type { CoworkSession, CoworkStore } from '../coworkStore';
 import { t } from '../i18n';
 import type { IMStore } from '../im/imStore';
 import type { Platform } from '../im/types';
 
 const POPIAI_SESSION_PREFIX = 'popiai:';
+const FEISHU_GROUP_CHAT_ID_RE = /^oc_/i;
 export const DEFAULT_MANAGED_AGENT_ID = 'main';
-
-function parseImConversationId(value: string): { accountId?: string; peerId: string } {
-  const raw = value.trim();
-  if (!raw) return { peerId: '' };
-  const parts = raw.split(':');
-  if (parts.length >= 3 && ['direct', 'group', 'channel'].includes(parts[1])) {
-    return { accountId: parts[0], peerId: parts.slice(2).join(':') };
-  }
-  if (parts.length >= 2 && ['direct', 'group', 'channel'].includes(parts[0])) {
-    return { peerId: parts.slice(1).join(':') };
-  }
-  return { peerId: raw };
-}
 
 export interface ManagedSessionKey {
   agentId: string | null;
@@ -363,8 +351,9 @@ export interface ChannelSessionSyncDeps {
   getDefaultCwd: (agentId?: string) => string;
   /** Optional synchronous lookup: jobId → human-readable name (for cron session titles). */
   resolveJobName?: (jobId: string) => string | null;
-  /** Optional synchronous lookup: jobId → delivery routing. */
-  resolveJobDelivery?: (jobId: string) => ScheduledTaskDelivery | null;
+  /** Optional synchronous lookup: jobId → delivery routing (to suppress local
+   *  cron sessions for jobs that announce into an IM conversation). */
+  resolveJobDelivery?: (jobId: string) => ScheduledTaskJobDelivery | null;
 }
 
 export class OpenClawChannelSessionSync {
@@ -372,7 +361,7 @@ export class OpenClawChannelSessionSync {
   private readonly imStore: IMStore;
   private readonly getDefaultCwd: (agentId?: string) => string;
   private readonly resolveJobName: ((jobId: string) => string | null) | null;
-  private readonly resolveJobDelivery: ((jobId: string) => ScheduledTaskDelivery | null) | null;
+  private readonly resolveJobDelivery: ((jobId: string) => ScheduledTaskJobDelivery | null) | null;
 
   /** In-memory cache: openclawSessionKey → local sessionId. */
   private readonly syncedSessionKeys = new Map<string, string>();
@@ -412,6 +401,48 @@ export class OpenClawChannelSessionSync {
     );
   }
 
+  private resolveAgentIdForSessionKey(sessionKey: string, platform: Platform): string {
+    const keyAgentId = extractAgentIdFromKey(sessionKey);
+    if (keyAgentId) return keyAgentId;
+
+    const accountId = extractAccountIdFromKey(sessionKey);
+    const imSettings = this.imStore.getIMSettings();
+    return resolveAgentBinding(imSettings.platformAgentBindings, platform, accountId);
+  }
+
+  private getMappingForSessionKey(
+    sessionKey: string,
+    parsed: { platform: Platform; conversationId: string },
+    agentId: string,
+  ) {
+    const exactMapping = this.imStore.getSessionMappingByOpenClawSessionKey?.(sessionKey) ?? null;
+    if (exactMapping) return exactMapping;
+    return this.imStore.getSessionMapping(parsed.conversationId, parsed.platform, agentId);
+  }
+
+  private createChannelSession(
+    parsed: { platform: Platform; conversationId: string },
+    agentId: string,
+  ): CoworkSession {
+    const titlePrefix = getChannelTitlePrefix(parsed.platform);
+    const title = `${titlePrefix} ${buildChannelDisplayName(parsed.conversationId)}`;
+    const cwd = this.getDefaultCwd(agentId);
+    console.log(
+      '[ChannelSessionSync] creating new cowork session: title=',
+      title,
+      'cwd=',
+      cwd,
+      'agentId=',
+      agentId,
+    );
+
+    const session = this.coworkStore.createSession(title, cwd, '', 'local', [], agentId);
+    console.log(
+      `[ChannelSessionSync] Created session for ${parsed.platform} conversation ${parsed.conversationId}: ${session.id}`,
+    );
+    return session;
+  }
+
   /**
    * Check if a gateway session key belongs to the agent currently bound to its platform.
    * When users switch agent bindings, the gateway retains old sessions under the previous
@@ -422,8 +453,9 @@ export class OpenClawChannelSessionSync {
     if (!parsed) return true; // Not a channel key — let other logic handle it
     const keyAgentId = extractAgentIdFromKey(sessionKey);
     if (!keyAgentId) return true; // Legacy key without agentId — allow
-    const imSettings = this.imStore.getIMSettings();
     const accountId = extractAccountIdFromKey(sessionKey);
+    if (!accountId) return true; // Account-less group keys are already scoped by agentId.
+    const imSettings = this.imStore.getIMSettings();
     const currentAgentId = resolveAgentBinding(
       imSettings.platformAgentBindings,
       parsed.platform,
@@ -476,8 +508,16 @@ export class OpenClawChannelSessionSync {
       parsed.conversationId,
     );
 
+    const agentId = this.resolveAgentIdForSessionKey(sessionKey, parsed.platform);
+
     // 4. Check persistent mapping in im_session_mappings
-    const existingMapping = this.imStore.getSessionMapping(parsed.conversationId, parsed.platform);
+    let existingMapping = this.getMappingForSessionKey(sessionKey, parsed, agentId);
+    if (!existingMapping) {
+      const legacyMapping = this.imStore.getSessionMapping(parsed.conversationId, parsed.platform);
+      if (legacyMapping?.agentId === agentId) {
+        existingMapping = legacyMapping;
+      }
+    }
     console.log(
       '[ChannelSessionSync] existing mapping:',
       existingMapping
@@ -488,16 +528,7 @@ export class OpenClawChannelSessionSync {
       // Verify the Cowork session still exists
       const session = this.coworkStore.getSession(existingMapping.coworkSessionId);
       if (session) {
-        // Check if the agent binding has changed since this mapping was created.
-        // When platformAgentBindings changes, the mapping's agentId becomes stale.
-        // Create a new session for the new agent and update the mapping.
-        const imSettings = this.imStore.getIMSettings();
-        const accountId = extractAccountIdFromKey(sessionKey);
-        const currentAgentId = resolveAgentBinding(
-          imSettings.platformAgentBindings,
-          parsed.platform,
-          accountId,
-        );
+        const currentAgentId = agentId;
         if (existingMapping.agentId !== currentAgentId) {
           console.log(
             '[ChannelSessionSync] agent binding changed:',
@@ -506,24 +537,15 @@ export class OpenClawChannelSessionSync {
             currentAgentId,
             '— creating new session',
           );
-          const titlePrefix = getChannelTitlePrefix(parsed.platform);
-          const title = `${titlePrefix} ${buildChannelDisplayName(parsed.conversationId)}`;
-          const cwd = this.getDefaultCwd(currentAgentId);
-          const newSession = this.coworkStore.createSession(
-            title,
-            cwd,
-            '',
-            'local',
-            [],
-            currentAgentId,
-          );
+          const newSession = this.createChannelSession(parsed, currentAgentId);
           console.log('[ChannelSessionSync] created new session for agent change:', newSession.id);
           this.imStore.updateSessionMappingTarget(
-            parsed.conversationId,
+            existingMapping.imConversationId,
             parsed.platform,
             newSession.id,
             currentAgentId,
             sessionKey,
+            existingMapping.agentId,
           );
           this.upsertIMSessionSource(newSession.id, parsed.platform, parsed.conversationId);
           this.syncedSessionKeys.set(sessionKey, newSession.id);
@@ -539,38 +561,35 @@ export class OpenClawChannelSessionSync {
         );
         this.syncedSessionKeys.set(sessionKey, existingMapping.coworkSessionId);
         this.upsertIMSessionSource(existingMapping.coworkSessionId, parsed.platform, parsed.conversationId);
-        if (existingMapping.openClawSessionKey !== sessionKey) {
-          this.imStore.updateSessionOpenClawSessionKey(parsed.conversationId, parsed.platform, sessionKey);
+        if (
+          existingMapping.imConversationId === parsed.conversationId &&
+          existingMapping.openClawSessionKey !== sessionKey
+        ) {
+          this.imStore.updateSessionOpenClawSessionKey(
+            parsed.conversationId,
+            parsed.platform,
+            sessionKey,
+            existingMapping.agentId,
+          );
         }
-        this.imStore.updateSessionLastActive(parsed.conversationId, parsed.platform);
+        this.imStore.updateSessionLastActive(
+          existingMapping.imConversationId,
+          parsed.platform,
+          existingMapping.agentId,
+        );
         return existingMapping.coworkSessionId;
       }
       // Session was deleted, remove stale mapping
       console.log('[ChannelSessionSync] cowork session deleted, removing stale mapping');
-      this.imStore.deleteSessionMapping(parsed.conversationId, parsed.platform);
+      this.imStore.deleteSessionMapping(
+        existingMapping.imConversationId,
+        parsed.platform,
+        existingMapping.agentId,
+      );
     }
 
     // 5. Create new Cowork session
-    const titlePrefix = getChannelTitlePrefix(parsed.platform);
-    const title = `${titlePrefix} ${buildChannelDisplayName(parsed.conversationId)}`;
-    // Look up the per-platform agent binding so the session is filed under the correct agent.
-    const imSettings = this.imStore.getIMSettings();
-    const accountId = extractAccountIdFromKey(sessionKey);
-    const agentId = resolveAgentBinding(imSettings.platformAgentBindings, parsed.platform, accountId);
-    const cwd = this.getDefaultCwd(agentId);
-    console.log(
-      '[ChannelSessionSync] creating new cowork session: title=',
-      title,
-      'cwd=',
-      cwd,
-      'agentId=',
-      agentId,
-    );
-
-    const session = this.coworkStore.createSession(title, cwd, '', 'local', [], agentId);
-    console.log(
-      `[ChannelSessionSync] Created session for ${parsed.platform} conversation ${parsed.conversationId}: ${session.id}`,
-    );
+    const session = this.createChannelSession(parsed, agentId);
 
     // 6. Persist mapping
     this.imStore.createSessionMapping(parsed.conversationId, parsed.platform, session.id, agentId, sessionKey);
@@ -615,20 +634,40 @@ export class OpenClawChannelSessionSync {
     }
 
     // Check persistent mapping
-    const existingMapping = this.imStore.getSessionMapping(parsed.conversationId, parsed.platform);
+    const agentId = this.resolveAgentIdForSessionKey(sessionKey, parsed.platform);
+
+    let existingMapping = this.getMappingForSessionKey(sessionKey, parsed, agentId);
+    if (!existingMapping) {
+      const legacyMapping = this.imStore.getSessionMapping(parsed.conversationId, parsed.platform);
+      if (legacyMapping?.agentId === agentId) {
+        existingMapping = legacyMapping;
+      }
+    }
     if (existingMapping) {
       const session = this.coworkStore.getSession(existingMapping.coworkSessionId);
       if (session) {
         this.updateLocalSessionCwdIfNeeded(session, existingMapping.agentId);
         this.syncedSessionKeys.set(sessionKey, existingMapping.coworkSessionId);
         this.upsertIMSessionSource(existingMapping.coworkSessionId, parsed.platform, parsed.conversationId);
-        if (existingMapping.openClawSessionKey !== sessionKey) {
-          this.imStore.updateSessionOpenClawSessionKey(parsed.conversationId, parsed.platform, sessionKey);
+        if (
+          existingMapping.imConversationId === parsed.conversationId &&
+          existingMapping.openClawSessionKey !== sessionKey
+        ) {
+          this.imStore.updateSessionOpenClawSessionKey(
+            parsed.conversationId,
+            parsed.platform,
+            sessionKey,
+            existingMapping.agentId,
+          );
         }
         return existingMapping.coworkSessionId;
       }
       // Stale mapping, clean up
-      this.imStore.deleteSessionMapping(parsed.conversationId, parsed.platform);
+      this.imStore.deleteSessionMapping(
+        existingMapping.imConversationId,
+        parsed.platform,
+        existingMapping.agentId,
+      );
     }
 
     return null;
@@ -644,17 +683,82 @@ export class OpenClawChannelSessionSync {
     const peer = parseImConversationId(to).peerId.trim().toLowerCase();
     if (!peer) return null;
 
+    const imSettings = (this.imStore as {
+      getIMSettings?: () => { platformAgentBindings?: Record<string, string> };
+    }).getIMSettings?.();
+    const preferredAgentId = accountId
+      ? resolveAgentBinding(imSettings?.platformAgentBindings, platform, accountId)
+      : null;
+    let fallback: { sessionId: string; sessionKey: string } | null = null;
+
+    // Mappings are sorted by lastActiveAt DESC. Direct chats can match the
+    // account prefix directly; account-less groups need the current bot binding
+    // to disambiguate multiple agent-scoped mappings for the same group.
     for (const mapping of this.imStore.listSessionMappings(platform)) {
       const parsed = parseImConversationId(mapping.imConversationId);
       if (parsed.peerId.trim().toLowerCase() !== peer) continue;
-      if (accountId && parsed.accountId && parsed.accountId !== accountId) continue;
       const sessionKey = mapping.openClawSessionKey?.trim();
       if (!sessionKey) continue;
       if (!this.coworkStore.getSession(mapping.coworkSessionId)) continue;
-      return { sessionId: mapping.coworkSessionId, sessionKey };
+      const candidate = { sessionId: mapping.coworkSessionId, sessionKey };
+      if (accountId && parsed.accountId === accountId) return candidate;
+      if (
+        preferredAgentId &&
+        !parsed.accountId &&
+        parsed.peerKind === 'group' &&
+        mapping.agentId === preferredAgentId
+      ) {
+        return candidate;
+      }
+      fallback = fallback ?? candidate;
     }
 
-    return null;
+    return fallback;
+  }
+
+  /**
+   * Resolve the OpenClaw conversation that receives an outbound delivery
+   * mirror. Feishu's current cron route sends a native `oc_...` group target
+   * successfully but mirrors it into an account-scoped direct session. Keep
+   * that runtime-specific route separate from canonical group ownership used
+   * by scheduled-task target selection.
+   */
+  resolveOrCreateConversationForDeliveryMirror(
+    channel: string,
+    to: string,
+    accountId?: string,
+    agentId?: string,
+  ): { sessionId: string; sessionKey: string } | null {
+    const platform = PlatformRegistry.platformOfChannel(channel);
+    if (!platform) return null;
+
+    const peerId = parseImConversationId(to).peerId.trim();
+    if (!peerId) return null;
+
+    const normalizedAccountId = accountId?.trim();
+    if (platform === 'feishu' && normalizedAccountId && FEISHU_GROUP_CHAT_ID_RE.test(peerId)) {
+      const imSettings = (this.imStore as {
+        getIMSettings?: () => { platformAgentBindings?: Record<string, string> };
+      }).getIMSettings?.();
+      const mirrorAgentId = agentId?.trim()
+        || resolveAgentBinding(
+          imSettings?.platformAgentBindings,
+          platform,
+          normalizedAccountId,
+        );
+      const sessionKey = [
+        'agent',
+        mirrorAgentId,
+        PlatformRegistry.channelOf(platform),
+        normalizedAccountId,
+        'direct',
+        peerId,
+      ].join(':');
+      const sessionId = this.resolveOrCreateSession(sessionKey);
+      return sessionId ? { sessionId, sessionKey } : null;
+    }
+
+    return this.resolveConversationByDeliveryTarget(channel, peerId, normalizedAccountId);
   }
 
   getOpenClawSessionKeyForCoworkSession(sessionId: string): {
@@ -722,28 +826,15 @@ export class OpenClawChannelSessionSync {
 
     const delivery = this.resolveJobDelivery?.(cronKey.jobId) ?? null;
     if (
-      delivery?.mode === ScheduledTaskDeliveryMode.Announce
-      && delivery.channel
-      && PlatformRegistry.isIMChannel(delivery.channel)
+      delivery?.mode === ScheduledTaskDeliveryMode.Announce &&
+      delivery.channel &&
+      PlatformRegistry.isIMChannel(delivery.channel)
     ) {
-      if (delivery.to) {
-        const conversation = this.resolveConversationByDeliveryTarget(
-          delivery.channel,
-          delivery.to,
-          delivery.accountId,
-        );
-        if (conversation) {
-          this.syncedSessionKeys.set(cronKey.cacheKey, conversation.sessionId);
-          this.syncedSessionKeys.set(sessionKey, conversation.sessionId);
-          this.syncedSessionKeys.set(conversation.sessionKey, conversation.sessionId);
-          return conversation.sessionId;
-        }
-      }
-      console.warn(
-        '[ChannelSessionSync] could not resolve mapped IM conversation for cron delivery; using a scheduled-task session fallback.',
-        `Job ${cronKey.jobId}.`,
-        `Channel ${delivery.channel}.`,
-      );
+      // Jobs that announce their result into an IM conversation don't get a
+      // local scheduled-task session: the delivered message lands in the IM
+      // conversation record, and a per-job session here would duplicate it.
+      // Run transcripts stay accessible from the scheduled-task run history.
+      return null;
     }
 
     const cached = this.syncedSessionKeys.get(cronKey.cacheKey)
