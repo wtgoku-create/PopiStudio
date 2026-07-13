@@ -20,6 +20,7 @@ export const CoworkIpcChannel = {
   SubTaskHistory: 'cowork:subTask:history',
   SubagentList: 'cowork:subagent:list',
   SubagentDelete: 'cowork:subagent:delete',
+  SubmitSteer: 'cowork:session:submitSteer',
 } as const;
 
 export type CoworkIpcChannel =

@@ -8,10 +8,16 @@ import type { OpenClawSessionPatch } from '../../common/openclawSession';
 import { AgentId } from '../../shared/agent';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkSessionSourceKind } from '../../shared/cowork/constants';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
+import {
+  type CoworkSteerRequest,
+  CoworkSteerRejectReason,
+  CoworkSteerStatus,
+} from '../../shared/cowork/steer';
 import { CoworkUiEvent } from '../components/cowork/constants';
 import { store } from '../store';
 import {
   addMessage,
+  addPendingSteer,
   addSession,
   appendSessions,
   clearCurrentSession,
@@ -38,6 +44,7 @@ import {
   updateSessionPinned,
   updateSessionStatus,
   updateSessionTitle,
+  updateSteerStatus,
 } from '../store/slices/coworkSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../store/slices/skillSlice';
 import type {
@@ -55,6 +62,7 @@ import type {
   OpenClawSessionPolicyConfig,
 } from '../types/cowork';
 import { CoworkSessionStatusValue } from '../types/cowork';
+import { CoworkQueuedFollowUpCoordinator } from './coworkQueuedFollowUpCoordinator';
 import { i18nService } from './i18n';
 
 const classifyError = (error: string): string => {
@@ -92,6 +100,13 @@ class CoworkService {
   private contextUsageRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private sessionEntryContextUsageRefreshAt = new Map<string, number>();
   private contextCompactionWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly queuedFollowUpCoordinator = new CoworkQueuedFollowUpCoordinator({
+    getState: store.getState,
+    dispatch: store.dispatch,
+    continueSession: (options) => this.continueSession(options),
+    stopSession: (sessionId) => this.stopSessionRuntime(sessionId),
+    log: (level, message, error) => this.logDiagnostic(level, message, error),
+  });
 
   async init(): Promise<void> {
     if (this.initialized) return;
@@ -167,6 +182,7 @@ class CoworkService {
       // (especially important for IM-triggered turns that do not call continueSession from renderer).
       if (message.type === 'user' || message.type === 'assistant' || message.type === 'tool_use' || message.type === 'tool_result') {
         store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Running }));
+        this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
       }
       store.dispatch(addMessage({ sessionId, message, beforeMessageId }));
       this.scheduleContextUsageRefresh(sessionId, true);
@@ -178,6 +194,7 @@ class CoworkService {
       const session = store.getState().cowork.sessions.find(s => s.id === sessionId);
       if (metadata?.isFinal !== true && session?.status !== 'completed') {
         store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Running }));
+        this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
       }
       store.dispatch(updateMessageContent({ sessionId, messageId, content, metadata }));
     });
@@ -185,6 +202,15 @@ class CoworkService {
 
     const sessionStatusCleanup = cowork.onStreamSessionStatus?.(({ sessionId, status }) => {
       store.dispatch(updateSessionStatus({ sessionId, status }));
+      if (status === CoworkSessionStatusValue.Running) {
+        this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
+      } else if (status === CoworkSessionStatusValue.Completed) {
+        this.queuedFollowUpCoordinator.handleSessionCompleted(sessionId);
+      } else if (status === CoworkSessionStatusValue.Error) {
+        this.queuedFollowUpCoordinator.handleSessionError(sessionId);
+      } else {
+        this.queuedFollowUpCoordinator.handleSessionIdle(sessionId);
+      }
     });
     if (sessionStatusCleanup) {
       this.streamListenerCleanups.push(sessionStatusCleanup);
@@ -229,6 +255,7 @@ class CoworkService {
     const completeCleanup = cowork.onStreamComplete(({ sessionId }) => {
       store.dispatch(updateSessionStatus({ sessionId, status: 'completed' }));
       this.scheduleFinalContextUsageRefresh(sessionId, true);
+      this.queuedFollowUpCoordinator.handleSessionCompleted(sessionId);
     });
     this.streamListenerCleanups.push(completeCleanup);
 
@@ -242,6 +269,7 @@ class CoworkService {
         return;
       }
       store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Error }));
+      this.queuedFollowUpCoordinator.handleSessionError(sessionId);
       // Surface the error as a visible message so the user knows what happened.
       if (error) {
         store.dispatch(addMessage({
@@ -481,6 +509,19 @@ class CoworkService {
     this.contextUsageRefreshTimers.clear();
   }
 
+  private logDiagnostic(level: 'debug' | 'warn' | 'error', message: string, error?: unknown): void {
+    const formatted = `[CoworkService] ${message}`;
+    if (level === 'error') {
+      console.error(formatted, error);
+      return;
+    }
+    if (level === 'warn') {
+      console.warn(formatted, error);
+      return;
+    }
+    console.debug(formatted, error);
+  }
+
   async loadSessions(agentId?: string): Promise<void> {
     const requestId = ++this.latestLoadSessionsRequestId;
     const resolvedAgentId = agentId?.trim() || resolveCurrentAgentId();
@@ -667,7 +708,91 @@ class CoworkService {
     return true;
   }
 
+  async submitSteer(options: CoworkSteerRequest): Promise<boolean> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.submitSteer) {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkSteerUnavailable'),
+      }));
+      return false;
+    }
+
+    const text = options.text.trim();
+    if (!text) return false;
+
+    const now = Date.now();
+    const existingSteer = store.getState().cowork.pendingSteers[options.sessionId]
+      ?.some(steer => steer.id === options.clientSteerId);
+    if (!existingSteer) {
+      store.dispatch(addPendingSteer({
+        id: options.clientSteerId,
+        sessionId: options.sessionId,
+        text,
+        status: CoworkSteerStatus.Pending,
+        createdAt: now,
+        updatedAt: now,
+      }));
+    }
+
+    try {
+      const result = await cowork.submitSteer({
+        ...options,
+        text,
+      });
+      if (result?.success && result.status === CoworkSteerStatus.Accepted) {
+        store.dispatch(updateSteerStatus({
+          sessionId: options.sessionId,
+          steerId: options.clientSteerId,
+          status: CoworkSteerStatus.Accepted,
+        }));
+        return true;
+      }
+
+      const reason = result?.reason ?? CoworkSteerRejectReason.Unknown;
+      const keepQueued = reason === CoworkSteerRejectReason.RuntimeUnsupported
+        || reason === CoworkSteerRejectReason.NoActiveTurn
+        || reason === CoworkSteerRejectReason.NotStreaming;
+      if (keepQueued) {
+        return true;
+      }
+
+      const error = result?.error || i18nService.t('coworkSteerRejected');
+      store.dispatch(updateSteerStatus({
+        sessionId: options.sessionId,
+        steerId: options.clientSteerId,
+        status: CoworkSteerStatus.Rejected,
+        error,
+        reason,
+      }));
+      window.dispatchEvent(new CustomEvent('app:showToast', { detail: error }));
+      return false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : i18nService.t('coworkSteerRejected');
+      store.dispatch(updateSteerStatus({
+        sessionId: options.sessionId,
+        steerId: options.clientSteerId,
+        status: CoworkSteerStatus.Rejected,
+        error: message,
+        reason: CoworkSteerRejectReason.Unknown,
+      }));
+      window.dispatchEvent(new CustomEvent('app:showToast', { detail: message }));
+      return false;
+    }
+  }
+
+  async submitQueuedFollowUp(sessionId: string, steerId: string): Promise<boolean> {
+    return this.queuedFollowUpCoordinator.submitSelected(sessionId, steerId);
+  }
+
+  async interruptForQueuedFollowUp(sessionId: string, steerId: string): Promise<boolean> {
+    return this.queuedFollowUpCoordinator.interruptAndSubmit(sessionId, steerId);
+  }
+
   async stopSession(sessionId: string): Promise<boolean> {
+    return this.stopSessionRuntime(sessionId);
+  }
+
+  private async stopSessionRuntime(sessionId: string): Promise<boolean> {
     const cowork = window.electron?.cowork;
     if (!cowork) return false;
 
@@ -675,6 +800,7 @@ class CoworkService {
     if (result.success) {
       store.dispatch(setStreaming(false));
       store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Idle }));
+      this.queuedFollowUpCoordinator.handleSessionIdle(sessionId);
       return true;
     }
 
@@ -688,6 +814,7 @@ class CoworkService {
 
     const result = await cowork.deleteSession(sessionId);
     if (result.success) {
+      this.queuedFollowUpCoordinator.clearSession(sessionId);
       store.dispatch(deleteSessionAction(sessionId));
       return true;
     }
@@ -702,6 +829,7 @@ class CoworkService {
 
     const result = await cowork.deleteSessions(sessionIds);
     if (result.success) {
+      sessionIds.forEach(sessionId => this.queuedFollowUpCoordinator.clearSession(sessionId));
       store.dispatch(deleteSessionsAction(sessionIds));
       return true;
     }

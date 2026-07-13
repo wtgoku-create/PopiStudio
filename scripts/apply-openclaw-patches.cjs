@@ -62,6 +62,69 @@ if (patchFiles.length === 0) {
 
 console.log(`[apply-openclaw-patches] Applying patches for openclaw ${openclawVersion} (${patchFiles.length} file(s))`);
 
+const strongPatchValidators = {
+  'openclaw-sessions-queue-steer-rpc.patch': [
+    {
+      file: 'src/gateway/methods/core-descriptors.ts',
+      snippets: ['{ name: "sessions.queueSteer", scope: "operator.write", advertise: false }'],
+    },
+    {
+      file: 'src/gateway/server-methods.ts',
+      snippets: ['"sessions.queueSteer"'],
+    },
+    {
+      file: 'src/gateway/server-methods/sessions.ts',
+      snippets: [
+        '"sessions.queueSteer": async',
+        'queueEmbeddedAgentMessageWithOutcomeAsync',
+        'formatEmbeddedAgentQueueFailureSummary',
+      ],
+    },
+  ],
+};
+
+function collectMissingStrongPatchSnippets(patchFile) {
+  const validators = strongPatchValidators[patchFile];
+  if (!validators) {
+    return [];
+  }
+
+  const missing = [];
+  for (const validator of validators) {
+    const targetPath = path.join(openclawSrc, validator.file);
+    if (!fs.existsSync(targetPath)) {
+      missing.push(`${validator.file}: file not found`);
+      continue;
+    }
+
+    const source = fs.readFileSync(targetPath, 'utf8');
+    for (const snippet of validator.snippets) {
+      if (!source.includes(snippet)) {
+        missing.push(`${validator.file}: missing ${JSON.stringify(snippet)}`);
+      }
+    }
+  }
+  return missing;
+}
+
+function isStrongPatchApplied(patchFile) {
+  return collectMissingStrongPatchSnippets(patchFile).length === 0;
+}
+
+function assertStrongPatchApplied(patchFile) {
+  const missing = collectMissingStrongPatchSnippets(patchFile);
+  if (missing.length === 0) {
+    return;
+  }
+
+  console.error(`[apply-openclaw-patches] Strong validation failed for ${patchFile}.`);
+  console.error('[apply-openclaw-patches] The patch was not applied to the actual OpenClaw source tree:');
+  for (const item of missing) {
+    console.error(`[apply-openclaw-patches]   - ${item}`);
+  }
+  process.exit(1);
+}
+
 // Reset openclaw source to a clean tag state before applying patches.
 // This removes stale patches left by a different Popiai branch that may have
 // applied different patches for the same openclaw version.
@@ -139,6 +202,10 @@ for (const patchFile of patchFiles) {
       const patchDoesNotApply = stderr.includes('patch does not apply');
 
       if (alreadyExists || patchDoesNotApply) {
+        if (strongPatchValidators[patchFile] && !isStrongPatchApplied(patchFile)) {
+          console.error(`[apply-openclaw-patches] Patch check was ambiguous for ${patchFile}, but required source sentinels are missing.`);
+          assertStrongPatchApplied(patchFile);
+        }
         console.log(`[apply-openclaw-patches] Already applied (forward check confirms): ${patchFile}`);
         skipped++;
         continue;
@@ -172,6 +239,10 @@ for (const patchFile of patchFiles) {
       try { fs.unlinkSync(patchPath); } catch {}
     }
   }
+}
+
+for (const patchFile of patchFiles) {
+  assertStrongPatchApplied(patchFile);
 }
 
 console.log(`[apply-openclaw-patches] Done. Applied: ${applied}, Skipped (already applied): ${skipped}`);

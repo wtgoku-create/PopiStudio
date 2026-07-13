@@ -268,6 +268,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('cowork:session:start', options),
     continueSession: (options: { sessionId: string; prompt: string; knowledgeBases?: Array<{ id: string; name: string }>; knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>; systemPrompt?: string; activeSkillIds?: string[]; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
       ipcRenderer.invoke('cowork:session:continue', options),
+    submitSteer: (options: { sessionId: string; text: string; clientSteerId: string }) =>
+      ipcRenderer.invoke(CoworkIpcChannel.SubmitSteer, options),
     stopSession: (sessionId: string) =>
       ipcRenderer.invoke('cowork:session:stop', sessionId),
     deleteSession: (sessionId: string) =>

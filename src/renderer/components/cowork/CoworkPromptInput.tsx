@@ -1,9 +1,11 @@
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
-import { ArrowUpIcon, FolderIcon } from '@heroicons/react/24/solid';
+import { ArrowUpIcon, FolderIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
+import { CoworkSteerStatus } from '../../../shared/cowork/steer';
 import type { RemoteKnowledgeBase } from '../../../shared/knowledge/constants';
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
 import { configService } from '../../services/config';
@@ -15,10 +17,15 @@ import { RootState } from '../../store';
 import { selectDraftPrompts } from '../../store/selectors/coworkSelectors';
 import {
   addDraftAttachment,
+  addPendingSteer,
   clearDraftAttachments,
+  COWORK_STEER_QUEUE_LIMIT,
   type DraftAttachment,
+  removePendingSteer,
+  removeRejectedSteer,
   setDraftAttachments,
   setDraftPrompt,
+  setSteerDraft,
   updateCurrentSessionModelOverride,
 } from '../../store/slices/coworkSlice';
 import type { Model } from '../../store/slices/modelSlice';
@@ -137,6 +144,42 @@ const SendButtonIcon: React.FC<{ className: string }> = ({ className }) => (
   />
 );
 
+const SteerQueueStatusIcon: React.FC<React.SVGProps<SVGSVGElement>> = ({ className, ...props }) => (
+  <svg
+    className={className}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.45"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    {...props}
+  >
+    <path d="M3.75 3.5v6.7c0 .86.7 1.55 1.55 1.55h6.45" />
+    <path d="m10.15 10.1 1.65 1.65-1.65 1.65" />
+    <path d="M5.75 5.6h4" />
+    <path d="M5.75 7.9h3" />
+  </svg>
+);
+
+const SteerQueueIcon: React.FC<React.SVGProps<SVGSVGElement>> = ({ className, ...props }) => (
+  <svg
+    className={className}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    {...props}
+  >
+    <path d="M3.5 3.5v3.25c0 1.52 1.23 2.75 2.75 2.75h6" />
+    <path d="m10.25 7.75 1.75 1.75-1.75 1.75" />
+  </svg>
+);
+
 export interface CoworkPromptInputRef {
   /** 设置输入框值 */
   setValue: (value: string) => void;
@@ -163,6 +206,8 @@ interface CoworkPromptInputProps {
   readOnlyContextTrailingText?: string;
   onManageSkills?: () => void;
   sessionId?: string;
+  steerPreviewPortalTarget?: HTMLElement | null;
+  canSteer?: boolean;
   contextUsageControl?: React.ReactNode;
   /** When true, hides attachment/skill buttons but keeps the input box visible (disabled) */
   remoteManaged?: boolean;
@@ -187,19 +232,32 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       readOnlyContextTrailingText,
       onManageSkills,
       sessionId,
+      steerPreviewPortalTarget,
+      canSteer = false,
       contextUsageControl,
       remoteManaged = false,
     } = props;
     const dispatch = useDispatch();
     const draftKey = sessionId || '__home__';
     const draftPrompt = useSelector((state: RootState) => selectDraftPrompts(state)[draftKey] || '');
+    const steerDraft = useSelector((state: RootState) => (
+      sessionId ? state.cowork.steerDrafts[sessionId] || '' : ''
+    ));
     const attachments = useSelector((state: RootState) => state.cowork.draftAttachments[draftKey] || EMPTY_ATTACHMENTS) as CoworkAttachment[];
+    const pendingSteers = useSelector((state: RootState) => (
+      sessionId ? state.cowork.pendingSteers[sessionId] || [] : []
+    ));
+    const rejectedSteers = useSelector((state: RootState) => (
+      sessionId ? state.cowork.rejectedSteers[sessionId] || [] : []
+    ));
     const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
     const agents = useSelector((state: RootState) => state.agent.agents);
     const coworkAgentEngine = useSelector((state: RootState) => state.cowork.config.agentEngine);
     const availableModels = useSelector((state: RootState) => state.model.availableModels);
     const currentSession = useSelector((state: RootState) => state.cowork.currentSession);
     const [value, setValue] = useState(draftPrompt);
+    const [steerValue, setSteerValue] = useState(steerDraft);
+    const [steerInputActive, setSteerInputActive] = useState(false);
     const [isDraggingFiles, setIsDraggingFiles] = useState(false);
     const [isAddingFile, setIsAddingFile] = useState(false);
     const [imageVisionHint, setImageVisionHint] = useState(false);
@@ -321,7 +379,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const isLarge = size === 'large';
   const isCompact = size === 'compact';
   const useHomeContextLayout = isLarge && showAgentSelector;
-  const useCompactSendButton = isLarge && (useHomeContextLayout || showReadOnlyContext);
+  const useCompactSendButton = isCompact || (isLarge && (useHomeContextLayout || showReadOnlyContext));
   const minHeight = isCompact
     ? 32
     : isLarge
@@ -363,7 +421,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight)}px`;
     }
-  }, [value, minHeight, maxHeight]);
+  }, [value, steerValue, steerInputActive, minHeight, maxHeight]);
 
   useEffect(() => {
     const handleFocusInput = (event: Event) => {
@@ -396,6 +454,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   // Sync value from draft when sessionId changes
   useEffect(() => {
     setValue(draftPrompt);
+    setSteerValue(steerDraft);
+    setSteerInputActive(false);
     // Re-derive imageVisionHint from the new session's draft attachments
     const hasImageWithoutVision = !modelSupportsImage && attachments.some(a => a.isImage || isImagePath(a.path));
     setImageVisionHint(hasImageWithoutVision);
@@ -411,15 +471,82 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   }, [value, draftPrompt, dispatch, draftKey]);
 
+  useEffect(() => {
+    if (!sessionId || steerValue === steerDraft) return undefined;
+    const timer = setTimeout(() => {
+      dispatch(setSteerDraft({ sessionId, draft: steerValue }));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [dispatch, sessionId, steerDraft, steerValue]);
+
   const handleSubmit = useCallback(async () => {
-    const trimmedValue = value.trim();
-    if (isStreaming) {
+    const activeValue = steerInputActive ? steerValue : value;
+    const trimmedValue = activeValue.trim();
+    if ((!trimmedValue && (!isStreaming || !steerInputActive) && attachments.length === 0) || disabled || isPatchingModel) return;
+    if (isStreaming && !sessionId) {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkSteerNoActiveTurn'),
+      }));
+      return;
+    }
+    if (isStreaming && remoteManaged) {
       window.dispatchEvent(new CustomEvent('app:showToast', {
         detail: i18nService.t('coworkSessionStillRunning'),
       }));
       return;
     }
-    if ((!trimmedValue && attachments.length === 0) || disabled || isPatchingModel) return;
+    if (isStreaming && sessionId && steerInputActive && canSteer) {
+      if (!trimmedValue) return;
+      const clientSteerId = `steer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const accepted = await coworkService.submitSteer({
+        sessionId,
+        text: trimmedValue,
+        clientSteerId,
+      });
+      if (!accepted) return;
+      setSteerValue('');
+      setSteerInputActive(false);
+      dispatch(setSteerDraft({ sessionId, draft: '' }));
+      return;
+    }
+    if (isStreaming && sessionId) {
+      if (!trimmedValue && attachments.length === 0) return;
+      if (pendingSteers.length >= COWORK_STEER_QUEUE_LIMIT) {
+        window.dispatchEvent(new CustomEvent('app:showToast', {
+          detail: i18nService.t('coworkSteerQueueFull'),
+        }));
+        return;
+      }
+      const queuedSteerId = `steer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      dispatch(addPendingSteer({
+        id: queuedSteerId,
+        sessionId,
+        text: trimmedValue,
+        attachments: attachments.length > 0
+          ? attachments.map(attachment => ({
+            path: attachment.path,
+            name: attachment.name,
+            isImage: attachment.isImage,
+            isDirectory: attachment.isDirectory,
+            ...(attachment.path.startsWith('inline:') && attachment.dataUrl ? { dataUrl: attachment.dataUrl } : {}),
+          }))
+          : undefined,
+        status: CoworkSteerStatus.Pending,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }));
+      if (steerInputActive) {
+        setSteerValue('');
+        setSteerInputActive(false);
+        dispatch(setSteerDraft({ sessionId, draft: '' }));
+      } else {
+        setValue('');
+        dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
+      }
+      dispatch(clearDraftAttachments(draftKey));
+      setImageVisionHint(false);
+      return;
+    }
     // setShowFolderRequiredWarning(false);
 
     // Get active skills prompts and combine them
@@ -513,7 +640,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
     setImageVisionHint(false);
-  }, [value, isStreaming, disabled, isPatchingModel, onSubmit, activeSkillIds, skills, attachments, dispatch, draftKey, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
+  }, [value, steerInputActive, steerValue, isStreaming, disabled, isPatchingModel, sessionId, remoteManaged, canSteer, attachments, pendingSteers.length, dispatch, draftKey, onSubmit, activeSkillIds, skills, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     dispatch(toggleActiveSkill(skill.id));
@@ -585,12 +712,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         break;
     }
 
-    if (isSendCombo && isStreaming) {
-      event.preventDefault();
-      window.dispatchEvent(new CustomEvent('app:showToast', {
-        detail: i18nService.t('coworkSessionStillRunning'),
-      }));
-    } else if (isSendCombo && !disabled && !isPatchingModel) {
+    if (isSendCombo && !disabled && !isPatchingModel) {
       event.preventDefault();
       handleSubmit();
     } else {
@@ -609,19 +731,37 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   };
 
-  const containerClass = isLarge || isCompact
+  const handleToggleSteerInput = useCallback(() => {
+    if (!sessionId || remoteManaged || disabled || !isStreaming) return;
+    const nextActive = !steerInputActive;
+    setSteerInputActive(nextActive);
+    if (nextActive) {
+      const nextSteerValue = steerDraft || value;
+      setSteerValue(nextSteerValue);
+      if (!steerDraft && value) {
+        dispatch(setSteerDraft({ sessionId, draft: nextSteerValue }));
+        setValue('');
+        dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
+      }
+    }
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [disabled, dispatch, draftKey, isStreaming, remoteManaged, sessionId, steerDraft, steerInputActive, value]);
+
+  const containerClass = isCompact
+    ? 'relative rounded-2xl border border-border bg-surface shadow-subtle'
+    : isLarge
     ? useHomeContextLayout
       ? 'relative rounded-2xl'
       : `relative rounded-2xl border border-border bg-surface ${showReadOnlyContext ? '' : 'shadow-card'}`
     : 'relative flex items-end gap-2 p-3 rounded-xl border border-border bg-surface';
 
-  const textareaClass = isLarge || isCompact
+  const textareaClass = isCompact
+    ? `w-full resize-none bg-transparent px-4 pb-1.5 pt-2 text-[14px] leading-[21px] text-foreground placeholder:dark:text-foregroundSecondary/60 placeholder:text-secondary/60 focus:outline-none min-h-[${minHeight}px] max-h-[${maxHeight}px]`
+    : isLarge
     ? `w-full resize-none bg-transparent px-4 pb-2 text-foreground placeholder:dark:text-foregroundSecondary/60 placeholder:text-secondary/60 focus:outline-none min-h-[${minHeight}px] max-h-[${maxHeight}px] ${
-      isCompact
-        ? 'pt-2 text-[14px] leading-[21px]'
-        : useHomeContextLayout
-          ? `${hasContextBadges ? 'pt-2' : 'pt-3'} text-[14px] leading-[22px]`
-          : `${hasContextBadges ? 'pt-2' : 'pt-2.5'} text-[15px] leading-[23px]`
+      useHomeContextLayout
+        ? `${hasContextBadges ? 'pt-2' : 'pt-3'} text-[14px] leading-[22px]`
+        : `${hasContextBadges ? 'pt-2' : 'pt-2.5'} text-[15px] leading-[23px]`
     }`
     : 'flex-1 resize-none bg-transparent text-foreground placeholder:placeholder:text-secondary focus:outline-none text-sm leading-relaxed min-h-[24px] max-h-[200px]';
 
@@ -936,7 +1076,15 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     void handleIncomingFiles(files);
   }, [disabled, handleIncomingFiles, isStreaming]);
 
-  const canSubmit = !disabled && !isPatchingModel && !agentModelIsInvalid && (!!value.trim() || attachments.length > 0);
+  const activeTextareaValue = steerInputActive ? steerValue : value;
+  const canSubmit = !disabled
+    && !isPatchingModel
+    && !agentModelIsInvalid
+    && (
+      steerInputActive
+        ? !!steerValue.trim()
+        : (!!value.trim() || attachments.length > 0)
+    );
   const enhancedContainerClass = isDraggingFiles
     ? `${containerClass} ring-2 ring-primary/50 border-primary/60`
     : containerClass;
@@ -944,7 +1092,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const [currentSendShortcut, setCurrentSendShortcut] = useState(
     () => configService.getConfig().shortcuts?.sendMessage ?? 'Enter'
   );
-  const sendButtonTitle = `${i18nService.t('sendMessage')} (${getSendShortcutLabel(currentSendShortcut)})`;
+  const sendButtonTitle = `${isStreaming ? i18nService.t('coworkSteerSubmit') : i18nService.t('sendMessage')} (${getSendShortcutLabel(currentSendShortcut)})`;
   const stopButtonLabel = i18nService.t('stop');
   // Sync when config is updated elsewhere (e.g. Settings panel)
   useEffect(() => {
@@ -1145,6 +1293,22 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const largeSendButtonSizeClass = useCompactSendButton ? 'h-7 w-7' : 'h-8 w-8';
   const largeSendIconSizeClass = useCompactSendButton ? 'h-4 w-4' : 'h-[18px] w-[18px]';
 
+  const largeSubmitButton = (
+    <button
+      type="button"
+      onClick={handleSubmit}
+      disabled={!canSubmit}
+      className={`flex ${largeSendButtonSizeClass} items-center justify-center rounded-full transition-all ${
+        canSubmit
+          ? 'bg-neutral-950 text-white shadow-subtle hover:bg-neutral-800 active:scale-95 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200'
+          : 'cursor-not-allowed bg-neutral-300 text-white dark:bg-neutral-700 dark:text-neutral-500'
+      }`}
+      aria-label={isStreaming ? i18nService.t('coworkSteerSubmit') : i18nService.t('sendMessage')}
+      title={sendButtonTitle}
+    >
+      <SendButtonIcon className={largeSendIconSizeClass} />
+    </button>
+  );
   const largeSendButton = isStreaming ? (
     <button
       type="button"
@@ -1155,22 +1319,122 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     >
       <TaskPauseIcon className="h-[34px] w-[34px]" aria-hidden="true" />
     </button>
-  ) : (
-    <button
-      type="button"
-      onClick={handleSubmit}
-      disabled={!canSubmit}
-      className={`flex ${largeSendButtonSizeClass} items-center justify-center rounded-full transition-all ${
-        canSubmit
-          ? 'bg-neutral-950 text-white shadow-subtle hover:bg-neutral-800 active:scale-95 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200'
-          : 'cursor-not-allowed bg-neutral-300 text-white dark:bg-neutral-700 dark:text-neutral-500'
-      }`}
-      aria-label={i18nService.t('sendMessage')}
-      title={sendButtonTitle}
-    >
-      <SendButtonIcon className={largeSendIconSizeClass} />
-    </button>
-  );
+  ) : largeSubmitButton;
+
+  const handleSubmitQueuedFollowUp = useCallback((steerId: string) => {
+    if (!sessionId) return;
+    if (isStreaming) {
+      void coworkService.interruptForQueuedFollowUp(sessionId, steerId);
+      return;
+    }
+    void coworkService.submitQueuedFollowUp(sessionId, steerId);
+  }, [isStreaming, sessionId]);
+
+  const handleEditQueuedFollowUp = useCallback((steerId: string, text: string, source: 'pending' | 'rejected') => {
+    if (!sessionId) return;
+    if (source === 'rejected') {
+      dispatch(removeRejectedSteer({ sessionId, steerId }));
+    } else {
+      dispatch(removePendingSteer({ sessionId, steerId }));
+    }
+    setValue(text);
+    dispatch(setDraftPrompt({ sessionId: draftKey, draft: text }));
+    const steer = [...pendingSteers, ...rejectedSteers].find(item => item.id === steerId);
+    dispatch(setDraftAttachments({ draftKey, attachments: steer?.attachments ?? [] }));
+    setSteerInputActive(false);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [dispatch, draftKey, pendingSteers, rejectedSteers, sessionId]);
+
+  const handleDeleteQueuedFollowUp = useCallback((steerId: string, source: 'pending' | 'rejected') => {
+    if (!sessionId) return;
+    if (source === 'rejected') {
+      dispatch(removeRejectedSteer({ sessionId, steerId }));
+      return;
+    }
+    dispatch(removePendingSteer({ sessionId, steerId }));
+  }, [dispatch, sessionId]);
+
+  const steerPreviewItems = [
+    ...pendingSteers.map(steer => ({ steer, source: 'pending' as const })),
+    ...rejectedSteers.map(steer => ({ steer, source: 'rejected' as const })),
+  ];
+
+  const shouldUseExternalSteerPreview = steerPreviewPortalTarget !== undefined;
+  const queuedFollowUpNode = steerPreviewItems.length > 0 ? (
+    <div className={shouldUseExternalSteerPreview
+      ? `${isCompact ? 'mx-3' : 'mx-5'} max-h-[156px] overflow-y-auto rounded-t-2xl rounded-b-none border border-b-0 border-border bg-surface-raised/60`
+      : `${isLarge || isCompact ? 'px-4 pt-3' : 'px-1 pb-2'}`
+    }>
+      {steerPreviewItems.map(({ steer, source }, index) => {
+        const isRejected = source === 'rejected';
+        const displayText = steer.text || steer.attachments?.map(attachment => attachment.name).join(', ') || i18nService.t('coworkSteerAttachmentOnly');
+        const title = isRejected && steer.error
+          ? `${i18nService.t('coworkSteerRejected')}: ${steer.error}`
+          : `${i18nService.t('coworkSteerQueued')}: ${displayText}`;
+        return (
+        <div
+          key={steer.id}
+          role="status"
+          title={title}
+          aria-label={title}
+          className={`flex min-w-0 items-center gap-2 px-2.5 py-1.5 text-xs ${
+            shouldUseExternalSteerPreview
+              ? index > 0 ? 'border-t border-border' : ''
+              : `${index > 0 ? 'mt-1.5' : ''} rounded-lg border border-border bg-surface-raised/70`
+          } ${isRejected ? 'text-warning' : 'text-secondary'}`}
+        >
+            {isRejected
+              ? <ExclamationTriangleIcon className="h-4 w-4 shrink-0 text-warning" />
+              : <SteerQueueStatusIcon className="h-4 w-4 shrink-0" />}
+          <span className={`shrink-0 font-medium ${isRejected ? 'text-warning' : 'text-foreground'}`}>
+            {isRejected ? i18nService.t('coworkSteerRejected') : i18nService.t('coworkSteerQueued')}
+          </span>
+          <span className="min-w-0 flex-1 truncate">
+            {displayText}
+          </span>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {!isRejected && (
+                <button
+                  type="button"
+                  onClick={() => handleSubmitQueuedFollowUp(steer.id)}
+                  disabled={remoteManaged}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium text-secondary transition-colors hover:bg-surface hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                title={i18nService.t('coworkSteerInterruptTooltip')}
+                aria-label={i18nService.t('coworkSteerInterruptTooltip')}
+              >
+                <SteerQueueIcon className="h-3.5 w-3.5" />
+                <span>{i18nService.t('coworkSteer')}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleEditQueuedFollowUp(steer.id, steer.text, source)}
+              className="rounded-md p-1 text-secondary transition-colors hover:bg-surface hover:text-foreground"
+              title={i18nService.t('edit')}
+              aria-label={i18nService.t('edit')}
+            >
+              <PencilIcon className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteQueuedFollowUp(steer.id, source)}
+              className="rounded-md p-1 text-secondary transition-colors hover:bg-surface hover:text-foreground"
+              title={i18nService.t('delete')}
+              aria-label={i18nService.t('delete')}
+            >
+              <TrashIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+        );
+      })}
+    </div>
+  ) : null;
+  const queuedFollowUpList = queuedFollowUpNode
+    ? steerPreviewPortalTarget
+      ? createPortal(queuedFollowUpNode, steerPreviewPortalTarget)
+      : shouldUseExternalSteerPreview ? null : queuedFollowUpNode
+    : null;
 
   const activeKnowledgeBadges = hasSelectedKnowledge ? (
     <div className="flex items-center gap-1.5 flex-wrap">
@@ -1206,7 +1470,34 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       {activeKnowledgeBadges}
     </div>
   ) : null;
-  const textareaPlaceholder = placeholder;
+  const steerModeBadge = steerInputActive ? (
+    <button
+      type="button"
+      onClick={handleToggleSteerInput}
+      className={`inline-flex h-7 max-w-[180px] items-center gap-1.5 rounded-md px-2.5 text-[13px] font-normal leading-none transition-all ${
+        steerInputActive
+          ? 'bg-primary-muted text-primary hover:bg-primary/15 hover:ring-1 hover:ring-primary/30'
+          : 'text-secondary hover:bg-surface-raised hover:text-primary'
+      }`}
+      title={steerInputActive ? i18nService.t('coworkSteerExit') : i18nService.t('coworkSteer')}
+      aria-label={steerInputActive ? i18nService.t('coworkSteerExit') : i18nService.t('coworkSteer')}
+    >
+      <SteerQueueIcon className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 truncate">{i18nService.t('coworkSteer')}</span>
+      {steerInputActive && <XMarkIcon className="h-3 w-3 shrink-0" />}
+    </button>
+  ) : null;
+  const activeModeRow = isLarge && steerModeBadge ? (
+    <div
+      className={`flex cursor-text flex-wrap items-center gap-x-2 gap-y-1 px-4 ${hasContextBadges ? 'pt-2' : 'pt-4'}`}
+      onClick={() => {
+        if (!disabled) textareaRef.current?.focus();
+      }}
+    >
+      {steerModeBadge}
+    </div>
+  ) : null;
+  const textareaPlaceholder = steerInputActive ? i18nService.t('coworkSteerPlaceholder') : placeholder;
 
   const readOnlyContextRow = isLarge && showReadOnlyContext && !useHomeContextLayout ? (
     <div className="mt-2 grid min-h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4">
@@ -1222,6 +1513,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   return (
     <div className="relative">
+      {queuedFollowUpList}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2 max-h-[136px] overflow-y-auto">
           {attachments.map((attachment) => (
@@ -1265,10 +1557,17 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             <>
               <div className="relative z-10 rounded-2xl border border-border bg-surface shadow-card">
                 {activeContextRow}
+                {activeModeRow}
                 <textarea
                   ref={textareaRef}
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
+                  value={activeTextareaValue}
+                  onChange={(e) => {
+                    if (steerInputActive) {
+                      setSteerValue(e.target.value);
+                    } else {
+                      setValue(e.target.value);
+                    }
+                  }}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder={textareaPlaceholder}
@@ -1293,10 +1592,17 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           ) : (
             <>
               {activeContextRow}
+              {activeModeRow}
               <textarea
                 ref={textareaRef}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
+                value={activeTextareaValue}
+                onChange={(e) => {
+                  if (steerInputActive) {
+                    setSteerValue(e.target.value);
+                  } else {
+                    setValue(e.target.value);
+                  }
+                }}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 placeholder={textareaPlaceholder}
@@ -1322,11 +1628,17 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           <>
             <textarea
               ref={textareaRef}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
+              value={activeTextareaValue}
+              onChange={(e) => {
+                if (steerInputActive) {
+                  setSteerValue(e.target.value);
+                } else {
+                  setValue(e.target.value);
+                }
+              }}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={placeholder}
+              placeholder={textareaPlaceholder}
               disabled={disabled}
               rows={1}
               className={textareaClass}

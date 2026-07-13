@@ -174,7 +174,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className="relative z-40 shrink-0 overflow-y-hidden overflow-x-visible mt-2 bg-surface-raised sidebar-transition"
+      className="relative z-40 shrink-0 overflow-y-hidden overflow-x-visible  bg-surface-raised sidebar-transition"
       style={{ width: isCollapsed ? 0 : SIDEBAR_WIDTH }}
     >
       <div

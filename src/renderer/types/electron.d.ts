@@ -549,6 +549,20 @@ interface IElectronAPI {
       code?: string;
       engineStatus?: OpenClawEngineStatus;
     }>;
+    submitSteer: (options: { sessionId: string; text: string; clientSteerId: string }) => Promise<{
+      success: boolean;
+      status: 'pending' | 'accepted' | 'rejected';
+      clientSteerId: string;
+      error?: string;
+      reason?:
+        | 'no_active_turn'
+        | 'not_streaming'
+        | 'context_maintenance'
+        | 'runtime_unsupported'
+        | 'runtime_rejected'
+        | 'empty_input'
+        | 'unknown';
+    }>;
     stopSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
     deleteSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
     deleteSessions: (sessionIds: string[]) => Promise<{ success: boolean; error?: string }>;

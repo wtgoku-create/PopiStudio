@@ -1069,6 +1069,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   );
   const isContextBusy = isContextCompacting || isContextMaintenance;
   const isSessionBusy = isStreaming || isContextMaintenance;
+  const queuedSteerCount = useSelector((state: RootState) => (
+    currentSession?.id
+      ? (state.cowork.pendingSteers[currentSession.id]?.length ?? 0)
+        + (state.cowork.rejectedSteers[currentSession.id]?.length ?? 0)
+      : 0
+  ));
   const headerAgent = useMemo<HeaderAgent>(() => {
     const agentId = currentSession?.agentId?.trim() || 'main';
     return agents.find((agent) => agent.id === agentId) ?? {
@@ -1081,6 +1087,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const detailRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
+  const [steerPreviewPortalTarget, setSteerPreviewPortalTarget] = useState<HTMLDivElement | null>(null);
   const compactConfirmRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
@@ -3436,6 +3443,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     : 0;
   const artifactPanelInnerWidth = artifactPanelIsOverlay ? '100%' : artifactPanelFrameWidth;
   const shouldShowTurnNavigationRail = railItems.length > 1 && isScrollable;
+  const showExternalSteerPreview = queuedSteerCount > 0 && !remoteManaged && !isExpandedPromptInputHidden;
   const isPopiTVSession = currentSession.activeSkillIds.includes('popitv')
     || currentSession.messages.some((message) => {
       const skillIds = (message.metadata as CoworkMessageMetadata | undefined)?.skillIds;
@@ -4247,11 +4255,17 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           </div>
         )}
         <div className={COWORK_DETAIL_CONTENT_CLASS}>
+          {showExternalSteerPreview && (
+            <div className="relative z-10 mb-1.5">
+              <div ref={setSteerPreviewPortalTarget} />
+            </div>
+          )}
           <CoworkPromptInput
             ref={promptInputRef}
             onSubmit={onContinue}
             onStop={onStop}
             isStreaming={isSessionBusy}
+            canSteer={isStreaming && !isContextBusy}
             placeholder={i18nService.t(remoteManaged ? 'coworkRemoteManagedPlaceholder' : 'coworkContinuePlaceholder')}
             disabled={remoteManaged}
             size={isArtifactPanelExpanded ? 'compact' : 'large'}
@@ -4262,6 +4276,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             readOnlyContextTrailingText={isArtifactPanelExpanded ? undefined : i18nService.t('aiGeneratedDisclaimer')}
             workingDirectory={currentSession?.cwd ?? ''}
             sessionId={currentSession?.id}
+            steerPreviewPortalTarget={showExternalSteerPreview ? steerPreviewPortalTarget : null}
             contextUsageControl={(
               <div ref={compactConfirmRef} className="relative inline-flex flex-shrink-0">
                 <ContextUsageIndicator

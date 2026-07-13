@@ -24,6 +24,10 @@ import {
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
+import {
+  CoworkSteerRejectReason,
+  CoworkSteerStatus,
+} from '../shared/cowork/steer';
 import { stripNullChars } from '../shared/cowork/text';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
@@ -3426,6 +3430,60 @@ if (!gotTheLock) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to continue session',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.SubmitSteer, async (
+    _event,
+    options: { sessionId: string; text: string; clientSteerId: string },
+  ) => {
+    const clientSteerId = typeof options?.clientSteerId === 'string' && options.clientSteerId.trim()
+      ? options.clientSteerId.trim()
+      : `steer-${Date.now()}`;
+    try {
+      const sessionId = typeof options?.sessionId === 'string' ? options.sessionId.trim() : '';
+      const text = typeof options?.text === 'string' ? options.text.trim() : '';
+      if (!sessionId || !text) {
+        return {
+          success: false,
+          status: CoworkSteerStatus.Rejected,
+          clientSteerId,
+          reason: CoworkSteerRejectReason.EmptyInput,
+          error: 'Session id and steer input are required.',
+        };
+      }
+
+      const engineStatus = await ensureOpenClawRunningForCowork();
+      if (engineStatus.phase !== 'running') {
+        return {
+          ...getEngineNotReadyResponse(engineStatus),
+          status: CoworkSteerStatus.Rejected,
+          clientSteerId,
+          reason: CoworkSteerRejectReason.RuntimeRejected,
+        };
+      }
+
+      const runtime = getCoworkEngineRouter();
+      if (!runtime.submitSteer) {
+        return {
+          success: false,
+          status: CoworkSteerStatus.Rejected,
+          clientSteerId,
+          reason: CoworkSteerRejectReason.RuntimeUnsupported,
+          error: 'Steer is not supported by the current runtime.',
+        };
+      }
+
+      return await runtime.submitSteer(sessionId, text, clientSteerId);
+    } catch (error) {
+      console.error('[CoworkSteer] steer IPC failed:', error);
+      return {
+        success: false,
+        status: CoworkSteerStatus.Rejected,
+        clientSteerId,
+        reason: CoworkSteerRejectReason.Unknown,
+        error: error instanceof Error ? error.message : 'Failed to submit steer input',
       };
     }
   });
