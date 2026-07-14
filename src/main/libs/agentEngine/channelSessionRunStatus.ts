@@ -4,9 +4,9 @@ import type { CoworkSessionStatus } from '../../coworkStore';
  * Decides the next local status for a channel-synced session from a gateway
  * `sessions.list` row.
  *
- * `hasActiveRun` is authoritative when present. The row `status` can linger as
- * "running" on conversation entries after cron deliveries mirror into them, so
- * stale running only counts when the live flag is unavailable.
+ * The row `status` is the strongest live signal for IM sessions. Some gateway
+ * rows report `status="running"` while `hasActiveRun` is still false, so a raw
+ * running status must still move the local session into running.
  */
 export function resolveChannelSessionNextStatus(input: {
   hasActiveRun: boolean | null;
@@ -16,6 +16,7 @@ export function resolveChannelSessionNextStatus(input: {
   const { hasActiveRun, rawStatus, currentStatus } = input;
 
   if (hasActiveRun === true) return 'running';
+  if (rawStatus === 'running' || rawStatus === 'processing') return 'running';
   if (
     rawStatus === 'failed' ||
     rawStatus === 'killed' ||
@@ -28,5 +29,5 @@ export function resolveChannelSessionNextStatus(input: {
   if (hasActiveRun === false) {
     return currentStatus === 'running' ? 'completed' : null;
   }
-  return rawStatus === 'running' ? 'running' : null;
+  return null;
 }

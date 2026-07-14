@@ -13,21 +13,21 @@ describe('resolveChannelSessionNextStatus', () => {
     ).toBe('running');
   });
 
-  test('stale running status cannot pin the session while no run is active', () => {
+  test('raw running status marks the session running even when active run flag is false', () => {
     expect(
       resolveChannelSessionNextStatus({
         hasActiveRun: false,
         rawStatus: 'running',
         currentStatus: 'running',
       }),
-    ).toBe('completed');
+    ).toBe('running');
     expect(
       resolveChannelSessionNextStatus({
         hasActiveRun: false,
-        rawStatus: 'running',
+        rawStatus: 'processing',
         currentStatus: 'idle',
       }),
-    ).toBe(null);
+    ).toBe('running');
   });
 
   test('run end reverts a locally running session to completed', () => {
@@ -72,6 +72,13 @@ describe('resolveChannelSessionNextStatus', () => {
         hasActiveRun: null,
         rawStatus: 'running',
         currentStatus: 'idle',
+      }),
+    ).toBe('running');
+    expect(
+      resolveChannelSessionNextStatus({
+        hasActiveRun: null,
+        rawStatus: 'processing',
+        currentStatus: 'completed',
       }),
     ).toBe('running');
     expect(

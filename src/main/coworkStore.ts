@@ -1580,7 +1580,7 @@ export class CoworkStore {
         )
         .get(sessionId) as { max_seq: number } | undefined;
       let nextSeq = (seqRow?.max_seq ?? 0) + 1;
-      const insertedTimestamps: number[] = [];
+      let lastUserMessageAt: number | null = null;
 
       for (const entry of authoritative) {
         const id = uuidv4();
@@ -1594,7 +1594,9 @@ export class CoworkStore {
         const messageTimestamp = normalizeMessageTimestamp(entry.timestamp)
           ?? existingTimestamp
           ?? now;
-        insertedTimestamps.push(messageTimestamp);
+        if (entry.role === 'user') {
+          lastUserMessageAt = Math.max(lastUserMessageAt ?? 0, messageTimestamp);
+        }
         this.db
           .prepare(
             `
@@ -1613,10 +1615,11 @@ export class CoworkStore {
           );
       }
 
-      const updatedAt = insertedTimestamps.length > 0
-        ? insertedTimestamps[insertedTimestamps.length - 1]
-        : now;
-      this.db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(updatedAt, sessionId);
+      if (lastUserMessageAt != null) {
+        this.db
+          .prepare('UPDATE cowork_sessions SET updated_at = MAX(updated_at, ?) WHERE id = ?')
+          .run(lastUserMessageAt, sessionId);
+      }
       this.refreshSessionPreviewFromMessages(sessionId);
     })();
   }

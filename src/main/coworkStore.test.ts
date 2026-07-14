@@ -322,7 +322,7 @@ test('getSession returns all messages when one has corrupt metadata', () => {
 
 test('replaceConversationMessages preserves existing timestamps and uses gateway timestamps', () => {
   const sid = 'sess-replace-timestamps';
-  insertSession(sid);
+  insertSession(sid, 'main', 1000);
 
   insertMessage('msg-user', sid, 'user', 'old user', '{}', 1, 1000);
   insertMessage('msg-assistant', sid, 'assistant', 'old assistant', '{}', 2, 2000);
@@ -344,6 +344,29 @@ test('replaceConversationMessages preserves existing timestamps and uses gateway
     { type: 'user', content: 'new user', timestamp: 3000 },
   ]);
   expect(session?.updatedAt).toBe(3000);
+});
+
+test('replaceConversationMessages never moves the session updated time backwards', () => {
+  const sid = 'sess-replace-backwards';
+  insertSession(sid, 'main', 5000);
+
+  store.replaceConversationMessages(sid, [
+    { role: 'user', text: 'old prompt', timestamp: 3000 },
+    { role: 'assistant', text: 'old reply', timestamp: 3500 },
+  ]);
+
+  expect(store.getSession(sid)?.updatedAt).toBe(5000);
+});
+
+test('replaceConversationMessages ignores assistant-only entries for the updated time', () => {
+  const sid = 'sess-replace-assistant-only';
+  insertSession(sid, 'main', 2000);
+
+  store.replaceConversationMessages(sid, [
+    { role: 'assistant', text: 'streamed reply', timestamp: 9000 },
+  ]);
+
+  expect(store.getSession(sid)?.updatedAt).toBe(2000);
 });
 
 test('getSession returns all messages when ALL have corrupt metadata', () => {

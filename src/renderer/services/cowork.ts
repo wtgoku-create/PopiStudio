@@ -334,6 +334,10 @@ class CoworkService {
     }
 
     store.dispatch(updateSessionStatus({ sessionId, status }));
+    this.setCurrentSessionStreaming(
+      sessionId,
+      status === CoworkSessionStatusValue.Running,
+    );
     if (status === CoworkSessionStatusValue.Running) {
       this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
     } else if (status === CoworkSessionStatusValue.Completed) {
@@ -367,6 +371,12 @@ class CoworkService {
       store.dispatch(setCurrentSession(result.session));
     }
     store.dispatch(upsertSessionSummary(result.session));
+  }
+
+  private setCurrentSessionStreaming(sessionId: string, isStreaming: boolean): void {
+    const currentSessionId = store.getState().cowork.currentSessionId;
+    if (currentSessionId !== sessionId) return;
+    store.dispatch(setStreaming(isStreaming));
   }
 
   private isStillRunningError(error: string): boolean {
