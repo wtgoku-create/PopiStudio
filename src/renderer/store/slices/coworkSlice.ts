@@ -247,6 +247,19 @@ const coworkSlice = createSlice({
       });
     },
 
+    upsertSessionSummary(state, action: PayloadAction<CoworkSession>) {
+      const summary = toSessionSummary(action.payload);
+      const sessionIndex = state.sessions.findIndex((session) => session.id === summary.id);
+      if (sessionIndex !== -1) {
+        state.sessions[sessionIndex] = {
+          ...state.sessions[sessionIndex],
+          ...summary,
+        };
+      } else {
+        state.sessions.unshift(summary);
+      }
+    },
+
     setHasMoreSessions(state, action: PayloadAction<boolean>) {
       state.hasMoreSessions = action.payload;
     },
@@ -504,7 +517,6 @@ const coworkSlice = createSlice({
 
     addMessage(state, action: PayloadAction<{ sessionId: string; message: CoworkMessage; beforeMessageId?: string }>) {
       const { sessionId, message, beforeMessageId } = action.payload;
-
       if (state.currentSession?.id === sessionId) {
         const exists = state.currentSession.messages.some((item) => item.id === message.id);
         if (!exists) {
@@ -724,6 +736,7 @@ const coworkSlice = createSlice({
 export const {
   setCoworkActive,
   setSessions,
+  upsertSessionSummary,
   setHasMoreSessions,
   appendSessions,
   setCurrentSessionId,

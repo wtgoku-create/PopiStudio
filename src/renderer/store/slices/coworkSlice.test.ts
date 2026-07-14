@@ -7,6 +7,7 @@ import coworkReducer, {
   setCurrentSession,
   setCurrentSessionId,
   setSessions,
+  upsertSessionSummary,
   updateCurrentSessionModelOverride,
   updateSessionStatus,
   updateSessionTitle,
@@ -158,6 +159,37 @@ test('setCurrentSession stores the latest user or assistant message preview', ()
   })));
 
   expect(state.sessions[0].lastMessagePreview).toBe('question');
+});
+
+test('upsertSessionSummary inserts changed sessions outside the current list', () => {
+  const state = coworkReducer(undefined, setSessions([{
+    id: 'session-1',
+    title: 'Existing task',
+    status: CoworkSessionStatusValue.Completed,
+    pinned: false,
+    agentId: 'main',
+    createdAt: 1,
+    updatedAt: 1,
+  }]));
+
+  const changedState = coworkReducer(state, upsertSessionSummary(makeSession({
+    id: 'im-session',
+    title: 'WeChat conversation',
+    agentId: 'agent-im',
+    updatedAt: 10,
+    messages: [
+      {
+        id: 'msg-1',
+        type: 'assistant',
+        content: 'IM reply',
+        timestamp: 10,
+      },
+    ],
+  })));
+
+  expect(changedState.sessions.map((session) => session.id)).toEqual(['im-session', 'session-1']);
+  expect(changedState.sessions[0].agentId).toBe('agent-im');
+  expect(changedState.sessions[0].lastMessagePreview).toBe('IM reply');
 });
 
 test('updateSessionStatus marks completed inactive sessions unread', () => {

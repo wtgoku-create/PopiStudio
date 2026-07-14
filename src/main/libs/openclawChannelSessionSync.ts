@@ -697,6 +697,7 @@ export class OpenClawChannelSessionSync {
     for (const mapping of this.imStore.listSessionMappings(platform)) {
       const parsed = parseImConversationId(mapping.imConversationId);
       if (parsed.peerId.trim().toLowerCase() !== peer) continue;
+      if (accountId && parsed.accountId && parsed.accountId !== accountId) continue;
       const sessionKey = mapping.openClawSessionKey?.trim();
       if (!sessionKey) continue;
       if (!this.coworkStore.getSession(mapping.coworkSessionId)) continue;

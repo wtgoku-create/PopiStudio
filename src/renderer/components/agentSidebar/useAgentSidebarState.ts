@@ -11,7 +11,6 @@ import {
 } from '../../store/selectors/coworkSelectors';
 import type { CoworkSessionSummary } from '../../types/cowork';
 import { CoworkSessionStatusValue } from '../../types/cowork';
-import { type CoworkSessionSummaryChangedEventDetail, CoworkUiEvent } from '../cowork/constants';
 import {
   AgentSidebarIndicator,
   AgentSidebarPreferenceKey,
@@ -214,20 +213,6 @@ export const useAgentSidebarState = () => {
 
   useEffect(() => {
     void refreshAgentSidebarSessions();
-  }, [refreshAgentSidebarSessions]);
-
-  useEffect(() => {
-    const handleSessionSummaryChanged = (event: Event) => {
-      const detail = (event as CustomEvent<CoworkSessionSummaryChangedEventDetail>).detail;
-      const agentId = normalizeAgentId(detail?.agentId);
-      if (!agentId) return;
-      void refreshAgentSidebarSessions();
-    };
-
-    window.addEventListener(CoworkUiEvent.SessionSummaryChanged, handleSessionSummaryChanged);
-    return () => {
-      window.removeEventListener(CoworkUiEvent.SessionSummaryChanged, handleSessionSummaryChanged);
-    };
   }, [refreshAgentSidebarSessions]);
 
   useEffect(() => {

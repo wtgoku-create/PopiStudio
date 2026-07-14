@@ -492,6 +492,67 @@ test('channel sync resolves existing conversation by delivery target', () => {
   });
 });
 
+test('channel sync ignores delivery target mappings from a different account', () => {
+  const sync = new OpenClawChannelSessionSync({
+    coworkStore: {
+      getSession: (sessionId: string) => sessionId === 'cowork-2' ? ({
+        id: 'cowork-2',
+        title: '[WeChat] user-1',
+        claudeSessionId: null,
+        status: 'idle',
+        pinned: false,
+        cwd: '/tmp',
+        systemPrompt: '',
+        modelOverride: '',
+        executionMode: 'local',
+        activeSkillIds: [],
+        messages: [],
+        createdAt: 1,
+        updatedAt: 1,
+      }) : null,
+      createSession: () => {
+        throw new Error('createSession should not be called');
+      },
+    },
+    imStore: {
+      listSessionMappings: () => [
+        {
+          imConversationId: 'bot-1:direct:user-1@im.wechat',
+          platform: 'weixin',
+          coworkSessionId: 'cowork-1',
+          agentId: 'main',
+          openClawSessionKey: 'agent:main:openclaw-weixin:bot-1:direct:user-1@im.wechat',
+          createdAt: 1,
+          lastActiveAt: 2,
+        },
+        {
+          imConversationId: 'bot-2:direct:user-1@im.wechat',
+          platform: 'weixin',
+          coworkSessionId: 'cowork-2',
+          agentId: 'main',
+          openClawSessionKey: 'agent:main:openclaw-weixin:bot-2:direct:user-1@im.wechat',
+          createdAt: 1,
+          lastActiveAt: 1,
+        },
+      ],
+      getSessionMapping: () => null,
+      updateSessionLastActive: () => {},
+      deleteSessionMapping: () => {},
+      createSessionMapping: () => {},
+    },
+    getDefaultCwd: () => '/repo/main',
+  });
+
+  expect(sync.resolveConversationByDeliveryTarget(
+    'openclaw-weixin',
+    'direct:USER-1@im.wechat',
+    'bot-2',
+  )).toEqual({
+    sessionId: 'cowork-2',
+    sessionKey: 'agent:main:openclaw-weixin:bot-2:direct:user-1@im.wechat',
+  });
+});
+
 test('channel sync reuses mapped conversations for IM announce delivery jobs', () => {
   const createSession = vi.fn();
   const sync = new OpenClawChannelSessionSync({

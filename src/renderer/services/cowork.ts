@@ -13,7 +13,6 @@ import {
   CoworkSteerRejectReason,
   CoworkSteerStatus,
 } from '../../shared/cowork/steer';
-import { CoworkUiEvent } from '../components/cowork/constants';
 import { store } from '../store';
 import {
   addMessage,
@@ -41,6 +40,7 @@ import {
   setRemoteManaged,
   setSessions,
   setStreaming,
+  upsertSessionSummary,
   updateMessageContent,
   updateSessionPinned,
   updateSessionStatus,
@@ -57,6 +57,7 @@ import type {
   CoworkPermissionResult,
   CoworkSession,
   CoworkSessionListResult,
+  CoworkSessionStatus,
   CoworkStartOptions,
   CoworkUserMemoryEntry,
   OpenClawEngineStatus,
@@ -202,19 +203,7 @@ class CoworkService {
     this.streamListenerCleanups.push(messageUpdateCleanup);
 
     const sessionStatusCleanup = cowork.onStreamSessionStatus?.(({ sessionId, status }) => {
-      store.dispatch(updateSessionStatus({ sessionId, status }));
-      if (status === CoworkSessionStatusValue.Running) {
-        this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
-      } else if (status === CoworkSessionStatusValue.Completed) {
-        store.dispatch(finishSessionActivity({ sessionId }));
-        this.queuedFollowUpCoordinator.handleSessionCompleted(sessionId);
-      } else if (status === CoworkSessionStatusValue.Error) {
-        store.dispatch(finishSessionActivity({ sessionId }));
-        this.queuedFollowUpCoordinator.handleSessionError(sessionId);
-      } else {
-        store.dispatch(finishSessionActivity({ sessionId }));
-        this.queuedFollowUpCoordinator.handleSessionIdle(sessionId);
-      }
+      void this.handleStreamSessionStatus(sessionId, status);
     });
     if (sessionStatusCleanup) {
       this.streamListenerCleanups.push(sessionStatusCleanup);
@@ -304,46 +293,80 @@ class CoworkService {
     const sessionsChangedCleanup = cowork.onSessionsChanged((event) => {
       const beforeState = store.getState().cowork;
       console.log('[CoworkService] onSessionsChanged: received IPC event, before sessions:', beforeState.sessions.length, 'sessionIds:', beforeState.sessions.map(s => s.id).slice(0, 5));
-      void this.loadSessionSummaryForChangedSession(event?.sessionId).then(() => this.loadSessions()).then(() => {
-        const state = store.getState().cowork;
-        console.log('[CoworkService] onSessionsChanged: loadSessions complete, total sessions:', state.sessions.length, 'sessionIds:', state.sessions.map(s => s.id).slice(0, 5));
-
-        // Reload the active session's full message list so that messages
-        // replaced by reconcileWithHistory (bulk SQLite replace) are reflected
-        // in the conversation view, not just the sidebar.  Without this,
-        // user messages synced from gateway history would only appear after
-        // the user manually re-enters the conversation.
-        const currentId = state.currentSessionId;
-        if (currentId) {
-          void this.loadSession(currentId);
-          void this.loadSessionMessageRailIndex(currentId);
-        }
-      }).catch((err) => {
-        console.error('[CoworkService] onSessionsChanged: loadSessions FAILED:', err);
+      void this.handleSessionsChanged(event?.sessionId).catch((err) => {
+        console.error('[CoworkService] onSessionsChanged: refresh failed:', err);
       });
     });
     this.streamListenerCleanups.push(sessionsChangedCleanup);
   }
 
+  private async handleSessionsChanged(sessionId?: string): Promise<void> {
+    if (sessionId) {
+      await this.loadSessionSummaryForChangedSession(sessionId);
+    } else {
+      await this.loadSessions();
+    }
+
+    const state = store.getState().cowork;
+    console.log('[CoworkService] onSessionsChanged: refresh complete, total sessions:', state.sessions.length, 'sessionIds:', state.sessions.map(s => s.id).slice(0, 5));
+
+    // Reload the active session's full message list so that messages
+    // replaced by reconcileWithHistory (bulk SQLite replace) are reflected
+    // in the conversation view, not just the sidebar.  Without this,
+    // user messages synced from gateway history would only appear after
+    // the user manually re-enters the conversation.
+    const currentId = state.currentSessionId;
+    if (currentId) {
+      void this.loadSession(currentId);
+      void this.loadSessionMessageRailIndex(currentId);
+    }
+  }
+
+  private async handleStreamSessionStatus(
+    sessionId: string,
+    status: CoworkSessionStatus,
+  ): Promise<void> {
+    const state = store.getState().cowork;
+    const sessionExists = state.sessions.some((session) => session.id === sessionId)
+      || state.currentSession?.id === sessionId;
+    if (!sessionExists) {
+      await this.loadSessionSummaryForChangedSession(sessionId);
+    }
+
+    store.dispatch(updateSessionStatus({ sessionId, status }));
+    if (status === CoworkSessionStatusValue.Running) {
+      this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
+    } else if (status === CoworkSessionStatusValue.Completed) {
+      store.dispatch(finishSessionActivity({ sessionId }));
+      this.queuedFollowUpCoordinator.handleSessionCompleted(sessionId);
+    } else if (status === CoworkSessionStatusValue.Error) {
+      store.dispatch(finishSessionActivity({ sessionId }));
+      this.queuedFollowUpCoordinator.handleSessionError(sessionId);
+    } else {
+      store.dispatch(finishSessionActivity({ sessionId }));
+      this.queuedFollowUpCoordinator.handleSessionIdle(sessionId);
+    }
+  }
+
   private async loadSessionSummaryForChangedSession(sessionId?: string): Promise<void> {
-    if (!sessionId) return;
+    if (!sessionId) {
+      return;
+    }
 
     const cowork = window.electron?.cowork;
-    if (!cowork?.getSession) return;
+    if (!cowork?.getSession) {
+      return;
+    }
 
     const result = await cowork.getSession(sessionId);
-    if (!result?.success || !result.session) return;
+    if (!result?.success || !result.session) {
+      return;
+    }
 
     if (store.getState().cowork.currentSessionId === sessionId) {
       store.dispatch(setCurrentSession(result.session));
     }
-    const summaryAgentId = result.session.agentId?.trim() || AgentId.Main;
-    window.dispatchEvent(new CustomEvent(CoworkUiEvent.SessionSummaryChanged, {
-      detail: {
-        sessionId: result.session.id,
-        agentId: summaryAgentId,
-      },
-    }));
+    store.dispatch(upsertSessionSummary(result.session));
   }
 
   private isStillRunningError(error: string): boolean {
