@@ -13,6 +13,7 @@ import TrashIcon from '../icons/TrashIcon';
 interface CoworkSessionItemProps {
   session: CoworkSessionSummary;
   hasUnread: boolean;
+  hasPendingConfirmation?: boolean;
   isActive: boolean;
   isBatchMode: boolean;
   isSelected: boolean;
@@ -66,6 +67,7 @@ const formatRelativeTime = (timestamp: number): { compact: string; full: string 
 const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
   session,
   hasUnread,
+  hasPendingConfirmation = false,
   isActive,
   isBatchMode,
   isSelected,
@@ -232,10 +234,20 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
   const renameLabel = i18nService.t('renameConversation');
   const deleteLabel = i18nService.t('deleteSession');
   const relativeTime = formatRelativeTime(session.updatedAt);
-  const showRunningIndicator = session.status === 'running';
-  const showUnreadIndicator = !showRunningIndicator && hasUnread;
-  const showStatusIndicator = showRunningIndicator || showUnreadIndicator;
+  const showPendingConfirmationIndicator = hasPendingConfirmation;
+  const showRunningIndicator = !showPendingConfirmationIndicator && session.status === 'running';
+  const showUnreadIndicator = !showPendingConfirmationIndicator && !showRunningIndicator && hasUnread;
+  const showStatusIndicator = showPendingConfirmationIndicator || showRunningIndicator || showUnreadIndicator;
   const showRelativeTime = !showStatusIndicator;
+  const statusLabel = showPendingConfirmationIndicator
+    ? i18nService.t('coworkPermissionAwaiting')
+    : i18nService.t(statusLabels[session.status]);
+  const statusIndicatorTitle = showPendingConfirmationIndicator || showRunningIndicator
+    ? statusLabel
+    : undefined;
+  const statusIndicatorClassName = showPendingConfirmationIndicator
+    ? 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.55)] animate-pulse'
+    : `bg-blue-500 ${showRunningIndicator ? 'shadow-[0_0_6px_rgba(59,130,246,0.5)] animate-pulse' : ''}`;
   const batchLabel = i18nService.t('batchOperations');
   const menuItems = useMemo(() => {
     const items = [
@@ -297,10 +309,8 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
             {/* Status indicator */}
             {showStatusIndicator && (
               <span
-                className={`block w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 ${
-                  showRunningIndicator ? 'shadow-[0_0_6px_rgba(59,130,246,0.5)] animate-pulse' : ''
-                }`}
-                title={showRunningIndicator ? i18nService.t(statusLabels[session.status]) : undefined}
+                className={`block w-2 h-2 rounded-full flex-shrink-0 ${statusIndicatorClassName}`}
+                title={statusIndicatorTitle}
               />
             )}
             {isRenaming ? (
@@ -321,9 +331,16 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
                 className="flex-1 min-w-0 rounded-lg border border-border bg-background px-2 py-1 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
             ) : (
-              <h3 className="text-sm font-medium text-foreground truncate">
-                {session.title}
-              </h3>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <h3 className="min-w-0 truncate text-sm font-medium text-foreground">
+                  {session.title}
+                </h3>
+                {showPendingConfirmationIndicator && (
+                  <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-amber-700 dark:text-amber-300">
+                    {i18nService.t('coworkPermissionAwaiting')}
+                  </span>
+                )}
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2 text-xs text-secondary">
@@ -333,7 +350,7 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
               </span>
             )}
             <span className="text-[10px] uppercase tracking-wider whitespace-nowrap">
-              {i18nService.t(statusLabels[session.status])}
+              {statusLabel}
             </span>
           </div>
         </div>

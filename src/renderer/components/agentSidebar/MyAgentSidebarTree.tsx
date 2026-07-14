@@ -1,12 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
-import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
+import {
+  CoworkSessionSourceKind,
+  SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
+} from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { RootState } from '../../store';
-import { selectCurrentSessionId } from '../../store/selectors/coworkSelectors';
+import {
+  selectCurrentSessionId,
+  selectPendingPermissions,
+} from '../../store/selectors/coworkSelectors';
 import { isDefaultAgentId } from '../../utils/agentDisplay';
 import AgentAddFriendModal from '../agent/AgentAddFriendModal';
 import AgentCreateModal from '../agent/AgentCreateModal';
@@ -42,6 +48,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
 }) => {
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
   const currentSessionId = useSelector(selectCurrentSessionId);
+  const pendingPermissions = useSelector(selectPendingPermissions);
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null);
@@ -56,6 +63,24 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     const isScheduledTask = task?.source?.kind === CoworkSessionSourceKind.ScheduledTask;
     return activeTab === AgentSidebarTaskTab.Scheduled ? isScheduledTask : !isScheduledTask;
   });
+  const pendingPermissionSessionIdSet = useMemo(() => {
+    const ids = new Set<string>();
+    for (const permission of pendingPermissions) {
+      ids.add(permission.sessionId);
+      const sessionKey = typeof permission.toolInput?.sessionKey === 'string'
+        ? permission.toolInput.sessionKey.trim()
+        : '';
+      const parts = sessionKey.split(':');
+      if (parts.length >= 4 && parts[0] === 'agent') {
+        const source = parts[2]?.trim();
+        const sessionId = parts.slice(3).join(':').trim();
+        if ((source === 'popiai' || source === 'subagent') && sessionId) {
+          ids.add(sessionId);
+        }
+      }
+    }
+    return ids;
+  }, [pendingPermissions]);
 
   useEffect(() => {
     void agentService.loadAgents();
@@ -133,6 +158,13 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
         key={task.id}
         agent={agent}
         task={task}
+        hasPendingConfirmation={
+          pendingPermissionSessionIdSet.has(task.id)
+          || (
+            task.id === currentSessionId
+            && pendingPermissionSessionIdSet.has(SESSION_AGNOSTIC_PERMISSION_SESSION_ID)
+          )
+        }
         isActive={task.id === currentSessionId}
         onSelect={(agent, task) => void handleSelectAgentSession(agent, task)}
         onDelete={handleDeleteSession}

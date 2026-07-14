@@ -2,8 +2,12 @@ import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import React, { useMemo } from 'react';
 import { useSelector } from 'react-redux';
 
+import { SESSION_AGNOSTIC_PERMISSION_SESSION_ID } from '../../../shared/cowork/constants';
 import { i18nService } from '../../services/i18n';
-import { selectUnreadSessionIds } from '../../store/selectors/coworkSelectors';
+import {
+  selectPendingPermissions,
+  selectUnreadSessionIds,
+} from '../../store/selectors/coworkSelectors';
 import type { CoworkSessionSummary } from '../../types/cowork';
 import CoworkSessionItem from './CoworkSessionItem';
 
@@ -37,7 +41,29 @@ const CoworkSessionList: React.FC<CoworkSessionListProps> = ({
   onEnterBatchMode,
 }) => {
   const unreadSessionIds = useSelector(selectUnreadSessionIds);
+  const pendingPermissions = useSelector(selectPendingPermissions);
   const unreadSessionIdSet = useMemo(() => new Set(unreadSessionIds), [unreadSessionIds]);
+  const pendingPermissionSessionIdSet = useMemo(
+    () => {
+      const ids = new Set<string>();
+      for (const permission of pendingPermissions) {
+        ids.add(permission.sessionId);
+        const sessionKey = typeof permission.toolInput?.sessionKey === 'string'
+          ? permission.toolInput.sessionKey.trim()
+          : '';
+        const parts = sessionKey.split(':');
+        if (parts.length >= 4 && parts[0] === 'agent') {
+          const source = parts[2]?.trim();
+          const sessionId = parts.slice(3).join(':').trim();
+          if ((source === 'popiai' || source === 'subagent') && sessionId) {
+            ids.add(sessionId);
+          }
+        }
+      }
+      return ids;
+    },
+    [pendingPermissions],
+  );
 
   const sortedSessions = useMemo(() => {
     const sortByPinOrder = (a: CoworkSessionSummary, b: CoworkSessionSummary) => {
@@ -95,6 +121,13 @@ const CoworkSessionList: React.FC<CoworkSessionListProps> = ({
           key={session.id}
           session={session}
           hasUnread={unreadSessionIdSet.has(session.id)}
+          hasPendingConfirmation={
+            pendingPermissionSessionIdSet.has(session.id)
+            || (
+              session.id === currentSessionId
+              && pendingPermissionSessionIdSet.has(SESSION_AGNOSTIC_PERMISSION_SESSION_ID)
+            )
+          }
           isActive={session.id === currentSessionId}
           isBatchMode={isBatchMode}
           isSelected={selectedIds.has(session.id)}
