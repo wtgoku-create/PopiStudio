@@ -227,6 +227,97 @@ describe('registerScheduledTaskHandlers', () => {
     });
   });
 
+  test('repairs historical Weixin delivery target casing before manual run', async () => {
+    const request = vi.fn(async () => ({
+      sessions: [
+        {
+          updatedAt: 2_000,
+          lastChannel: 'openclaw-weixin',
+          lastTo: 'o9cq809ZEC25-4jLkdw3AHTKPE9c@im.wechat',
+          lastAccountId: '91fcaf18cb3a-im-bot',
+        },
+      ],
+    }));
+    const { cronJobService, deps } = makeDeps(OpenClawEnginePhase.Running, {
+      gatewayClient: { request },
+    });
+    cronJobService.getJob = vi.fn(async () => ({
+      id: 'job-weixin',
+      name: '科技早报',
+      enabled: true,
+      schedule: { kind: 'cron', expr: '0 13 * * *' },
+      sessionTarget: SessionTarget.Isolated,
+      wakeMode: WakeMode.Now,
+      payload: { kind: PayloadKind.AgentTurn, message: 'hi' },
+      delivery: {
+        mode: DeliveryMode.Announce,
+        channel: 'openclaw-weixin',
+        to: 'o9cq809zec25-4jlkdw3ahtkpe9c@im.wechat',
+        accountId: '91fcaf18cb3a-im-bot',
+      },
+    }));
+    cronJobService.runJob = vi.fn(async () => ({ ok: true }));
+    registerScheduledTaskHandlers(deps);
+
+    const handler = registeredHandlers.get(ScheduledTaskIpc.RunManually);
+    const result = await handler?.(undefined, 'job-weixin');
+
+    expect(cronJobService.updateJob).toHaveBeenCalledWith('job-weixin', {
+      delivery: {
+        mode: DeliveryMode.Announce,
+        channel: 'openclaw-weixin',
+        to: 'o9cq809ZEC25-4jLkdw3AHTKPE9c@im.wechat',
+        accountId: '91fcaf18cb3a-im-bot',
+      },
+    });
+    expect(cronJobService.runJob).toHaveBeenCalledWith('job-weixin');
+    expect(result).toEqual({ success: true });
+  });
+
+  test('repairs historical IM delivery target casing for any gateway channel', async () => {
+    const request = vi.fn(async () => ({
+      sessions: [
+        {
+          updatedAt: 2_000,
+          lastChannel: 'telegram',
+          lastTo: 'User-ABC',
+          lastAccountId: 'telegram-bot',
+        },
+      ],
+    }));
+    const { cronJobService, deps } = makeDeps(OpenClawEnginePhase.Running, {
+      gatewayClient: { request },
+    });
+    cronJobService.getJob = vi.fn(async () => ({
+      id: 'job-telegram',
+      name: 'telegram report',
+      enabled: true,
+      schedule: { kind: 'cron', expr: '0 13 * * *' },
+      sessionTarget: SessionTarget.Isolated,
+      wakeMode: WakeMode.Now,
+      payload: { kind: PayloadKind.AgentTurn, message: 'hi' },
+      delivery: {
+        mode: DeliveryMode.Announce,
+        channel: 'telegram',
+        to: 'user-abc',
+      },
+    }));
+    cronJobService.runJob = vi.fn(async () => ({ ok: true }));
+    registerScheduledTaskHandlers(deps);
+
+    const handler = registeredHandlers.get(ScheduledTaskIpc.RunManually);
+    const result = await handler?.(undefined, 'job-telegram');
+
+    expect(cronJobService.updateJob).toHaveBeenCalledWith('job-telegram', {
+      delivery: {
+        mode: DeliveryMode.Announce,
+        channel: 'telegram',
+        to: 'User-ABC',
+      },
+    });
+    expect(result).toEqual({ success: true });
+  });
+
   test('keeps main cron payload valid when delivery is disabled on update', async () => {
     const { cronJobService, deps } = makeDeps();
     registerScheduledTaskHandlers(deps);
