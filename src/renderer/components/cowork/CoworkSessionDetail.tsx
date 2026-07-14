@@ -1151,6 +1151,13 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     scrollToBottomSettleTimersRef.current.forEach(timer => clearTimeout(timer));
     scrollToBottomSettleTimersRef.current = [];
   }, []);
+  const cancelAutoScrollForManualScroll = useCallback((container: HTMLDivElement, nextScrollTop = container.scrollTop) => {
+    const distanceToBottom = container.scrollHeight - nextScrollTop - container.clientHeight;
+    if (distanceToBottom <= AUTO_SCROLL_THRESHOLD) return;
+    scrollToBottomIntentRef.current = false;
+    clearScrollToBottomSettleTimers();
+    setShouldAutoScroll(false);
+  }, [clearScrollToBottomSettleTimers]);
   const clearAutoPreviewArtifactSettleTimer = useCallback(() => {
     if (autoPreviewArtifactSettleTimerRef.current) {
       clearTimeout(autoPreviewArtifactSettleTimerRef.current);
@@ -2989,7 +2996,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   }, [currentSession?.messages.length]);
 
   const handleRailWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    const container = railLinesRef.current;
+    const container = scrollContainerRef.current;
     if (!container) return;
 
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -3006,9 +3013,26 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     );
     if (nextScrollTop === container.scrollTop) return;
 
+    event.preventDefault();
     event.stopPropagation();
+    cancelAutoScrollForManualScroll(container, nextScrollTop);
     container.scrollTop = nextScrollTop;
-  }, []);
+  }, [cancelAutoScrollForManualScroll]);
+
+  const handleMessagesWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const deltaMultiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? WHEEL_DELTA_LINE_HEIGHT
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? container.clientHeight
+        : 1;
+    const nextScrollTop = Math.max(
+      0,
+      Math.min(container.scrollHeight - container.clientHeight, container.scrollTop + event.deltaY * deltaMultiplier),
+    );
+    cancelAutoScrollForManualScroll(container, nextScrollTop);
+  }, [cancelAutoScrollForManualScroll]);
 
   const handleScrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -3090,6 +3114,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       }
     }
 
+    setShouldAutoScroll(false);
+    scrollToBottomIntentRef.current = false;
+    clearScrollToBottomSettleTimers();
+
     isNavigatingRef.current = true;
     if (navigatingTimerRef.current) clearTimeout(navigatingTimerRef.current);
     navigatingTimerRef.current = setTimeout(() => { isNavigatingRef.current = false; }, NAV_SCROLL_LOCK_DURATION);
@@ -3156,7 +3184,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
     currentRailIndexRef.current = railIndex;
     setCurrentRailIndex(railIndex);
-  }, [currentSession?.id]);
+  }, [clearScrollToBottomSettleTimers, currentSession?.id]);
 
   // lastMessageContent and messagesLength are now sourced from memoized
   // selectors (selectLastMessageContent / selectCurrentMessagesLength)
@@ -3433,6 +3461,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
   // Auto scroll to bottom when new messages arrive or content updates (streaming)
   useEffect(() => {
+    if (isNavigatingRef.current) {
+      return;
+    }
     if (!shouldAutoScroll) {
       return;
     }
@@ -4000,6 +4031,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         <div
           ref={scrollContainerRef}
           onScroll={handleMessagesScroll}
+          onWheel={handleMessagesWheel}
           className="h-full min-h-0 overflow-y-auto pt-3"
           style={{ scrollbarGutter: 'stable both-edges' }}
         >
