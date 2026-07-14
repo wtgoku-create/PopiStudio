@@ -2400,6 +2400,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (turn) {
       turn.stopRequested = true;
       this.manuallyStoppedSessions.add(sessionId);
+      this.finalizeStoppedStreamingMessages(sessionId, turn);
       const client = this.gatewayClient;
       if (client) {
         console.log(`[OpenClawRuntime] user requested stop, aborting gateway run ${turn.runId}.`);
@@ -3288,6 +3289,73 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       clearTimeout(timer);
       this.pendingStoreUpdateTimer.delete(messageId);
     }
+  }
+
+  private resolveCurrentModelForSession(sessionId: string): string {
+    const session = this.store.getSession(sessionId);
+    if (session?.modelOverride) {
+      return session.modelOverride;
+    }
+    const agent = session?.agentId ? this.store.getAgent(session.agentId) : null;
+    const rawCurrentModel = agent?.model || '';
+    if (!rawCurrentModel) return '';
+    return this.normalizeModelRef(rawCurrentModel);
+  }
+
+  private finalizeStoppedStreamingMessage(
+    sessionId: string,
+    messageId: string | null,
+    content: string,
+    model: string,
+  ): void {
+    if (!messageId) return;
+
+    this.clearPendingStoreUpdate(messageId);
+    this.clearPendingMessageUpdate(messageId);
+    this.lastStoreUpdateTime.delete(messageId);
+    this.lastMessageUpdateEmitTime.delete(messageId);
+
+    const session = this.store.getSession(sessionId);
+    const message = session?.messages.find((item) => item.id === messageId);
+    if (!message) return;
+
+    const finalContent = content || message.content;
+    const existingModel = typeof message.metadata?.model === 'string' && message.metadata.model.trim()
+      ? message.metadata.model
+      : '';
+    const metadata: CoworkMessageMetadata = {
+      ...message.metadata,
+      isStreaming: false,
+      isFinal: true,
+      ...(existingModel ? { model: existingModel } : model ? { model } : {}),
+    };
+
+    this.store.updateMessage(sessionId, messageId, {
+      content: finalContent,
+      metadata,
+    });
+    console.debug(
+      `[OpenClawRuntime] finalized stopped streaming message for session ${sessionId}.`,
+      `Message ${messageId}.`,
+      `Model ${metadata.model ?? 'none'}.`,
+    );
+    this.emit('messageUpdate', sessionId, messageId, finalContent, metadata);
+  }
+
+  private finalizeStoppedStreamingMessages(sessionId: string, turn: ActiveTurn): void {
+    const model = this.resolveCurrentModelForSession(sessionId);
+    this.finalizeStoppedStreamingMessage(
+      sessionId,
+      turn.thinkingMessageId,
+      turn.currentThinkingText,
+      model,
+    );
+    this.finalizeStoppedStreamingMessage(
+      sessionId,
+      turn.assistantMessageId,
+      turn.currentAssistantSegmentText || turn.currentText,
+      model,
+    );
   }
 
   private syncToolResultsFromHistory(
