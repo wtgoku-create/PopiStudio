@@ -1884,6 +1884,7 @@ export class OpenClawConfigSync {
         const trustedPluginAllow = Array.from(new Set([
           ...existingAllow,
           OPENCLAW_MEMORY_CORE_PLUGIN_ID,
+          ...(hasAskUserPlugin ? ['ask-user-question'] : []),
           ...preinstalledPlugins.map(plugin => plugin.pluginId),
           ...userPlugins.filter(plugin => plugin.enabled).map(plugin => plugin.pluginId),
         ])).sort();

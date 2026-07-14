@@ -248,6 +248,17 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.skills.load.extraDirs).toContain(path.join(process.cwd(), 'SKILLs'));
   });
 
+  test('allowlists ask-user-question when the bundled plugin is available', async () => {
+    const sync = await createSync();
+
+    const result = sync.sync('ask-user-plugin-allowlist');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.plugins.entries['ask-user-question']).toEqual({ enabled: true });
+    expect(config.plugins.allow).toContain('ask-user-question');
+  });
+
   test('does not create an agent model allowlist for OpenAI OAuth when system proxy is enabled', async () => {
     const { ProviderName } = await import('../../shared/providers');
     const { setSystemProxyEnabled } = await import('./systemProxy');
