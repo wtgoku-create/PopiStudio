@@ -26,6 +26,7 @@ import {
   deleteSessions as deleteSessionsAction,
   dequeuePendingPermission,
   enqueuePendingPermission,
+  finishSessionActivity,
   markCompactionNotified,
   prependMessages,
   setConfig,
@@ -205,10 +206,13 @@ class CoworkService {
       if (status === CoworkSessionStatusValue.Running) {
         this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
       } else if (status === CoworkSessionStatusValue.Completed) {
+        store.dispatch(finishSessionActivity({ sessionId }));
         this.queuedFollowUpCoordinator.handleSessionCompleted(sessionId);
       } else if (status === CoworkSessionStatusValue.Error) {
+        store.dispatch(finishSessionActivity({ sessionId }));
         this.queuedFollowUpCoordinator.handleSessionError(sessionId);
       } else {
+        store.dispatch(finishSessionActivity({ sessionId }));
         this.queuedFollowUpCoordinator.handleSessionIdle(sessionId);
       }
     });
@@ -253,7 +257,16 @@ class CoworkService {
 
     // Complete listener
     const completeCleanup = cowork.onStreamComplete(({ sessionId }) => {
+      const before = store.getState().cowork;
+      console.log('[CoworkService] received stream complete.', {
+        sessionId,
+        currentSessionId: before.currentSession?.id ?? null,
+        wasStreaming: before.isStreaming,
+        hadContextMaintenance: before.contextMaintenanceSessionIds.includes(sessionId),
+        hadContextCompaction: before.compactingSessionIds.includes(sessionId),
+      });
       store.dispatch(updateSessionStatus({ sessionId, status: 'completed' }));
+      store.dispatch(finishSessionActivity({ sessionId }));
       this.scheduleFinalContextUsageRefresh(sessionId, true);
       this.queuedFollowUpCoordinator.handleSessionCompleted(sessionId);
     });
@@ -269,6 +282,7 @@ class CoworkService {
         return;
       }
       store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Error }));
+      store.dispatch(finishSessionActivity({ sessionId }));
       this.queuedFollowUpCoordinator.handleSessionError(sessionId);
       // Surface the error as a visible message so the user knows what happened.
       if (error) {
@@ -799,6 +813,7 @@ class CoworkService {
     const result = await cowork.stopSession(sessionId);
     if (result.success) {
       store.dispatch(setStreaming(false));
+      store.dispatch(finishSessionActivity({ sessionId }));
       store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Idle }));
       this.queuedFollowUpCoordinator.handleSessionIdle(sessionId);
       return true;

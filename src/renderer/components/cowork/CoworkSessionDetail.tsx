@@ -4378,7 +4378,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         )}
         <div className={COWORK_DETAIL_CONTENT_CLASS}>
           {showExternalSteerPreview && (
-            <div className="relative z-10 mb-1.5">
+            <div className="relative z-10">
               <div ref={setSteerPreviewPortalTarget} />
             </div>
           )}

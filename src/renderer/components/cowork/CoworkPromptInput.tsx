@@ -1363,7 +1363,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const shouldUseExternalSteerPreview = steerPreviewPortalTarget !== undefined;
   const queuedFollowUpNode = steerPreviewItems.length > 0 ? (
     <div className={shouldUseExternalSteerPreview
-      ? `${isCompact ? 'mx-3' : 'mx-5'} max-h-[156px] overflow-y-auto rounded-t-2xl rounded-b-none border border-b-0 border-border bg-surface-raised/60`
+      ? `${isCompact ? 'mx-3' : 'mx-5'} max-h-[156px] overflow-y-auto rounded-t-2xl rounded-b-none border border-border bg-surface-raised/60`
       : `${isLarge || isCompact ? 'px-4 pt-3' : 'px-1 pb-2'}`
     }>
       {steerPreviewItems.map(({ steer, source }, index) => {

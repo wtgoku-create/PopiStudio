@@ -614,6 +614,15 @@ const coworkSlice = createSlice({
       }
     },
 
+    finishSessionActivity(state, action: PayloadAction<{ sessionId: string }>) {
+      const { sessionId } = action.payload;
+      state.contextMaintenanceSessionIds = state.contextMaintenanceSessionIds.filter(id => id !== sessionId);
+      state.compactingSessionIds = state.compactingSessionIds.filter(id => id !== sessionId);
+      if (state.currentSession?.id === sessionId) {
+        state.isStreaming = false;
+      }
+    },
+
     markCompactionNotified(state, action: PayloadAction<{ sessionId: string; compactionCount: number }>) {
       state.notifiedCompactionBySessionId[action.payload.sessionId] = action.payload.compactionCount;
     },
@@ -743,6 +752,7 @@ export const {
   setContextUsage,
   setContextCompacting,
   setContextMaintenance,
+  finishSessionActivity,
   markCompactionNotified,
   setRemoteManaged,
   updateSessionPinned,
