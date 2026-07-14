@@ -22,7 +22,7 @@ import {
   normalizeBrowserWebAccessConfig,
 } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
-import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel, SESSION_AGNOSTIC_PERMISSION_SESSION_ID } from '../shared/cowork/constants';
+import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import {
   CoworkSteerRejectReason,
@@ -57,7 +57,6 @@ import {
 import { pollNimQrLogin, startNimQrLogin } from './im/nimQrLoginService';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NimInstanceConfig, Platform, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from './im/types';
 import { registerNimQrLoginHandlers } from './ipcHandlers/nimQrLogin';
-import { POPIART_MEDIA_GENERATION_SERVICE_PROMPT } from './popiart/popiartCliManager';
 import {
   getCronJobService,
   initCronJobServiceManager,
@@ -85,14 +84,13 @@ import {
 import { saveCoworkApiConfig } from './libs/coworkConfigStore';
 import { getCoworkLogPath } from './libs/coworkLogger';
 import { registerProxyTokenRefresher, startCoworkOpenAICompatProxy, stopCoworkOpenAICompatProxy } from './libs/coworkOpenAICompatProxy';
-import { generateSessionTitle, getElectronNodeRuntimePath, probeCoworkModelReadiness } from './libs/coworkUtil';
+import { generateSessionTitle, probeCoworkModelReadiness } from './libs/coworkUtil';
 import { getKnowledgeDefaultBaseUrl, getKnowledgeFrameSource, getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession, isPreviewServerUrl, stopHtmlPreviewServer } from './libs/htmlPreviewServer';
-import { getKeyfromAttribution, initializeKeyfromAttribution } from './libs/keyfromAttribution';
+import { initializeKeyfromAttribution } from './libs/keyfromAttribution';
 import { createKnowledgeMcpToolProvider } from './libs/knowledgeMcpBridgeTools';
 import { exportLogsZip } from './libs/logExport';
-import { McpBridgeServer } from './libs/mcpBridgeServer';
 import { parsePrimaryModelRef, resolveQualifiedAgentModelRef } from './libs/openclawAgentModels';
 import {
   buildManagedSessionKey,
@@ -112,7 +110,6 @@ import {
   OpenClawPluginChangeAction,
   removeImpactDecisionReasons,
 } from './libs/openclawConfigImpact';
-import type { ResolvedMcpServer } from './libs/openclawConfigSync';
 import { buildProviderSelection, OpenClawConfigSync } from './libs/openclawConfigSync';
 import { OpenClawEngineManager, type OpenClawEngineStatus } from './libs/openclawEngineManager';
 import {
@@ -131,15 +128,14 @@ import {
 import { collectReferencedEnvVarNames, pickReferencedSecretEnvVars } from './libs/openclawSecretEnv';
 import { getWeknoraOpenClawMcpProxyUrl, startOpenClawTokenProxy, stopOpenClawTokenProxy } from './libs/openclawTokenProxy';
 import { migrateMainAgentWorkspace } from './libs/openclawWorkspaceMigration';
-import { executePopiTVMcpTool, getPopiTVMcpToolManifest } from './libs/popiTVMcpBridgeTools';
+import { executePopiTVMcpTool } from './libs/popiTVMcpBridgeTools';
 import {
   getCachedPopiTVCanvasSnapshot,
   registerPopiTVRendererBridgeIpc,
   requestPopiTVCanvasFromRenderer,
 } from './libs/popiTVRendererBridge';
-import { LOCAL_MCP_SERVER_NAME, PopiTVToolBridgeServer } from './libs/popiTVToolBridgeServer';
+import { PopiTVToolBridgeServer } from './libs/popiTVToolBridgeServer';
 import { ensurePythonRuntimeReady } from './libs/pythonRuntime';
-import { resolveStdioCommand } from './libs/resolveStdioCommand';
 import { serializeForLog } from './libs/sanitizeForLog';
 import { SqliteBackupManager } from './libs/sqliteBackup/sqliteBackupManager';
 import {
@@ -149,11 +145,12 @@ import {
   setSystemProxyEnabled,
 } from './libs/systemProxy';
 import { getLogFilePath, getRecentMainLogEntries, initLogger } from './logger';
+import { McpRuntime } from './mcpRuntime';
 import type { McpServerFormData } from './mcpStore';
-import { McpStore } from './mcpStore';
 import { OpenClawSessionIpc } from './openclawSession/constants';
 import { OpenClawSessionPolicyIpc } from './openclawSessionPolicy/constants';
 import { loadOpenClawSessionPolicyConfig, saveOpenClawSessionPolicyConfig } from './openclawSessionPolicy/store';
+import { POPIART_MEDIA_GENERATION_SERVICE_PROMPT } from './popiart/popiartCliManager';
 import { SkillManager } from './skillManager';
 import { getSkillServiceManager } from './skillServices';
 import { SqliteStore } from './sqliteStore';
@@ -905,16 +902,8 @@ let coworkStore: CoworkStore | null = null;
 let openClawRuntimeAdapter: OpenClawRuntimeAdapter | null = null;
 let coworkEngineRouter: CoworkEngineRouter | null = null;
 let skillManager: SkillManager | null = null;
-let mcpStore: McpStore | null = null;
-let mcpBridgeServer: McpBridgeServer | null = null;
+let mcpRuntime: McpRuntime | null = null;
 let popiTVToolBridgeServer: PopiTVToolBridgeServer | null = null;
-// Generated eagerly so the secret is available before the first syncOpenClawConfig
-// call — the gateway process inherits it via LOBSTER_MCP_BRIDGE_SECRET env var at
-// spawn time, avoiding a restart just to pick up the correct secret.
-let mcpBridgeSecret: string = require('crypto').randomUUID();
-// Cache of resolved MCP server configs for the synchronous configSync callback.
-// Populated asynchronously before each syncOpenClawConfig() call.
-let resolvedMcpServersCache: ResolvedMcpServer[] = [];
 let imGatewayManager: IMGatewayManager | null = null;
 let storeInitPromise: Promise<SqliteStore> | null = null;
 let sqliteBackupManager: SqliteBackupManager | null = null;
@@ -928,8 +917,6 @@ let preventSleepBlockerId: number | null = null;
 let appUpdateCoordinator: AppUpdateCoordinator | null = null;
 let remoteKnowledgeService: RemoteKnowledgeService | null = null;
 let authManager: AuthManager | null = null;
-
-const WEKNORA_OPENCLAW_MCP_SERVER_NAME = 'weknora-openclaw';
 
 function setPreventSleepBlockerEnabled(enabled: boolean): void {
   if (enabled) {
@@ -1109,7 +1096,7 @@ const bootstrapOpenClawEngine = async (options: { forceReinstall?: boolean; reas
       await startAskUserServer().catch((err: unknown) => {
         console.error(`[OpenClaw] bootstrap: AskUser server startup failed (non-fatal):`, err);
       });
-      console.log(`[OpenClaw] bootstrap: AskUser server setup done (${elapsed()}), askUserUrl=${mcpBridgeServer?.askUserCallbackUrl || 'null'}`);
+      console.log(`[OpenClaw] bootstrap: AskUser server setup done (${elapsed()}), askUserUrl=${getMcpRuntime().getAskUserCallbackUrl() || 'null'}`);
       await startPopiTVToolBridgeServer().catch((err: unknown) => {
         console.error('[OpenClaw] bootstrap: PopiTV bridge startup failed (non-fatal):', err);
       });
@@ -1516,13 +1503,9 @@ const getOpenClawConfigSync = (): OpenClawConfigSync => {
           return [];
         }
       },
-      getResolvedMcpServers: () => {
-        // Synchronous wrapper: returns last resolved servers from cache.
-        // The async resolution happens during syncOpenClawConfig via getResolvedMcpServers().
-        return resolvedMcpServersCache;
-      },
-      getAskUserCallbackUrl: () => mcpBridgeServer?.askUserCallbackUrl ?? null,
-      getMcpBridgeSecret: () => mcpBridgeSecret,
+      getResolvedMcpServers: () => getMcpRuntime().getResolvedServersCache(),
+      getAskUserCallbackUrl: () => getMcpRuntime().getAskUserCallbackUrl(),
+      getMcpBridgeSecret: () => getMcpRuntime().getBridgeSecret(),
       getAgents: () => getCoworkStore().listAgents(),
       getUserPlugins: () => getCoworkStore().listUserPlugins().map(p => ({ pluginId: p.pluginId, enabled: p.enabled, config: p.config })),
     });
@@ -1590,10 +1573,10 @@ const syncOpenClawConfig = async (
 
   // Resolve MCP servers before sync (async → cache for synchronous callback)
   try {
-    resolvedMcpServersCache = await getResolvedMcpServers();
+    await getMcpRuntime().refreshResolvedServersCache();
   } catch (err) {
     console.warn(`[OpenClaw] getResolvedMcpServers failed (non-fatal):`, err);
-    resolvedMcpServersCache = [];
+    getMcpRuntime().clearResolvedServersCache();
   }
 
   const syncResult = getOpenClawConfigSync().sync(options.reason);
@@ -1874,68 +1857,31 @@ const getSkillManager = () => {
 };
 
 const getMcpStore = () => {
-  if (!mcpStore) {
-    const sqliteStore = getStore();
-    mcpStore = new McpStore(sqliteStore.getDatabase());
-  }
-  return mcpStore;
+  return getMcpRuntime().getStore();
 };
 
+const getMcpRuntime = () => {
+  if (!mcpRuntime) {
+    mcpRuntime = new McpRuntime({
+      getStore,
+      getPopiTVMcpUrl: () => popiTVToolBridgeServer?.mcpUrl ?? null,
+      getWeknoraOpenClawMcpProxyUrl,
+    });
+  }
+  return mcpRuntime;
+};
 
 /**
  * Start the AskUser HTTP callback server (serves ask-user-question plugin).
  * MCP server connections are now handled natively by OpenClaw via mcp.servers config.
  */
 const startAskUserServer = async (): Promise<void> => {
-  if (!mcpBridgeServer) {
-    mcpBridgeServer = new McpBridgeServer(mcpBridgeSecret);
-  }
-
-  if (mcpBridgeServer.port) return; // already running
-
-  console.log('[AskUser] starting HTTP callback server...');
-  await mcpBridgeServer.start();
-
-  // Register AskUserQuestion callback — shows a permission modal when the
-  // ask-user-question OpenClaw plugin sends a request via HTTP.
-  mcpBridgeServer.onAskUser((request) => {
-    const windows = BrowserWindow.getAllWindows();
-    windows.forEach((win) => {
-      if (win.isDestroyed()) return;
-      try {
-        win.webContents.send('cowork:stream:permission', {
-          sessionId: SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
-          request: {
-            requestId: request.requestId,
-            toolName: 'AskUserQuestion',
-            toolInput: { questions: request.questions },
-          },
-        });
-      } catch (error) {
-        console.error('[AskUser] failed to send permission request to window:', error);
-      }
-    });
-  });
-
-  // Dismiss the AskUser modal when timeout or resolved from server side.
-  mcpBridgeServer.onAskUserDismiss((requestId) => {
-    const windows = BrowserWindow.getAllWindows();
-    windows.forEach((win) => {
-      if (win.isDestroyed()) return;
-      try {
-        win.webContents.send('cowork:stream:permissionDismiss', { requestId });
-      } catch {
-        // ignore
-      }
-    });
-  });
-
-  console.log(`[AskUser] started: askUserUrl=${mcpBridgeServer.askUserCallbackUrl}`);
+  await getMcpRuntime().startAskUserServer();
 };
 
 const startPopiTVToolBridgeServer = async (): Promise<void> => {
   if (!popiTVToolBridgeServer) {
-    popiTVToolBridgeServer = new PopiTVToolBridgeServer(mcpBridgeSecret);
+    popiTVToolBridgeServer = new PopiTVToolBridgeServer(getMcpRuntime().getBridgeSecret());
   }
 
   popiTVToolBridgeServer.setLocalToolHandler((server, tool, args, options) => (
@@ -1950,74 +1896,6 @@ const startPopiTVToolBridgeServer = async (): Promise<void> => {
   if (popiTVToolBridgeServer.port) return;
 
   await popiTVToolBridgeServer.start();
-};
-
-/**
- * Get resolved MCP server configs for writing into openclaw.json mcp.servers.
- * Resolves stdio commands for the current platform (Windows/macOS packaged builds).
- */
-const getResolvedMcpServers = async (): Promise<ResolvedMcpServer[]> => {
-  const enabledServers = getMcpStore().getEnabledServers();
-  const resolved: ResolvedMcpServer[] = [];
-
-  // The MCP SDK's StdioClientTransport only inherits a limited set of env vars
-  // (PATH, APPDATA, TEMP, etc.). Our node/npx shims in PATH need these vars.
-  // Inject them into each stdio server's env so they're passed through.
-  const electronPath = getElectronNodeRuntimePath();
-  const npmBinDir = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'npm', 'bin')
-    : '';
-  for (const server of enabledServers) {
-    if (server.transportType === 'stdio') {
-      const r = await resolveStdioCommand(server);
-      // Merge gateway env vars needed by shims as fallback
-      const shimEnv: Record<string, string> = {
-        popiai_ELECTRON_PATH: electronPath,
-      };
-      if (npmBinDir) {
-        shimEnv.popiai_NPM_BIN_DIR = npmBinDir;
-      }
-      resolved.push({
-        name: server.name,
-        transportType: 'stdio',
-        command: r.command,
-        args: r.args,
-        env: { ...shimEnv, ...(r.env || {}) },
-      });
-    } else {
-      resolved.push({
-        name: server.name,
-        transportType: server.transportType,
-        url: server.url,
-        headers: server.headers,
-      });
-    }
-  }
-
-  const hasUserConfiguredWeknoraOpenClaw = resolved.some(server => server.name === WEKNORA_OPENCLAW_MCP_SERVER_NAME);
-  const weknoraOpenClawMcpProxyUrl = getWeknoraOpenClawMcpProxyUrl();
-  if (!hasUserConfiguredWeknoraOpenClaw && weknoraOpenClawMcpProxyUrl) {
-    resolved.push({
-      name: WEKNORA_OPENCLAW_MCP_SERVER_NAME,
-      transportType: 'http',
-      url: weknoraOpenClawMcpProxyUrl,
-    });
-  }
-
-  const popiTvBridgeUrl = popiTVToolBridgeServer?.mcpUrl;
-  const hasUserConfiguredLocalMcp = resolved.some(server => server.name === LOCAL_MCP_SERVER_NAME);
-  if (popiTvBridgeUrl && !hasUserConfiguredLocalMcp) {
-    resolved.push({
-      name: LOCAL_MCP_SERVER_NAME,
-      transportType: 'http',
-      url: popiTvBridgeUrl,
-      headers: {
-        'x-mcp-bridge-secret': '${LOBSTER_MCP_BRIDGE_SECRET}',
-      },
-    });
-  }
-
-  return resolved;
 };
 
 const getIMGatewayManager = () => {
@@ -4047,16 +3925,16 @@ if (!gotTheLock) {
       //
       // Both calls are safe to invoke unconditionally; exactly one will match.
 
-      // AskUserQuestion plugin responses go to the bridge server, not the runtime
-      if (mcpBridgeServer && options.requestId) {
+      // AskUserQuestion plugin responses go to the MCP runtime bridge, not the agent runtime.
+      if (options.requestId) {
         const result = options.result;
-        const askUserResponse: import('./libs/mcpBridgeServer').AskUserResponse = {
+        const askUserResponse: import('./mcpRuntime').AskUserResponse = {
           behavior: result.behavior === 'allow' ? 'allow' : 'deny',
           answers: result.behavior === 'allow' && result.updatedInput && typeof result.updatedInput === 'object'
             ? (result.updatedInput as Record<string, unknown>).answers as Record<string, string> | undefined
             : undefined,
         };
-        mcpBridgeServer.resolveAskUser(options.requestId, askUserResponse);
+        getMcpRuntime().resolveAskUser(options.requestId, askUserResponse);
       }
 
       const runtime = getCoworkEngineRouter();

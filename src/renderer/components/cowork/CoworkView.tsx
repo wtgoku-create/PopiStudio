@@ -481,12 +481,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       pendingStartRef.current.cancelled = true;
       pendingStartRef.current.cancellationAction = 'stop';
     }
-    if (minimizedPermission?.toolName === 'AskUserQuestion') {
-      await onRespondToPermission?.({
-        behavior: 'deny',
-        message: 'Session stopped',
-      });
-    }
     await coworkService.stopSession(currentSession.id);
   };
 
