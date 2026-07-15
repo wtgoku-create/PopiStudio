@@ -26,6 +26,7 @@ export interface DraftAttachment {
   path: string;
   name: string;
   isImage?: boolean;
+  isDirectory?: boolean;
   dataUrl?: string;
 }
 
