@@ -17,6 +17,9 @@ import {
   CoworkSystemMessageKind,
 } from '../../../common/coworkSystemMessages';
 import {
+  OpenClawSessionReasoningLevel,
+} from '../../../common/openclawSession';
+import {
   isSignificantAssistantStreamReset,
   OpenClawRuntimeAdapter,
   pickPersistedAssistantSegment,
@@ -451,6 +454,7 @@ test('continueSession patches a session override before chat.send even when the 
   expect(requests[0].params).toEqual({
     key: 'agent:main:popiai:session-1',
     model,
+    reasoningLevel: OpenClawSessionReasoningLevel.Stream,
   });
 });
 
@@ -919,6 +923,84 @@ test('lifecycle fallback backfills missing tool result for the current turn', as
   ));
   expect(resultMessage?.content).toBe('gateway log output');
   expect(session.status).toBe('completed');
+});
+
+test('history thinking reconciliation reuses a finalized stream thinking message before a tool', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'read the gateway log', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:popiai:${session.id}`;
+  const turn = createActiveTurn(session.id, sessionKey, 'run-thinking-reuse');
+  turn.currentThinkingText = 'Need to inspect the log.';
+  adapter.activeTurns.set(session.id, turn);
+
+  adapter.syncThinkingMessage(session.id, turn);
+  const thinkingMessageId = turn.thinkingMessageId;
+  expect(thinkingMessageId).toBeTruthy();
+
+  const finalizedThinkingMessageId = adapter.splitAssistantSegmentBeforeTool(session.id, turn);
+  expect(finalizedThinkingMessageId).toBe(thinkingMessageId);
+
+  const toolUseMessage = store.addMessage(session.id, {
+    type: 'tool_use',
+    content: 'Using tool: read',
+    metadata: { toolUseId: 'call-read' },
+  });
+  turn.toolUseMessageIdByToolCallId.set('call-read', toolUseMessage.id);
+  turn.thinkingMessageIdByKey = new Map([['tool:call-read:thinking:0', thinkingMessageId]]);
+
+  adapter.syncThinkingBlocksFromHistory(session.id, turn, [
+    { role: 'user', content: 'read the gateway log' },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'Need to inspect the log.' },
+        { type: 'toolCall', id: 'call-read', name: 'read', arguments: { path: 'gateway.log' } },
+      ],
+    },
+  ], { includeUnanchored: false });
+
+  const thinkingMessages = session.messages.filter((message) => message.metadata?.isThinking === true);
+  expect(thinkingMessages).toHaveLength(1);
+  expect(thinkingMessages[0].id).toBe(thinkingMessageId);
+  expect(thinkingMessages[0].metadata).toMatchObject({
+    isFinal: true,
+    isStreaming: false,
+    openclawThinkingAnchorToolCallId: 'call-read',
+    openclawThinkingKey: 'tool:call-read:thinking:0',
+  });
+});
+
+test('agent thinking stream creates and updates a streaming thinking message', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'read the gateway log', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:popiai:${session.id}`;
+  const turn = createActiveTurn(session.id, sessionKey, 'run-thinking-stream');
+  adapter.activeTurns.set(session.id, turn);
+  adapter.sessionIdByRunId.set('run-thinking-stream', session.id);
+  adapter.rememberSessionKey(session.id, sessionKey);
+
+  adapter.handleAgentEvent({
+    runId: 'run-thinking-stream',
+    sessionKey,
+    stream: 'thinking',
+    data: { text: 'Need to inspect the log.' },
+  }, 1);
+
+  const thinkingMessages = session.messages.filter((message) => message.metadata?.isThinking === true);
+  expect(thinkingMessages).toHaveLength(1);
+  expect(thinkingMessages[0]).toMatchObject({
+    content: 'Need to inspect the log.',
+    metadata: {
+      isThinking: true,
+      isStreaming: true,
+      isFinal: false,
+    },
+  });
+  expect(turn.thinkingMessageId).toBe(thinkingMessages[0].id);
 });
 
 test('lifecycle fallback waits when history sync returns a short assistant segment after large tool results', async () => {
