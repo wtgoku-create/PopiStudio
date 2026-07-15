@@ -65,6 +65,14 @@ const formatCredits = (n: number): string => {
   return n.toFixed(2);
 };
 
+const getDisplayName = (nickname: string | undefined, phoneSuffix: string): string => {
+  const trimmed = nickname?.trim() ?? '';
+  if (phoneSuffix && trimmed === `User${phoneSuffix}`) {
+    return `****${phoneSuffix}`;
+  }
+  return trimmed || (phoneSuffix ? `****${phoneSuffix}` : '');
+};
+
 const CreditItemRow: React.FC<{ item: CreditItem; isEn: boolean }> = ({ item, isEn }) => {
   const label = isEn ? item.labelEn : item.label;
   const badge = item.type === 'subscription' ? getSubscriptionBadge(label) : null;
@@ -124,6 +132,7 @@ const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   const phoneSuffix = user?.phone ? user.phone.slice(-4) : '';
+  const displayName = getDisplayName(user?.nickname, phoneSuffix);
 
   // const totalCredits = profileSummary?.totalCreditsRemaining ?? 0;
   const creditItems = profileSummary?.creditItems ?? [];
@@ -134,9 +143,9 @@ const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       {/* Account info */}
       <div className="px-4 py-3 border-b border-border">
         <div className="text-sm font-medium text-foreground truncate">
-          {user?.nickname || phoneSuffix}
+          {displayName}
         </div>
-        {phoneSuffix && (
+        {phoneSuffix && displayName !== `****${phoneSuffix}` && (
           <div className="text-xs text-secondary mt-0.5">
             ****{phoneSuffix}
           </div>

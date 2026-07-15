@@ -505,7 +505,7 @@ export class AuthManager {
             creditItems: [
               {
                 type: userData.user.isMember ? 'subscription' : 'free',
-                label: userData.user.isMember ? `浼氬憳 Lv.${userData.user.memberLevel ?? 0}` : '绉垎',
+                label: userData.user.isMember ? `会员 Lv.${userData.user.memberLevel ?? 0}` : '积分',
                 labelEn: userData.user.isMember ? `Member Lv.${userData.user.memberLevel ?? 0}` : 'Points',
                 creditsRemaining: totalCreditsRemaining,
                 expiresAt: null,
