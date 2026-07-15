@@ -9,6 +9,12 @@ export const KnowledgeIpc = {
 
 export type KnowledgeIpc = typeof KnowledgeIpc[keyof typeof KnowledgeIpc];
 
+export const KnowledgeSkill = {
+  Base: 'knowledge-base',
+} as const;
+
+export type KnowledgeSkill = typeof KnowledgeSkill[keyof typeof KnowledgeSkill];
+
 export const KnowledgeBaseUrl = {
   Production: 'https://rag.popi.art',
   Test: 'https://weknora.popi.art',

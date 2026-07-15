@@ -35,6 +35,7 @@ import {
   KnowledgeBaseUrl,
   KnowledgeBrowserPartition,
   KnowledgePath,
+  KnowledgeSkill,
 } from '../shared/knowledge/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import { PlatformRegistry } from '../shared/platform';
@@ -1010,8 +1011,6 @@ const resolveCoworkRuntimePrompt = async (options: {
   return `${selectedKnowledgeContext}\n\n${options.prompt}`;
 };
 
-const KNOWLEDGE_BASE_SKILL_ID = 'knowledge-base';
-
 const resolveRuntimeSkillIds = (options: {
   activeSkillIds?: string[];
   knowledgeBases?: Array<{ id: string }>;
@@ -1020,8 +1019,8 @@ const resolveRuntimeSkillIds = (options: {
   const nextSkillIds = options.activeSkillIds ? [...options.activeSkillIds] : [];
   const hasSelectedKnowledge = Boolean(options.knowledgeBases?.some(item => item.id))
     || Boolean(options.knowledgeFiles?.some(item => item.id));
-  if (hasSelectedKnowledge && !nextSkillIds.includes(KNOWLEDGE_BASE_SKILL_ID)) {
-    nextSkillIds.push(KNOWLEDGE_BASE_SKILL_ID);
+  if (hasSelectedKnowledge && !nextSkillIds.includes(KnowledgeSkill.Base)) {
+    nextSkillIds.push(KnowledgeSkill.Base);
   }
   return nextSkillIds.length > 0 ? nextSkillIds : undefined;
 };

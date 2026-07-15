@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { CoworkSteerStatus } from '../../../shared/cowork/steer';
-import type { RemoteKnowledgeBase } from '../../../shared/knowledge/constants';
+import { KnowledgeSkill, type RemoteKnowledgeBase } from '../../../shared/knowledge/constants';
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
 import { configService } from '../../services/config';
 import { coworkService } from '../../services/cowork';
@@ -552,7 +552,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     // Get active skills prompts and combine them
     const knowledgeBases = selectedKnowledgeBases.map(base => ({ id: base.id, name: base.name }));
     const hasSelectedKnowledgeBases = knowledgeBases.length > 0;
-    const activeSkills = activeSkillIds
+    const effectiveActiveSkillIds = hasSelectedKnowledgeBases && !activeSkillIds.includes(KnowledgeSkill.Base)
+      ? [...activeSkillIds, KnowledgeSkill.Base]
+      : activeSkillIds;
+    const activeSkills = effectiveActiveSkillIds
       .map(id => skills.find(s => s.id === id))
       .filter((s): s is Skill => s !== undefined);
     const skillPrompt = activeSkills.length > 0
