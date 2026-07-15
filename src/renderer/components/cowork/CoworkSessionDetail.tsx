@@ -111,6 +111,8 @@ const RAIL_LINE_DEFAULT_WIDTH = 8;
 const RAIL_LINE_ACTIVE_WIDTH = 28;
 const RAIL_LINE_HOVER_STEPS = [28, 18, 13, 10] as const;
 const RAIL_LINE_HEIGHT = 3;
+const RAIL_TARGET_RENDER_RELEASE_DELAY = 2400;
+const RAIL_TARGET_SCROLL_RETRY_LIMIT = 6;
 const ARTIFACT_PANEL_TRANSITION_MS = 200;
 const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
 const COWORK_DETAIL_MIN_WIDTH = 480;
@@ -256,6 +258,9 @@ type RailItem = {
 
 type RailNavigationDecision = {
   behavior: ScrollBehavior;
+  distance: number;
+  threshold: number;
+  reason: 'long_distance' | 'nearby' | 'reduced_motion';
 };
 
 type ExpandedConversationPreviewItem = {
@@ -284,7 +289,28 @@ const getRailNavigationDecision = (
   const targetScrollTop = container.scrollTop + targetRect.top - containerRect.top;
   const distance = Math.abs(targetScrollTop - container.scrollTop);
   const threshold = Math.max(1, container.clientHeight) * RAIL_LONG_JUMP_VIEWPORT_MULTIPLIER;
-  return { behavior: prefersReducedMotion() || distance > threshold ? 'auto' : 'smooth' };
+  if (prefersReducedMotion()) {
+    return {
+      behavior: 'auto',
+      distance,
+      threshold,
+      reason: 'reduced_motion',
+    };
+  }
+  if (distance > threshold) {
+    return {
+      behavior: 'auto',
+      distance,
+      threshold,
+      reason: 'long_distance',
+    };
+  }
+  return {
+    behavior: 'smooth',
+    distance,
+    threshold,
+    reason: 'nearby',
+  };
 };
 
 const getRailLineWidth = (
@@ -1229,14 +1255,20 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [loadingRailIndex, setLoadingRailIndex] = useState<number | null>(null);
   // Mapping: turnIndex → { first: firstRailIdx, last: lastRailIdx }
   const turnToRailRangeRef = useRef<{ first: number; last: number }[]>([]);
+  const loadedRailRangeRef = useRef<{ first: number; last: number } | null>(null);
   const isNavigatingRef = useRef(false);
   const navigatingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const forcedRailTurnReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const turnElsCacheRef = useRef<HTMLElement[]>([]);
   const railLinesRef = useRef<HTMLDivElement>(null);
   const [isScrollable, setIsScrollable] = useState(false);
   const [hoveredRailIndex, setHoveredRailIndex] = useState<number | null>(null);
   const [isRailHovered, setIsRailHovered] = useState(false);
-  const [railTooltip, setRailTooltip] = useState<{ railIndex: number; top: number; right: number } | null>(null);
+  const [railTooltip, setRailTooltip] = useState<{
+    railIndex: number;
+    top: number;
+    right: number;
+  } | null>(null);
 
   // Export states
   const [isExportingImage, setIsExportingImage] = useState(false);
@@ -2615,9 +2647,11 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   useEffect(() => {
     return () => {
       if (navigatingTimerRef.current) clearTimeout(navigatingTimerRef.current);
+      if (forcedRailTurnReleaseTimerRef.current) clearTimeout(forcedRailTurnReleaseTimerRef.current);
+      clearScrollToBottomSettleTimers();
       clearAutoPreviewArtifactSettleTimer();
     };
-  }, [clearAutoPreviewArtifactSettleTimer]);
+  }, [clearAutoPreviewArtifactSettleTimer, clearScrollToBottomSettleTimers]);
 
   // Reset nav state when session changes
   useEffect(() => {
@@ -2625,8 +2659,15 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setCurrentRailIndex(-1);
     currentRailIndexRef.current = -1;
     isNavigatingRef.current = false;
+    scrollToBottomIntentRef.current = false;
     turnElsCacheRef.current = [];
+    loadedRailRangeRef.current = null;
+    isLoadingRailTargetRef.current = false;
     if (navigatingTimerRef.current) clearTimeout(navigatingTimerRef.current);
+    if (forcedRailTurnReleaseTimerRef.current) clearTimeout(forcedRailTurnReleaseTimerRef.current);
+    forcedRailTurnReleaseTimerRef.current = null;
+    setForcedRailTurnIndex(null);
+    setLoadingRailIndex(null);
     clearAutoPreviewArtifactSettleTimer();
     setAutoPreviewPendingTurnId(null);
     setHoveredRailIndex(null);
@@ -2912,8 +2953,15 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const railCount = railItemCountRef.current;
     if (turnEls.length === 0 || railCount === 0) return;
 
-    // If at very bottom, snap to last rail item
-    if (distanceToBottom <= NAV_BOTTOM_SNAP_THRESHOLD) {
+    const loadedMessageCount = currentSession?.messages.length ?? 0;
+    const loadedMessageOffset = currentSession?.messagesOffset ?? 0;
+    const totalMessageCount = currentSession?.totalMessages ?? loadedMessageCount;
+    const hasLoadedSessionEnd = loadedMessageOffset + loadedMessageCount >= totalMessageCount;
+
+    // Only snap to the final rail item when the loaded window includes the real
+    // session end. Middle windows can also reach their local bottom, and snapping
+    // there would highlight the window's last rail item instead of the visible turn.
+    if (hasLoadedSessionEnd && distanceToBottom <= NAV_BOTTOM_SNAP_THRESHOLD) {
       const lastRail = railCount - 1;
       if (currentRailIndexRef.current !== lastRail) {
         currentRailIndexRef.current = lastRail;
@@ -2953,7 +3001,13 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       currentRailIndexRef.current = railIdx;
       setCurrentRailIndex(railIdx);
     }
-  }, [clearScrollToBottomSettleTimers, currentSession?.id, currentSession?.messagesOffset]);
+  }, [
+    clearScrollToBottomSettleTimers,
+    currentSession?.id,
+    currentSession?.messages.length,
+    currentSession?.messagesOffset,
+    currentSession?.totalMessages,
+  ]);
 
   // Auto-load older messages if content doesn't fill the container (no scrollbar = onScroll never fires)
   useEffect(() => {
@@ -2996,7 +3050,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   }, [currentSession?.messages.length]);
 
   const handleRailWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    const container = scrollContainerRef.current;
+    const container = railLinesRef.current;
     if (!container) return;
 
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -3013,11 +3067,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     );
     if (nextScrollTop === container.scrollTop) return;
 
-    event.preventDefault();
     event.stopPropagation();
-    cancelAutoScrollForManualScroll(container, nextScrollTop);
     container.scrollTop = nextScrollTop;
-  }, [cancelAutoScrollForManualScroll]);
+  }, []);
 
   const handleMessagesWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     const container = scrollContainerRef.current;
@@ -3102,33 +3154,48 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const railItem = railItemsRef.current[railIndex];
     if (!railItem) return;
 
-    // Find the turn that contains this rail item
-    const ranges = turnToRailRangeRef.current;
-    let targetTurnIdx = railItem.turnIndex;
-    if (targetTurnIdx < 0) {
-      for (let t = 0; t < ranges.length; t++) {
-        if (ranges[t] && railIndex >= ranges[t].first && railIndex <= ranges[t].last) {
-          targetTurnIdx = t;
-          break;
-        }
-      }
+    const isNavigatingToLastRailItem = railIndex >= railItemCountRef.current - 1;
+    if (!isNavigatingToLastRailItem) {
+      setShouldAutoScroll(false);
+      scrollToBottomIntentRef.current = false;
     }
-
-    setShouldAutoScroll(false);
-    scrollToBottomIntentRef.current = false;
     clearScrollToBottomSettleTimers();
 
     isNavigatingRef.current = true;
     if (navigatingTimerRef.current) clearTimeout(navigatingTimerRef.current);
     navigatingTimerRef.current = setTimeout(() => { isNavigatingRef.current = false; }, NAV_SCROLL_LOCK_DURATION);
 
-    const scrollToLoadedTarget = () => {
+    const forceRenderRailTurn = (turnIndex: number): void => {
+      if (turnIndex < 0) return;
+      setForcedRailTurnIndex(turnIndex);
+      if (forcedRailTurnReleaseTimerRef.current) {
+        clearTimeout(forcedRailTurnReleaseTimerRef.current);
+      }
+      forcedRailTurnReleaseTimerRef.current = setTimeout(() => {
+        forcedRailTurnReleaseTimerRef.current = null;
+        setForcedRailTurnIndex(current => (current === turnIndex ? null : current));
+      }, RAIL_TARGET_RENDER_RELEASE_DELAY);
+    };
+
+    const scrollToRailTarget = (targetRailIndex: number, targetItem: RailItem, requireMessageTarget = false): boolean => {
       const container = scrollContainerRef.current;
       if (!container) return false;
 
+      const messageEl = targetItem.messageId
+        ? container.querySelector<HTMLElement>(`[data-rail-message-id="${CSS.escape(targetItem.messageId)}"]`)
+        : null;
+      if (messageEl) {
+        const decision = getRailNavigationDecision(container, messageEl);
+        messageEl.scrollIntoView({ behavior: decision.behavior, block: 'start' });
+        return true;
+      }
+
+      if (requireMessageTarget) {
+        return false;
+      }
+
       const selectors = [
-        railItem.messageId ? `[data-rail-message-id="${CSS.escape(railItem.messageId)}"]` : null,
-        `[data-rail-index="${railIndex}"]`,
+        `[data-rail-index="${targetRailIndex}"]`,
       ].filter((selector): selector is string => Boolean(selector));
       for (const selector of selectors) {
         const el = container.querySelector<HTMLElement>(selector);
@@ -3140,8 +3207,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       }
 
       const turnEls = turnElsCacheRef.current;
-      if (targetTurnIdx >= 0 && targetTurnIdx < turnEls.length) {
-        const targetEl = turnEls[targetTurnIdx];
+      if (targetItem.turnIndex >= 0 && targetItem.turnIndex < turnEls.length) {
+        const targetEl = turnEls[targetItem.turnIndex];
         const decision = getRailNavigationDecision(container, targetEl);
         targetEl.scrollIntoView({ behavior: decision.behavior, block: 'start' });
         return true;
@@ -3149,7 +3216,48 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       return false;
     };
 
-    if (!railItem.isLoaded && currentSession?.id && !isLoadingRailTargetRef.current) {
+    const scrollToRenderedRailTarget = (targetRailIndex: number, fallbackItem: RailItem, attempt = 0): void => {
+      const latestRailItems = railItemsRef.current;
+      const latestItem = latestRailItems[targetRailIndex] ?? fallbackItem;
+      if (latestItem.turnIndex >= 0) {
+        forceRenderRailTurn(latestItem.turnIndex);
+      }
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (scrollToRailTarget(targetRailIndex, latestItem, true)) return;
+          if (attempt < RAIL_TARGET_SCROLL_RETRY_LIMIT) {
+            scrollToRenderedRailTarget(targetRailIndex, latestItem, attempt + 1);
+            return;
+          }
+          scrollToRailTarget(targetRailIndex, latestItem);
+        });
+      });
+    };
+
+    const container = scrollContainerRef.current;
+    if (container && scrollToRailTarget(railIndex, railItem, true)) {
+      currentRailIndexRef.current = railIndex;
+      setCurrentRailIndex(railIndex);
+      return;
+    }
+
+    if (container && railItem.turnIndex >= 0) {
+      scrollToRenderedRailTarget(railIndex, railItem);
+      currentRailIndexRef.current = railIndex;
+      setCurrentRailIndex(railIndex);
+      return;
+    }
+
+    if (container && scrollToRailTarget(railIndex, railItem)) {
+      currentRailIndexRef.current = railIndex;
+      setCurrentRailIndex(railIndex);
+      return;
+    }
+
+    if (!currentSession?.id || isLoadingRailTargetRef.current) return;
+
+    if (!railItem.isLoaded) {
       isLoadingRailTargetRef.current = true;
       setLoadingRailIndex(railIndex);
       setForcedRailTurnIndex(null);
@@ -3160,27 +3268,13 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           50,
         );
         if (loaded) {
-          requestAnimationFrame(() => {
-            const latestRailItems = railItemsRef.current;
-            const latestRailItem = latestRailItems[railIndex];
-            if (latestRailItem?.turnIndex != null && latestRailItem.turnIndex >= 0) {
-              setForcedRailTurnIndex(latestRailItem.turnIndex);
-            }
-            requestAnimationFrame(() => {
-              scrollToLoadedTarget();
-            });
-          });
+          scrollToRenderedRailTarget(railIndex, railItem);
         }
       } finally {
         isLoadingRailTargetRef.current = false;
         setLoadingRailIndex(null);
       }
-    } else if (railItem.isLoaded && targetTurnIdx >= 0) {
-      setForcedRailTurnIndex(targetTurnIdx);
     }
-
-    // Try to scroll to the exact data-rail-index element if it's in the DOM
-    scrollToLoadedTarget();
 
     currentRailIndexRef.current = railIndex;
     setCurrentRailIndex(railIndex);
@@ -3278,21 +3372,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     ? railItems.length - 1
     : currentRailIndex;
   const railTooltipItem = railTooltip ? railItems[railTooltip.railIndex] : undefined;
-  const railTooltipTitle = railTooltipItem?.isUser
-    ? i18nService.t('coworkUser')
-    : railTooltipItem?.label;
-  const railTooltipSummary = railTooltipItem?.isUser
-    ? railTooltipItem.label
-    : railTooltipItem?.summary;
-  const railIndexByMessageId = useMemo(() => {
-    const map = new Map<string, number>();
-    railItems.forEach((item, index) => {
-      if (item.messageId) {
-        map.set(item.messageId, index);
-      }
-    });
-    return map;
-  }, [railItems]);
+  const railTooltipTitle = railTooltipItem
+    ? railTooltipItem.isPlaceholder
+      ? i18nService.t('coworkRailUnloadedMessageTitle')
+      : railTooltipItem.label
+    : '';
+  const railTooltipSummary = railTooltipItem
+    ? railTooltipItem.isPlaceholder
+      ? i18nService.t('coworkRailUnloadedMessageHint')
+      : railTooltipItem.summary
+    : '';
   const latestAssistantTurn = useMemo(() => findLatestAssistantTurn(turns), [turns]);
 
   useEffect(() => {
@@ -3411,10 +3500,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     );
   }, [turns]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     railItemCountRef.current = railItems.length;
     railItemsRef.current = railItems;
     turnToRailRangeRef.current = buildTurnToRailRange(railItems);
+    const loadedIndices = railItems
+      .map((item, index) => (item.isLoaded ? index : -1))
+      .filter(index => index >= 0);
+    loadedRailRangeRef.current = loadedIndices.length > 0
+      ? { first: loadedIndices[0], last: loadedIndices[loadedIndices.length - 1] }
+      : null;
   }, [railItems]);
 
   // Sync rail index when turns change or rail first appears (isScrollable becomes true)
@@ -3434,8 +3529,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     return () => cancelAnimationFrame(frameId);
   }, [railItems.length, turns, isScrollable]);
 
-  // Scroll rail lines container to keep active item visible (without affecting page scroll)
-  useEffect(() => {
+  const alignActiveRailItem = useCallback(() => {
     const container = railLinesRef.current;
     if (!container || currentRailIndex < 0) return;
     const activeEl = container.children[currentRailIndex] as HTMLElement | undefined;
@@ -3458,6 +3552,27 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       container.scrollTop += activeRect.bottom - containerRect.bottom;
     }
   }, [currentRailIndex]);
+
+  // Scroll rail lines container to keep active item visible (without affecting page scroll)
+  useEffect(() => {
+    let secondFrameId: number | null = null;
+    const firstFrameId = requestAnimationFrame(() => {
+      alignActiveRailItem();
+      secondFrameId = requestAnimationFrame(() => {
+        alignActiveRailItem();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrameId);
+      if (secondFrameId !== null) cancelAnimationFrame(secondFrameId);
+    };
+  }, [
+    alignActiveRailItem,
+    currentSession?.messages.length,
+    currentSession?.messagesOffset,
+    isScrollable,
+    railItems.length,
+  ]);
 
   // Auto scroll to bottom when new messages arrive or content updates (streaming)
   useEffect(() => {
@@ -3527,6 +3642,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const expandedConversationPreview = getExpandedConversationPreview(currentSession.messages);
 
   const renderConversationTurns = () => {
+    let railCounter = 0;
     if (turns.length === 0) {
       if (!isStreaming) return null;
       return (
@@ -3551,16 +3667,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       // Always render last 3 turns (needed for streaming, auto-scroll, and smooth UX)
       const alwaysRender = index >= turns.length - 3 || index === forcedRailTurnIndex;
 
-      // Compute rail indices for user/assistant messages (must match rail IIFE logic)
-      let asstContent = '';
-      for (const item of turn.assistantItems) {
-        if (item.type === 'assistant' && item.message?.content) {
-          asstContent += item.message.content;
-        }
-      }
+      // Compute one rail index per conversation turn (must match grouped rail item logic).
+      const hasAssistantContent = turn.assistantItems.some(
+        item => item.type === 'assistant' && isAssistantRailContentMessage(item.message),
+      );
+      const turnRailIdx = turn.userMessage || hasAssistantContent ? railCounter++ : -1;
       const assistantMessageId = getAssistantRailMessageId(turn);
-      const userRailIdx = turn.userMessage ? railIndexByMessageId.get(turn.userMessage.id) ?? -1 : -1;
-      const asstRailIdx = assistantMessageId ? railIndexByMessageId.get(assistantMessageId) ?? -1 : -1;
 
       const turnMessageIds = new Set<string>();
       for (const item of turn.assistantItems) {
@@ -3583,7 +3695,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               data-export-role="user-message"
               data-rail-message-id={turn.userMessage.id}
               className={isLastTurn ? 'animate-message-in' : undefined}
-              {...(userRailIdx >= 0 ? { 'data-rail-index': userRailIdx } : undefined)}
+              {...(turnRailIdx >= 0 ? { 'data-rail-index': turnRailIdx } : undefined)}
             >
               <UserMessageItem message={turn.userMessage} skills={skills} onReEdit={remoteManaged ? undefined : handleReEdit} />
             </div>
@@ -3593,7 +3705,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               data-export-role="assistant-block"
               {...(assistantMessageId ? { 'data-rail-message-id': assistantMessageId } : undefined)}
               className={isLastTurn ? 'animate-message-in' : undefined}
-              {...(asstRailIdx >= 0 ? { 'data-rail-index': asstRailIdx } : undefined)}
+              {...(turnRailIdx >= 0 ? { 'data-rail-index': turnRailIdx } : undefined)}
             >
               <AssistantTurnBlock
                 turn={turn}
@@ -4092,8 +4204,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             <div
               ref={railLinesRef}
               onWheel={handleRailWheel}
-              className="overflow-y-auto min-h-0 flex-1"
-              style={{ scrollbarWidth: 'none' }}
+              className="overflow-y-auto overscroll-contain min-h-0"
+              style={{ maxHeight: 'calc(100% - 56px)', scrollbarWidth: 'none' }}
             >
               {railItems.map((msg, idx) => {
                 const isActive = idx === resolvedRailIndex;
