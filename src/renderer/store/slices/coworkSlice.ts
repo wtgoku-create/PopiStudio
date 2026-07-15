@@ -562,6 +562,17 @@ const coworkSlice = createSlice({
       state.currentSession.messagesOffset = newOffset;
     },
 
+    /** Append newer messages when a paged message window reaches its local bottom. */
+    appendMessages(state, action: PayloadAction<{ sessionId: string; messages: CoworkMessage[]; totalMessages: number }>) {
+      const { sessionId, messages, totalMessages } = action.payload;
+      if (state.currentSession?.id !== sessionId) return;
+      if (messages.length === 0) return;
+      const existingIds = new Set(state.currentSession.messages.map(m => m.id));
+      const toInsert = messages.filter(m => !existingIds.has(m.id));
+      state.currentSession.messages = [...state.currentSession.messages, ...toInsert];
+      state.currentSession.totalMessages = totalMessages;
+    },
+
     updateMessageContent(state, action: PayloadAction<{ sessionId: string; messageId: string; content: string; metadata?: Record<string, unknown> }>) {
       const { sessionId, messageId, content, metadata } = action.payload;
       const updatedAt = Date.now();
@@ -759,6 +770,7 @@ export const {
   setMessageRailIndex,
   setMessageWindow,
   addMessage,
+  appendMessages,
   prependMessages,
   updateMessageContent,
   setStreaming,

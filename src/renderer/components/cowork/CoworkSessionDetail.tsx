@@ -2958,6 +2958,24 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const totalMessageCount = currentSession?.totalMessages ?? loadedMessageCount;
     const hasLoadedSessionEnd = loadedMessageOffset + loadedMessageCount >= totalMessageCount;
 
+    // Load newer messages when a rail jump opened an earlier message window and
+    // the user scrolls to that window's local bottom.
+    if (!hasLoadedSessionEnd && distanceToBottom <= 80 && !isLoadingMoreMessagesRef.current) {
+      const sessionId = currentSession?.id;
+      if (sessionId) {
+        isLoadingMoreMessagesRef.current = true;
+        setIsLoadingMoreMessages(true);
+        void coworkService.loadNewerMessages(sessionId).then((loaded) => {
+          isLoadingMoreMessagesRef.current = false;
+          setIsLoadingMoreMessages(false);
+          if (!loaded) return;
+        }).catch(() => {
+          isLoadingMoreMessagesRef.current = false;
+          setIsLoadingMoreMessages(false);
+        });
+      }
+    }
+
     // Only snap to the final rail item when the loaded window includes the real
     // session end. Middle windows can also reach their local bottom, and snapping
     // there would highlight the window's last rail item instead of the visible turn.
@@ -3050,26 +3068,46 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   }, [currentSession?.messages.length]);
 
   const handleRailWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    const container = railLinesRef.current;
-    if (!container) return;
+    const railContainer = railLinesRef.current;
+    if (!railContainer) return;
 
-    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    if (maxScrollTop <= 1) return;
+    const scrollMessagesByDelta = (delta: number): void => {
+      const messageContainer = scrollContainerRef.current;
+      if (!messageContainer) return;
+      const maxScrollTop = Math.max(0, messageContainer.scrollHeight - messageContainer.clientHeight);
+      const nextScrollTop = Math.max(0, Math.min(maxScrollTop, messageContainer.scrollTop + delta));
+      if (nextScrollTop === messageContainer.scrollTop) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelAutoScrollForManualScroll(messageContainer, nextScrollTop);
+      messageContainer.scrollTop = nextScrollTop;
+    };
 
     const deltaMultiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE
       ? WHEEL_DELTA_LINE_HEIGHT
       : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-        ? container.clientHeight
+        ? railContainer.clientHeight
         : 1;
+    const delta = event.deltaY * deltaMultiplier;
+    const maxRailScrollTop = Math.max(0, railContainer.scrollHeight - railContainer.clientHeight);
+    if (maxRailScrollTop <= 1) {
+      scrollMessagesByDelta(delta);
+      return;
+    }
+
     const nextScrollTop = Math.max(
       0,
-      Math.min(maxScrollTop, container.scrollTop + event.deltaY * deltaMultiplier),
+      Math.min(maxRailScrollTop, railContainer.scrollTop + delta),
     );
-    if (nextScrollTop === container.scrollTop) return;
+    if (nextScrollTop === railContainer.scrollTop) {
+      scrollMessagesByDelta(delta);
+      return;
+    }
 
+    event.preventDefault();
     event.stopPropagation();
-    container.scrollTop = nextScrollTop;
-  }, []);
+    railContainer.scrollTop = nextScrollTop;
+  }, [cancelAutoScrollForManualScroll]);
 
   const handleMessagesWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     const container = scrollContainerRef.current;

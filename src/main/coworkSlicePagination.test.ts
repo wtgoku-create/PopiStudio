@@ -2,6 +2,7 @@
  * Unit tests for the pagination-related Redux reducers in coworkSlice.ts:
  *   - appendSessions: adds new sessions without duplicates, updates hasMoreSessions
  *   - prependMessages: inserts older messages before existing ones, updates offset
+ *   - appendMessages: inserts newer messages after existing ones
  *   - hasMoreSessions initial state
  *   - addMessage updates totalMessages
  */
@@ -9,6 +10,7 @@ import { expect,test } from 'vitest';
 
 import coworkReducer, {
   addMessage,
+  appendMessages,
   appendSessions,
   prependMessages,
   setCurrentSession,
@@ -363,4 +365,20 @@ test('setMessageWindow: replaces current message window and preserves pagination
   expect(state.currentSession?.messages.map(message => message.id)).toEqual(['m51', 'm52']);
   expect(state.currentSession?.messagesOffset).toBe(50);
   expect(state.currentSession?.totalMessages).toBe(120);
+});
+
+test('appendMessages: appends newer messages without changing the window offset', () => {
+  const session = makeFullSession('sess1', [makeMessage('m51'), makeMessage('m52')], 50);
+  session.totalMessages = 120;
+  let state = coworkReducer(emptyState, setCurrentSession(session));
+
+  state = coworkReducer(state, appendMessages({
+    sessionId: 'sess1',
+    messages: [makeMessage('m52'), makeMessage('m53', 'next answer', 'assistant')],
+    totalMessages: 121,
+  }));
+
+  expect(state.currentSession?.messages.map(message => message.id)).toEqual(['m51', 'm52', 'm53']);
+  expect(state.currentSession?.messagesOffset).toBe(50);
+  expect(state.currentSession?.totalMessages).toBe(121);
 });

@@ -18,6 +18,7 @@ import {
   addMessage,
   addPendingSteer,
   addSession,
+  appendMessages,
   appendSessions,
   clearCurrentSession,
   clearPendingPermissions,
@@ -1062,6 +1063,32 @@ class CoworkService {
     const result = await cowork.getSessionMessages({ sessionId, limit, offset: newOffset });
     if (result.success && result.messages && result.messages.length > 0) {
       store.dispatch(prependMessages({ sessionId, messages: result.messages, newOffset }));
+      return true;
+    }
+    return false;
+  }
+
+  /** Load newer messages after the current paged window when scrolling down. */
+  async loadNewerMessages(sessionId: string): Promise<boolean> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSessionMessages) return false;
+
+    const state = store.getState().cowork;
+    if (state.currentSession?.id !== sessionId) return false;
+
+    const { messages, messagesOffset, totalMessages } = state.currentSession;
+    const nextOffset = messagesOffset + messages.length;
+    if (nextOffset >= totalMessages) return false;
+
+    const PAGE_SIZE = 50;
+    const limit = Math.min(PAGE_SIZE, totalMessages - nextOffset);
+    const result = await cowork.getSessionMessages({ sessionId, limit, offset: nextOffset });
+    if (result.success && result.messages && result.messages.length > 0) {
+      store.dispatch(appendMessages({
+        sessionId,
+        messages: result.messages,
+        totalMessages: result.total ?? totalMessages,
+      }));
       return true;
     }
     return false;
