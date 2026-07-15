@@ -28,6 +28,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { applyOpenClawPluginPatches } = require('./openclaw-plugin-patches/index.cjs');
+const {
+  BEE_PACKAGE_NAME,
+  prepareOpenClawNeteaseBeePackage,
+} = require('./openclaw-plugin-preparers/netease-bee.cjs');
+const {
+  NIM_PLUGIN_PACKAGE_ID,
+  prepareOpenClawNimPackage,
+} = require('./openclaw-plugin-preparers/nim-channel.cjs');
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -44,7 +54,16 @@ function die(msg) {
 }
 
 function copyDirRecursive(src, dest) {
-  fs.cpSync(src, dest, { recursive: true, force: true });
+  const linkedOpenClawPeer = path.join(src, 'node_modules', 'openclaw');
+  const shouldExcludeLinkedPeer =
+    fs.existsSync(linkedOpenClawPeer) && fs.lstatSync(linkedOpenClawPeer).isSymbolicLink();
+
+  fs.cpSync(src, dest, {
+    recursive: true,
+    force: true,
+    filter: sourcePath =>
+      !shouldExcludeLinkedPeer || path.resolve(sourcePath) !== path.resolve(linkedOpenClawPeer),
+  });
 }
 
 function mergeDirectoryContents(src, dest) {
@@ -54,6 +73,20 @@ function mergeDirectoryContents(src, dest) {
     fs.cpSync(path.join(src, entry.name), path.join(dest, entry.name), {
       recursive: true,
       force: true,
+    });
+  }
+}
+
+function mergeDirectoryContentsExcluding(src, dest, excludedPaths = []) {
+  if (!fs.existsSync(src)) return;
+  const excluded = excludedPaths.map(excludedPath => path.resolve(excludedPath));
+  ensureDir(dest);
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const sourcePath = path.join(src, entry.name);
+    fs.cpSync(sourcePath, path.join(dest, entry.name), {
+      recursive: true,
+      force: true,
+      filter: candidatePath => !excluded.some(excludedPath => path.resolve(candidatePath) === excludedPath),
     });
   }
 }
@@ -133,6 +166,31 @@ function findFilesByName(root, fileName, maxDepth = 8) {
 
   walk(root, 0);
   return results;
+}
+
+function listDirectPackageDirs(nodeModulesDir) {
+  if (!fs.existsSync(nodeModulesDir)) {
+    return [];
+  }
+
+  const packageDirs = [];
+  for (const entry of fs.readdirSync(nodeModulesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+
+    const entryPath = path.join(nodeModulesDir, entry.name);
+    if (!entry.name.startsWith('@')) {
+      packageDirs.push(entryPath);
+      continue;
+    }
+
+    for (const scopedEntry of fs.readdirSync(entryPath, { withFileTypes: true })) {
+      if (scopedEntry.isDirectory()) {
+        packageDirs.push(path.join(entryPath, scopedEntry.name));
+      }
+    }
+  }
+
+  return packageDirs;
 }
 
 function pluginDirectoryMatches(dir, plugin) {
@@ -219,6 +277,21 @@ function findInstalledPluginDir(stagingDir, plugin) {
       pluginDir: matchingPackageDir,
       installProjectDir: findInstallProjectDirForNestedPlugin(stagingDir, plugin, matchingPackageDir),
     };
+  }
+
+  const npmProjectsDir = path.join(stagingDir, 'npm', 'projects');
+  if (fs.existsSync(npmProjectsDir)) {
+    const npmPackageDirs = fs
+      .readdirSync(npmProjectsDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .flatMap(entry => listDirectPackageDirs(path.join(npmProjectsDir, entry.name, 'node_modules')));
+    const matchingNpmPackageDir = npmPackageDirs.find((dir) => pluginDirectoryMatches(dir, plugin));
+    if (matchingNpmPackageDir) {
+      return {
+        pluginDir: matchingNpmPackageDir,
+        installProjectDir: findInstallProjectDirForNestedPlugin(stagingDir, plugin, matchingNpmPackageDir),
+      };
+    }
   }
 
   const shapedDirs = [...manifestDirs, ...packageDirs]
@@ -805,6 +878,19 @@ function main() {
           installSpec = source.installSpec;
         }
 
+        if (id === BEE_PACKAGE_NAME || npmSpec === BEE_PACKAGE_NAME) {
+          log('  Preparing NetEase Bee package for OpenClaw 2026.6 runtime install.');
+          if (!fs.existsSync(installSpec) || fs.statSync(installSpec).isDirectory()) {
+            installSpec = npmPack(`${BEE_PACKAGE_NAME}@${version}`, plugin.registry, stagingDir);
+          }
+          installSpec = prepareOpenClawNeteaseBeePackage(installSpec, stagingDir, { log });
+        }
+
+        if (id === NIM_PLUGIN_PACKAGE_ID) {
+          log('  Preparing NIM package for OpenClaw 2026.6 runtime install.');
+          installSpec = prepareOpenClawNimPackage(installSpec, stagingDir, { log });
+        }
+
         installPluginWithRetries(installSpec, stagingDir, plugin);
 
         // Older OpenClaw installs to {OPENCLAW_STATE_DIR}/extensions/{pluginId}/.
@@ -826,9 +912,11 @@ function main() {
         ensureDir(path.dirname(cacheDir));
         copyDirRecursive(installedDir.pluginDir, cacheDir);
         if (installedDir.installProjectDir) {
-          mergeDirectoryContents(
-            path.join(installedDir.installProjectDir, 'node_modules'),
-            path.join(cacheDir, 'node_modules')
+          const installProjectNodeModulesDir = path.join(installedDir.installProjectDir, 'node_modules');
+          mergeDirectoryContentsExcluding(
+            installProjectNodeModulesDir,
+            path.join(cacheDir, 'node_modules'),
+            [path.join(installProjectNodeModulesDir, 'openclaw')]
           );
           const dependencyPath = packageNameToNodeModulesPath(npmSpec);
           if (dependencyPath) {
@@ -897,221 +985,7 @@ function main() {
 
   log(`All ${plugins.length} plugin(s) installed successfully.`);
 
-  // --- Post-install patch: openclaw-weixin gatewayMethods ---
-  // The openclaw-weixin plugin defines loginWithQrStart/loginWithQrWait in its
-  // gateway adapter but does not declare gatewayMethods on the channel plugin
-  // object.  Without this declaration, the gateway's resolveWebLoginProvider()
-  // cannot discover the plugin for web.login.start/web.login.wait RPC calls
-  // (used by our embedded web UI — the standard CLI login path uses
-  // plugin.auth.login instead and does not need this).
-  patchWeixinGatewayMethods(
-    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'channel.ts'),
-    'openclaw-weixin/src/channel.ts'
-  );
-  patchWeixinGatewayMethods(
-    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'channel.js'),
-    'openclaw-weixin/dist/src/channel.js'
-  );
-  patchWeixinStartupActivation(
-    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'openclaw.plugin.json')
-  );
-
-  // --- Post-install patch: openclaw-weixin dmPolicy from config ---
-  // The plugin hardcodes dmPolicy:"pairing" and configuredAllowFrom:[] in
-  // process-message.ts, ignoring the channel config from openclaw.json.
-  // This causes all inbound messages from non-bot senders to be silently
-  // dropped as "unauthorized" even when the config specifies dmPolicy:"open"
-  // with allowFrom:["*"].  Patch it to read from deps.config.channels.
-  patchWeixinDmPolicy(
-    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'messaging', 'process-message.ts'),
-    'openclaw-weixin/src/messaging/process-message.ts'
-  );
-  patchWeixinAllowFromWildcard(
-    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'messaging', 'process-message.ts'),
-    'openclaw-weixin/src/messaging/process-message.ts'
-  );
-  patchWeixinDmPolicy(
-    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'messaging', 'process-message.js'),
-    'openclaw-weixin/dist/src/messaging/process-message.js'
-  );
-  patchWeixinAllowFromWildcard(
-    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'messaging', 'process-message.js'),
-    'openclaw-weixin/dist/src/messaging/process-message.js'
-  );
-
-  // --- Post-install patch: openclaw-lark deferred startup loading ---
-  // The openclaw-lark plugin eagerly loads the 86K-line @larksuiteoapi/node-sdk and
-  // 186 source files at startup, adding ~8s to the 30s plugin loading phase.
-  // OpenClaw supports a `setupEntry` + `deferConfiguredChannelFullLoadUntilAfterListen`
-  // mechanism (since v2026.3.22) that loads only a lightweight setup entry during
-  // startup and defers the full module load until after the HTTP server is listening.
-  //
-  // This patch:
-  // 1. Generates a zero-dependency setup-entry.js with static channel metadata
-  // 2. Adds setupEntry + startup.deferConfiguredChannelFullLoadUntilAfterListen to package.json
-  const larkPluginDir = path.join(runtimeExtensionsDir, 'openclaw-lark');
-  const larkPackageJsonPath = path.join(larkPluginDir, 'package.json');
-  if (fs.existsSync(larkPackageJsonPath)) {
-    const larkPkg = readJsonFile(larkPackageJsonPath);
-    const needsPatch = larkPkg && larkPkg.openclaw && !larkPkg.openclaw.setupEntry;
-
-    if (needsPatch) {
-      // 1. Generate lightweight setup-entry.js (zero require() calls)
-      const setupEntryContent = `"use strict";
-// Lightweight setup entry for deferred loading (patched by Popiai).
-// Only static channel metadata — no heavy dependencies.
-// The full plugin (index.js) loads after the HTTP server starts listening.
-exports.plugin = {
-  // id must match the plugin manifest id (openclaw-lark), NOT the channel id (feishu).
-  // The loader checks: setupEntry.plugin.id === record.id (the manifest id).
-  // The full plugin (index.js) registers the channel with id 'feishu' during deferred reload.
-  id: 'openclaw-lark',
-  meta: {
-    id: 'feishu',
-    label: 'Feishu',
-    selectionLabel: 'Lark/Feishu (\\u98DE\\u4E66)',
-    docsPath: '/channels/feishu',
-    docsLabel: 'feishu',
-    blurb: '\\u98DE\\u4E66/Lark enterprise messaging.',
-    aliases: ['lark'],
-    order: 70,
-  },
-  pairing: {
-    idLabel: 'feishuUserId',
-    normalizeAllowEntry: (entry) => entry.replace(/^(feishu|user|open_id):/i, ''),
-  },
-  capabilities: {
-    chatTypes: ['direct', 'group'],
-    media: true,
-    reactions: true,
-    threads: true,
-    polls: false,
-    nativeCommands: true,
-    blockStreaming: true,
-  },
-  reload: { configPrefixes: ['channels.feishu'] },
-};
-`;
-      const setupEntryPath = path.join(larkPluginDir, 'setup-entry.js');
-      fs.writeFileSync(setupEntryPath, setupEntryContent, 'utf-8');
-
-      // 2. Patch package.json to declare setupEntry and deferred startup
-      larkPkg.openclaw.setupEntry = './setup-entry.js';
-      larkPkg.openclaw.startup = {
-        deferConfiguredChannelFullLoadUntilAfterListen: true,
-      };
-      fs.writeFileSync(larkPackageJsonPath, JSON.stringify(larkPkg, null, 2) + '\n', 'utf-8');
-
-      log('Patched openclaw-lark: added setup-entry.js + deferred startup loading');
-    } else {
-      log('openclaw-lark already has setupEntry, skipping deferred loading patch');
-    }
-  } else {
-    log('openclaw-lark not found, skipping deferred loading patch');
-  }
-
-  // --- Post-install patch: openclaw-lark Content-Disposition filename encoding ---
-  // The Feishu API returns Chinese filenames as raw UTF-8 bytes in the
-  // Content-Disposition header (e.g. filename="最近AI新闻总结.pdf").
-  // HTTP headers are parsed as Latin-1 by Node.js, so UTF-8 multibyte
-  // sequences get garbled (e.g. "最" → "æ\x9C\x80").
-  // decodeURIComponent() does nothing since the bytes are not percent-encoded.
-  //
-  // Fix: after extracting the filename, detect Latin-1-garbled UTF-8 bytes
-  // and re-decode them correctly.
-  const larkMediaPath = path.join(runtimeExtensionsDir, 'openclaw-lark', 'src', 'messaging', 'outbound', 'media.js');
-  if (fs.existsSync(larkMediaPath)) {
-    let mediaSrc = fs.readFileSync(larkMediaPath, 'utf8');
-    const patchMarker = 'fixLatin1GarbledUtf8';
-    if (!mediaSrc.includes(patchMarker)) {
-      const target = 'fileName = decodeURIComponent(match[1].trim());';
-      const idx = mediaSrc.indexOf(target);
-      if (idx !== -1) {
-        const replacement = `fileName = decodeURIComponent(match[1].trim());
-                // Patched by Popiai: fix Latin-1 garbled UTF-8 filenames from Feishu API
-                fileName = ${patchMarker}(fileName);`;
-        mediaSrc = mediaSrc.slice(0, idx) + replacement + mediaSrc.slice(idx + target.length);
-        // Insert the helper function before the downloadMessageResourceFeishu function
-        const fnMarker = 'async function downloadMessageResourceFeishu(';
-        const fnIdx = mediaSrc.indexOf(fnMarker);
-        if (fnIdx !== -1) {
-          const helperFn = `// Patched by Popiai: detect and fix Latin-1 garbled UTF-8 filenames.
-// When Node.js parses HTTP headers as Latin-1, UTF-8 multibyte Chinese
-// characters get split into individual high bytes (e.g. U+6700 "最" encoded
-// as 0xE6 0x9C 0x80 in UTF-8 becomes "æ\\x9C\\x80" in Latin-1).
-function ${patchMarker}(name) {
-    if (!name) return name;
-    try {
-        const buf = Buffer.from(name, 'latin1');
-        const decoded = buf.toString('utf-8');
-        // If re-decoding produces fewer chars and no replacement chars, it was garbled UTF-8
-        if (decoded.length < name.length && !decoded.includes('\\ufffd')) {
-            return decoded;
-        }
-    } catch {}
-    return name;
-}
-`;
-          mediaSrc = mediaSrc.slice(0, fnIdx) + helperFn + mediaSrc.slice(fnIdx);
-        }
-        fs.writeFileSync(larkMediaPath, mediaSrc);
-        log('Patched openclaw-lark/media.js: fix Content-Disposition filename encoding for Chinese');
-      } else {
-        log('openclaw-lark/media.js: fileName assignment pattern not found, skipping patch');
-      }
-    } else {
-      log('openclaw-lark/media.js already patched for filename encoding, skipping');
-    }
-  }
-
-  // --- Post-install patch: dingtalk-connector file:// URL fix (Windows only) ---
-  // On Windows, downloadImageToFile returns paths with backslashes (e.g.
-  // D:\data\media\inbound\image.jpg).  The original code constructs
-  // `file://${path}` which produces `file://D:\...` — an invalid file URL
-  // where the drive letter is parsed as the hostname, causing
-  // safeFileURLToPath to reject it.  Images silently fail to reach the model.
-  // On macOS/Linux paths start with `/`, so `file://${path}` already produces
-  // a valid three-slash URL — no patching needed there.
-  //
-  // Fix: on Windows, normalise backslashes to forward slashes and use three
-  // slashes after `file:` so the hostname is always empty.
-  const dingtalkMsgHandlerPath = path.join(
-    runtimeExtensionsDir, 'dingtalk-connector', 'src', 'core', 'message-handler.ts'
-  );
-  if (fs.existsSync(dingtalkMsgHandlerPath)) {
-    let dtSrc = fs.readFileSync(dingtalkMsgHandlerPath, 'utf8');
-    const brokenPattern = "imageLocalPaths.map(p => `![image](file://${p})`)";
-    if (dtSrc.includes(brokenPattern)) {
-      dtSrc = dtSrc.replace(
-        brokenPattern,
-        "imageLocalPaths.map(p => { if (process.platform !== 'win32') return `![image](file://${p})`; const n = p.replace(/\\\\/g, '/'); return `![image](file:///${n})`; })"
-      );
-      fs.writeFileSync(dingtalkMsgHandlerPath, dtSrc);
-      log('Patched dingtalk-connector/message-handler.ts: fixed file:// URL format for Windows');
-    } else {
-      log('dingtalk-connector/message-handler.ts: file:// pattern not found or already patched, skipping');
-    }
-
-    // --- Post-install patch: dingtalk-connector account wildcard bindings ---
-    // popiai writes platform-level agent bindings as accountId:"*" so one
-    // IM platform can route to a non-main Agent regardless of the concrete
-    // DingTalk account.  The plugin's custom binding matcher treated accountId
-    // as an exact string only, bypassing OpenClaw core wildcard semantics and
-    // falling back to the main Agent.
-    const exactAccountPattern = 'if (match.accountId && match.accountId !== accountId) continue;';
-    const wildcardAccountPattern = 'if (match.accountId && match.accountId !== "*" && match.accountId !== accountId) continue;';
-    if (dtSrc.includes(exactAccountPattern)) {
-      dtSrc = dtSrc.replaceAll(exactAccountPattern, wildcardAccountPattern);
-      fs.writeFileSync(dingtalkMsgHandlerPath, dtSrc);
-      log('Patched dingtalk-connector/message-handler.ts: accountId wildcard bindings now match all accounts');
-    } else if (dtSrc.includes(wildcardAccountPattern)) {
-      log('dingtalk-connector/message-handler.ts account wildcard patch already applied, skipping');
-    } else {
-      log('dingtalk-connector/message-handler.ts: account binding pattern not found, skipping wildcard patch');
-    }
-  } else {
-    log('dingtalk-connector not found, skipping file:// URL patch');
-  }
+  applyOpenClawPluginPatches({ runtimeExtensionsDir, log });
 }
 
 if (require.main === module) {
@@ -1121,11 +995,16 @@ if (require.main === module) {
 module.exports = {
   buildNpmPackEnv,
   buildGitEnv,
+  copyDirRecursive,
+  findInstalledPluginDir,
   gitCloneAndPack,
   isGitSpec,
   isLocalPathSpec,
   main,
+  mergeDirectoryContentsExcluding,
+  mergeDirectoryContents,
   npmPack,
+  packageNameToNodeModulesPath,
   parseGitSpec,
   resolveGitPackSpec,
   resolvePluginInstallSource,

@@ -790,15 +790,16 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   }, [workingDirectory]);
 
-  const addAttachment = useCallback((filePath: string, imageInfo?: { isImage: boolean; dataUrl?: string }) => {
+  const addAttachment = useCallback((filePath: string, options?: { isImage?: boolean; isDirectory?: boolean; dataUrl?: string }) => {
     if (!filePath) return;
     dispatch(addDraftAttachment({
       draftKey,
       attachment: {
         path: filePath,
         name: getFileNameFromPath(filePath),
-        isImage: imageInfo?.isImage,
-        dataUrl: imageInfo?.dataUrl,
+        isImage: options?.isImage,
+        isDirectory: options?.isDirectory,
+        dataUrl: options?.dataUrl,
       },
     }));
   }, [dispatch, draftKey]);
