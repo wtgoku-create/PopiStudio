@@ -1,5 +1,7 @@
 import type {
+  DistillPagesData,
   GetChunkByIdRequest,
+  GetDistillPageRequest,
   GetWikiPageRequest,
   KnowledgeChunk,
   KnowledgeResult,
@@ -84,6 +86,25 @@ class KnowledgeService {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to get wiki page',
+      };
+    }
+  }
+
+  async getDistillPage(request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPagesData>> {
+    const knowledgeApi = window.electron?.knowledge;
+    if (!knowledgeApi?.getDistillPage) {
+      return {
+        success: false,
+        error: 'Knowledge IPC is unavailable',
+      };
+    }
+
+    try {
+      return await knowledgeApi.getDistillPage(request);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get distill page',
       };
     }
   }

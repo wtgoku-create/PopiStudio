@@ -130,8 +130,20 @@ const toChunkArtifactId = (sessionId: string, chunkId: string): string => (
   `artifact-chunk-${sessionId}-${encodeURIComponent(chunkId)}`
 );
 
+const toDistillArtifactId = (sessionId: string, kbId: string, distillPageId: string): string => (
+  `artifact-distill-${sessionId}-${encodeURIComponent(kbId)}-${encodeURIComponent(distillPageId)}`
+);
+
 const isMarkdownSourceTitle = (title: string): boolean => (
   /\.(md|markdown|mdown|mkdn|mkd)$/i.test(title.trim())
+);
+
+const isDistillReference = (
+  reference: SourceReference,
+): reference is Extract<SourceReference, { kind: typeof SourceReferenceKind.Generic }> => (
+  reference.kind === SourceReferenceKind.Generic
+  && reference.app === 'weknora'
+  && reference.type === 'distill'
 );
 
 const SourceArtifactStatus = {
@@ -1941,6 +1953,101 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setSessionActiveSpecialPreviewTab,
   ]);
 
+  const handleOpenDistillReference = useCallback((reference: Extract<SourceReference, { kind: typeof SourceReferenceKind.Generic }>) => {
+    if (!sessionId) return;
+    const kbId = reference.metadata.kb_id?.trim() || '';
+    const distillPageId = reference.id?.trim() || reference.metadata.id?.trim() || '';
+    if (!kbId || !distillPageId) return;
+
+    const artifactId = toDistillArtifactId(sessionId, kbId, distillPageId);
+    const existingArtifact = sessionArtifacts.find(item => item.id === artifactId);
+    const existingStatus = existingArtifact?.metadata?.status;
+    if (existingStatus === SourceArtifactStatus.Loaded || existingStatus === SourceArtifactStatus.Loading) {
+      setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.FileList);
+      dispatch(openArtifactPreviewTab({ sessionId, artifactId }));
+      return;
+    }
+
+    const title = reference.title || reference.label || distillPageId;
+    const artifact: Artifact = {
+      id: artifactId,
+      messageId: `source-reference:distill:${distillPageId}`,
+      sessionId,
+      type: ArtifactTypeValue.Markdown,
+      title,
+      content: i18nService.t('artifactDistillLoading'),
+      fileName: `${title}.md`,
+      metadata: {
+        app: reference.app,
+        type: reference.type,
+        kbId,
+        distillPageId,
+        status: SourceArtifactStatus.Loading,
+      },
+      createdAt: Date.now(),
+    };
+    dispatch(addArtifact({ sessionId, artifact }));
+    setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.FileList);
+    dispatch(openArtifactPreviewTab({ sessionId, artifactId }));
+
+    void knowledgeService.getDistillPage({ knowledgeBaseId: kbId, id: distillPageId }).then((result) => {
+      const page = result.data?.pages?.find(item => item.id === distillPageId) ?? result.data?.pages?.[0];
+      if (result.success && page) {
+        dispatch(addArtifact({
+          sessionId,
+          artifact: {
+            ...artifact,
+            title: page.title || artifact.title,
+            content: page.content || page.summary || i18nService.t('artifactDistillEmpty'),
+            contentVersion: Date.now(),
+            metadata: {
+              ...artifact.metadata,
+              status: SourceArtifactStatus.Loaded,
+              distillPage: page,
+              summary: page.summary,
+              updatedAt: page.updated_at,
+            },
+          },
+        }));
+        return;
+      }
+
+      dispatch(addArtifact({
+        sessionId,
+        artifact: {
+          ...artifact,
+          content: result.error || i18nService.t('artifactDistillLoadError'),
+          contentVersion: Date.now(),
+          metadata: {
+            ...artifact.metadata,
+            status: SourceArtifactStatus.Error,
+            error: result.error || i18nService.t('artifactDistillLoadError'),
+          },
+        },
+      }));
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : i18nService.t('artifactDistillLoadError');
+      dispatch(addArtifact({
+        sessionId,
+        artifact: {
+          ...artifact,
+          content: message,
+          contentVersion: Date.now(),
+          metadata: {
+            ...artifact.metadata,
+            status: SourceArtifactStatus.Error,
+            error: message,
+          },
+        },
+      }));
+    });
+  }, [
+    dispatch,
+    sessionArtifacts,
+    sessionId,
+    setSessionActiveSpecialPreviewTab,
+  ]);
+
   useEffect(() => {
     if (!sessionId) return undefined;
     const handleSourceReferenceClick = (event: Event) => {
@@ -1951,13 +2058,17 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       }
       if (reference?.kind === SourceReferenceKind.Chunk) {
         handleOpenChunkReference(reference);
+        return;
+      }
+      if (reference && isDistillReference(reference)) {
+        handleOpenDistillReference(reference);
       }
     };
     window.addEventListener('cowork:source-reference-click', handleSourceReferenceClick);
     return () => {
       window.removeEventListener('cowork:source-reference-click', handleSourceReferenceClick);
     };
-  }, [handleOpenChunkReference, handleOpenWikiReference, sessionId]);
+  }, [handleOpenChunkReference, handleOpenDistillReference, handleOpenWikiReference, sessionId]);
 
   const handleOpenArtifactFileListFromMenu = useCallback(() => {
     setShowArtifactAddMenu(false);

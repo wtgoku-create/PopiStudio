@@ -23,14 +23,21 @@ describe('buildSelectedKnowledgeContextPrompt', () => {
 
   test('knowledge rules live in the knowledge-base skill', () => {
     const skillPath = path.resolve(process.cwd(), 'SKILLs/knowledge-base/SKILL.md');
+    const sourceReferencesPath = path.resolve(process.cwd(), 'SKILLs/knowledge-base/references/source-references.md');
+    const uploadRoutingPath = path.resolve(process.cwd(), 'SKILLs/knowledge-base/references/upload-routing.md');
     const skill = fs.readFileSync(skillPath, 'utf8');
+    const sourceReferences = fs.readFileSync(sourceReferencesPath, 'utf8');
+    const uploadRouting = fs.readFileSync(uploadRoutingPath, 'utf8');
 
     expect(skill).toContain('Knowledge Base');
-    expect(skill).toContain('Knowledge chunks');
-    expect(skill).toContain('Wiki pages');
-    expect(skill).toContain('Upload Tool Routing');
-    expect(skill).toContain('upload_agent_knowledge_file');
-    expect(skill).toContain('AskUserQuestion');
-    expect(skill).toContain('userConfirmed: true');
+    expect(skill).toContain('references/query-routing.md');
+    expect(skill).toContain('references/source-references.md');
+    expect(skill).toContain('references/upload-routing.md');
+    expect(sourceReferences).toContain('Knowledge chunks');
+    expect(sourceReferences).toContain('Wiki pages');
+    expect(uploadRouting).toContain('Upload Tool Routing');
+    expect(uploadRouting).toContain('upload_agent_knowledge_file');
+    expect(uploadRouting).toContain('AskUserQuestion');
+    expect(uploadRouting).toContain('userConfirmed: true');
   });
 });

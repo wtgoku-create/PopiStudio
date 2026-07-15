@@ -3,6 +3,7 @@ export const KnowledgeIpc = {
   SearchRecentKnowledge: 'knowledge:knowledge:searchRecent',
   PreviewRagContext: 'knowledge:rag:previewContext',
   GetWikiPage: 'knowledge:wiki:getPage',
+  GetDistillPage: 'knowledge:distill:getPage',
   GetChunkById: 'knowledge:chunks:getById',
   UploadLocalSessionMarkdown: 'knowledge:localSession:uploadMarkdown',
 } as const;
@@ -135,6 +136,11 @@ export interface GetWikiPageRequest {
   slug: string;
 }
 
+export interface GetDistillPageRequest {
+  knowledgeBaseId: string;
+  id: string;
+}
+
 export interface GetChunkByIdRequest {
   chunkId: string;
 }
@@ -191,6 +197,43 @@ export interface WikiPage {
   version: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface DistillPage {
+  id: string;
+  tenant_id: number;
+  knowledge_base_id: string;
+  skill_id: string;
+  title?: string;
+  summary?: string;
+  content?: string;
+  source_kind?: string;
+  source_refs: string[];
+  chunk_refs: string[];
+  tag_ids: string[];
+  page_metadata?: Record<string, unknown>;
+  version?: number;
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+  [key: string]: unknown;
+}
+
+export interface DistillPagesData {
+  knowledge_base_ids: string[];
+  discovered_scope: string[];
+  skill_id: string;
+  tag_ids: string[];
+  pages: DistillPage[];
+  count: number;
+}
+
+export interface DistillPagesResponse {
+  ok: boolean;
+  summary?: string;
+  data?: DistillPagesData;
+  errors?: unknown[];
 }
 
 export interface RagContextChunk {

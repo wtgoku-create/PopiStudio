@@ -1,6 +1,8 @@
 import type { IpcMain } from 'electron';
 
 import {
+  type DistillPagesData,
+  type GetDistillPageRequest,
   type GetChunkByIdRequest,
   KnowledgeIpc,
   type GetWikiPageRequest,
@@ -288,6 +290,35 @@ export class RemoteKnowledgeService {
     };
   }
 
+  async getDistillPage(request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPagesData>> {
+    const knowledgeBaseId = request.knowledgeBaseId.trim();
+    const id = request.id.trim();
+    if (!knowledgeBaseId || !id) {
+      return {
+        success: false,
+        error: 'Knowledge base id and distill page id are required',
+      };
+    }
+
+    const payload = await this.request(
+      `/api/v1/knowledgebase/${encodeURIComponent(knowledgeBaseId)}/distill/pages/${encodeURIComponent(id)}`,
+    );
+
+    if (isRecord(payload) && payload.ok === false) {
+      return {
+        success: false,
+        error: getKnowledgeErrorMessage(payload, 'Failed to get distill page'),
+      };
+    }
+
+    return {
+      success: true,
+      data: isRecord(payload) && isRecord(payload.data)
+        ? payload.data as unknown as DistillPagesData
+        : payload as DistillPagesData,
+    };
+  }
+
   async getChunkById(request: GetChunkByIdRequest): Promise<KnowledgeResult<KnowledgeChunk>> {
     const chunkId = request.chunkId.trim();
     if (!chunkId) {
@@ -429,6 +460,14 @@ export class RemoteKnowledgeService {
         return await this.getWikiPage(request);
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : 'Failed to get wiki page' };
+      }
+    });
+
+    ipcMain.handle(KnowledgeIpc.GetDistillPage, async (_event, request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPagesData>> => {
+      try {
+        return await this.getDistillPage(request);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to get distill page' };
       }
     });
 

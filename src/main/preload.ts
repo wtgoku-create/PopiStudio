@@ -12,6 +12,7 @@ import { FolderIpc } from '../shared/folder/constants';
 import {
   KnowledgeIpc,
   type GetChunkByIdRequest,
+  type GetDistillPageRequest,
   type GetWikiPageRequest,
   type PreviewRagContextRequest,
   type SearchRecentKnowledgeRequest,
@@ -467,6 +468,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(KnowledgeIpc.PreviewRagContext, request),
     getWikiPage: (request: GetWikiPageRequest) =>
       ipcRenderer.invoke(KnowledgeIpc.GetWikiPage, request),
+    getDistillPage: (request: GetDistillPageRequest) =>
+      ipcRenderer.invoke(KnowledgeIpc.GetDistillPage, request),
     getChunkById: (request: GetChunkByIdRequest) =>
       ipcRenderer.invoke(KnowledgeIpc.GetChunkById, request),
     uploadLocalSessionMarkdown: (request: UploadLocalSessionMarkdownRequest) =>
