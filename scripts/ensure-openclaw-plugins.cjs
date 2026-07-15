@@ -28,6 +28,15 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const {
+  BEE_PACKAGE_NAME,
+  prepareOpenClawNeteaseBeePackage,
+} = require('./openclaw-plugin-preparers/netease-bee.cjs');
+const {
+  NIM_PLUGIN_PACKAGE_ID,
+  prepareOpenClawNimPackage,
+} = require('./openclaw-plugin-preparers/nim-channel.cjs');
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -803,6 +812,19 @@ function main() {
           installSpec = npmPack(source.packSpec, source.registry, stagingDir);
         } else {
           installSpec = source.installSpec;
+        }
+
+        if (id === BEE_PACKAGE_NAME || npmSpec === BEE_PACKAGE_NAME) {
+          log('  Preparing NetEase Bee package for OpenClaw 2026.6 runtime install.');
+          if (!fs.existsSync(installSpec) || fs.statSync(installSpec).isDirectory()) {
+            installSpec = npmPack(`${BEE_PACKAGE_NAME}@${version}`, plugin.registry, stagingDir);
+          }
+          installSpec = prepareOpenClawNeteaseBeePackage(installSpec, stagingDir, { log });
+        }
+
+        if (id === NIM_PLUGIN_PACKAGE_ID) {
+          log('  Preparing NIM package for OpenClaw 2026.6 runtime install.');
+          installSpec = prepareOpenClawNimPackage(installSpec, stagingDir, { log });
         }
 
         installPluginWithRetries(installSpec, stagingDir, plugin);

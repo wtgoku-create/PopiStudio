@@ -2526,7 +2526,18 @@ async function handleRequest(
     const upstreamUrl = upstreamBase.endsWith('/chat/completions')
       ? upstreamBase
       : `${upstreamBase}/chat/completions`;
-    console.log(`[CoworkProxy] OpenAI passthrough → ${upstreamUrl} (provider: ${upstreamConfig.provider})`);
+    let requestIsStream = false;
+    try {
+      const parsedBody = JSON.parse(body) as { stream?: unknown };
+      requestIsStream = parsedBody.stream === true;
+    } catch {
+      // The upstream will report invalid JSON; keep diagnostics focused on transport timing.
+    }
+
+    const requestStartedAt = Date.now();
+    console.log(
+      `[CoworkProxy] OpenAI passthrough started for ${upstreamConfig.provider} with stream=${requestIsStream}`
+    );
     try {
       const { session } = await import('electron');
       let upstreamResponse = await session.defaultSession.fetch(upstreamUrl, {
@@ -2534,6 +2545,11 @@ async function handleRequest(
         headers: upstreamHeaders,
         body,
       });
+      let upstreamHeadersAt = Date.now();
+      console.log(
+        `[CoworkProxy] OpenAI passthrough received upstream headers after ${upstreamHeadersAt - requestStartedAt}ms ` +
+        `with status=${upstreamResponse.status} and contentType=${upstreamResponse.headers.get('content-type') || 'unknown'}`
+      );
       // Auto-retry once for token expiry using provider-based refresher
       if (
         (upstreamResponse.status === 401 || upstreamResponse.status === 403)
@@ -2552,7 +2568,12 @@ async function handleRequest(
                 headers: upstreamHeaders,
                 body,
               });
+              upstreamHeadersAt = Date.now();
               console.log(`[CoworkProxy] OpenAI passthrough: retry status=${upstreamResponse.status}`);
+              console.log(
+                `[CoworkProxy] OpenAI passthrough received retry headers after ${upstreamHeadersAt - requestStartedAt}ms ` +
+                `with contentType=${upstreamResponse.headers.get('content-type') || 'unknown'}`
+              );
             }
           } catch (refreshErr) {
             console.warn(`[CoworkProxy] OpenAI passthrough: ${upstreamConfig.provider} token refresh failed:`, refreshErr);
@@ -2560,22 +2581,53 @@ async function handleRequest(
         }
       }
       // Pipe response back
-      res.writeHead(upstreamResponse.status, {
+      const responseHeaders: Record<string, string> = {
         'Content-Type': upstreamResponse.headers.get('content-type') || 'application/json',
-        'Transfer-Encoding': upstreamResponse.headers.get('transfer-encoding') || '',
-      });
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      };
+      const transferEncoding = upstreamResponse.headers.get('transfer-encoding');
+      if (transferEncoding) {
+        responseHeaders['Transfer-Encoding'] = transferEncoding;
+      }
+      res.writeHead(upstreamResponse.status, responseHeaders);
       if (upstreamResponse.body) {
         const reader = upstreamResponse.body.getReader();
+        let firstChunkAt: number | null = null;
+        let chunkCount = 0;
+        let byteCount = 0;
         const pump = async () => {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) { res.end(); return; }
+            if (done) {
+              const completedAt = Date.now();
+              console.log(
+                `[CoworkProxy] OpenAI passthrough completed after ${completedAt - requestStartedAt}ms ` +
+                `with chunks=${chunkCount}, bytes=${byteCount}, firstChunkMs=${firstChunkAt === null ? 'none' : firstChunkAt - requestStartedAt}`
+              );
+              res.end();
+              return;
+            }
+            chunkCount += 1;
+            byteCount += value.byteLength;
+            if (firstChunkAt === null) {
+              firstChunkAt = Date.now();
+              console.log(
+                `[CoworkProxy] OpenAI passthrough received first upstream body chunk after ${firstChunkAt - requestStartedAt}ms ` +
+                `with bytes=${value.byteLength}`
+              );
+            }
             res.write(Buffer.from(value));
           }
         };
         await pump();
       } else {
         const text = await upstreamResponse.text();
+        console.log(
+          `[CoworkProxy] OpenAI passthrough completed with non-stream body after ${Date.now() - requestStartedAt}ms ` +
+          `and bytes=${Buffer.byteLength(text)}`
+        );
         res.end(text);
       }
     } catch (proxyError) {
