@@ -220,22 +220,6 @@ export interface DistillPage {
   [key: string]: unknown;
 }
 
-export interface DistillPagesData {
-  knowledge_base_ids: string[];
-  discovered_scope: string[];
-  skill_id: string;
-  tag_ids: string[];
-  pages: DistillPage[];
-  count: number;
-}
-
-export interface DistillPagesResponse {
-  ok: boolean;
-  summary?: string;
-  data?: DistillPagesData;
-  errors?: unknown[];
-}
-
 export interface RagContextChunk {
   id: string;
   knowledge_id?: string;

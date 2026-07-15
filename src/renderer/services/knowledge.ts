@@ -1,5 +1,5 @@
 import type {
-  DistillPagesData,
+  DistillPage,
   GetChunkByIdRequest,
   GetDistillPageRequest,
   GetWikiPageRequest,
@@ -90,7 +90,7 @@ class KnowledgeService {
     }
   }
 
-  async getDistillPage(request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPagesData>> {
+  async getDistillPage(request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPage>> {
     const knowledgeApi = window.electron?.knowledge;
     if (!knowledgeApi?.getDistillPage) {
       return {

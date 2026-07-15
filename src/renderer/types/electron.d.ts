@@ -6,7 +6,7 @@ import type {
 } from '../../shared/browserWebAccess/constants';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type {
-  DistillPagesData,
+  DistillPage,
   GetChunkByIdRequest,
   GetDistillPageRequest,
   GetWikiPageRequest,
@@ -761,7 +761,7 @@ interface IElectronAPI {
     searchRecentKnowledge: (request: SearchRecentKnowledgeRequest) => Promise<KnowledgeResult<SearchRecentKnowledgeData>>;
     previewRagContext: (request: PreviewRagContextRequest) => Promise<PreviewRagContextResult>;
     getWikiPage: (request: GetWikiPageRequest) => Promise<KnowledgeResult<WikiPage>>;
-    getDistillPage: (request: GetDistillPageRequest) => Promise<KnowledgeResult<DistillPagesData>>;
+    getDistillPage: (request: GetDistillPageRequest) => Promise<KnowledgeResult<DistillPage>>;
     getChunkById: (request: GetChunkByIdRequest) => Promise<KnowledgeResult<KnowledgeChunk>>;
     uploadLocalSessionMarkdown: (request: UploadLocalSessionMarkdownRequest) => Promise<UploadLocalSessionMarkdownResult>;
   };

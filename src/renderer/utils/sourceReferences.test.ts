@@ -6,7 +6,7 @@ import { decodeSourceReferenceHref, encodeSourceReferencesForMarkdown } from './
 describe('sourceReferences', () => {
   test('encodes distill source tags as clickable source references', () => {
     const markdown = encodeSourceReferencesForMarkdown(
-      'Fact. <source app="weknora" type="distill" kb_id="kb-1" id="page-1" title="人物关系" />',
+      'Fact. <source app="weknora" type="distill" kb_id="kb-1" id="relationship" title="人物关系" />',
     );
     const href = markdown.match(/\]\((popiai-source-ref:[^)]+)\)/)?.[1];
 
@@ -16,7 +16,7 @@ describe('sourceReferences', () => {
       kind: SourceReferenceKind.Generic,
       app: 'weknora',
       type: 'distill',
-      id: 'page-1',
+      id: 'relationship',
       title: '人物关系',
       label: '人物关系',
       metadata: {

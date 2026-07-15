@@ -1,7 +1,7 @@
 import type { IpcMain } from 'electron';
 
 import {
-  type DistillPagesData,
+  type DistillPage,
   type GetDistillPageRequest,
   type GetChunkByIdRequest,
   KnowledgeIpc,
@@ -150,6 +150,19 @@ const normalizeKnowledgeFile = (value: unknown): RemoteKnowledgeFile | null => {
   };
 };
 
+const normalizeDistillPage = (value: unknown): DistillPage | null => {
+  if (Array.isArray(value)) {
+    return isRecord(value[0]) ? value[0] as unknown as DistillPage : null;
+  }
+
+  if (isRecord(value) && Array.isArray(value.pages)) {
+    const firstPage = value.pages[0];
+    return isRecord(firstPage) ? firstPage as unknown as DistillPage : null;
+  }
+
+  return isRecord(value) ? value as unknown as DistillPage : null;
+};
+
 const sanitizeKnowledgeUploadFileName = (value: string): string => {
   const sanitized = value.replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ').replace(/\s+/g, ' ').trim();
   return sanitized || 'cowork-session.md';
@@ -290,7 +303,7 @@ export class RemoteKnowledgeService {
     };
   }
 
-  async getDistillPage(request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPagesData>> {
+  async getDistillPage(request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPage>> {
     const knowledgeBaseId = request.knowledgeBaseId.trim();
     const id = request.id.trim();
     if (!knowledgeBaseId || !id) {
@@ -311,11 +324,20 @@ export class RemoteKnowledgeService {
       };
     }
 
+    const dataPayload = isRecord(payload) && isRecord(payload.data)
+      ? payload.data
+      : payload;
+    const page = normalizeDistillPage(dataPayload);
+    if (!page) {
+      return {
+        success: false,
+        error: 'Distill page is empty',
+      };
+    }
+
     return {
       success: true,
-      data: isRecord(payload) && isRecord(payload.data)
-        ? payload.data as unknown as DistillPagesData
-        : payload as DistillPagesData,
+      data: page,
     };
   }
 
@@ -463,7 +485,7 @@ export class RemoteKnowledgeService {
       }
     });
 
-    ipcMain.handle(KnowledgeIpc.GetDistillPage, async (_event, request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPagesData>> => {
+    ipcMain.handle(KnowledgeIpc.GetDistillPage, async (_event, request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPage>> => {
       try {
         return await this.getDistillPage(request);
       } catch (error) {

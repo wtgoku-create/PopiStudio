@@ -1991,7 +1991,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     dispatch(openArtifactPreviewTab({ sessionId, artifactId }));
 
     void knowledgeService.getDistillPage({ knowledgeBaseId: kbId, id: distillPageId }).then((result) => {
-      const page = result.data?.pages?.find(item => item.id === distillPageId) ?? result.data?.pages?.[0];
+      const page = result.data;
       if (result.success && page) {
         dispatch(addArtifact({
           sessionId,
