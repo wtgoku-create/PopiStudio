@@ -3,7 +3,6 @@
  * Processes IM messages through LLM service with optional skills integration
  */
 
-import axios from 'axios';
 import {
   IMMessage,
   IMSettings,
@@ -17,6 +16,25 @@ interface LLMConfig {
   model?: string;
   provider?: string;
 }
+
+const postJson = async (
+  url: string,
+  body: Record<string, unknown>,
+  headers: Record<string, string>
+): Promise<any> => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`LLM request failed with status ${response.status}${errorText ? `: ${errorText}` : ''}`);
+  }
+
+  return response.json();
+};
 
 export interface IMChatHandlerOptions {
   getLLMConfig: () => Promise<LLMConfig | null>;
@@ -178,16 +196,14 @@ export class IMChatHandler {
       body.system = systemPrompt;
     }
 
-    const response = await axios.post(url, body, {
-      headers: {
-        'x-api-key': config.apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
+    const data = await postJson(url, body, {
+      'x-api-key': config.apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
     });
 
     // Extract text from response
-    const content = response.data.content;
+    const content = data.content;
     if (Array.isArray(content)) {
       return content
         .filter((block: any) => block.type === 'text')
@@ -247,12 +263,12 @@ export class IMChatHandler {
       headers.Authorization = `Bearer ${config.apiKey}`;
     }
 
-    const response = await axios.post(url, body, { headers });
+    const data = await postJson(url, body, headers);
 
     if (useResponsesApi) {
-      return this.extractResponsesText(response.data);
+      return this.extractResponsesText(data);
     }
-    return response.data.choices?.[0]?.message?.content || '';
+    return data.choices?.[0]?.message?.content || '';
   }
 
   private extractResponsesText(payload: any): string {
