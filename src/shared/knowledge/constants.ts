@@ -3,14 +3,44 @@ export const KnowledgeIpc = {
   SearchRecentKnowledge: 'knowledge:knowledge:searchRecent',
   PreviewRagContext: 'knowledge:rag:previewContext',
   GetWikiPage: 'knowledge:wiki:getPage',
+  GetDistillPage: 'knowledge:distill:getPage',
   GetChunkById: 'knowledge:chunks:getById',
   UploadLocalSessionMarkdown: 'knowledge:localSession:uploadMarkdown',
 } as const;
 
 export type KnowledgeIpc = typeof KnowledgeIpc[keyof typeof KnowledgeIpc];
-// https://weknora.popi.art
-export const KNOWLEDGE_DEFAULT_BASE_URL = 'https://weknora.popi.art';
-export const KNOWLEDGE_BASES_URL = `${KNOWLEDGE_DEFAULT_BASE_URL}/kb/platform/knowledge-bases`;
+
+export const KnowledgeSkill = {
+  Base: 'knowledge-base',
+} as const;
+
+export type KnowledgeSkill = typeof KnowledgeSkill[keyof typeof KnowledgeSkill];
+
+export const KnowledgeBaseUrl = {
+  Production: 'https://rag.popi.art',
+  Test: 'https://weknora.popi.art',
+} as const;
+
+export type KnowledgeBaseUrl = typeof KnowledgeBaseUrl[keyof typeof KnowledgeBaseUrl];
+
+export const KnowledgePath = {
+  Root: '/kb',
+  Bases: '/kb/platform/knowledge-bases',
+} as const;
+
+export type KnowledgePath = typeof KnowledgePath[keyof typeof KnowledgePath];
+
+export const getKnowledgeDefaultBaseUrl = (testMode: boolean): KnowledgeBaseUrl => (
+  testMode ? KnowledgeBaseUrl.Test : KnowledgeBaseUrl.Production
+);
+
+export const getKnowledgeBasesUrl = (testMode: boolean): string => (
+  `${getKnowledgeDefaultBaseUrl(testMode)}${KnowledgePath.Bases}`
+);
+
+export const getKnowledgeFrameSource = (testMode: boolean): string => (
+  `${getKnowledgeDefaultBaseUrl(testMode)}${KnowledgePath.Root}`
+);
 
 export const KnowledgeNavigationEvent = {
   OpenGraph: 'knowledge:navigation:openGraph',
@@ -106,6 +136,11 @@ export interface GetWikiPageRequest {
   slug: string;
 }
 
+export interface GetDistillPageRequest {
+  knowledgeBaseId: string;
+  id: string;
+}
+
 export interface GetChunkByIdRequest {
   chunkId: string;
 }
@@ -162,6 +197,27 @@ export interface WikiPage {
   version: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface DistillPage {
+  id: string;
+  tenant_id: number;
+  knowledge_base_id: string;
+  skill_id: string;
+  title?: string;
+  summary?: string;
+  content?: string;
+  source_kind?: string;
+  source_refs: string[];
+  chunk_refs: string[];
+  tag_ids: string[];
+  page_metadata?: Record<string, unknown>;
+  version?: number;
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+  [key: string]: unknown;
 }
 
 export interface RagContextChunk {

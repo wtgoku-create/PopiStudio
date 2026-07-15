@@ -34,6 +34,7 @@ type ProviderModelConfig = {
   id: string;
   name: string;
   supportsImage?: boolean;
+  supportsThinking?: boolean;
   contextWindow?: number;
   customParams?: Record<string, unknown>;
 };
@@ -42,6 +43,7 @@ type ProviderModelInputConfig = {
   id: string;
   name?: string;
   supportsImage?: boolean;
+  supportsThinking?: boolean;
   contextWindow?: number;
   customParams?: Record<string, unknown>;
 };
@@ -54,6 +56,7 @@ export type ApiConfigResolution = {
     authType?: ProviderConfig['authType'];
     codingPlanEnabled: boolean;
     supportsImage?: boolean;
+    supportsThinking?: boolean;
     modelName?: string;
     contextWindow?: number;
   };
@@ -81,27 +84,33 @@ export function setServerBaseUrlGetter(getter: () => string): void {
 }
 
 // Cached server model metadata (populated when auth:getModels is called)
-// Keyed by modelId → { supportsImage, contextWindow }
-let serverModelMetadataCache: Map<string, { supportsImage?: boolean; contextWindow?: number }> = new Map();
+// Keyed by modelId -> { supportsImage, supportsThinking, contextWindow }
+let serverModelMetadataCache: Map<string, { supportsImage?: boolean; supportsThinking?: boolean; contextWindow?: number }> = new Map();
 
 const serializeServerModelMetadata = (
-  models: Array<{ modelId: string; supportsImage?: boolean; contextWindow?: number }>,
+  models: Array<{ modelId: string; supportsImage?: boolean; supportsThinking?: boolean; contextWindow?: number }>,
 ): string => JSON.stringify(
   models
     .map((model) => ({
       modelId: model.modelId,
       supportsImage: model.supportsImage,
+      supportsThinking: model.supportsThinking,
       contextWindow: model.contextWindow,
     }))
     .sort((a, b) => a.modelId.localeCompare(b.modelId)),
 );
 
-export function updateServerModelMetadata(models: readonly { modelId: string; supportsImage?: boolean; contextWindow?: number }[]): boolean {
+export function updateServerModelMetadata(models: readonly { modelId: string; supportsImage?: boolean; supportsThinking?: boolean; contextWindow?: number }[]): boolean {
   const previous = serializeServerModelMetadata(getAllServerModelMetadata());
-  const nextCache = new Map(models.map(m => [m.modelId, { supportsImage: m.supportsImage, contextWindow: m.contextWindow }]));
+  const nextCache = new Map(models.map(m => [m.modelId, {
+    supportsImage: m.supportsImage,
+    supportsThinking: m.supportsThinking,
+    contextWindow: m.contextWindow,
+  }]));
   const next = serializeServerModelMetadata(Array.from(nextCache.entries()).map(([modelId, meta]) => ({
     modelId,
     supportsImage: meta.supportsImage,
+    supportsThinking: meta.supportsThinking,
     contextWindow: meta.contextWindow,
   })));
   serverModelMetadataCache = nextCache;
@@ -112,10 +121,11 @@ export function clearServerModelMetadata(): void {
   serverModelMetadataCache.clear();
 }
 
-export function getAllServerModelMetadata(): Array<{ modelId: string; supportsImage?: boolean; contextWindow?: number }> {
+export function getAllServerModelMetadata(): Array<{ modelId: string; supportsImage?: boolean; supportsThinking?: boolean; contextWindow?: number }> {
   return Array.from(serverModelMetadataCache.entries()).map(([modelId, meta]) => ({
     modelId,
     supportsImage: meta.supportsImage,
+    supportsThinking: meta.supportsThinking,
     contextWindow: meta.contextWindow,
   }));
 }
@@ -125,6 +135,7 @@ function buildServerFallbackModels(effectiveModelId: string): NonNullable<LocalP
     id: model.modelId,
     name: model.modelId,
     supportsImage: model.supportsImage,
+    supportsThinking: model.supportsThinking,
   }));
 
   if (!models.some(model => model.id === effectiveModelId)) {
@@ -133,6 +144,7 @@ function buildServerFallbackModels(effectiveModelId: string): NonNullable<LocalP
       id: effectiveModelId,
       name: effectiveModelId,
       supportsImage: cachedMeta?.supportsImage,
+      supportsThinking: cachedMeta?.supportsThinking,
     });
   }
 
@@ -149,6 +161,11 @@ function normalizeProviderModels(providerName: string, models?: ProviderModelInp
         providerName,
         model.id,
         model.supportsImage,
+      ),
+      supportsThinking: ProviderRegistry.resolveModelSupportsThinking(
+        providerName,
+        model.id,
+        model.supportsThinking,
       ),
     }));
 }
@@ -167,6 +184,7 @@ type MatchedProvider = {
   apiFormat: AnthropicApiFormat;
   baseURL: string;
   supportsImage?: boolean;
+  supportsThinking?: boolean;
   modelName?: string;
   contextWindow?: number;
 };
@@ -215,6 +233,7 @@ function tryPopiaiServerFallback(modelId?: string): MatchedProvider | null {
     apiFormat: 'openai',
     baseURL,
     supportsImage: cachedMeta?.supportsImage,
+    supportsThinking: cachedMeta?.supportsThinking,
   };
 }
 
@@ -292,6 +311,7 @@ export function resolveCurrentApiConfig(target: OpenAICompatProxyTarget = 'local
         providerName: matched.providerName,
         codingPlanEnabled: !!matched.providerConfig.codingPlanEnabled,
         supportsImage: matched.supportsImage,
+        supportsThinking: matched.supportsThinking,
       },
     };
   }
@@ -329,6 +349,8 @@ export function resolveCurrentApiConfig(target: OpenAICompatProxyTarget = 'local
     providerMetadata: {
       providerName: matched.providerName,
       codingPlanEnabled: !!matched.providerConfig.codingPlanEnabled,
+      supportsImage: matched.supportsImage,
+      supportsThinking: matched.supportsThinking,
     },
   };
 }
@@ -398,6 +420,7 @@ export function resolveRawApiConfig(): ApiConfigResolution {
       authType: matched.providerConfig.authType,
       codingPlanEnabled: !!matched.providerConfig.codingPlanEnabled,
       supportsImage: matched.supportsImage,
+      supportsThinking: matched.supportsThinking,
       modelName: matched.modelName,
       contextWindow: matched.contextWindow,
     },

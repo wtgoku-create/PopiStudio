@@ -1,9 +1,9 @@
 import http from 'http';
 import { net } from 'electron';
+import { getKnowledgeDefaultBaseUrl } from './endpoints';
 
 const PROXY_BIND_HOST = '127.0.0.1';
 const WEKNORA_OPENCLAW_MCP_PROXY_PATH = '/mcp/weknora-openclaw';
-const WEKNORA_OPENCLAW_MCP_UPSTREAM_URL = 'https://weknora.popi.art/mcp';
 const WEKNORA_OPENCLAW_MCP_RETRY_DELAYS_MS = [250, 750, 1500];
 const POPIAI_LLM_CHAT_PATH = '/api_client/anime/task/llmChat';
 
@@ -318,7 +318,9 @@ async function forwardWeknoraOpenClawMcpRequest(
   copyHeader(incomingHeaders, headers, 'mcp-protocol-version', 'Mcp-Protocol-Version');
   copyHeader(incomingHeaders, headers, 'last-event-id', 'Last-Event-ID');
 
-  const resp = await net.fetch(WEKNORA_OPENCLAW_MCP_UPSTREAM_URL, {
+
+  console.debug('[OpenClawTokenProxy] forwardWeknoraOpenClawMcpRequest:', `${getKnowledgeDefaultBaseUrl()}/mcp`);
+  const resp = await net.fetch(`${getKnowledgeDefaultBaseUrl()}/mcp`, {
     method,
     headers,
     body: body.length > 0 ? new Uint8Array(body) : undefined,
@@ -326,7 +328,7 @@ async function forwardWeknoraOpenClawMcpRequest(
     for (const delayMs of WEKNORA_OPENCLAW_MCP_RETRY_DELAYS_MS) {
       await delay(delayMs);
       try {
-        return await net.fetch(WEKNORA_OPENCLAW_MCP_UPSTREAM_URL, {
+        return await net.fetch(`${getKnowledgeDefaultBaseUrl()}/mcp`, {
           method,
           headers,
           body: body.length > 0 ? new Uint8Array(body) : undefined,
@@ -345,7 +347,7 @@ async function forwardWeknoraOpenClawMcpRequest(
       headers: { 'Content-Type': 'application/json' },
       body: Buffer.from(JSON.stringify({
         error: 'Weknora MCP upstream unavailable',
-        upstream: WEKNORA_OPENCLAW_MCP_UPSTREAM_URL,
+        upstream: `${getKnowledgeDefaultBaseUrl()}/mcp`,
       })),
       isStream: false,
     };

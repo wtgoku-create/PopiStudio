@@ -1,54 +1,37 @@
-export const buildKnowledgeSourceReferencePrompt = (): string => [
-  '## Knowledge Source References',
-  '',
-  'You MUST add structured inline source references whenever you use facts, summaries, numbers, definitions, or conclusions from knowledge-base tools, wiki tools, or application-data tools. These references are required for Popiai to render clickable source chips.',
-  '',
-  'Reference placement rules:',
-  '- Put the reference token immediately after the sentence or bullet that uses the source.',
-  '- If one paragraph uses multiple sources, add the relevant token after each sourced sentence.',
-  '- Do not collect references only at the end of the answer.',
-  '- Do not replace these tokens with footnotes, Markdown links, URLs, bracket citations, or prose like "Source: ...".',
-  '',
-  'Use exactly one of these token formats when the required values are present in the tool result:',
-  '- Knowledge chunks: `<kb doc="DOCUMENT_TITLE" chunk_id="CHUNK_ID" kb_id="KNOWLEDGE_BASE_ID" />`',
-  '- Wiki pages: `[[slug|display name|kb_id=knowledge_base_id]]`',
-  '- Other application records: `<source app="APP_NAME" type="RECORD_TYPE" id="RECORD_ID" title="DISPLAY_TITLE" />`',
-  '',
-  'Examples:',
-  '- The refund window is 30 days after purchase. <kb doc="Refund Policy" chunk_id="chunk_123" kb_id="kb_456" />',
-  '- The deployment checklist requires a rollback owner. [[release-checklist|Release checklist|kb_id=kb_456]]',
-  '- This task belongs to the CRM account renewal workflow. <source app="crm" type="account" id="acct_123" title="Acme renewal" />',
-  '',
-  'Do not fabricate document names, IDs, chunk IDs, KB IDs, wiki slugs, titles, or source references. If a required field is missing, omit that reference token rather than inventing a value.',
-  '',
-  'Keep internal identifiers inside the structured reference tokens only; do not expose them in normal prose.',
-  '',
-  'If retrieval fails or no relevant source is found, continue the user task normally instead of blocking execution.',
-  '',
-  '## Knowledge Retrieval Tool Routing',
-  '',
-  'When a turn includes selected knowledgeBaseIds or knowledgeIds in the Popiai selected knowledge context, use knowledge tools in this priority order before answering questions that may depend on those selected sources:',
-  '1. Wiki tools first: use `wiki_search` / `wiki_read_page` when the question can be answered from curated wiki pages.',
-  '2. Knowledge tools second: use direct knowledge tools such as `knowledge_search`, `grep_chunks`, `list_knowledge_chunks`, or `get_document_info` when wiki results are missing or too broad.',
-  '3. RAG preview last: use the local MCP tool `preview_rag_context` from the `knowledge` MCP server only when wiki and direct knowledge tools are unavailable, insufficient, or not applicable.',
-  '',
-  'Retrieval routing rules:',
-  '- Pass the selected `knowledgeBaseIds` and/or `knowledgeIds` to whichever knowledge tool supports them.',
-  '- When using `preview_rag_context`, pass the current user query plus the selected `knowledgeBaseIds` and/or `knowledgeIds`.',
-  '- Do not call `preview_rag_context` when no knowledge source is selected.',
-  '- If the selected knowledge is irrelevant to the user request, you may skip retrieval and answer normally.',
-  '- If retrieval fails or returns no useful context, continue normally and briefly mention the retrieval issue when relevant.',
-  '',
-  '## Knowledge Upload Tool Routing',
-  '',
-  'When the user asks to upload, import, add, ingest, save, index, or put a local file into the knowledge base, use the local MCP tool `upload_agent_knowledge_file` from the `knowledge` MCP server.',
-  '',
-  'Tool routing rules:',
-  '- Use `upload_agent_knowledge_file` only for explicit knowledge-base upload intent.',
-  '- Pass `filePath` as an absolute local file path. If the user provides only a filename, first locate the file in the working directory before calling the tool.',
-  '- Pass `fileName` when the user specifies the uploaded display name; otherwise let the tool use the local basename.',
-  '- Pass `metadata` when the user provides source, scene, tags, or other upload metadata.',
-  '- Pass `channel` only when the user specifies it; otherwise let the tool default to `agent`.',
-  '- Do not ask the user for an API key unless the tool reports that the knowledge access token is missing.',
-  '- After a successful upload, report the returned knowledge id and knowledge base id if present.',
-].join('\n');
+type KnowledgeBaseRef = { id: string; name?: string };
+type KnowledgeFileRef = {
+  id: string;
+  title?: string;
+  knowledgeBaseName?: string;
+  fileType?: string;
+};
+
+export const buildSelectedKnowledgeContextPrompt = (options: {
+  knowledgeBases?: KnowledgeBaseRef[];
+  knowledgeFiles?: KnowledgeFileRef[];
+}): string => {
+  const knowledgeBases = options.knowledgeBases?.filter(item => Boolean(item.id)) ?? [];
+  const knowledgeFiles = options.knowledgeFiles?.filter(item => Boolean(item.id)) ?? [];
+  if (knowledgeBases.length === 0 && knowledgeFiles.length === 0) {
+    return '';
+  }
+
+  return [
+    '[Popiai selected knowledge sources]',
+    knowledgeBases.length > 0
+      ? `Selected knowledgeBaseIds: ${JSON.stringify(knowledgeBases.map(item => ({
+          id: item.id,
+          ...(item.name ? { name: item.name } : {}),
+        })))}`
+      : '',
+    knowledgeFiles.length > 0
+      ? `Selected knowledgeIds: ${JSON.stringify(knowledgeFiles.map(item => ({
+          id: item.id,
+          ...(item.title ? { title: item.title } : {}),
+          ...(item.knowledgeBaseName ? { knowledgeBaseName: item.knowledgeBaseName } : {}),
+          ...(item.fileType ? { fileType: item.fileType } : {}),
+        })))}`
+      : '',
+    '[/Popiai selected knowledge sources]',
+  ].filter(Boolean).join('\n');
+};

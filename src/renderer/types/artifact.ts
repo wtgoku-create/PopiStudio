@@ -28,6 +28,16 @@ export const PREVIEWABLE_ARTIFACT_TYPES = new Set<ArtifactType>([
   ArtifactTypeValue.LocalService,
 ]);
 
+export interface LocalServiceProjectCandidate {
+  directory: string;
+  source: 'text-labeled-path' | 'text-cd-command' | 'text-file-link' | 'text-common-parent';
+  confidence: number;
+  reason?: string;
+  evidence?: string;
+  messageId?: string;
+  detectedAt: number;
+}
+
 export interface Artifact {
   id: string;
   messageId: string;
@@ -39,6 +49,14 @@ export interface Artifact {
   fileName?: string;
   filePath?: string;
   url?: string;
+  remoteUrl?: string;
+  source?: 'tool' | 'message' | 'manual';
+  localService?: {
+    url: string;
+    origin: string;
+    projectDirectory?: string;
+    projectCandidates?: LocalServiceProjectCandidate[];
+  };
   contentVersion?: number;
   metadata?: Record<string, unknown>;
   createdAt: number;

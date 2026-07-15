@@ -1,0 +1,3 @@
+display_name: B站视频脚本
+short_description: 写B站标题封面、开场、章节大纲、解说稿和三连引导。
+default_prompt: 帮我写一个B站视频方案，包含标题封面、开场30秒、章节大纲和解说稿。

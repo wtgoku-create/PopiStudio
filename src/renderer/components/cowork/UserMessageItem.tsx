@@ -9,69 +9,17 @@ import { formatMessageDateTime } from '../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
 import AcademicCapIcon from '../icons/AcademicCapIcon';
 import EditIcon from '../icons/EditIcon';
-import MessageCopyIcon from '../icons/MessageCopyIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
 import SkillIcon from '../icons/SkillIcon';
-import MarkdownContent from '../MarkdownContent';
 import ImagePreviewModal, { type ImagePreviewSource } from './ImagePreviewModal';
+import { MessageCopyButton } from './MessageActionButton';
 import {
   COWORK_DETAIL_CONTENT_CLASS,
   COWORK_DETAIL_GUTTER_CLASS,
   getMessageModelLabel,
   messageMetaClassName,
 } from './messageDisplayUtils';
-
-// ── CopyButton (local) ──────────────────────────────────────────────────────
-
-const CopyButton: React.FC<{
-  content: string;
-  visible: boolean;
-}> = ({ content, visible }) => {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
-
-  return (
-    <button
-      onClick={handleCopy}
-      className={`p-1.5 rounded-md hover:bg-surface-raised transition-all duration-200 ${
-        visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-      }`}
-      tabIndex={visible ? 0 : -1}
-      title={i18nService.t('copyToClipboard')}
-      aria-label={i18nService.t('copyToClipboard')}
-    >
-      {copied ? (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="w-4 h-4 text-green-500"
-          aria-hidden="true"
-        >
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
-      ) : (
-        <MessageCopyIcon className="w-4 h-4 text-[var(--icon-secondary)]" />
-      )}
-    </button>
-  );
-};
+import UserMessageContent from './UserMessageContent';
 
 // ── ReEditButton ─────────────────────────────────────────────────────────────
 
@@ -173,22 +121,27 @@ const UserMessageItem: React.FC<{
     setIsHovered(false);
   }, []);
 
+  const metadata = message.metadata as CoworkMessageMetadata | undefined;
   const displayContent = useMemo(
-    () => parseUserMessageForDisplay(message.content || ''),
-    [message.content]
+    () => parseUserMessageForDisplay(message.content || '', {
+      localMediaAttachments: Array.isArray(metadata?.localMediaAttachments)
+        ? metadata.localMediaAttachments as Array<{ localPath: string; mimeType?: string; name?: string }>
+        : undefined,
+    }),
+    [message.content, metadata?.localMediaAttachments]
   );
 
-  const messageSkillIds = (message.metadata as CoworkMessageMetadata)?.skillIds || [];
+  const messageSkillIds = metadata?.skillIds || [];
   const messageSkills = messageSkillIds
     .map(id => skills.find(s => s.id === id))
     .filter((s): s is NonNullable<typeof s> => s !== undefined);
-  const messageKnowledgeBases = ((message.metadata as CoworkMessageMetadata)?.knowledgeBases ?? [])
+  const messageKnowledgeBases = (metadata?.knowledgeBases ?? [])
     .filter((base): base is { id: string; name: string } => Boolean(base?.id));
-  const messageKnowledgeFiles = ((message.metadata as CoworkMessageMetadata)?.knowledgeFiles ?? [])
+  const messageKnowledgeFiles = (metadata?.knowledgeFiles ?? [])
     .filter((file): file is { id: string; title: string; knowledgeBaseName?: string; fileType?: string } => Boolean(file?.id));
   const hasContextBadges = messageSkills.length > 0 || messageKnowledgeBases.length > 0 || messageKnowledgeFiles.length > 0;
 
-  const imageAttachments = ((message.metadata as CoworkMessageMetadata)?.imageAttachments ?? []) as CoworkImageAttachment[];
+  const imageAttachments = (metadata?.imageAttachments ?? []) as CoworkImageAttachment[];
 
   return (
     <div
@@ -213,9 +166,9 @@ const UserMessageItem: React.FC<{
                   </div>
                 )}
                 {displayContent?.trim() && (
-                  <MarkdownContent
+                  <UserMessageContent
                     content={displayContent}
-                    className="max-w-none whitespace-pre-wrap break-words"
+                    className="max-w-none"
                     onImageClick={setExpandedImage}
                   />
                 )}
@@ -246,7 +199,7 @@ const UserMessageItem: React.FC<{
               <div className={messageMetaClassName(isHovered, 'right')} aria-hidden={!isHovered}>
                 <span>{formatMessageDateTime(message.timestamp)}</span>
                 {modelLabel && <span>{modelLabel}</span>}
-                <CopyButton
+                <MessageCopyButton
                   content={message.content}
                   visible={isHovered}
                 />

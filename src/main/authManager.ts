@@ -56,10 +56,11 @@ export type ServerModelMetadata = {
   provider: string;
   apiFormat: string;
   supportsImage?: boolean;
+  supportsThinking?: boolean;
 };
 
 export const POPI_DEFAULT_SERVER_MODELS = [
-  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: true },
+  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: true, supportsThinking: true },
 ] as const;
 
 export type SkillMarketplacePageOptions = {
@@ -504,7 +505,7 @@ export class AuthManager {
             creditItems: [
               {
                 type: userData.user.isMember ? 'subscription' : 'free',
-                label: userData.user.isMember ? `浼氬憳 Lv.${userData.user.memberLevel ?? 0}` : '绉垎',
+                label: userData.user.isMember ? `会员 Lv.${userData.user.memberLevel ?? 0}` : '积分',
                 labelEn: userData.user.isMember ? `Member Lv.${userData.user.memberLevel ?? 0}` : 'Points',
                 creditsRemaining: totalCreditsRemaining,
                 expiresAt: null,
@@ -703,6 +704,7 @@ export class AuthManager {
           provider: ProviderName.PopiaiServer,
           apiFormat: 'openai',
           supportsImage: item.isSupportImages,
+          supportsThinking: true,
         };
       })
       .filter((model): model is ServerModelMetadata => model !== null);

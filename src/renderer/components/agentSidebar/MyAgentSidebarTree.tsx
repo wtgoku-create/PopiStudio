@@ -1,18 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
-import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
+import {
+  CoworkSessionSourceKind,
+  SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
+} from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { RootState } from '../../store';
-import { selectCurrentSessionId } from '../../store/selectors/coworkSelectors';
+import {
+  selectCurrentSessionId,
+  selectPendingPermissions,
+} from '../../store/selectors/coworkSelectors';
 import { isDefaultAgentId } from '../../utils/agentDisplay';
 import AgentAddFriendModal from '../agent/AgentAddFriendModal';
 import AgentCreateModal from '../agent/AgentCreateModal';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
 import { type CoworkOpenShareOptionsEventDetail, CoworkUiEvent } from '../cowork/constants';
 import AgentSessionNode from './AgentSessionNode';
+import { AgentSidebarTaskTab } from './constants';
 import MyAgentSidebarHeader from './MyAgentSidebarHeader';
 import type { AgentSidebarAgentNode, AgentSidebarTaskNode } from './types';
 import { useAgentSidebarState } from './useAgentSidebarState';
@@ -22,7 +29,9 @@ interface MyAgentSidebarTreeProps {
   batchAgentId: string | null;
   deletedSessionIds: string[];
   selectedIds: Set<string>;
+  activeTab: AgentSidebarTaskTab;
   onShowCowork: () => void;
+  onTaskTabChange: (tab: AgentSidebarTaskTab) => void;
   onToggleSelection: (sessionId: string, agentId: string) => void;
   onEnterBatchMode: (sessionId: string, agentId: string) => void;
   onBatchSelectableIdsChange: (sessionIds: string[]) => void;
@@ -31,12 +40,15 @@ interface MyAgentSidebarTreeProps {
 
 const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   deletedSessionIds,
+  activeTab,
   onShowCowork,
+  onTaskTabChange,
   onBatchSelectableIdsChange,
   onSearch,
 }) => {
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
   const currentSessionId = useSelector(selectCurrentSessionId);
+  const pendingPermissions = useSelector(selectPendingPermissions);
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null);
@@ -45,6 +57,30 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     removeTaskPreview,
     removeTaskPreviews,
   } = useAgentSidebarState();
+
+  const visibleAgentNodes = agentNodes.filter((agent) => {
+    const task = agent.tasks[0];
+    const isScheduledTask = task?.source?.kind === CoworkSessionSourceKind.ScheduledTask;
+    return activeTab === AgentSidebarTaskTab.Scheduled ? isScheduledTask : !isScheduledTask;
+  });
+  const pendingPermissionSessionIdSet = useMemo(() => {
+    const ids = new Set<string>();
+    for (const permission of pendingPermissions) {
+      ids.add(permission.sessionId);
+      const sessionKey = typeof permission.toolInput?.sessionKey === 'string'
+        ? permission.toolInput.sessionKey.trim()
+        : '';
+      const parts = sessionKey.split(':');
+      if (parts.length >= 4 && parts[0] === 'agent') {
+        const source = parts[2]?.trim();
+        const sessionId = parts.slice(3).join(':').trim();
+        if ((source === 'popiai' || source === 'subagent') && sessionId) {
+          ids.add(sessionId);
+        }
+      }
+    }
+    return ids;
+  }, [pendingPermissions]);
 
   useEffect(() => {
     void agentService.loadAgents();
@@ -122,6 +158,13 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
         key={task.id}
         agent={agent}
         task={task}
+        hasPendingConfirmation={
+          pendingPermissionSessionIdSet.has(task.id)
+          || (
+            task.id === currentSessionId
+            && pendingPermissionSessionIdSet.has(SESSION_AGNOSTIC_PERMISSION_SESSION_ID)
+          )
+        }
         isActive={task.id === currentSessionId}
         onSelect={(agent, task) => void handleSelectAgentSession(agent, task)}
         onDelete={handleDeleteSession}
@@ -143,9 +186,11 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   return (
     <div className="pb-3" role="list" aria-label={i18nService.t('myAgents')}>
       <MyAgentSidebarHeader
+        activeTab={activeTab}
         onAddFriend={() => setIsAddFriendOpen(true)}
         onCreateAgent={() => setIsCreateOpen(true)}
         onSearch={onSearch}
+        onTaskTabChange={onTaskTabChange}
       />
 
       {agentNodes.length === 0 ? (
@@ -161,9 +206,17 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
             {i18nService.t('createNewAgent')}
           </button>
         </div>
+      ) : visibleAgentNodes.length === 0 ? (
+        <div className="px-3 py-6 text-center">
+          <p className="text-xs font-medium text-secondary">
+            {activeTab === AgentSidebarTaskTab.Scheduled
+              ? i18nService.t('myAgentSidebarNoScheduledTasks')
+              : i18nService.t('myAgentSidebarNoTasks')}
+          </p>
+        </div>
       ) : (
         <div className="space-y-1.5 px-0">
-          {agentNodes.map(renderSessionNode)}
+          {visibleAgentNodes.map(renderSessionNode)}
         </div>
       )}
 

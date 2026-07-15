@@ -23,8 +23,8 @@ describe('MCN preset agents', () => {
   test('includes the xiaohuan avatarize-media preset', () => {
     const preset = getPreset('avatarize-media');
 
-    expect(preset.name).toBe('小幻 · 素材虚拟化');
-    expect(preset.description).toContain('素材虚拟化制作 agent');
+    expect(preset.name).toBe('小幻 · 替换角色');
+    expect(preset.description).toContain('把上传的日常图片、视频中的形象替换成你的角色');
     expect(preset.skillIds).toEqual([
       'popi-mcn-avatarize-media',
       'seedream',
@@ -55,7 +55,7 @@ describe('MCN preset agents', () => {
   test('includes the xiaomo script guide preset', () => {
     const preset = getPreset('script-guide');
 
-    expect(preset.name).toBe('小墨 · 剧本引导');
+    expect(preset.name).toBe('陪陪 · 想法陪聊');
     expect(preset.description).toContain('逐步追问缺失信息');
     expect(preset.skillIds).toEqual([
       'content-planner',
@@ -65,46 +65,35 @@ describe('MCN preset agents', () => {
     ]);
   });
 
-  test('preserves preset-specific working directory for xiaomo', () => {
-    const createRequest = presetToCreateRequest(getPreset('script-guide'));
-
-    expect(createRequest.workingDirectory).toBe(path.join(os.homedir(), 'popiai', 'project', 'script-guide'));
-  });
-
-  test('exposes the three-stage MCN workflow agents as templates', () => {
-    expect(getPreset('mcn-topic-planner').name).toBe('小满 · 选题策划');
-    expect(getPreset('mcn-script-director').name).toBe('阿木 · 编导脚本');
-    expect(getPreset('mcn-content-producer').name).toBe('小帧 · 内容制作');
-  });
-
-  test('prefills identity and role prompt when creating an MCN preset agent', () => {
-    const createRequest = presetToCreateRequest(getPreset('mcn-topic-planner'));
-
-    expect(createRequest.identity).toContain('MCN 机构的内容选题策划');
-    expect(createRequest.systemPrompt).toContain('趋势分析');
-    expect(createRequest.systemPrompt).toContain('只做选题这一棒');
-  });
-
-  test('maps each MCN preset to bundled skill-market skills', () => {
-    const bundledSkillIds = loadBundledSkillIds();
-    const expectedSkillIds: Record<string, string[]> = {
-      'mcn-topic-planner': ['daily-trending', 'content-planner', 'web-search'],
-      'mcn-script-director': ['article-writer', 'content-planner'],
-      'mcn-content-producer': [
-        'seedream',
-        'seedance',
-        'remotion',
-        'canvas-design',
-        'music-search',
-        'web-search',
-      ],
-    };
-
-    Object.entries(expectedSkillIds).forEach(([presetId, skillIds]) => {
-      const preset = getPreset(presetId);
-      expect(preset.skillIds).toEqual(skillIds);
-      expect(preset.skillIds.every((skillId) => bundledSkillIds.has(skillId))).toBe(true);
-    });
+  test('uses the requested preset agent names in order', () => {
+    expect(PRESET_AGENTS.map((agent) => agent.name)).toEqual([
+      '组长 · 统筹组长',
+      '小点子 · 热点小助手',
+      '锐评哥 · 爆款打分',
+      '陪陪 · 想法陪聊',
+      '小词 · 提示词编导',
+      '小七 · 素材生成',
+      '小幻 · 替换角色',
+      '小剪·ai剪辑师',
+      '小剪· ai剪辑师',
+      '记录员 · 数据记录',
+      '小浩 · 商务',
+      '小家 · 家庭温馨搞笑编导',
+      '小校 · 校园剧情搞笑编导',
+      '小分 · 一人分饰多角编导',
+      '丝丝 · Vlog 提示词专家',
+      '叮叮 · 搞笑剧编导',
+      '小点子 · 家庭温馨搞笑热点',
+      '小点子 · 校园剧情搞笑热点',
+      '小点子 · 一人分饰多角热点',
+      '小v·公众号内容创作',
+      '小b· b站内容创作',
+      '小b·b站运营',
+      '红红·小红书内容创作',
+      '红红·小红书运营',
+      '抖抖·抖音内容创作',
+      '抖抖·抖音内容运营',
+    ]);
   });
 });
 
@@ -113,29 +102,8 @@ describe('Popi Alice preset agent', () => {
   const oldAliceImageUrl = `http://${['8', '136', '121', '101'].join('.')}:8790/media/Character_id_card/alice.jpg`;
   const aliceImageUrl = 'https://static.popi.art/media/image/2026/0527/97025_thumb.webp';
 
-  test('exposes Alice as a Xiaohongshu vlog director template', () => {
-    const preset = getPreset('popi-alice');
-
-    expect(preset.name).toBe('Alice · 小红书 Vlog 导演');
-    expect(preset.description).toContain('先策划');
-    expect(preset.description).toContain('明确执行');
-  });
-
-  test('prefills Alice identity and director prompt', () => {
-    const createRequest = presetToCreateRequest(getPreset('popi-alice'));
-
-    expect(createRequest.identity).toBe('我是 Alice 的小红书 vlog 导演。');
-    expect(createRequest.systemPrompt).toContain('默认先进入 `popi-alice-vlog-director`');
-    expect(createRequest.systemPrompt).toContain('只有当用户明确说');
-    expect(createRequest.systemPrompt).toContain('popi-alice-storyboard-skill');
-  });
-
-  test('maps Alice to bundled skill-market skills', () => {
-    const bundledSkillIds = loadBundledSkillIds();
-    const preset = getPreset('popi-alice');
-
-    expect(preset.skillIds).toEqual(aliceSkillIds);
-    expect(preset.skillIds.every((skillId) => bundledSkillIds.has(skillId))).toBe(true);
+  test('removes the standalone Alice character preset', () => {
+    expect(PRESET_AGENTS.find((agent) => agent.id === 'alice')).toBeUndefined();
   });
 
   test('bundles Alice skill directories with matching frontmatter names', () => {

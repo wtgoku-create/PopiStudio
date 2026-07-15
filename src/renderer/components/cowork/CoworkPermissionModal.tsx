@@ -1,7 +1,8 @@
+import { ExclamationTriangleIcon, MinusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import React, { useEffect, useMemo, useState } from 'react';
-import type { CoworkPermissionRequest, CoworkPermissionResult } from '../../types/cowork';
-import { ExclamationTriangleIcon, XMarkIcon } from '@heroicons/react/24/outline';
+
 import { i18nService } from '../../services/i18n';
+import type { CoworkPermissionRequest, CoworkPermissionResult } from '../../types/cowork';
 
 type DangerLevel = 'safe' | 'caution' | 'destructive';
 
@@ -70,6 +71,9 @@ function detectDangerLevelFromCommand(command: string): DangerLevel {
 interface CoworkPermissionModalProps {
   permission: CoworkPermissionRequest;
   onRespond: (result: CoworkPermissionResult) => void;
+  onMinimize?: () => void;
+  /** Keep the modal mounted so in-progress answers survive while minimized. */
+  hidden?: boolean;
 }
 
 type QuestionOption = {
@@ -77,9 +81,79 @@ type QuestionOption = {
   description?: string;
 };
 
+const renderTextWithLinks = (text: string): React.ReactNode[] => {
+  const pattern = /\[([^\]]+)\]\(([^)]+)\)|~~([^~]+)~~/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    if (match[1] && match[2]) {
+      const linkText = match[1];
+      const linkUrl = match[2];
+      parts.push(
+        <a
+          key={match.index}
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            (window as any).electron?.shell?.openExternal(linkUrl);
+          }}
+          className="text-primary hover:underline cursor-pointer"
+        >
+          {linkText}
+        </a>
+      );
+    } else if (match[3]) {
+      parts.push(
+        <span key={match.index} className="text-secondary">
+          {match[3]}
+        </span>
+      );
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
+};
+
+const renderSubtitleWithHighlight = (text: string): React.ReactNode[] => {
+  const boldPattern = /\*\*([^*]+)\*\*/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = boldPattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(
+      <span key={match.index} className="text-primary font-semibold">
+        {match[1]}
+      </span>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
+};
+
 type QuestionItem = {
   question: string;
   header?: string;
+  title?: string;
+  subtitle?: string;
   options: QuestionOption[];
   multiSelect?: boolean;
 };
@@ -116,8 +190,10 @@ const resolveConfirmModeButtons = (question: QuestionItem): { primary: QuestionO
 const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
   permission,
   onRespond,
+  onMinimize,
+  hidden = false,
 }) => {
-  const toolInput = permission.toolInput ?? {};
+  const toolInput = useMemo(() => permission.toolInput ?? {}, [permission.toolInput]);
 
   const questions = useMemo<QuestionItem[]>(() => {
     if (permission.toolName !== 'AskUserQuestion') return [];
@@ -152,6 +228,8 @@ const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
         return {
           question: record.question,
           header: typeof record.header === 'string' ? record.header : undefined,
+          title: typeof record.title === 'string' ? record.title : undefined,
+          subtitle: typeof record.subtitle === 'string' ? record.subtitle : undefined,
           options,
           multiSelect: Boolean(record.multiSelect),
         } as QuestionItem;
@@ -341,29 +419,53 @@ const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
-      <div className="modal-content w-full max-w-lg mx-4 bg-surface rounded-2xl shadow-modal overflow-hidden">
+    <div className={`fixed inset-0 z-50 items-center justify-center modal-backdrop ${hidden ? 'hidden' : 'flex'}`}>
+      <div className="modal-content w-fit min-w-[28rem] max-w-[calc(100vw-2rem)] mx-4 bg-surface rounded-2xl shadow-modal overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
           <div className={`p-2 rounded-full ${isQuestionTool && !isConfirmMode ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-yellow-100 dark:bg-yellow-900/30'}`}>
-            <ExclamationTriangleIcon className={`h-6 w-6 ${isQuestionTool && !isConfirmMode ? 'text-blue-600 dark:text-blue-500' : 'text-yellow-600 dark:text-yellow-500'}`} />
+            {isConfirmMode && questions[0]?.title ? (
+              <svg className="h-6 w-6 text-yellow-600 dark:text-yellow-500" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12.2926 2.29317C12.683 1.90249 13.3162 1.90225 13.7068 2.29262L16.7115 5.29492C16.8993 5.48257 17.0047 5.7372 17.0046 6.00269C17.0045 6.26817 16.8989 6.52272 16.7109 6.71023L13.7063 9.70792C13.3153 10.098 12.6821 10.0973 12.2921 9.70629C11.902 9.31531 11.9027 8.68215 12.2937 8.29208L13.5785 7.01027C9.07988 7.22996 5.5 10.9469 5.5 15.5C5.5 20.1944 9.30558 24 14 24C18.5429 24 22.254 20.4356 22.4882 15.9515C22.517 15.3999 22.9875 14.9762 23.539 15.005C24.0906 15.0338 24.5143 15.5043 24.4855 16.0558C24.1961 21.5969 19.6126 26 14 26C8.20101 26 3.5 21.299 3.5 15.5C3.5 9.8368 7.98343 5.22075 13.5945 5.00769L12.2932 3.70738C11.9025 3.31701 11.9023 2.68384 12.2926 2.29317Z" fill="currentColor"/>
+                <path d="M18.2071 12.2929C18.5976 12.6834 18.5976 13.3166 18.2071 13.7071L13.2071 18.7071C13.0196 18.8946 12.7652 19 12.5 19C12.2348 19 11.9804 18.8946 11.7929 18.7071L9.79289 16.7071C9.40237 16.3166 9.40237 15.6834 9.79289 15.2929C10.1834 14.9024 10.8166 14.9024 11.2071 15.2929L12.5 16.5858L16.7929 12.2929C17.1834 11.9024 17.8166 11.9024 18.2071 12.2929Z" fill="currentColor"/>
+              </svg>
+            ) : (
+              <ExclamationTriangleIcon className={`h-6 w-6 ${isQuestionTool && !isConfirmMode ? 'text-blue-600 dark:text-blue-500' : 'text-yellow-600 dark:text-yellow-500'}`} />
+            )}
           </div>
           <div className="flex-1">
             <h2 className="text-lg font-semibold text-foreground">
-              {isQuestionTool && !isConfirmMode
-                ? i18nService.t('coworkSelectionRequired')
-                : i18nService.t('coworkPermissionRequired')}
+              {isConfirmMode && questions[0]?.title
+                ? questions[0].title
+                : isQuestionTool && !isConfirmMode
+                  ? i18nService.t('coworkSelectionRequired')
+                  : i18nService.t('coworkPermissionRequired')}
             </h2>
             <p className="text-sm text-secondary">
-              {isQuestionTool && !isConfirmMode
-                ? i18nService.t('coworkSelectionDescription')
-                : i18nService.t('coworkPermissionDescription')}
+              {isConfirmMode && questions[0]?.subtitle
+                ? renderSubtitleWithHighlight(questions[0].subtitle)
+                : isQuestionTool && !isConfirmMode
+                  ? i18nService.t('coworkSelectionDescription')
+                  : i18nService.t('coworkPermissionDescription')}
             </p>
           </div>
+          {onMinimize && (
+            <button
+              type="button"
+              onClick={onMinimize}
+              className="p-2 rounded-lg hover:bg-surface-raised text-secondary transition-colors"
+              aria-label={i18nService.t('coworkPermissionMinimize')}
+              title={i18nService.t('coworkPermissionMinimize')}
+            >
+              <MinusIcon className="h-5 w-5" />
+            </button>
+          )}
           <button
+            type="button"
             onClick={handleDeny}
             className="p-2 rounded-lg hover:bg-surface-raised text-secondary transition-colors"
-            aria-label="Close"
+            aria-label={i18nService.t('coworkPermissionCancel')}
+            title={i18nService.t('coworkPermissionCancel')}
           >
             <XMarkIcon className="h-5 w-5" />
           </button>
@@ -374,8 +476,8 @@ const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
           {isConfirmMode ? (
             /* Simple confirm dialog — show question text + allow/deny buttons */
             <div className="px-3 py-2 rounded-lg bg-background">
-              <p className="text-sm text-foreground whitespace-pre-wrap">
-                {questions[0].question}
+              <p className="text-sm text-foreground whitespace-pre-wrap text-left">
+                {renderTextWithLinks(questions[0].question)}
               </p>
               {requestedCommand && (
                 <div className="mt-3">
@@ -383,7 +485,7 @@ const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
                     {i18nService.t('coworkToolInput')}
                   </label>
                   <div className="px-3 py-2 rounded-lg bg-surface max-h-40 overflow-y-auto">
-                    <pre className="text-xs text-foreground whitespace-pre-wrap break-words font-mono">
+                    <pre className="text-code text-foreground whitespace-pre-wrap break-words font-mono">
                       {requestedCommand}
                     </pre>
                   </div>
@@ -415,7 +517,7 @@ const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
                           {i18nService.t('coworkToolInput')}
                         </label>
                         <div className="px-3 py-2 rounded-lg bg-background max-h-40 overflow-y-auto">
-                          <pre className="text-xs text-foreground whitespace-pre-wrap break-words font-mono">
+                          <pre className="text-code text-foreground whitespace-pre-wrap break-words font-mono">
                             {requestedCommand}
                           </pre>
                         </div>
@@ -468,7 +570,7 @@ const CoworkPermissionModal: React.FC<CoworkPermissionModalProps> = ({
                   {i18nService.t('coworkToolInput')}
                 </label>
                 <div className="px-3 py-2 rounded-lg bg-background">
-                  <pre className="text-xs text-foreground whitespace-pre-wrap break-words font-mono">
+                  <pre className="text-code text-foreground whitespace-pre-wrap break-words font-mono">
                     {formatToolInput(permission.toolInput)}
                   </pre>
                 </div>

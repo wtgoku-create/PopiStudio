@@ -4,7 +4,6 @@ import fs from 'fs';
 import path from 'path';
 
 import { buildScheduledTaskEnginePrompt } from '../../scheduledTask/enginePrompt';
-import { buildKnowledgeSourceReferencePrompt } from '../knowledge/sourceReferencePrompt';
 import { AgentId, DefaultAgentProfile } from '../../shared/agent';
 import {
   BrowserNetworkMode,
@@ -46,6 +45,7 @@ import {
 } from './openclawAgentModels';
 import { parseChannelSessionKey } from './openclawChannelSessionSync';
 import type { OpenClawEngineManager } from './openclawEngineManager';
+import { repairHeartbeatFile, stripProactiveHeartbeatSection } from './openclawHeartbeatRepair';
 import { getMainAgentWorkspacePath, readBootstrapFile } from './openclawMemoryFile';
 
 const gwDiagTs = (): string => {
@@ -87,7 +87,21 @@ const mapExecutionModeToSandboxMode = (
  */
 export const OPENCLAW_AGENT_TIMEOUT_SECONDS = 3600;
 const DINGTALK_OPENCLAW_CHANNEL = 'dingtalk-connector';
+const OPENCLAW_MEMORY_CORE_PLUGIN_ID = 'memory-core';
 export const OPENCLAW_BINDING_ANY_ACCOUNT_ID = '*';
+const OPENCLAW_DEFAULT_MODEL_MAX_TOKENS = 8192;
+
+const OpenClawContextCacheProvider = {
+  DashScope: 'dashscope',
+  AnthropicCompatible: 'anthropic-compatible',
+} as const;
+
+const OpenClawContextCacheMode = {
+  Explicit: 'explicit',
+} as const;
+
+const EXPLICIT_CONTEXT_CACHE_LOG_PREFIX = '********************';
+const CUSTOM_PROVIDER_NAME_PATTERN = /^custom_[0-9]$/;
 
 function deriveNimAccountId(instance: Pick<NimInstanceConfig, 'nimToken' | 'appKey' | 'account'>): string | null {
   const nimToken = instance.nimToken?.trim();
@@ -416,7 +430,7 @@ const readBundledOpenClawAgentsTemplate = (): string => {
       const content = fs.readFileSync(templatePath, 'utf8');
       const trimmed = stripTemplateFrontMatter(content);
       if (trimmed) {
-        return trimmed;
+        return stripProactiveHeartbeatSection(trimmed);
       }
     } catch {
       // Ignore missing/unreadable bundled templates and fall back below.
@@ -495,6 +509,28 @@ type OpenClawProviderSelection = {
 
 type OpenClawAgentModelDefault = {
   params?: Record<string, unknown>;
+};
+
+const DASHSCOPE_EXPLICIT_CONTEXT_CACHE_PARAMS: OpenClawAgentModelDefault = {
+  params: {
+    cacheRetention: 'short',
+    contextCacheProvider: OpenClawContextCacheProvider.DashScope,
+    contextCacheMode: OpenClawContextCacheMode.Explicit,
+  },
+};
+
+const ANTHROPIC_COMPATIBLE_EXPLICIT_CONTEXT_CACHE_PARAMS: OpenClawAgentModelDefault = {
+  params: {
+    cacheRetention: 'short',
+    contextCacheProvider: OpenClawContextCacheProvider.AnthropicCompatible,
+    contextCacheMode: OpenClawContextCacheMode.Explicit,
+  },
+};
+
+const ANTHROPIC_EXPLICIT_CONTEXT_CACHE_PARAMS: OpenClawAgentModelDefault = {
+  params: {
+    cacheRetention: 'short',
+  },
 };
 
 const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex';
@@ -611,6 +647,33 @@ const resolveDeepSeekModelReasoning = (modelId: string): boolean | undefined => 
     return true;
   }
   return undefined;
+};
+
+const isPositiveModelLimit = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+const clampModelMaxTokens = (rawMaxTokens: number | undefined, contextWindow: number | undefined): number | undefined => {
+  if (!isPositiveModelLimit(rawMaxTokens)) {
+    return undefined;
+  }
+  if (!isPositiveModelLimit(contextWindow)) {
+    return rawMaxTokens;
+  }
+  return Math.min(rawMaxTokens, contextWindow);
+};
+
+const resolveModelMaxTokensForOpenClaw = (options: {
+  api: OpenClawProviderApi;
+  descriptor: ProviderDescriptor;
+  contextWindow?: number;
+}): number | undefined => {
+  const rawMaxTokens = options.descriptor.modelDefaults?.maxTokens
+    ?? (
+      options.api === OpenClawApiConst.AnthropicMessages
+        ? OPENCLAW_DEFAULT_MODEL_MAX_TOKENS
+        : undefined
+    );
+  return clampModelMaxTokens(rawMaxTokens, options.contextWindow);
 };
 
 const PROVIDER_REGISTRY: Record<string, ProviderDescriptor> = {
@@ -785,6 +848,7 @@ export const buildProviderSelection = (options: {
   authType?: 'apikey' | 'oauth';
   codingPlanEnabled?: boolean;
   supportsImage?: boolean;
+  supportsThinking?: boolean;
   modelName?: string;
   contextWindow?: number;
 }): OpenClawProviderSelection => {
@@ -816,6 +880,11 @@ export const buildProviderSelection = (options: {
     options.modelId,
     options.supportsImage,
   );
+  const supportsThinking = ProviderRegistry.resolveModelSupportsThinking(
+    providerName,
+    options.modelId,
+    options.supportsThinking,
+  );
   const modelInput: string[] = supportsImage ? ['text', 'image'] : ['text'];
   const auth = (
     (options.providerName === ProviderName.Minimax || options.providerName === ProviderName.OpenAI)
@@ -825,9 +894,16 @@ export const buildProviderSelection = (options: {
     : AuthType.ApiKey;
 
   // reasoning：descriptor 动态计算 > modelDefaults 静态值
-  const reasoning = descriptor.resolveModelReasoning
+  const descriptorReasoning = descriptor.resolveModelReasoning
     ? descriptor.resolveModelReasoning(options.modelId, !!options.codingPlanEnabled)
     : descriptor.modelDefaults?.reasoning;
+  const reasoning = supportsThinking ? true : descriptorReasoning;
+  const contextWindow = options.contextWindow ?? descriptor.modelDefaults?.contextWindow;
+  const modelMaxTokens = resolveModelMaxTokensForOpenClaw({
+    api,
+    descriptor,
+    contextWindow,
+  });
   const request = shouldUseEnvProxyForProviderBaseUrl(baseUrl)
     ? { proxy: { mode: 'env-proxy' as const } }
     : undefined;
@@ -856,11 +932,9 @@ export const buildProviderSelection = (options: {
           input: modelInput,
           ...(reasoning !== undefined ? { reasoning } : {}),
           ...(descriptor.modelDefaults?.cost ? { cost: descriptor.modelDefaults.cost } : {}),
-          ...((options.contextWindow ?? descriptor.modelDefaults?.contextWindow) !== undefined
-            ? { contextWindow: options.contextWindow ?? descriptor.modelDefaults!.contextWindow }
-            : {}),
-          ...(descriptor.modelDefaults?.maxTokens
-            ? { maxTokens: descriptor.modelDefaults.maxTokens }
+          ...(contextWindow !== undefined ? { contextWindow } : {}),
+          ...(modelMaxTokens !== undefined
+            ? { maxTokens: modelMaxTokens }
             : {}),
         },
       ],
@@ -886,6 +960,21 @@ const cloneAgentModelDefault = (
 ): OpenClawAgentModelDefault => (
   entry.params ? { params: { ...entry.params } } : {}
 );
+
+const mergeAgentModelDefault = (
+  current: OpenClawAgentModelDefault | undefined,
+  next: OpenClawAgentModelDefault,
+): OpenClawAgentModelDefault => ({
+  ...(current ?? {}),
+  ...(next.params
+    ? {
+        params: {
+          ...(current?.params ?? {}),
+          ...next.params,
+        },
+      }
+    : {}),
+});
 
 const buildCompleteAgentModelDefaults = (
   providers: Record<string, OpenClawProviderSelection['providerConfig']>,
@@ -934,6 +1023,91 @@ const upsertProviderModel = (
   providerConfig.models.push(model);
 };
 
+const stripExplicitContextCacheProviderSuffix = (modelId: string, provider?: string): string => {
+  const normalizedProvider = provider?.trim();
+  if (!normalizedProvider) return modelId;
+  const suffix = `-${normalizedProvider}`.toLowerCase();
+  const normalized = modelId.toLowerCase();
+  return normalized.endsWith(suffix)
+    ? modelId.slice(0, modelId.length - suffix.length)
+    : modelId;
+};
+
+const normalizeExplicitContextCacheModelId = (modelId: string, provider?: string): string => {
+  const withoutProviderSuffix = stripExplicitContextCacheProviderSuffix(modelId.trim(), provider);
+  const slashIndex = withoutProviderSuffix.lastIndexOf('/');
+  return slashIndex >= 0
+    ? withoutProviderSuffix.slice(slashIndex + 1).trim()
+    : withoutProviderSuffix.trim();
+};
+
+const resolveExplicitContextCacheFamily = (
+  modelId: string,
+  provider?: string,
+): 'qwen' | 'claude' | null => {
+  const baseModelId = normalizeExplicitContextCacheModelId(modelId, provider).toLowerCase();
+  if (baseModelId.startsWith('qwen3.5') || baseModelId.startsWith('qwen3.6')) {
+    return 'qwen';
+  }
+  if (baseModelId.startsWith('claude-')) {
+    return 'claude';
+  }
+  return null;
+};
+
+const shouldApplyProviderExplicitContextCacheDefault = (providerName?: string): boolean => {
+  const normalizedProvider = providerName?.trim();
+  return normalizedProvider === ProviderName.Anthropic
+    || normalizedProvider === ProviderName.Qwen
+    || (!!normalizedProvider && CUSTOM_PROVIDER_NAME_PATTERN.test(normalizedProvider));
+};
+
+const resolveExplicitContextCacheDefault = (options: {
+  api: OpenClawProviderApi;
+  modelId: string;
+  provider?: string;
+  explicitContextCache?: boolean;
+}): OpenClawAgentModelDefault | null => {
+  const family = resolveExplicitContextCacheFamily(options.modelId, options.provider);
+  const enabled = options.explicitContextCache === true || family !== null;
+  if (!enabled || family === null) return null;
+  if (options.api === OpenClawApiConst.OpenAICompletions) {
+    return family === 'qwen'
+      ? DASHSCOPE_EXPLICIT_CONTEXT_CACHE_PARAMS
+      : ANTHROPIC_COMPATIBLE_EXPLICIT_CONTEXT_CACHE_PARAMS;
+  }
+  if (options.api === OpenClawApiConst.AnthropicMessages) {
+    return ANTHROPIC_EXPLICIT_CONTEXT_CACHE_PARAMS;
+  }
+  return null;
+};
+
+const addExplicitContextCacheDefault = (
+  defaults: Record<string, OpenClawAgentModelDefault>,
+  selection: OpenClawProviderSelection,
+  source: {
+    modelId: string;
+    provider?: string;
+    explicitContextCache?: boolean;
+  },
+): void => {
+  const model = selection.providerConfig.models[0];
+  if (!model) return;
+  const contextCacheDefault = resolveExplicitContextCacheDefault({
+    api: model.api,
+    modelId: source.modelId,
+    provider: source.provider,
+    explicitContextCache: source.explicitContextCache,
+  });
+  if (!contextCacheDefault) return;
+
+  const modelKey = `${selection.providerId}/${selection.sessionModelId}`;
+  defaults[modelKey] = mergeAgentModelDefault(defaults[modelKey], contextCacheDefault);
+  console.info(
+    `${EXPLICIT_CONTEXT_CACHE_LOG_PREFIX} [ExplicitCacheConfig] model=${selection.sessionModelId} api=${model.api} provider=${source.provider ?? selection.providerId} params=${JSON.stringify(contextCacheDefault.params ?? {})}`,
+  );
+};
+
 const readPreinstalledPluginIds = (): string[] => {
   try {
     const pkgPath = path.join(app.getAppPath(), 'package.json');
@@ -966,6 +1140,39 @@ const pluginMatches = (
   plugin: PreinstalledOpenClawPlugin,
   ...ids: string[]
 ): boolean => ids.includes(plugin.packageId) || ids.includes(plugin.pluginId);
+
+const hasEnabledChannelAccountConfig = (
+  channels: Record<string, unknown>,
+  channelId: string,
+  requiredIdField: string,
+  options: { requireChannelEnabled?: boolean } = {},
+): boolean => {
+  const channel = channels[channelId];
+  if (!channel || typeof channel !== 'object') {
+    return false;
+  }
+
+  const config = channel as {
+    enabled?: unknown;
+    accounts?: unknown;
+  };
+  const requireChannelEnabled = options.requireChannelEnabled ?? true;
+  if (
+    (requireChannelEnabled && config.enabled !== true)
+    || !config.accounts
+    || typeof config.accounts !== 'object'
+  ) {
+    return false;
+  }
+
+  return Object.values(config.accounts as Record<string, unknown>).some((account) => (
+    !!account
+    && typeof account === 'object'
+    && (account as { enabled?: unknown }).enabled === true
+    && typeof (account as Record<string, unknown>)[requiredIdField] === 'string'
+    && String((account as Record<string, unknown>)[requiredIdField]).trim().length > 0
+  ));
+};
 
 const isBundledPluginAvailable = (pluginId: string): boolean => {
   return hasBundledOpenClawExtension(pluginId);
@@ -1277,10 +1484,15 @@ export class OpenClawConfigSync {
         authType: apiResolution.providerMetadata?.authType,
         codingPlanEnabled: apiResolution.providerMetadata?.codingPlanEnabled,
         supportsImage: apiResolution.providerMetadata?.supportsImage,
+        supportsThinking: apiResolution.providerMetadata?.supportsThinking,
         modelName: apiResolution.providerMetadata?.modelName,
         contextWindow: apiResolution.providerMetadata?.contextWindow,
       });
       primaryModel = providerSelection.primaryModel;
+      addExplicitContextCacheDefault(perModelCustomDefaults, providerSelection, {
+        modelId,
+        provider: apiResolution.providerMetadata?.providerName,
+      });
 
       for (const p of resolveAllEnabledProviderConfigs()) {
         for (const m of p.models) {
@@ -1293,6 +1505,7 @@ export class OpenClawConfigSync {
             authType: p.authType,
             codingPlanEnabled: p.codingPlanEnabled,
             supportsImage: m.supportsImage,
+            supportsThinking: m.supportsThinking,
             modelName: m.name,
             contextWindow: m.contextWindow,
           });
@@ -1309,7 +1522,15 @@ export class OpenClawConfigSync {
           // directly into the outgoing API request body, bypassing the whitelist.
           if (m.customParams && Object.keys(m.customParams).length > 0) {
             const modelKey = `${sel.providerId}/${sel.sessionModelId}`;
-            perModelCustomDefaults[modelKey] = { params: { extra_body: { ...m.customParams } } };
+            perModelCustomDefaults[modelKey] = mergeAgentModelDefault(perModelCustomDefaults[modelKey], {
+              params: { extra_body: { ...m.customParams } },
+            });
+          }
+          if (shouldApplyProviderExplicitContextCacheDefault(p.providerName)) {
+            addExplicitContextCacheDefault(perModelCustomDefaults, sel, {
+              modelId: m.id,
+              provider: p.providerName,
+            });
           }
         }
       }
@@ -1339,6 +1560,7 @@ export class OpenClawConfigSync {
             apiType: 'openai',
             providerName: ProviderName.PopiaiServer,
             supportsImage: serverModels[0]?.supportsImage,
+            supportsThinking: serverModels[0]?.supportsThinking,
           });
           const popiaiProviderConfig =
             allProvidersMap[providerId] ?? {
@@ -1358,8 +1580,13 @@ export class OpenClawConfigSync {
                 apiType: 'openai',
                 providerName: ProviderName.PopiaiServer,
                 supportsImage: sm.supportsImage,
+                supportsThinking: sm.supportsThinking,
                 modelName: sm.modelId,
                 contextWindow: sm.contextWindow,
+              });
+              addExplicitContextCacheDefault(perModelCustomDefaults, serverSel, {
+                modelId: sm.modelId,
+                provider: ProviderName.PopiaiServer,
               });
               upsertProviderModel(popiaiProviderConfig, serverSel.providerConfig.models[0]);
             }
@@ -1412,10 +1639,12 @@ export class OpenClawConfigSync {
     // See: openclaw/openclaw#58678, #33310, #61613
     let existingGateway: Record<string, unknown> = {};
     let existingPlugins: Record<string, unknown> = {};
+    let existingChannels: Record<string, unknown> = {};
     try {
       const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       existingGateway = (existing.gateway ?? {}) as Record<string, unknown>;
       existingPlugins = (existing.plugins ?? {}) as Record<string, unknown>;
+      existingChannels = (existing.channels ?? {}) as Record<string, unknown>;
     } catch {
       // First run or corrupt file — nothing to preserve.
     }
@@ -1427,12 +1656,28 @@ export class OpenClawConfigSync {
     const dingTalkInstances = this.getDingTalkInstances();
     // DingTalk runs through OpenClaw plugin but still needs the gateway HTTP endpoint (chatCompletions)
     const hasDingTalkOpenClaw = dingTalkInstances.some(i => i.enabled && i.clientId);
+    const hasDingTalkChannelConfig = hasEnabledChannelAccountConfig(
+      existingChannels,
+      DINGTALK_OPENCLAW_CHANNEL,
+      'clientId',
+    );
 
     const feishuInstances = this.getFeishuInstances();
+    const hasFeishuChannelConfig = hasEnabledChannelAccountConfig(
+      existingChannels,
+      'feishu',
+      'appId',
+    );
 
     const qqInstances = this.getQQInstances();
 
     const wecomInstances = this.getWecomInstances();
+    const hasWecomChannelConfig = hasEnabledChannelAccountConfig(
+      existingChannels,
+      'wecom',
+      'botId',
+      { requireChannelEnabled: false },
+    );
 
     const popoInstances = this.getPopoInstances();
 
@@ -1480,6 +1725,7 @@ export class OpenClawConfigSync {
       },
       models: {
         mode: 'replace',
+        pricing: { enabled: false },
         providers: allProvidersMap,
       },
       agents: {
@@ -1492,6 +1738,7 @@ export class OpenClawConfigSync {
             mode: sandboxMode,
           },
           workspace: path.resolve(mainWorkspacePath),
+          mediaMaxMb: 30,
           ...(taskWorkingDirectory ? { cwd: path.resolve(taskWorkingDirectory) } : {}),
           ...(coworkConfig.embeddingEnabled ? {
             memorySearch: {
@@ -1548,6 +1795,7 @@ export class OpenClawConfigSync {
       },
       cron: {
         enabled: true,
+        store: path.join(this.engineManager.getStateDir(), 'cron', 'jobs.json'),
         skipMissedJobs: coworkConfig.skipMissedJobs === true,
         maxConcurrentRuns: 3,
         sessionRetention: '7d',
@@ -1577,6 +1825,7 @@ export class OpenClawConfigSync {
           )),
         );
         const qqbotPluginEnabled = qqInstances.some(i => i.enabled && i.appId);
+        const userPlugins = this.getUserPlugins();
 
 
         const pluginEntries: Record<string, unknown> = {
@@ -1591,11 +1840,12 @@ export class OpenClawConfigSync {
               // When a channel is disabled in the UI, its plugin must also be
               // disabled so OpenClaw doesn't load it at all.
               const pluginEnabled = (() => {
-                if (pluginMatches(plugin, DINGTALK_OPENCLAW_CHANNEL, 'dingtalk')) return dingTalkInstances.some(i => i.enabled && i.clientId);
+                if (pluginMatches(plugin, DINGTALK_OPENCLAW_CHANNEL, 'dingtalk'))
+                  return dingTalkInstances.some(i => i.enabled && i.clientId) || hasDingTalkChannelConfig;
                 if (pluginMatches(plugin, 'openclaw-lark', 'feishu-openclaw-plugin'))
-                  return feishuInstances.some(i => i.enabled && i.appId);
-                if (pluginMatches(plugin, 'openclaw-qqbot')) return qqInstances.some(i => i.enabled && i.appId);
-                if (pluginMatches(plugin, 'wecom-openclaw-plugin')) return wecomInstances.some(i => i.enabled && i.botId);
+                  return feishuInstances.some(i => i.enabled && i.appId) || hasFeishuChannelConfig;
+                if (pluginMatches(plugin, 'openclaw-qqbot', 'qqbot')) return qqInstances.some(i => i.enabled && i.appId);
+                if (pluginMatches(plugin, 'wecom-openclaw-plugin')) return wecomInstances.some(i => i.enabled && i.botId) || hasWecomChannelConfig;
                 if (pluginMatches(plugin, 'moltbot-popo')) return popoInstances.some(i => i.enabled && i.appKey);
                 if (pluginMatches(plugin, 'openclaw-nim-channel', NIM_CHANNEL_PLUGIN_ID, 'nim'))
                   return nimInstances.some(i => i.enabled && ((i.nimToken && i.nimToken.trim()) || (i.appKey && i.account && i.token)));
@@ -1617,7 +1867,7 @@ export class OpenClawConfigSync {
           ...(hasQwenProvider && qwenPortalAuthPluginId ? { [qwenPortalAuthPluginId]: { enabled: true } } : {}),
           // User-installed plugins: merge enabled state and config from user_plugins table
           ...Object.fromEntries(
-            this.getUserPlugins().map(p => [p.pluginId, {
+            userPlugins.map(p => [p.pluginId, {
               enabled: p.enabled,
               ...(p.config && Object.keys(p.config).length > 0 ? { config: p.config } : {}),
             }]),
@@ -1627,6 +1877,17 @@ export class OpenClawConfigSync {
           // a process that always fails.  See openclaw/openclaw#62588.
           'acpx': { enabled: false },
         };
+        const existingAllow = Array.isArray((existingPlugins as Record<string, unknown>).allow)
+          ? ((existingPlugins as Record<string, unknown>).allow as unknown[])
+              .filter((id): id is string => typeof id === 'string' && id.length > 0)
+          : [];
+        const trustedPluginAllow = Array.from(new Set([
+          ...existingAllow,
+          OPENCLAW_MEMORY_CORE_PLUGIN_ID,
+          ...(hasAskUserPlugin ? ['ask-user-question'] : []),
+          ...preinstalledPlugins.map(plugin => plugin.pluginId),
+          ...userPlugins.filter(plugin => plugin.enabled).map(plugin => plugin.pluginId),
+        ])).sort();
 
         return Object.keys(pluginEntries).length > 0
           ? {
@@ -1650,7 +1911,12 @@ export class OpenClawConfigSync {
                 // from dist/extensions/ at build time (see prune-openclaw-runtime.cjs).
                 // OpenClaw validates deny IDs against discovered plugins, so denying
                 // a removed plugin causes "Config invalid: plugin not found" errors.
+                allow: trustedPluginAllow,
                 deny: [],
+                slots: {
+                  ...((existingPlugins as Record<string, unknown>).slots as Record<string, unknown> | undefined),
+                  memory: OPENCLAW_MEMORY_CORE_PLUGIN_ID,
+                },
                 entries: pluginEntries,
               },
             }
@@ -1686,11 +1952,12 @@ export class OpenClawConfigSync {
     if (managedConfig.plugins) {
       const plugins = managedConfig.plugins as Record<string, unknown>;
       const entries = plugins.entries as Record<string, Record<string, unknown>>;
-      const existingMemoryCore = entries['memory-core'] ?? {};
+      const existingMemoryCore = entries[OPENCLAW_MEMORY_CORE_PLUGIN_ID] ?? {};
       const existingMemoryCoreConfig = (existingMemoryCore as Record<string, unknown>).config as Record<string, unknown> | undefined;
       if (coworkConfig.dreamingEnabled) {
-        entries['memory-core'] = {
+        entries[OPENCLAW_MEMORY_CORE_PLUGIN_ID] = {
           ...existingMemoryCore,
+          enabled: true,
           config: {
             ...existingMemoryCoreConfig,
             dreaming: {
@@ -1699,12 +1966,16 @@ export class OpenClawConfigSync {
             },
           },
         };
-      } else if (existingMemoryCoreConfig?.dreaming) {
-        // Remove dreaming config when disabled
-        const { dreaming: _, ...restConfig } = existingMemoryCoreConfig;
-        entries['memory-core'] = {
+      } else {
+        entries[OPENCLAW_MEMORY_CORE_PLUGIN_ID] = {
           ...existingMemoryCore,
-          config: Object.keys(restConfig).length > 0 ? restConfig : undefined,
+          enabled: true,
+          config: {
+            ...existingMemoryCoreConfig,
+            dreaming: {
+              enabled: false,
+            },
+          },
         };
       }
     }
@@ -1850,9 +2121,7 @@ export class OpenClawConfigSync {
             : { '*': { requireMention: true } },
         historyLimit: inst.historyLimit || 50,
         streaming: inst.streaming ?? true,
-        replyMode: inst.replyMode || 'auto',
         blockStreaming: inst.blockStreaming ?? false,
-        ...(inst.footer ? { footer: inst.footer } : {}),
         ...(inst.blockStreamingCoalesce
           ? { blockStreamingCoalesce: inst.blockStreamingCoalesce }
           : {}),
@@ -2735,7 +3004,6 @@ export class OpenClawConfigSync {
       // in openclaw.json, so we no longer embed the skills routing prompt here.
 
       sections.push(MANAGED_WEB_SEARCH_POLICY_PROMPT);
-      sections.push(buildKnowledgeSourceReferencePrompt());
       sections.push(MANAGED_BROWSER_POLICY_PROMPT);
       sections.push(MANAGED_EXEC_SAFETY_PROMPT);
       sections.push(MANAGED_REPLY_MEDIA_PATH_PROMPT);
@@ -2950,12 +3218,24 @@ export class OpenClawConfigSync {
     const stateDir = this.engineManager.getStateDir();
     const userContent = readBootstrapFile(mainWorkspaceDir, 'USER.md');
 
+    try {
+      if (repairHeartbeatFile(mainWorkspaceDir)) {
+        console.log('[OpenClawConfigSync] repaired legacy HEARTBEAT.md in main workspace');
+      }
+    } catch (error) {
+      console.warn('[OpenClawConfigSync] failed to repair HEARTBEAT.md in main workspace:', error);
+    }
+
     for (const agent of agents) {
       if (agent.id === 'main' || !agent.enabled) continue;
 
       const agentWorkspace = path.join(stateDir, `workspace-${agent.id}`);
       try {
         ensureDir(agentWorkspace);
+
+        if (repairHeartbeatFile(agentWorkspace)) {
+          console.log(`[OpenClawConfigSync] repaired legacy HEARTBEAT.md for agent ${agent.id}`);
+        }
 
         // Sync SOUL.md — agent's system prompt
         const soulPath = path.join(agentWorkspace, 'SOUL.md');

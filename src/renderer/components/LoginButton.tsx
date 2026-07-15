@@ -65,6 +65,14 @@ const formatCredits = (n: number): string => {
   return n.toFixed(2);
 };
 
+const getDisplayName = (nickname: string | undefined, phoneSuffix: string): string => {
+  const trimmed = nickname?.trim() ?? '';
+  if (phoneSuffix && trimmed === `User${phoneSuffix}`) {
+    return `****${phoneSuffix}`;
+  }
+  return trimmed || (phoneSuffix ? `****${phoneSuffix}` : '');
+};
+
 const CreditItemRow: React.FC<{ item: CreditItem; isEn: boolean }> = ({ item, isEn }) => {
   const label = isEn ? item.labelEn : item.label;
   const badge = item.type === 'subscription' ? getSubscriptionBadge(label) : null;
@@ -98,7 +106,7 @@ const CreditItemRow: React.FC<{ item: CreditItem; isEn: boolean }> = ({ item, is
   );
 };
 
-const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> = ({ onClose, onShowSettings }) => {
+const UserMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const user = useSelector((state: RootState) => state.auth.user);
   const profileSummary = useSelector((state: RootState) => state.auth.profileSummary);
   const [creditsExpanded, setCreditsExpanded] = useState(false);
@@ -113,11 +121,6 @@ const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> =
     onClose();
   };
 
-  const handleShowSettings = () => {
-    onShowSettings?.();
-    onClose();
-  };
-
   const handleSubscribe = async () => {
     const { getPortalPricingUrl } = await import('../services/endpoints');
     await window.electron.shell.openExternal(getPortalPricingUrl());
@@ -129,6 +132,7 @@ const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> =
   };
 
   const phoneSuffix = user?.phone ? user.phone.slice(-4) : '';
+  const displayName = getDisplayName(user?.nickname, phoneSuffix);
 
   // const totalCredits = profileSummary?.totalCreditsRemaining ?? 0;
   const creditItems = profileSummary?.creditItems ?? [];
@@ -139,9 +143,9 @@ const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> =
       {/* Account info */}
       <div className="px-4 py-3 border-b border-border">
         <div className="text-sm font-medium text-foreground truncate">
-          {user?.nickname || phoneSuffix}
+          {displayName}
         </div>
-        {phoneSuffix && (
+        {phoneSuffix && displayName !== `****${phoneSuffix}` && (
           <div className="text-xs text-secondary mt-0.5">
             ****{phoneSuffix}
           </div>
@@ -206,15 +210,6 @@ const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> =
 
       {/* Actions */}
       <div className="py-1">
-        {onShowSettings && (
-          <button
-            type="button"
-            onClick={handleShowSettings}
-            className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-surface-raised transition-colors cursor-pointer"
-          >
-            {i18nService.t('settings')}
-          </button>
-        )}
         <button
           type="button"
           onClick={handleSubscribe}
@@ -241,10 +236,9 @@ const UserMenu: React.FC<{ onClose: () => void; onShowSettings?: () => void }> =
 
 interface LoginButtonProps {
   iconOnly?: boolean;
-  onShowSettings?: () => void;
 }
 
-const LoginButton: React.FC<LoginButtonProps> = ({ iconOnly = false, onShowSettings }) => {
+const LoginButton: React.FC<LoginButtonProps> = ({ iconOnly = false }) => {
   const { isLoggedIn, isLoading, user } = useSelector((state: RootState) => state.auth);
   const [showMenu, setShowMenu] = useState(false);
 
@@ -305,7 +299,7 @@ const LoginButton: React.FC<LoginButtonProps> = ({ iconOnly = false, onShowSetti
             collisionPadding={12}
             className="z-[1000] outline-none popover-enter"
           >
-            <UserMenu onClose={() => setShowMenu(false)} onShowSettings={onShowSettings} />
+            <UserMenu onClose={() => setShowMenu(false)} />
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       )}

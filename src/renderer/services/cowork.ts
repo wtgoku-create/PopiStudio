@@ -6,12 +6,19 @@ import {
 } from '../../common/coworkSystemMessages';
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
 import { AgentId } from '../../shared/agent';
-import { COWORK_SESSION_PAGE_SIZE, CoworkSessionSourceKind } from '../../shared/cowork/constants';
-import { CoworkUiEvent } from '../components/cowork/constants';
+import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkSessionSourceKind } from '../../shared/cowork/constants';
+import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
+import {
+  type CoworkSteerRequest,
+  CoworkSteerRejectReason,
+  CoworkSteerStatus,
+} from '../../shared/cowork/steer';
 import { store } from '../store';
 import {
   addMessage,
+  addPendingSteer,
   addSession,
+  appendMessages,
   appendSessions,
   clearCurrentSession,
   clearPendingPermissions,
@@ -19,6 +26,7 @@ import {
   deleteSessions as deleteSessionsAction,
   dequeuePendingPermission,
   enqueuePendingPermission,
+  finishSessionActivity,
   markCompactionNotified,
   prependMessages,
   setConfig,
@@ -27,13 +35,18 @@ import {
   setContextUsage,
   setCurrentSession,
   setHasMoreSessions,
+  setMessageRailIndex,
+  setMessageRailIndexLoading,
+  setMessageWindow,
   setRemoteManaged,
   setSessions,
   setStreaming,
+  upsertSessionSummary,
   updateMessageContent,
   updateSessionPinned,
   updateSessionStatus,
   updateSessionTitle,
+  updateSteerStatus,
 } from '../store/slices/coworkSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../store/slices/skillSlice';
 import type {
@@ -45,12 +58,14 @@ import type {
   CoworkPermissionResult,
   CoworkSession,
   CoworkSessionListResult,
+  CoworkSessionStatus,
   CoworkStartOptions,
   CoworkUserMemoryEntry,
   OpenClawEngineStatus,
   OpenClawSessionPolicyConfig,
 } from '../types/cowork';
 import { CoworkSessionStatusValue } from '../types/cowork';
+import { CoworkQueuedFollowUpCoordinator } from './coworkQueuedFollowUpCoordinator';
 import { i18nService } from './i18n';
 
 const classifyError = (error: string): string => {
@@ -88,6 +103,13 @@ class CoworkService {
   private contextUsageRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private sessionEntryContextUsageRefreshAt = new Map<string, number>();
   private contextCompactionWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly queuedFollowUpCoordinator = new CoworkQueuedFollowUpCoordinator({
+    getState: store.getState,
+    dispatch: store.dispatch,
+    continueSession: (options) => this.continueSession(options),
+    stopSession: (sessionId) => this.stopSessionRuntime(sessionId),
+    log: (level, message, error) => this.logDiagnostic(level, message, error),
+  });
 
   async init(): Promise<void> {
     if (this.initialized) return;
@@ -163,9 +185,7 @@ class CoworkService {
       // (especially important for IM-triggered turns that do not call continueSession from renderer).
       if (message.type === 'user' || message.type === 'assistant' || message.type === 'tool_use' || message.type === 'tool_result') {
         store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Running }));
-      }
-      if (beforeMessageId) {
-        console.log('[ThinkingOrder] renderer received message with beforeMessageId=', beforeMessageId, 'messageId=', message.id, 'isThinking=', !!(message.metadata as any)?.isThinking);
+        this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
       }
       store.dispatch(addMessage({ sessionId, message, beforeMessageId }));
       this.scheduleContextUsageRefresh(sessionId, true);
@@ -177,13 +197,14 @@ class CoworkService {
       const session = store.getState().cowork.sessions.find(s => s.id === sessionId);
       if (metadata?.isFinal !== true && session?.status !== 'completed') {
         store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Running }));
+        this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
       }
       store.dispatch(updateMessageContent({ sessionId, messageId, content, metadata }));
     });
     this.streamListenerCleanups.push(messageUpdateCleanup);
 
     const sessionStatusCleanup = cowork.onStreamSessionStatus?.(({ sessionId, status }) => {
-      store.dispatch(updateSessionStatus({ sessionId, status }));
+      void this.handleStreamSessionStatus(sessionId, status);
     });
     if (sessionStatusCleanup) {
       this.streamListenerCleanups.push(sessionStatusCleanup);
@@ -226,8 +247,18 @@ class CoworkService {
 
     // Complete listener
     const completeCleanup = cowork.onStreamComplete(({ sessionId }) => {
+      const before = store.getState().cowork;
+      console.log('[CoworkService] received stream complete.', {
+        sessionId,
+        currentSessionId: before.currentSession?.id ?? null,
+        wasStreaming: before.isStreaming,
+        hadContextMaintenance: before.contextMaintenanceSessionIds.includes(sessionId),
+        hadContextCompaction: before.compactingSessionIds.includes(sessionId),
+      });
       store.dispatch(updateSessionStatus({ sessionId, status: 'completed' }));
+      store.dispatch(finishSessionActivity({ sessionId }));
       this.scheduleFinalContextUsageRefresh(sessionId, true);
+      this.queuedFollowUpCoordinator.handleSessionCompleted(sessionId);
     });
     this.streamListenerCleanups.push(completeCleanup);
 
@@ -241,6 +272,8 @@ class CoworkService {
         return;
       }
       store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Error }));
+      store.dispatch(finishSessionActivity({ sessionId }));
+      this.queuedFollowUpCoordinator.handleSessionError(sessionId);
       // Surface the error as a visible message so the user knows what happened.
       if (error) {
         store.dispatch(addMessage({
@@ -261,45 +294,90 @@ class CoworkService {
     const sessionsChangedCleanup = cowork.onSessionsChanged((event) => {
       const beforeState = store.getState().cowork;
       console.log('[CoworkService] onSessionsChanged: received IPC event, before sessions:', beforeState.sessions.length, 'sessionIds:', beforeState.sessions.map(s => s.id).slice(0, 5));
-      void this.loadSessionSummaryForChangedSession(event?.sessionId).then(() => this.loadSessions()).then(() => {
-        const state = store.getState().cowork;
-        console.log('[CoworkService] onSessionsChanged: loadSessions complete, total sessions:', state.sessions.length, 'sessionIds:', state.sessions.map(s => s.id).slice(0, 5));
-
-        // Reload the active session's full message list so that messages
-        // replaced by reconcileWithHistory (bulk SQLite replace) are reflected
-        // in the conversation view, not just the sidebar.  Without this,
-        // user messages synced from gateway history would only appear after
-        // the user manually re-enters the conversation.
-        const currentId = state.currentSessionId;
-        if (currentId) {
-          void this.loadSession(currentId);
-        }
-      }).catch((err) => {
-        console.error('[CoworkService] onSessionsChanged: loadSessions FAILED:', err);
+      void this.handleSessionsChanged(event?.sessionId).catch((err) => {
+        console.error('[CoworkService] onSessionsChanged: refresh failed:', err);
       });
     });
     this.streamListenerCleanups.push(sessionsChangedCleanup);
   }
 
+  private async handleSessionsChanged(sessionId?: string): Promise<void> {
+    if (sessionId) {
+      await this.loadSessionSummaryForChangedSession(sessionId);
+    } else {
+      await this.loadSessions();
+    }
+
+    const state = store.getState().cowork;
+    console.log('[CoworkService] onSessionsChanged: refresh complete, total sessions:', state.sessions.length, 'sessionIds:', state.sessions.map(s => s.id).slice(0, 5));
+
+    // Reload the active session's full message list so that messages
+    // replaced by reconcileWithHistory (bulk SQLite replace) are reflected
+    // in the conversation view, not just the sidebar.  Without this,
+    // user messages synced from gateway history would only appear after
+    // the user manually re-enters the conversation.
+    const currentId = state.currentSessionId;
+    if (currentId) {
+      void this.loadSession(currentId);
+      void this.loadSessionMessageRailIndex(currentId);
+    }
+  }
+
+  private async handleStreamSessionStatus(
+    sessionId: string,
+    status: CoworkSessionStatus,
+  ): Promise<void> {
+    const state = store.getState().cowork;
+    const sessionExists = state.sessions.some((session) => session.id === sessionId)
+      || state.currentSession?.id === sessionId;
+    if (!sessionExists) {
+      await this.loadSessionSummaryForChangedSession(sessionId);
+    }
+
+    store.dispatch(updateSessionStatus({ sessionId, status }));
+    this.setCurrentSessionStreaming(
+      sessionId,
+      status === CoworkSessionStatusValue.Running,
+    );
+    if (status === CoworkSessionStatusValue.Running) {
+      this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
+    } else if (status === CoworkSessionStatusValue.Completed) {
+      store.dispatch(finishSessionActivity({ sessionId }));
+      this.queuedFollowUpCoordinator.handleSessionCompleted(sessionId);
+    } else if (status === CoworkSessionStatusValue.Error) {
+      store.dispatch(finishSessionActivity({ sessionId }));
+      this.queuedFollowUpCoordinator.handleSessionError(sessionId);
+    } else {
+      store.dispatch(finishSessionActivity({ sessionId }));
+      this.queuedFollowUpCoordinator.handleSessionIdle(sessionId);
+    }
+  }
+
   private async loadSessionSummaryForChangedSession(sessionId?: string): Promise<void> {
-    if (!sessionId) return;
+    if (!sessionId) {
+      return;
+    }
 
     const cowork = window.electron?.cowork;
-    if (!cowork?.getSession) return;
+    if (!cowork?.getSession) {
+      return;
+    }
 
     const result = await cowork.getSession(sessionId);
-    if (!result?.success || !result.session) return;
+    if (!result?.success || !result.session) {
+      return;
+    }
 
     if (store.getState().cowork.currentSessionId === sessionId) {
       store.dispatch(setCurrentSession(result.session));
     }
-    const summaryAgentId = result.session.agentId?.trim() || AgentId.Main;
-    window.dispatchEvent(new CustomEvent(CoworkUiEvent.SessionSummaryChanged, {
-      detail: {
-        sessionId: result.session.id,
-        agentId: summaryAgentId,
-      },
-    }));
+    store.dispatch(upsertSessionSummary(result.session));
+  }
+
+  private setCurrentSessionStreaming(sessionId: string, isStreaming: boolean): void {
+    const currentSessionId = store.getState().cowork.currentSessionId;
+    if (currentSessionId !== sessionId) return;
+    store.dispatch(setStreaming(isStreaming));
   }
 
   private isStillRunningError(error: string): boolean {
@@ -477,6 +555,19 @@ class CoworkService {
     this.openClawEngineListenerAttached = false;
     this.contextUsageRefreshTimers.forEach(timer => clearTimeout(timer));
     this.contextUsageRefreshTimers.clear();
+  }
+
+  private logDiagnostic(level: 'debug' | 'warn' | 'error', message: string, error?: unknown): void {
+    const formatted = `[CoworkService] ${message}`;
+    if (level === 'error') {
+      console.error(formatted, error);
+      return;
+    }
+    if (level === 'warn') {
+      console.warn(formatted, error);
+      return;
+    }
+    console.debug(formatted, error);
   }
 
   async loadSessions(agentId?: string): Promise<void> {
@@ -665,14 +756,100 @@ class CoworkService {
     return true;
   }
 
+  async submitSteer(options: CoworkSteerRequest): Promise<boolean> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.submitSteer) {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkSteerUnavailable'),
+      }));
+      return false;
+    }
+
+    const text = options.text.trim();
+    if (!text) return false;
+
+    const now = Date.now();
+    const existingSteer = store.getState().cowork.pendingSteers[options.sessionId]
+      ?.some(steer => steer.id === options.clientSteerId);
+    if (!existingSteer) {
+      store.dispatch(addPendingSteer({
+        id: options.clientSteerId,
+        sessionId: options.sessionId,
+        text,
+        status: CoworkSteerStatus.Pending,
+        createdAt: now,
+        updatedAt: now,
+      }));
+    }
+
+    try {
+      const result = await cowork.submitSteer({
+        ...options,
+        text,
+      });
+      if (result?.success && result.status === CoworkSteerStatus.Accepted) {
+        store.dispatch(updateSteerStatus({
+          sessionId: options.sessionId,
+          steerId: options.clientSteerId,
+          status: CoworkSteerStatus.Accepted,
+        }));
+        return true;
+      }
+
+      const reason = result?.reason ?? CoworkSteerRejectReason.Unknown;
+      const keepQueued = reason === CoworkSteerRejectReason.RuntimeUnsupported
+        || reason === CoworkSteerRejectReason.NoActiveTurn
+        || reason === CoworkSteerRejectReason.NotStreaming;
+      if (keepQueued) {
+        return true;
+      }
+
+      const error = result?.error || i18nService.t('coworkSteerRejected');
+      store.dispatch(updateSteerStatus({
+        sessionId: options.sessionId,
+        steerId: options.clientSteerId,
+        status: CoworkSteerStatus.Rejected,
+        error,
+        reason,
+      }));
+      window.dispatchEvent(new CustomEvent('app:showToast', { detail: error }));
+      return false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : i18nService.t('coworkSteerRejected');
+      store.dispatch(updateSteerStatus({
+        sessionId: options.sessionId,
+        steerId: options.clientSteerId,
+        status: CoworkSteerStatus.Rejected,
+        error: message,
+        reason: CoworkSteerRejectReason.Unknown,
+      }));
+      window.dispatchEvent(new CustomEvent('app:showToast', { detail: message }));
+      return false;
+    }
+  }
+
+  async submitQueuedFollowUp(sessionId: string, steerId: string): Promise<boolean> {
+    return this.queuedFollowUpCoordinator.submitSelected(sessionId, steerId);
+  }
+
+  async interruptForQueuedFollowUp(sessionId: string, steerId: string): Promise<boolean> {
+    return this.queuedFollowUpCoordinator.interruptAndSubmit(sessionId, steerId);
+  }
+
   async stopSession(sessionId: string): Promise<boolean> {
+    return this.stopSessionRuntime(sessionId);
+  }
+
+  private async stopSessionRuntime(sessionId: string): Promise<boolean> {
     const cowork = window.electron?.cowork;
     if (!cowork) return false;
 
     const result = await cowork.stopSession(sessionId);
     if (result.success) {
       store.dispatch(setStreaming(false));
+      store.dispatch(finishSessionActivity({ sessionId }));
       store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Idle }));
+      this.queuedFollowUpCoordinator.handleSessionIdle(sessionId);
       return true;
     }
 
@@ -686,6 +863,7 @@ class CoworkService {
 
     const result = await cowork.deleteSession(sessionId);
     if (result.success) {
+      this.queuedFollowUpCoordinator.clearSession(sessionId);
       store.dispatch(deleteSessionAction(sessionId));
       return true;
     }
@@ -700,6 +878,7 @@ class CoworkService {
 
     const result = await cowork.deleteSessions(sessionIds);
     if (result.success) {
+      sessionIds.forEach(sessionId => this.queuedFollowUpCoordinator.clearSession(sessionId));
       store.dispatch(deleteSessionsAction(sessionIds));
       return true;
     }
@@ -813,6 +992,7 @@ class CoworkService {
       store.dispatch(setCurrentSession(result.session));
       store.dispatch(setStreaming(result.session.status === 'running'));
       this.refreshContextUsageForSessionEntry(sessionId);
+      void this.loadSessionMessageRailIndex(sessionId);
 
       void cowork.remoteManaged(sessionId).then((imResult) => {
         if (requestId === this.latestLoadSessionRequestId) {
@@ -825,6 +1005,31 @@ class CoworkService {
 
     console.error('Failed to load session:', result.error);
     return null;
+  }
+
+  async loadSessionMessageRailIndex(sessionId: string): Promise<CoworkMessageRailIndexItem[]> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSessionMessageRailIndex) return [];
+
+    const state = store.getState().cowork;
+    if (state.messageRailIndexLoadingBySessionId[sessionId]) {
+      return state.messageRailIndexBySessionId[sessionId] ?? [];
+    }
+
+    store.dispatch(setMessageRailIndexLoading({ sessionId, loading: true }));
+    try {
+      const result = await cowork.getSessionMessageRailIndex(sessionId);
+      if (result.success && result.items) {
+        store.dispatch(setMessageRailIndex({ sessionId, items: result.items }));
+        return result.items;
+      }
+      console.warn(`[CoworkService] failed to load message rail index for session ${sessionId}: ${result.error ?? 'unknown error'}`);
+    } catch (error) {
+      console.warn(`[CoworkService] failed to load message rail index for session ${sessionId}:`, error);
+    } finally {
+      store.dispatch(setMessageRailIndexLoading({ sessionId, loading: false }));
+    }
+    return [];
   }
 
   async getSessionSnapshot(sessionId: string): Promise<CoworkSession | null> {
@@ -860,6 +1065,63 @@ class CoworkService {
       store.dispatch(prependMessages({ sessionId, messages: result.messages, newOffset }));
       return true;
     }
+    return false;
+  }
+
+  /** Load newer messages after the current paged window when scrolling down. */
+  async loadNewerMessages(sessionId: string): Promise<boolean> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSessionMessages) return false;
+
+    const state = store.getState().cowork;
+    if (state.currentSession?.id !== sessionId) return false;
+
+    const { messages, messagesOffset, totalMessages } = state.currentSession;
+    const nextOffset = messagesOffset + messages.length;
+    if (nextOffset >= totalMessages) return false;
+
+    const PAGE_SIZE = 50;
+    const limit = Math.min(PAGE_SIZE, totalMessages - nextOffset);
+    const result = await cowork.getSessionMessages({ sessionId, limit, offset: nextOffset });
+    if (result.success && result.messages && result.messages.length > 0) {
+      store.dispatch(appendMessages({
+        sessionId,
+        messages: result.messages,
+        totalMessages: result.total ?? totalMessages,
+      }));
+      return true;
+    }
+    return false;
+  }
+
+  async loadMessageWindowAroundIndex(sessionId: string, absoluteIndex: number, pageSize = 50): Promise<boolean> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSessionMessages) return false;
+
+    const state = store.getState().cowork;
+    if (state.currentSession?.id !== sessionId) return false;
+
+    const totalMessages = state.currentSession.totalMessages;
+    const safeAbsoluteIndex = Number.isFinite(absoluteIndex) ? Math.max(0, Math.floor(absoluteIndex)) : 0;
+    const safePageSize = Number.isFinite(pageSize) ? Math.floor(pageSize) : 50;
+    const boundedPageSize = Math.max(COWORK_MESSAGE_PAGE_SIZE, Math.min(100, safePageSize));
+    const offset = Math.max(0, Math.min(
+      Math.max(0, totalMessages - boundedPageSize),
+      safeAbsoluteIndex - Math.floor(boundedPageSize / 2),
+    ));
+
+    const result = await cowork.getSessionMessages({ sessionId, limit: boundedPageSize, offset });
+    if (result.success && result.messages && result.messages.length > 0) {
+      store.dispatch(setMessageWindow({
+        sessionId,
+        messages: result.messages,
+        messagesOffset: result.offset ?? offset,
+        totalMessages: result.total ?? totalMessages,
+      }));
+      return true;
+    }
+
+    console.warn(`[CoworkService] message window load for session ${sessionId} returned no messages at offset ${offset}: ${result.error ?? 'empty result'}`);
     return false;
   }
 
@@ -957,6 +1219,19 @@ class CoworkService {
       return null;
     }
     return window.electron.saveApiConfig(config);
+  }
+
+  async deleteSubagentSession(parentSessionId: string, runId: string): Promise<boolean> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.deleteSubagentSession) return false;
+
+    const result = await cowork.deleteSubagentSession({ parentSessionId, runId });
+    if (result.success) {
+      return result.deleted ?? true;
+    }
+
+    console.error('Failed to delete subagent session:', result.error);
+    return false;
   }
 
   async listMemoryEntries(input: {

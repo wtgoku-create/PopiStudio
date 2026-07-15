@@ -24,11 +24,18 @@ import {
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
+import {
+  CoworkSteerRejectReason,
+  CoworkSteerStatus,
+} from '../shared/cowork/steer';
+import { stripNullChars } from '../shared/cowork/text';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
 import {
-  KNOWLEDGE_DEFAULT_BASE_URL,
+  KnowledgeBaseUrl,
   KnowledgeBrowserPartition,
+  KnowledgePath,
+  KnowledgeSkill,
 } from '../shared/knowledge/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
 import { PlatformRegistry } from '../shared/platform';
@@ -51,14 +58,16 @@ import {
 import { pollNimQrLogin, startNimQrLogin } from './im/nimQrLoginService';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NimInstanceConfig, Platform, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from './im/types';
 import { registerNimQrLoginHandlers } from './ipcHandlers/nimQrLogin';
-import { RemoteKnowledgeService } from './knowledge/remoteKnowledgeService';
-import { buildKnowledgeSourceReferencePrompt } from './knowledge/sourceReferencePrompt';
 import {
   getCronJobService,
   initCronJobServiceManager,
   initScheduledTaskHelpers,
+  migrateScheduledTaskAnnounceJobs,
   registerScheduledTaskHandlers,
+  type ScheduledTaskHandlerDeps,
 } from './ipcHandlers/scheduledTask';
+import { RemoteKnowledgeService } from './knowledge/remoteKnowledgeService';
+import { buildSelectedKnowledgeContextPrompt } from './knowledge/sourceReferencePrompt';
 import {
   type CoworkAgentEngine,
   CoworkEngineRouter,
@@ -76,14 +85,13 @@ import {
 import { saveCoworkApiConfig } from './libs/coworkConfigStore';
 import { getCoworkLogPath } from './libs/coworkLogger';
 import { registerProxyTokenRefresher, startCoworkOpenAICompatProxy, stopCoworkOpenAICompatProxy } from './libs/coworkOpenAICompatProxy';
-import { generateSessionTitle, getElectronNodeRuntimePath, probeCoworkModelReadiness } from './libs/coworkUtil';
-import { getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
+import { generateSessionTitle, probeCoworkModelReadiness } from './libs/coworkUtil';
+import { getKnowledgeDefaultBaseUrl, getKnowledgeFrameSource, getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession, isPreviewServerUrl, stopHtmlPreviewServer } from './libs/htmlPreviewServer';
-import { getKeyfromAttribution, initializeKeyfromAttribution } from './libs/keyfromAttribution';
+import { initializeKeyfromAttribution } from './libs/keyfromAttribution';
 import { createKnowledgeMcpToolProvider } from './libs/knowledgeMcpBridgeTools';
 import { exportLogsZip } from './libs/logExport';
-import { McpBridgeServer } from './libs/mcpBridgeServer';
 import { parsePrimaryModelRef, resolveQualifiedAgentModelRef } from './libs/openclawAgentModels';
 import {
   buildManagedSessionKey,
@@ -103,7 +111,6 @@ import {
   OpenClawPluginChangeAction,
   removeImpactDecisionReasons,
 } from './libs/openclawConfigImpact';
-import type { ResolvedMcpServer } from './libs/openclawConfigSync';
 import { buildProviderSelection, OpenClawConfigSync } from './libs/openclawConfigSync';
 import { OpenClawEngineManager, type OpenClawEngineStatus } from './libs/openclawEngineManager';
 import {
@@ -122,15 +129,14 @@ import {
 import { collectReferencedEnvVarNames, pickReferencedSecretEnvVars } from './libs/openclawSecretEnv';
 import { getWeknoraOpenClawMcpProxyUrl, startOpenClawTokenProxy, stopOpenClawTokenProxy } from './libs/openclawTokenProxy';
 import { migrateMainAgentWorkspace } from './libs/openclawWorkspaceMigration';
-import { executePopiTVMcpTool, getPopiTVMcpToolManifest } from './libs/popiTVMcpBridgeTools';
+import { executePopiTVMcpTool } from './libs/popiTVMcpBridgeTools';
 import {
   getCachedPopiTVCanvasSnapshot,
   registerPopiTVRendererBridgeIpc,
   requestPopiTVCanvasFromRenderer,
 } from './libs/popiTVRendererBridge';
-import { LOCAL_MCP_SERVER_NAME, PopiTVToolBridgeServer } from './libs/popiTVToolBridgeServer';
+import { PopiTVToolBridgeServer } from './libs/popiTVToolBridgeServer';
 import { ensurePythonRuntimeReady } from './libs/pythonRuntime';
-import { resolveStdioCommand } from './libs/resolveStdioCommand';
 import { serializeForLog } from './libs/sanitizeForLog';
 import { SqliteBackupManager } from './libs/sqliteBackup/sqliteBackupManager';
 import {
@@ -140,11 +146,12 @@ import {
   setSystemProxyEnabled,
 } from './libs/systemProxy';
 import { getLogFilePath, getRecentMainLogEntries, initLogger } from './logger';
+import { McpRuntime } from './mcpRuntime';
 import type { McpServerFormData } from './mcpStore';
-import { McpStore } from './mcpStore';
 import { OpenClawSessionIpc } from './openclawSession/constants';
 import { OpenClawSessionPolicyIpc } from './openclawSessionPolicy/constants';
 import { loadOpenClawSessionPolicyConfig, saveOpenClawSessionPolicyConfig } from './openclawSessionPolicy/store';
+import { POPIART_MEDIA_GENERATION_SERVICE_PROMPT } from './popiart/popiartCliManager';
 import { SkillManager } from './skillManager';
 import { getSkillServiceManager } from './skillServices';
 import { SqliteStore } from './sqliteStore';
@@ -896,16 +903,8 @@ let coworkStore: CoworkStore | null = null;
 let openClawRuntimeAdapter: OpenClawRuntimeAdapter | null = null;
 let coworkEngineRouter: CoworkEngineRouter | null = null;
 let skillManager: SkillManager | null = null;
-let mcpStore: McpStore | null = null;
-let mcpBridgeServer: McpBridgeServer | null = null;
+let mcpRuntime: McpRuntime | null = null;
 let popiTVToolBridgeServer: PopiTVToolBridgeServer | null = null;
-// Generated eagerly so the secret is available before the first syncOpenClawConfig
-// call — the gateway process inherits it via LOBSTER_MCP_BRIDGE_SECRET env var at
-// spawn time, avoiding a restart just to pick up the correct secret.
-let mcpBridgeSecret: string = require('crypto').randomUUID();
-// Cache of resolved MCP server configs for the synchronous configSync callback.
-// Populated asynchronously before each syncOpenClawConfig() call.
-let resolvedMcpServersCache: ResolvedMcpServer[] = [];
 let imGatewayManager: IMGatewayManager | null = null;
 let storeInitPromise: Promise<SqliteStore> | null = null;
 let sqliteBackupManager: SqliteBackupManager | null = null;
@@ -919,8 +918,6 @@ let preventSleepBlockerId: number | null = null;
 let appUpdateCoordinator: AppUpdateCoordinator | null = null;
 let remoteKnowledgeService: RemoteKnowledgeService | null = null;
 let authManager: AuthManager | null = null;
-
-const WEKNORA_OPENCLAW_MCP_SERVER_NAME = 'weknora-openclaw';
 
 function setPreventSleepBlockerEnabled(enabled: boolean): void {
   if (enabled) {
@@ -1007,35 +1004,25 @@ const resolveCoworkRuntimePrompt = async (options: {
   knowledgeBases?: Array<{ id: string; name?: string }>;
   knowledgeFiles?: Array<{ id: string; title?: string; knowledgeBaseName?: string; fileType?: string }>;
 }): Promise<string> => {
-  const query = options.prompt.trim();
-  const knowledgeBases = options.knowledgeBases?.filter(item => Boolean(item.id)) ?? [];
-  const knowledgeFiles = options.knowledgeFiles?.filter(item => Boolean(item.id)) ?? [];
-  if (!query || (knowledgeBases.length === 0 && knowledgeFiles.length === 0)) {
+  const selectedKnowledgeContext = buildSelectedKnowledgeContextPrompt(options);
+  if (!selectedKnowledgeContext) {
     return options.prompt;
   }
+  return `${selectedKnowledgeContext}\n\n${options.prompt}`;
+};
 
-  const routingContext = [
-    '[Popiai selected knowledge context]',
-    'The user selected knowledge sources for this turn. Before answering questions that depend on those sources, use knowledge tools in this priority order: 1. wiki tools such as `wiki_search` / `wiki_read_page`; 2. direct knowledge tools such as `knowledge_search`, `grep_chunks`, `list_knowledge_chunks`, or `get_document_info`; 3. the local MCP tool `preview_rag_context` from the `knowledge` server as the fallback.',
-    knowledgeBases.length > 0
-      ? `Selected knowledgeBaseIds: ${JSON.stringify(knowledgeBases.map(item => ({
-          id: item.id,
-          ...(item.name ? { name: item.name } : {}),
-        })))}`
-      : '',
-    knowledgeFiles.length > 0
-      ? `Selected knowledgeIds: ${JSON.stringify(knowledgeFiles.map(item => ({
-          id: item.id,
-          ...(item.title ? { title: item.title } : {}),
-          ...(item.knowledgeBaseName ? { knowledgeBaseName: item.knowledgeBaseName } : {}),
-          ...(item.fileType ? { fileType: item.fileType } : {}),
-        })))}`
-      : '',
-    'Pass these selected ids to whichever knowledge tool supports them. If you use `preview_rag_context`, call it with `query`, `knowledgeBaseIds`, and/or `knowledgeIds`. If retrieval fails or returns no relevant context, continue with the user request normally and mention the retrieval issue briefly when relevant.',
-    '[/Popiai selected knowledge context]',
-  ].filter(Boolean).join('\n');
-
-  return `${routingContext}\n\n${options.prompt}`;
+const resolveRuntimeSkillIds = (options: {
+  activeSkillIds?: string[];
+  knowledgeBases?: Array<{ id: string }>;
+  knowledgeFiles?: Array<{ id: string }>;
+}): string[] | undefined => {
+  const nextSkillIds = options.activeSkillIds ? [...options.activeSkillIds] : [];
+  const hasSelectedKnowledge = Boolean(options.knowledgeBases?.some(item => item.id))
+    || Boolean(options.knowledgeFiles?.some(item => item.id));
+  if (hasSelectedKnowledge && !nextSkillIds.includes(KnowledgeSkill.Base)) {
+    nextSkillIds.push(KnowledgeSkill.Base);
+  }
+  return nextSkillIds.length > 0 ? nextSkillIds : undefined;
 };
 
 const forwardCoworkMessage = (sessionId: string, message: unknown, beforeMessageId?: string): void => {
@@ -1067,6 +1054,13 @@ const bindOpenClawStatusForwarder = (): void => {
   const manager = getOpenClawEngineManager();
   manager.on('status', (status) => {
     forwardOpenClawStatus(status);
+    if (status.phase === 'running') {
+      try {
+        getCronJobService().notifyGatewayReady();
+      } catch {
+        // Cron service may not be initialized yet during early startup.
+      }
+    }
   });
   openClawStatusForwarderBound = true;
   forwardOpenClawStatus(manager.getStatus());
@@ -1101,7 +1095,7 @@ const bootstrapOpenClawEngine = async (options: { forceReinstall?: boolean; reas
       await startAskUserServer().catch((err: unknown) => {
         console.error(`[OpenClaw] bootstrap: AskUser server startup failed (non-fatal):`, err);
       });
-      console.log(`[OpenClaw] bootstrap: AskUser server setup done (${elapsed()}), askUserUrl=${mcpBridgeServer?.askUserCallbackUrl || 'null'}`);
+      console.log(`[OpenClaw] bootstrap: AskUser server setup done (${elapsed()}), askUserUrl=${getMcpRuntime().getAskUserCallbackUrl() || 'null'}`);
       await startPopiTVToolBridgeServer().catch((err: unknown) => {
         console.error('[OpenClaw] bootstrap: PopiTV bridge startup failed (non-fatal):', err);
       });
@@ -1287,6 +1281,7 @@ const setScheduledTaskSessionSource = (
   label?: string,
 ): void => {
   if (!sessionId) return;
+  if (sourceBySessionId.get(sessionId)?.kind === CoworkSessionSourceKind.IM) return;
   const source = {
     kind: CoworkSessionSourceKind.ScheduledTask,
     taskId,
@@ -1328,9 +1323,15 @@ const annotateCoworkSessionSummaries = async (
     const imStore = getIMGatewayManager()?.getIMStore();
     if (imStore) {
       for (const session of sessions) {
-        if (sourceBySessionId.has(session.id)) continue;
+        const existingSource = sourceBySessionId.get(session.id);
+        if (existingSource && existingSource.kind !== CoworkSessionSourceKind.ScheduledTask) continue;
         const mapping = imStore.getSessionMappingByCoworkSessionId(session.id);
         if (!mapping) continue;
+        try {
+          getCoworkStore().deleteSessionSource(session.id, CoworkSessionSourceKind.ScheduledTask);
+        } catch {
+          // Source cleanup is best-effort for sidebar rendering.
+        }
         const source = {
           kind: CoworkSessionSourceKind.IM,
           platform: mapping.platform,
@@ -1501,13 +1502,9 @@ const getOpenClawConfigSync = (): OpenClawConfigSync => {
           return [];
         }
       },
-      getResolvedMcpServers: () => {
-        // Synchronous wrapper: returns last resolved servers from cache.
-        // The async resolution happens during syncOpenClawConfig via getResolvedMcpServers().
-        return resolvedMcpServersCache;
-      },
-      getAskUserCallbackUrl: () => mcpBridgeServer?.askUserCallbackUrl ?? null,
-      getMcpBridgeSecret: () => mcpBridgeSecret,
+      getResolvedMcpServers: () => getMcpRuntime().getResolvedServersCache(),
+      getAskUserCallbackUrl: () => getMcpRuntime().getAskUserCallbackUrl(),
+      getMcpBridgeSecret: () => getMcpRuntime().getBridgeSecret(),
       getAgents: () => getCoworkStore().listAgents(),
       getUserPlugins: () => getCoworkStore().listUserPlugins().map(p => ({ pluginId: p.pluginId, enabled: p.enabled, config: p.config })),
     });
@@ -1575,10 +1572,10 @@ const syncOpenClawConfig = async (
 
   // Resolve MCP servers before sync (async → cache for synchronous callback)
   try {
-    resolvedMcpServersCache = await getResolvedMcpServers();
+    await getMcpRuntime().refreshResolvedServersCache();
   } catch (err) {
     console.warn(`[OpenClaw] getResolvedMcpServers failed (non-fatal):`, err);
-    resolvedMcpServersCache = [];
+    getMcpRuntime().clearResolvedServersCache();
   }
 
   const syncResult = getOpenClawConfigSync().sync(options.reason);
@@ -1835,6 +1832,7 @@ const getCoworkEngineRouter = () => {
             imStore,
             getDefaultCwd: (agentId?: string) => resolveAgentDefaultWorkingDirectory(agentId) || os.homedir(),
             resolveJobName: (jobId) => getCronJobService().getJobNameSync(jobId),
+            resolveJobDelivery: (jobId) => getCronJobService().getJobDeliverySync(jobId),
           });
           openClawRuntimeAdapter.setChannelSessionSync(channelSessionSync);
         }
@@ -1858,68 +1856,31 @@ const getSkillManager = () => {
 };
 
 const getMcpStore = () => {
-  if (!mcpStore) {
-    const sqliteStore = getStore();
-    mcpStore = new McpStore(sqliteStore.getDatabase());
-  }
-  return mcpStore;
+  return getMcpRuntime().getStore();
 };
 
+const getMcpRuntime = () => {
+  if (!mcpRuntime) {
+    mcpRuntime = new McpRuntime({
+      getStore,
+      getPopiTVMcpUrl: () => popiTVToolBridgeServer?.mcpUrl ?? null,
+      getWeknoraOpenClawMcpProxyUrl,
+    });
+  }
+  return mcpRuntime;
+};
 
 /**
  * Start the AskUser HTTP callback server (serves ask-user-question plugin).
  * MCP server connections are now handled natively by OpenClaw via mcp.servers config.
  */
 const startAskUserServer = async (): Promise<void> => {
-  if (!mcpBridgeServer) {
-    mcpBridgeServer = new McpBridgeServer(mcpBridgeSecret);
-  }
-
-  if (mcpBridgeServer.port) return; // already running
-
-  console.log('[AskUser] starting HTTP callback server...');
-  await mcpBridgeServer.start();
-
-  // Register AskUserQuestion callback — shows a permission modal when the
-  // ask-user-question OpenClaw plugin sends a request via HTTP.
-  mcpBridgeServer.onAskUser((request) => {
-    const windows = BrowserWindow.getAllWindows();
-    windows.forEach((win) => {
-      if (win.isDestroyed()) return;
-      try {
-        win.webContents.send('cowork:stream:permission', {
-          sessionId: '__askuser__',
-          request: {
-            requestId: request.requestId,
-            toolName: 'AskUserQuestion',
-            toolInput: { questions: request.questions },
-          },
-        });
-      } catch (error) {
-        console.error('[AskUser] failed to send permission request to window:', error);
-      }
-    });
-  });
-
-  // Dismiss the AskUser modal when timeout or resolved from server side.
-  mcpBridgeServer.onAskUserDismiss((requestId) => {
-    const windows = BrowserWindow.getAllWindows();
-    windows.forEach((win) => {
-      if (win.isDestroyed()) return;
-      try {
-        win.webContents.send('cowork:stream:permissionDismiss', { requestId });
-      } catch {
-        // ignore
-      }
-    });
-  });
-
-  console.log(`[AskUser] started: askUserUrl=${mcpBridgeServer.askUserCallbackUrl}`);
+  await getMcpRuntime().startAskUserServer();
 };
 
 const startPopiTVToolBridgeServer = async (): Promise<void> => {
   if (!popiTVToolBridgeServer) {
-    popiTVToolBridgeServer = new PopiTVToolBridgeServer(mcpBridgeSecret);
+    popiTVToolBridgeServer = new PopiTVToolBridgeServer(getMcpRuntime().getBridgeSecret());
   }
 
   popiTVToolBridgeServer.setLocalToolHandler((server, tool, args, options) => (
@@ -1934,74 +1895,6 @@ const startPopiTVToolBridgeServer = async (): Promise<void> => {
   if (popiTVToolBridgeServer.port) return;
 
   await popiTVToolBridgeServer.start();
-};
-
-/**
- * Get resolved MCP server configs for writing into openclaw.json mcp.servers.
- * Resolves stdio commands for the current platform (Windows/macOS packaged builds).
- */
-const getResolvedMcpServers = async (): Promise<ResolvedMcpServer[]> => {
-  const enabledServers = getMcpStore().getEnabledServers();
-  const resolved: ResolvedMcpServer[] = [];
-
-  // The MCP SDK's StdioClientTransport only inherits a limited set of env vars
-  // (PATH, APPDATA, TEMP, etc.). Our node/npx shims in PATH need these vars.
-  // Inject them into each stdio server's env so they're passed through.
-  const electronPath = getElectronNodeRuntimePath();
-  const npmBinDir = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'npm', 'bin')
-    : '';
-  for (const server of enabledServers) {
-    if (server.transportType === 'stdio') {
-      const r = await resolveStdioCommand(server);
-      // Merge gateway env vars needed by shims as fallback
-      const shimEnv: Record<string, string> = {
-        popiai_ELECTRON_PATH: electronPath,
-      };
-      if (npmBinDir) {
-        shimEnv.popiai_NPM_BIN_DIR = npmBinDir;
-      }
-      resolved.push({
-        name: server.name,
-        transportType: 'stdio',
-        command: r.command,
-        args: r.args,
-        env: { ...shimEnv, ...(r.env || {}) },
-      });
-    } else {
-      resolved.push({
-        name: server.name,
-        transportType: server.transportType,
-        url: server.url,
-        headers: server.headers,
-      });
-    }
-  }
-
-  const hasUserConfiguredWeknoraOpenClaw = resolved.some(server => server.name === WEKNORA_OPENCLAW_MCP_SERVER_NAME);
-  const weknoraOpenClawMcpProxyUrl = getWeknoraOpenClawMcpProxyUrl();
-  if (!hasUserConfiguredWeknoraOpenClaw && weknoraOpenClawMcpProxyUrl) {
-    resolved.push({
-      name: WEKNORA_OPENCLAW_MCP_SERVER_NAME,
-      transportType: 'http',
-      url: weknoraOpenClawMcpProxyUrl,
-    });
-  }
-
-  const popiTvBridgeUrl = popiTVToolBridgeServer?.mcpUrl;
-  const hasUserConfiguredLocalMcp = resolved.some(server => server.name === LOCAL_MCP_SERVER_NAME);
-  if (popiTvBridgeUrl && !hasUserConfiguredLocalMcp) {
-    resolved.push({
-      name: LOCAL_MCP_SERVER_NAME,
-      transportType: 'http',
-      url: popiTvBridgeUrl,
-      headers: {
-        'x-mcp-bridge-secret': '${LOBSTER_MCP_BRIDGE_SECRET}',
-      },
-    });
-  }
-
-  return resolved;
 };
 
 const getIMGatewayManager = () => {
@@ -2218,7 +2111,7 @@ function mergeCoworkSystemPrompt(
 ): string | undefined {
   const sections = [
     buildScheduledTaskEnginePrompt(),
-    buildKnowledgeSourceReferencePrompt(),
+    POPIART_MEDIA_GENERATION_SERVICE_PROMPT,
     systemPrompt?.trim() || '',
   ].filter(Boolean);
   return sections.length > 0 ? sections.join('\n\n') : undefined;
@@ -2241,7 +2134,7 @@ const prepareKnowledgeBrowserSession = (): void => {
 
   try {
     knowledgeSession.preconnect({
-      url: KNOWLEDGE_DEFAULT_BASE_URL,
+      url: getKnowledgeDefaultBaseUrl(),
       numSockets: 2,
     });
   } catch (error) {
@@ -3216,8 +3109,9 @@ if (!gotTheLock) {
         };
       }
 
+      const prompt = stripNullChars(options.prompt);
       const fallbackTitle = buildSessionTitleFromInput(
-        options.prompt,
+        prompt,
         t('coworkDefaultSessionTitle')
       );
       const title = options.title?.trim() || fallbackTitle;
@@ -3265,18 +3159,19 @@ if (!gotTheLock) {
       }
       coworkStoreInstance.addMessage(session.id, {
         type: 'user',
-        content: options.prompt,
+        content: prompt,
         metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
       });
 
       // Start the session asynchronously (skip initial user message since we already added it)
       const runtime = getCoworkEngineRouter();
+      const runtimeSkillIds = resolveRuntimeSkillIds(options);
       (async () => {
-        const runtimePrompt = await resolveCoworkRuntimePrompt(options);
+        const runtimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
         await runtime.startSession(session.id, runtimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt,
-          skillIds: options.activeSkillIds,
+          skillIds: runtimeSkillIds,
           workspaceRoot: taskWorkingDirectory,
           confirmationMode: 'modal',
           imageAttachments: options.imageAttachments,
@@ -3345,6 +3240,7 @@ if (!gotTheLock) {
         };
       }
 
+      const prompt = stripNullChars(options.prompt);
       const messageMetadata: Record<string, unknown> = {};
       if (options.activeSkillIds?.length) {
         messageMetadata.skillIds = options.activeSkillIds;
@@ -3360,7 +3256,7 @@ if (!gotTheLock) {
       }
       const userMessage = coworkStoreInstance.addMessage(options.sessionId, {
         type: 'user',
-        content: options.prompt,
+        content: prompt,
         metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
       });
       forwardCoworkMessage(options.sessionId, userMessage);
@@ -3376,13 +3272,14 @@ if (!gotTheLock) {
         });
       }
       (async () => {
-        const runtimePrompt = await resolveCoworkRuntimePrompt(options);
+        const runtimeSkillIds = resolveRuntimeSkillIds(options);
+        const runtimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
         await runtime.continueSession(options.sessionId, runtimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt: mergeCoworkSystemPrompt(
             options.systemPrompt ?? existingSession?.systemPrompt,
           ),
-          skillIds: options.activeSkillIds,
+          skillIds: runtimeSkillIds,
           imageAttachments: options.imageAttachments,
         });
       })().catch(error => {
@@ -3410,6 +3307,60 @@ if (!gotTheLock) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to continue session',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.SubmitSteer, async (
+    _event,
+    options: { sessionId: string; text: string; clientSteerId: string },
+  ) => {
+    const clientSteerId = typeof options?.clientSteerId === 'string' && options.clientSteerId.trim()
+      ? options.clientSteerId.trim()
+      : `steer-${Date.now()}`;
+    try {
+      const sessionId = typeof options?.sessionId === 'string' ? options.sessionId.trim() : '';
+      const text = typeof options?.text === 'string' ? options.text.trim() : '';
+      if (!sessionId || !text) {
+        return {
+          success: false,
+          status: CoworkSteerStatus.Rejected,
+          clientSteerId,
+          reason: CoworkSteerRejectReason.EmptyInput,
+          error: 'Session id and steer input are required.',
+        };
+      }
+
+      const engineStatus = await ensureOpenClawRunningForCowork();
+      if (engineStatus.phase !== 'running') {
+        return {
+          ...getEngineNotReadyResponse(engineStatus),
+          status: CoworkSteerStatus.Rejected,
+          clientSteerId,
+          reason: CoworkSteerRejectReason.RuntimeRejected,
+        };
+      }
+
+      const runtime = getCoworkEngineRouter();
+      if (!runtime.submitSteer) {
+        return {
+          success: false,
+          status: CoworkSteerStatus.Rejected,
+          clientSteerId,
+          reason: CoworkSteerRejectReason.RuntimeUnsupported,
+          error: 'Steer is not supported by the current runtime.',
+        };
+      }
+
+      return await runtime.submitSteer(sessionId, text, clientSteerId);
+    } catch (error) {
+      console.error('[CoworkSteer] steer IPC failed:', error);
+      return {
+        success: false,
+        status: CoworkSteerStatus.Rejected,
+        clientSteerId,
+        reason: CoworkSteerRejectReason.Unknown,
+        error: error instanceof Error ? error.message : 'Failed to submit steer input',
       };
     }
   });
@@ -3518,7 +3469,11 @@ if (!gotTheLock) {
   ipcMain.handle('cowork:session:get', async (_event, sessionId: string) => {
     try {
       const session = getCoworkStore().getSession(sessionId);
-      return { success: true, session };
+      if (!session) {
+        return { success: true, session };
+      }
+      const source = getCoworkStore().getSessionSources([session.id]).get(session.id)?.[0];
+      return { success: true, session: source ? { ...session, source } : session };
     } catch (error) {
       return {
         success: false,
@@ -3573,7 +3528,7 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('cowork:session:getMessages', async (_event, options: { sessionId: string; limit?: number; offset?: number }) => {
+  ipcMain.handle(CoworkIpcChannel.GetMessages, async (_event, options: { sessionId: string; limit?: number; offset?: number }) => {
     try {
       const { sessionId, limit = COWORK_MESSAGE_PAGE_SIZE, offset = 0 } = options;
       const store = getCoworkStore();
@@ -3584,6 +3539,21 @@ if (!gotTheLock) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to get session messages',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.GetMessageRailIndex, async (_event, options: { sessionId: string; limit?: number }) => {
+    try {
+      const { sessionId, limit } = options;
+      const store = getCoworkStore();
+      const total = store.countSessionMessages(sessionId);
+      const items = store.getMessageRailIndex(sessionId, limit);
+      return { success: true, items, total };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get message rail index',
       };
     }
   });
@@ -3886,7 +3856,7 @@ if (!gotTheLock) {
 
   // ── Subagent tracking IPC ──────────────────────────────────────────────
 
-  ipcMain.handle('cowork:subTask:history', async (_event, options: {
+  ipcMain.handle(CoworkIpcChannel.SubTaskHistory, async (_event, options: {
     parentSessionId: string;
     agentId: string;
     sessionKey?: string;
@@ -3909,11 +3879,32 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('cowork:subagent:list', async (_event, options: { parentSessionId: string }) => {
+  ipcMain.handle(CoworkIpcChannel.SubagentList, async (_event, options: { parentSessionId: string }) => {
     if (!openClawRuntimeAdapter) return { success: true, runs: [] };
     const runs = openClawRuntimeAdapter.listSubagentRuns(options.parentSessionId);
     return { success: true, runs };
   });
+
+  ipcMain.handle(
+    CoworkIpcChannel.SubagentDelete,
+    async (_event, options: { parentSessionId: string; runId: string }) => {
+      if (!openClawRuntimeAdapter) {
+        return { success: false, error: 'Runtime adapter not available' };
+      }
+      try {
+        const deleted = await getCoworkEngineRouter().deleteSubagentSession(
+          options.parentSessionId,
+          options.runId,
+        );
+        return { success: true, deleted };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to delete subagent session',
+        };
+      }
+    },
+  );
 
   ipcMain.handle('cowork:permission:respond', async (_event, options: {
     requestId: string;
@@ -3933,16 +3924,16 @@ if (!gotTheLock) {
       //
       // Both calls are safe to invoke unconditionally; exactly one will match.
 
-      // AskUserQuestion plugin responses go to the bridge server, not the runtime
-      if (mcpBridgeServer && options.requestId) {
+      // AskUserQuestion plugin responses go to the MCP runtime bridge, not the agent runtime.
+      if (options.requestId) {
         const result = options.result;
-        const askUserResponse: import('./libs/mcpBridgeServer').AskUserResponse = {
+        const askUserResponse: import('./mcpRuntime').AskUserResponse = {
           behavior: result.behavior === 'allow' ? 'allow' : 'deny',
           answers: result.behavior === 'allow' && result.updatedInput && typeof result.updatedInput === 'object'
             ? (result.updatedInput as Record<string, unknown>).answers as Record<string, string> | undefined
             : undefined,
         };
-        mcpBridgeServer.resolveAskUser(options.requestId, askUserResponse);
+        getMcpRuntime().resolveAskUser(options.requestId, askUserResponse);
       }
 
       const runtime = getCoworkEngineRouter();
@@ -4324,21 +4315,10 @@ if (!gotTheLock) {
       const previousWorkingDir = previousConfig.workingDirectory;
       getCoworkStore().setConfig(normalizedConfig);
       if (normalizedConfig.workingDirectory !== undefined && normalizedConfig.workingDirectory !== previousWorkingDir) {
-        const mainAgent = getAgentManager().getAgent(AgentId.Main);
-        const previousMainAgentWorkingDirectory = resolveMainAgentWorkingDirectory(previousWorkingDir);
-        const nextMainAgentWorkingDirectory = resolveMainAgentWorkingDirectory(normalizedConfig.workingDirectory);
-        if (
-          mainAgent
-          && (
-            !mainAgent.workingDirectory.trim()
-            || mainAgent.workingDirectory.trim() === previousMainAgentWorkingDirectory
-          )
-        ) {
-          getAgentManager().updateAgent(AgentId.Main, {
-            workingDirectory: nextMainAgentWorkingDirectory,
-          });
-        }
         getSkillManager().handleWorkingDirectoryChange();
+        // Main agent workspace is decoupled from workingDirectory. OpenClaw
+        // bootstrap files live under {STATE_DIR}/workspace-main, while cwd is
+        // resolved per agent/session and must not be rewritten implicitly here.
       }
 
       const nextConfig = getCoworkStore().getConfig();
@@ -4481,13 +4461,19 @@ if (!gotTheLock) {
       getConfig: () => getIMGatewayManager().getConfig() as unknown as Record<string, unknown>,
     }),
   });
-  registerScheduledTaskHandlers({
+  const scheduledTaskHandlerDeps: ScheduledTaskHandlerDeps = {
     getCronJobService,
     getIMGatewayManager: () => ({
       getIMStore: () => ({
         getSessionMapping: (conversationId: string, platform: string) => {
           const mapping = getIMGatewayManager().getIMStore().getSessionMapping(conversationId, platform as Platform);
           return mapping ? { coworkSessionId: mapping.coworkSessionId } : undefined;
+        },
+        getIMSettings: () => {
+          const settings = getIMGatewayManager().getIMStore().getIMSettings();
+          return {
+            platformAgentBindings: settings.platformAgentBindings,
+          };
         },
         listSessionMappings: (platform: string, agentId?: string) =>
           getIMGatewayManager().getIMStore().listSessionMappings(platform as Platform, agentId).map((mapping) => ({
@@ -4502,8 +4488,9 @@ if (!gotTheLock) {
       ) => getIMGatewayManager().primeConversationReplyRoute(platform as Platform, conversationId, coworkSessionId),
     }),
     getOpenClawRuntimeAdapter: () => openClawRuntimeAdapter,
-    getCoworkStore,
-  });
+    getCoworkSessionTitle: (sessionId: string) => getCoworkStore().getSession(sessionId)?.title ?? null,
+  };
+  registerScheduledTaskHandlers(scheduledTaskHandlerDeps);
 
   registerNimQrLoginHandlers({
     startNimQrLogin,
@@ -6618,8 +6605,10 @@ end tell'`, { timeout: 5000 });
   const isKnowledgeBrowserUrl = (url: string): boolean => {
     try {
       const parsedUrl = new URL(url);
-      const baseUrl = new URL(KNOWLEDGE_DEFAULT_BASE_URL);
-      return parsedUrl.origin === baseUrl.origin && parsedUrl.pathname.startsWith('/kb');
+      return Object.values(KnowledgeBaseUrl).some(baseUrl => {
+        const parsedBaseUrl = new URL(baseUrl);
+        return parsedUrl.origin === parsedBaseUrl.origin && parsedUrl.pathname.startsWith(KnowledgePath.Root);
+      });
     } catch {
       return false;
     }
@@ -6651,7 +6640,7 @@ end tell'`, { timeout: 5000 });
         "'self'",
         'file:',
         'https://canvas.popi.art',
-        "https://weknora.popi.art/kb",
+        getKnowledgeFrameSource(),
         'http://localhost:5174',
         'http://127.0.0.1:5174',
         ...(isDev ? ['http://127.0.0.1:*', 'http://localhost:*'] : []),
@@ -6703,7 +6692,7 @@ end tell'`, { timeout: 5000 });
       ...(isMac
         ? {
           titleBarStyle: 'hiddenInset' as const,
-          trafficLightPosition: { x: 12, y: 20 },
+          trafficLightPosition: { x: 12, y: 12 },
         }
         : isWindows
           ? {
@@ -6734,6 +6723,10 @@ end tell'`, { timeout: 5000 });
       autoHideMenuBar: true,
       enableLargerThanScreen: false
     });
+
+    if (isMac) {
+      mainWindow.setWindowButtonPosition({ x: 12, y: 12 });
+    }
 
     // 设置 macOS Dock 图标（开发模式下 Electron 默认图标不是应用 Logo）
     if (isMac && isDev && app.dock) {
@@ -7348,6 +7341,9 @@ end tell'`, { timeout: 5000 });
       } catch (err) {
         console.warn('[Main] CronJobService not available after OpenClaw startup:', err);
       }
+      void migrateScheduledTaskAnnounceJobs(scheduledTaskHandlerDeps).catch(err => {
+        console.warn('[Main] Scheduled task IM announce job migration failed:', err);
+      });
     }).catch((error) => {
       console.error('[OpenClaw] Failed to auto-start gateway on app startup:', error);
     });

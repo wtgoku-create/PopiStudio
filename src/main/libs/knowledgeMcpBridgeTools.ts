@@ -49,6 +49,11 @@ const getOptionalString = (args: Record<string, unknown>, key: string): string |
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 };
 
+const getOptionalBoolean = (args: Record<string, unknown>, key: string): boolean | undefined => {
+  const value = args[key];
+  return typeof value === 'boolean' ? value : undefined;
+};
+
 const getOptionalStringArray = (
   args: Record<string, unknown>,
   key: string,
@@ -112,8 +117,12 @@ export function getKnowledgeMcpToolManifest(): LocalMcpToolProvider['tools'] {
             type: 'string',
             description: 'Optional upload channel. Defaults to agent.',
           },
+          userConfirmed: {
+            type: 'boolean',
+            description: 'Must be true only after the user explicitly confirms uploading this file.',
+          },
         },
-        ['filePath'],
+        ['filePath', 'userConfirmed'],
       ),
     },
   ];
@@ -156,6 +165,10 @@ export async function executeKnowledgeMcpTool(
 
     if (toolName !== KNOWLEDGE_UPLOAD_TOOL_NAME) {
       return toToolError(`Unknown knowledge tool "${toolName}".`, details);
+    }
+
+    if (getOptionalBoolean(safeArgs, 'userConfirmed') !== true) {
+      return toToolError('upload_agent_knowledge_file requires explicit user confirmation. Ask the user to confirm the file upload, then call again with "userConfirmed": true.', details);
     }
 
     const filePath = getOptionalString(safeArgs, 'filePath');

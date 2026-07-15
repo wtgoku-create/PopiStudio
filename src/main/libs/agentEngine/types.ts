@@ -1,4 +1,5 @@
 import type { OpenClawSessionPatch } from '../../../common/openclawSession';
+import type { CoworkSteerResponse } from '../../../shared/cowork/steer';
 import type { CoworkMessage, CoworkSessionStatus } from '../../coworkStore';
 
 export type CoworkAgentEngine = 'openclaw';
@@ -74,6 +75,7 @@ export type CoworkContinueOptions = {
   skipInitialUserMessage?: boolean;
   systemPrompt?: string;
   skillIds?: string[];
+  confirmationMode?: 'modal' | 'text';
   imageAttachments?: CoworkImageAttachment[];
 };
 
@@ -91,10 +93,12 @@ export interface CoworkRuntime {
   patchSession?(sessionId: string, patch: OpenClawSessionPatch): Promise<void>;
   getContextUsage?(sessionId: string): Promise<CoworkContextUsage | null>;
   compactContext?(sessionId: string): Promise<{ compacted: boolean; reason?: string; usage?: CoworkContextUsage | null }>;
+  submitSteer?(sessionId: string, text: string, clientSteerId: string): Promise<CoworkSteerResponse>;
   stopSession(sessionId: string): void;
   stopAllSessions(): void;
   respondToPermission(requestId: string, result: PermissionResult): void;
   isSessionActive(sessionId: string): boolean;
   getSessionConfirmationMode(sessionId: string): 'modal' | 'text' | null;
+  deleteSubagentSession?(parentSessionId: string, runId: string): Promise<boolean>;
   onSessionDeleted?(sessionId: string): void;
 }

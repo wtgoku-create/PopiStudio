@@ -46,7 +46,8 @@ import { themeService } from './services/theme';
 import { RootState, store } from './store';
 import {
   selectCurrentSessionId,
-  selectFirstPendingPermission,
+  selectFirstCurrentSessionPendingPermission,
+  selectPendingPermissions,
 } from './store/selectors/coworkSelectors';
 import { setDraftPrompt } from './store/slices/coworkSlice';
 import { setDefaultSelectedModel } from './store/slices/modelSlice';
@@ -95,9 +96,15 @@ const App: React.FC = () => {
   const dispatch = useDispatch();
   const defaultSelectedModel = useSelector((state: RootState) => state.model.defaultSelectedModel);
   const currentSessionId = useSelector(selectCurrentSessionId);
-  const pendingPermission = useSelector(selectFirstPendingPermission);
+  const pendingPermission = useSelector(selectFirstCurrentSessionPendingPermission);
+  const pendingPermissions = useSelector(selectPendingPermissions);
   const authUser = useSelector((state: RootState) => state.auth.user);
   const isWindows = window.electron.platform === 'win32';
+  const [minimizedPermissionIds, setMinimizedPermissionIds] = useState<string[]>([]);
+  const isPendingPermissionMinimized = pendingPermission
+    ? minimizedPermissionIds.includes(pendingPermission.requestId)
+    : false;
+  const isPermissionModalOpen = pendingPermission !== null && !isPendingPermissionMinimized;
 
   const waitWithTimeout = useCallback(
     async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
@@ -302,6 +309,7 @@ const App: React.FC = () => {
 
   const handleShowCowork = useCallback(() => {
     setMainView(MainView.Cowork);
+    setIsAgentPanelCollapsed(false);
   }, []);
 
   const handleShowScheduledTasks = useCallback(() => {
@@ -331,6 +339,7 @@ const App: React.FC = () => {
     coworkService.clearSession({ restoreAgentSkills: true });
     dispatch(clearSelection());
     setMainView(MainView.Cowork);
+    setIsAgentPanelCollapsed(false);
     window.setTimeout(() => {
       window.dispatchEvent(
         new CustomEvent('cowork:focus-input', {
@@ -345,6 +354,7 @@ const App: React.FC = () => {
     coworkService.clearSession();
     dispatch(clearSelection());
     setMainView(MainView.Cowork);
+    setIsAgentPanelCollapsed(false);
   }, [dispatch]);
 
   const showToast = useCallback((message: string) => {
@@ -529,6 +539,30 @@ const App: React.FC = () => {
     [pendingPermission],
   );
 
+  const handleMinimizePermission = useCallback(() => {
+    if (!pendingPermission) return;
+    setMinimizedPermissionIds((previous) => (
+      previous.includes(pendingPermission.requestId)
+        ? previous
+        : [...previous, pendingPermission.requestId]
+    ));
+  }, [pendingPermission]);
+
+  const handleRestorePermission = useCallback(() => {
+    if (!pendingPermission) return;
+    setMinimizedPermissionIds((previous) => (
+      previous.filter((requestId) => requestId !== pendingPermission.requestId)
+    ));
+  }, [pendingPermission]);
+
+  useEffect(() => {
+    const activeRequestIds = new Set(pendingPermissions.map((permission) => permission.requestId));
+    setMinimizedPermissionIds((previous) => {
+      const next = previous.filter((requestId) => activeRequestIds.has(requestId));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [pendingPermissions]);
+
   const handleCloseSettings = () => {
     setShowSettings(false);
     const config = configService.getConfig();
@@ -600,6 +634,7 @@ const App: React.FC = () => {
       const text = (e as CustomEvent<string>).detail;
       setShowSettings(false);
       setMainView(MainView.Cowork);
+      setIsAgentPanelCollapsed(false);
       window.setTimeout(() => {
         window.dispatchEvent(
           new CustomEvent('cowork:focus-input', {
@@ -683,7 +718,7 @@ const App: React.FC = () => {
     };
   }, [isInitialized, runUpdateCheck, enterpriseConfig]);
 
-  // 根据场景选择使用哪个权限组件
+  // 根据场景选择使用哪个权限组件。最小化时保持组件挂载，避免丢失已填写内容。
   const permissionModal = useMemo(() => {
     if (!pendingPermission) return null;
 
@@ -696,8 +731,11 @@ const App: React.FC = () => {
       if (hasMultipleQuestions) {
         return (
           <CoworkQuestionWizard
+            key={pendingPermission.requestId}
             permission={pendingPermission}
             onRespond={handlePermissionResponse}
+            onMinimize={handleMinimizePermission}
+            hidden={isPendingPermissionMinimized}
           />
         );
       }
@@ -705,11 +743,17 @@ const App: React.FC = () => {
 
     // 其他情况使用原有的权限模态框
     return (
-      <CoworkPermissionModal permission={pendingPermission} onRespond={handlePermissionResponse} />
+      <CoworkPermissionModal
+        key={pendingPermission.requestId}
+        permission={pendingPermission}
+        onRespond={handlePermissionResponse}
+        onMinimize={handleMinimizePermission}
+        hidden={isPendingPermissionMinimized}
+      />
     );
-  }, [pendingPermission, handlePermissionResponse]);
+  }, [pendingPermission, handlePermissionResponse, handleMinimizePermission, isPendingPermissionMinimized]);
 
-  const isOverlayActive = showSettings || showUpdateModal || pendingPermission !== null;
+  const isOverlayActive = showSettings || showUpdateModal || isPermissionModalOpen;
   const shouldShowUpdateNotification =
     updateInfo &&
     updateNotificationKey !== dismissedUpdateNotificationKey &&
@@ -908,8 +952,8 @@ const App: React.FC = () => {
         />
         <div
           className={`flex min-w-0 flex-1 overflow-hidden ${
-            isContactsView ? 'p-0' : 'gap-[6px] p-[10px] pt-0 pl-0'
-          }`}
+            isContactsView ? 'p-0' : 'p-[10px] pt-0 pl-[0]'
+          } ${!isContactsView && !isAgentPanelCollapsed ? 'gap-[6px]' : ''}`}
         >
           {!isContactsView && (
             <AgentSidebarPanel
@@ -929,11 +973,7 @@ const App: React.FC = () => {
                   readOnly={enterpriseConfig?.ui?.skills === 'readonly'}
                 />
               ) : mainView === MainView.ScheduledTasks ? (
-                <ScheduledTasksView
-                  isSidebarCollapsed={isAgentPanelCollapsed}
-                  onToggleSidebar={handleToggleSidebar}
-                  onNewChat={handleNewChat}
-                />
+                <ScheduledTasksView />
               ) : mainView === MainView.Mcp ? (
                 <McpView
                   isSidebarCollapsed={isAgentPanelCollapsed}
@@ -956,6 +996,9 @@ const App: React.FC = () => {
                   isSidebarCollapsed={isAgentPanelCollapsed}
                   onToggleSidebar={handleToggleSidebar}
                   onNewChat={handleNewChat}
+                  minimizedPermission={isPendingPermissionMinimized ? pendingPermission : null}
+                  onRestorePermission={handleRestorePermission}
+                  onRespondToPermission={handlePermissionResponse}
                 />
               )}
             </div>

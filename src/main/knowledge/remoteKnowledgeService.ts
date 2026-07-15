@@ -1,7 +1,8 @@
 import type { IpcMain } from 'electron';
 
 import {
-  KNOWLEDGE_DEFAULT_BASE_URL,
+  type DistillPage,
+  type GetDistillPageRequest,
   type GetChunkByIdRequest,
   KnowledgeIpc,
   type GetWikiPageRequest,
@@ -19,6 +20,7 @@ import {
   type UploadAgentKnowledgeFileResult,
   type WikiPage,
 } from '../../shared/knowledge/constants';
+import { getKnowledgeDefaultBaseUrl } from '../libs/endpoints';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -146,6 +148,19 @@ const normalizeKnowledgeFile = (value: unknown): RemoteKnowledgeFile | null => {
     processed_at: readString(value, ['processed_at']),
     error_message: readString(value, ['error_message']),
   };
+};
+
+const normalizeDistillPage = (value: unknown): DistillPage | null => {
+  if (Array.isArray(value)) {
+    return isRecord(value[0]) ? value[0] as unknown as DistillPage : null;
+  }
+
+  if (isRecord(value) && Array.isArray(value.pages)) {
+    const firstPage = value.pages[0];
+    return isRecord(firstPage) ? firstPage as unknown as DistillPage : null;
+  }
+
+  return isRecord(value) ? value as unknown as DistillPage : null;
 };
 
 const sanitizeKnowledgeUploadFileName = (value: string): string => {
@@ -285,6 +300,44 @@ export class RemoteKnowledgeService {
       data: isRecord(payload) && isRecord(payload.data)
         ? payload.data as unknown as WikiPage
         : payload as WikiPage,
+    };
+  }
+
+  async getDistillPage(request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPage>> {
+    const knowledgeBaseId = request.knowledgeBaseId.trim();
+    const id = request.id.trim();
+    if (!knowledgeBaseId || !id) {
+      return {
+        success: false,
+        error: 'Knowledge base id and distill page id are required',
+      };
+    }
+
+    const payload = await this.request(
+      `/api/v1/knowledgebase/${encodeURIComponent(knowledgeBaseId)}/distill/pages/${encodeURIComponent(id)}`,
+    );
+
+    if (isRecord(payload) && payload.ok === false) {
+      return {
+        success: false,
+        error: getKnowledgeErrorMessage(payload, 'Failed to get distill page'),
+      };
+    }
+
+    const dataPayload = isRecord(payload) && isRecord(payload.data)
+      ? payload.data
+      : payload;
+    const page = normalizeDistillPage(dataPayload);
+    if (!page) {
+      return {
+        success: false,
+        error: 'Distill page is empty',
+      };
+    }
+
+    return {
+      success: true,
+      data: page,
     };
   }
 
@@ -432,6 +485,14 @@ export class RemoteKnowledgeService {
       }
     });
 
+    ipcMain.handle(KnowledgeIpc.GetDistillPage, async (_event, request: GetDistillPageRequest): Promise<KnowledgeResult<DistillPage>> => {
+      try {
+        return await this.getDistillPage(request);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to get distill page' };
+      }
+    });
+
     ipcMain.handle(KnowledgeIpc.GetChunkById, async (_event, request: GetChunkByIdRequest): Promise<KnowledgeResult<KnowledgeChunk>> => {
       try {
         return await this.getChunkById(request);
@@ -465,7 +526,7 @@ export class RemoteKnowledgeService {
       headers['X-API-Key'] = apiKey;
     }
 
-    const response = await fetch(`${KNOWLEDGE_DEFAULT_BASE_URL}${pathname}`, {
+    const response = await fetch(`${getKnowledgeDefaultBaseUrl()}${pathname}`, {
       method: init?.method ?? 'GET',
       body: init?.body,
       headers: {

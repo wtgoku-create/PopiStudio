@@ -72,6 +72,53 @@ describe('openclawHistory', () => {
     });
   });
 
+  test('extracts gateway media attachment metadata', () => {
+    const entry = extractGatewayHistoryEntry({
+      role: 'user',
+      content: '[Image]\nDescription:\nA screenshot',
+      MediaPaths: [
+        String.raw`C:\Users\yangwn\AppData\Roaming\Popiai\openclaw\state\media\inbound\a.jpg`,
+        String.raw`C:\Users\yangwn\AppData\Roaming\Popiai\openclaw\state\media\inbound\b.png`,
+      ],
+      MediaTypes: ['image/jpeg', 'image/png'],
+    });
+
+    expect(entry).toEqual({
+      role: 'user',
+      text: '[Image]\nDescription:\nA screenshot',
+      mediaAttachments: [
+        {
+          localPath: String.raw`C:\Users\yangwn\AppData\Roaming\Popiai\openclaw\state\media\inbound\a.jpg`,
+          mimeType: 'image/jpeg',
+        },
+        {
+          localPath: String.raw`C:\Users\yangwn\AppData\Roaming\Popiai\openclaw\state\media\inbound\b.png`,
+          mimeType: 'image/png',
+        },
+      ],
+    });
+  });
+
+  test('keeps user history entries that only contain media attachments', () => {
+    const entry = extractGatewayHistoryEntry({
+      role: 'user',
+      content: '',
+      mediaPath: '/Users/a111/Library/Application Support/Popiai/openclaw/state/media/inbound/only.jpg',
+      mediaType: 'image/jpeg',
+    });
+
+    expect(entry).toEqual({
+      role: 'user',
+      text: '',
+      mediaAttachments: [
+        {
+          localPath: '/Users/a111/Library/Application Support/Popiai/openclaw/state/media/inbound/only.jpg',
+          mimeType: 'image/jpeg',
+        },
+      ],
+    });
+  });
+
   test('joins text content blocks separated by toolCall blocks', () => {
     const text = extractGatewayMessageText({
       content: [

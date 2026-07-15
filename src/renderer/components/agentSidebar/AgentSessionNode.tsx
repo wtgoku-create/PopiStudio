@@ -25,6 +25,7 @@ interface AgentSessionNodeProps {
   onDelete: (task: AgentSidebarTaskNode) => Promise<void>;
   onShare: (agent: AgentSidebarAgentNode, task: AgentSidebarTaskNode) => Promise<void>;
   onEditAgent?: (agent: AgentSidebarAgentNode) => void;
+  hasPendingConfirmation?: boolean;
 }
 
 const ACTION_MENU_VIEWPORT_PADDING = 8;
@@ -77,6 +78,7 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
   onDelete,
   onShare,
   onEditAgent,
+  hasPendingConfirmation = false,
 }) => {
   const [menuPosition, setMenuPosition] = useState<{ right: number; top: number } | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -85,13 +87,18 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
   const isMenuOpen = menuPosition !== null;
   const agentName = getAgentDisplayName(agent);
   const isAgentHomeSession = task.source?.kind === CoworkSessionSourceKind.AgentHome;
+  const isScheduledTaskSession = task.source?.kind === CoworkSessionSourceKind.ScheduledTask;
   const canDeleteSession = !(isAgentHomeSession && isDefaultAgentId(agent.id));
   const sourceLabel = getSessionSourceLabel(task);
   const indicator = task.indicator;
-  const showRunningIndicator = indicator === AgentSidebarIndicator.Running;
-  const showUnreadIndicator = indicator === AgentSidebarIndicator.CompletedUnread;
+  const showPendingConfirmationIndicator = hasPendingConfirmation;
+  const showRunningIndicator = !showPendingConfirmationIndicator && indicator === AgentSidebarIndicator.Running;
+  const showUnreadIndicator = !showPendingConfirmationIndicator && indicator === AgentSidebarIndicator.CompletedUnread;
   const relativeTime = formatAgentTaskRelativeTime(task.updatedAt || task.createdAt);
-  const subtitle = task.lastMessagePreview || task.title;
+  const title = isScheduledTaskSession ? task.source?.label || task.title : agentName;
+  const subtitle = isScheduledTaskSession
+    ? task.lastMessagePreview || agentName
+    : task.lastMessagePreview || task.title;
   const trailingMetaClassName = isMenuOpen ? 'opacity-0' : 'group-hover:opacity-0';
   const menuItemClassName =
     'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
@@ -167,7 +174,7 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate text-[14px] font-medium leading-[18px] text-[#333] dark:text-foreground">
-              {agentName}
+              {title}
             </span>
             {sourceLabel && (
               <span className="shrink-0 rounded px-1 py-px text-[10px] leading-3 text-primary bg-primary/10 dark:text-primary-foreground dark:bg-white/[0.08]">
@@ -192,7 +199,17 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
             aria-label={i18nService.t('myAgentSidebarUnreadResult')}
           />
         )}
-        {!showRunningIndicator && !showUnreadIndicator && (
+        {showPendingConfirmationIndicator && (
+          <span
+            className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-amber-700 transition-opacity dark:text-amber-300 ${trailingMetaClassName}`}
+            title={i18nService.t('coworkPermissionAwaiting')}
+            aria-label={i18nService.t('coworkPermissionAwaiting')}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+            {i18nService.t('coworkPermissionAwaiting')}
+          </span>
+        )}
+        {!showPendingConfirmationIndicator && !showRunningIndicator && !showUnreadIndicator && (
           <span className={`shrink-0 text-[12px] leading-4 text-[#999] transition-opacity dark:text-secondary ${trailingMetaClassName}`}>
             {relativeTime.compact}
           </span>

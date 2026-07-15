@@ -6,7 +6,9 @@ import type {
 } from '../../shared/browserWebAccess/constants';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type {
+  DistillPage,
   GetChunkByIdRequest,
+  GetDistillPageRequest,
   GetWikiPageRequest,
   KnowledgeChunk,
   KnowledgeResult,
@@ -20,6 +22,7 @@ import type {
   WikiPage,
 } from '../../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
+import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 interface ApiResponse {
   ok: boolean;
   status: number;
@@ -53,6 +56,7 @@ interface CoworkSession {
   messages: CoworkMessage[];
   messagesOffset: number;
   totalMessages: number;
+  source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
 }
@@ -547,6 +551,20 @@ interface IElectronAPI {
       code?: string;
       engineStatus?: OpenClawEngineStatus;
     }>;
+    submitSteer: (options: { sessionId: string; text: string; clientSteerId: string }) => Promise<{
+      success: boolean;
+      status: 'pending' | 'accepted' | 'rejected';
+      clientSteerId: string;
+      error?: string;
+      reason?:
+        | 'no_active_turn'
+        | 'not_streaming'
+        | 'context_maintenance'
+        | 'runtime_unsupported'
+        | 'runtime_rejected'
+        | 'empty_input'
+        | 'unknown';
+    }>;
     stopSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
     deleteSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
     deleteSessions: (sessionIds: string[]) => Promise<{ success: boolean; error?: string }>;
@@ -589,6 +607,15 @@ interface IElectronAPI {
       success: boolean;
       messages?: CoworkMessage[];
       offset?: number;
+      total?: number;
+      error?: string;
+    }>;
+    getSessionMessageRailIndex: (
+      sessionId: string,
+      limit?: number,
+    ) => Promise<{
+      success: boolean;
+      items?: CoworkMessageRailIndexItem[];
       total?: number;
       error?: string;
     }>;
@@ -646,9 +673,14 @@ interface IElectronAPI {
         sessionKey: string | null;
         status: 'running' | 'done' | 'error';
         createdAt: number;
+        endedAt?: number | null;
       }>;
       error?: string;
     }>;
+    deleteSubagentSession: (options: {
+      parentSessionId: string;
+      runId: string;
+    }) => Promise<{ success: boolean; deleted?: boolean; error?: string }>;
     respondToPermission: (options: {
       requestId: string;
       result: CoworkPermissionResult;
@@ -729,6 +761,7 @@ interface IElectronAPI {
     searchRecentKnowledge: (request: SearchRecentKnowledgeRequest) => Promise<KnowledgeResult<SearchRecentKnowledgeData>>;
     previewRagContext: (request: PreviewRagContextRequest) => Promise<PreviewRagContextResult>;
     getWikiPage: (request: GetWikiPageRequest) => Promise<KnowledgeResult<WikiPage>>;
+    getDistillPage: (request: GetDistillPageRequest) => Promise<KnowledgeResult<DistillPage>>;
     getChunkById: (request: GetChunkByIdRequest) => Promise<KnowledgeResult<KnowledgeChunk>>;
     uploadLocalSessionMarkdown: (request: UploadLocalSessionMarkdownRequest) => Promise<UploadLocalSessionMarkdownResult>;
   };
@@ -1000,6 +1033,7 @@ interface IElectronAPI {
   scheduledTasks: {
     list: () => Promise<{
       success: boolean;
+      ready?: boolean;
       tasks?: import('../../scheduledTask/types').ScheduledTask[];
       error?: string;
     }>;
@@ -1050,10 +1084,13 @@ interface IElectronAPI {
       filter?: import('../../scheduledTask/types').RunFilter,
     ) => Promise<{
       success: boolean;
+      ready?: boolean;
       runs?: import('../../scheduledTask/types').ScheduledTaskRunWithName[];
       error?: string;
     }>;
-    resolveSession: (sessionKey: string) => Promise<{
+    resolveSession: (
+      input: string | { sessionId?: string | null; sessionKey?: string | null },
+    ) => Promise<{
       success: boolean;
       session?: import('./cowork').CoworkSession | null;
       error?: string;
@@ -1131,7 +1168,7 @@ interface IElectronAPI {
     getKnowledgeToken: () => Promise<string | null>;
     getModels: () => Promise<{
       success: boolean;
-      models?: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean }>;
+      models?: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean; supportsThinking?: boolean }>;
     }>;
     getProfileSummary: () => Promise<{ success: boolean; data?: ProfileSummaryData }>;
     onCallback: (callback: (data: { code: string }) => void) => () => void;

@@ -1,4 +1,4 @@
-import type { CoworkSession } from '../types/cowork';
+import type { CoworkMessage, CoworkSession } from '../types/cowork';
 
 export function sanitizeExportFileName(name: string): string {
   const sanitized = name
@@ -8,7 +8,27 @@ export function sanitizeExportFileName(name: string): string {
   return sanitized || 'session-export';
 }
 
-export function sessionToMarkdown(session: CoworkSession): string {
+export function mergeCoworkTextExportMessages(
+  storedMessages: CoworkMessage[],
+  currentMessages: CoworkMessage[],
+): CoworkMessage[] {
+  if (currentMessages.length === 0) return storedMessages;
+  if (storedMessages.length === 0) return currentMessages;
+
+  const currentById = new Map(currentMessages.map(message => [message.id, message]));
+  const storedIds = new Set(storedMessages.map(message => message.id));
+  const merged = storedMessages.map(message => currentById.get(message.id) ?? message);
+
+  for (const message of currentMessages) {
+    if (!storedIds.has(message.id)) {
+      merged.push(message);
+    }
+  }
+
+  return merged;
+}
+
+export function sessionToMarkdown(session: CoworkSession, messages = session.messages): string {
   const lines: string[] = [];
   lines.push(`# ${session.title}`);
   lines.push('');
@@ -17,7 +37,7 @@ export function sessionToMarkdown(session: CoworkSession): string {
   lines.push(`- Status: ${session.status}`);
   lines.push('');
 
-  for (const msg of session.messages) {
+  for (const msg of messages) {
     if (msg.type === 'user') {
       lines.push('## User');
       lines.push('');
@@ -50,13 +70,13 @@ export function sessionToMarkdown(session: CoworkSession): string {
   return lines.join('\n');
 }
 
-export function sessionToJSON(session: CoworkSession): string {
+export function sessionToJSON(session: CoworkSession, messages = session.messages): string {
   return JSON.stringify({
     title: session.title,
     createdAt: new Date(session.createdAt).toISOString(),
     updatedAt: new Date(session.updatedAt).toISOString(),
     status: session.status,
-    messages: session.messages.map(msg => ({
+    messages: messages.map(msg => ({
       type: msg.type,
       content: msg.content,
       timestamp: new Date(msg.timestamp).toISOString(),

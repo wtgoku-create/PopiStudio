@@ -48,6 +48,21 @@ type StreamState = {
 
 type UpstreamAPIType = 'chat_completions' | 'responses';
 
+type ProxyTimingContext = {
+  requestId: string;
+  provider: string;
+  model: string;
+  sessionId: string | null;
+  apiType: UpstreamAPIType;
+  stream: boolean;
+  requestedAtMs: number;
+  upstreamFetchStartedAtMs: number;
+  upstreamHeadersAtMs?: number;
+  firstUpstreamChunkAtMs?: number;
+  chunkCount: number;
+  byteCount: number;
+};
+
 type ResponsesFunctionCallState = {
   outputIndex: number;
   callId: string;
@@ -76,6 +91,42 @@ const GEMINI_FALLBACK_THOUGHT_SIGNATURE = 'skip_thought_signature_validator';
 function isGeminiProvider(provider?: string, baseURL?: string): boolean {
   return provider === 'gemini'
     || Boolean(baseURL?.includes('generativelanguage.googleapis.com'));
+}
+
+function nextProxyRequestId(): string {
+  proxyRequestSeq = (proxyRequestSeq + 1) % 1_000_000;
+  return `proxy-${Date.now().toString(36)}-${proxyRequestSeq.toString(36)}`;
+}
+
+function formatProxyTargetURL(value: string): string {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.host}${parsed.pathname}`;
+  } catch {
+    return value;
+  }
+}
+
+function formatProxyTimingDuration(startedAtMs: number, endedAtMs = Date.now()): string {
+  return `${Math.max(0, endedAtMs - startedAtMs)}ms`;
+}
+
+function logProxyTiming(
+  context: ProxyTimingContext,
+  message: string,
+  extra: string[] = [],
+): void {
+  console.log(
+    '[CoworkOpenAICompatProxy]',
+    message,
+    `request=${context.requestId}`,
+    `session=${context.sessionId || 'unknown'}`,
+    `provider=${context.provider || 'unknown'}`,
+    `model=${context.model || 'unknown'}`,
+    `apiType=${context.apiType}`,
+    `stream=${context.stream}`,
+    ...extra,
+  );
 }
 
 const GEMINI_UNSUPPORTED_SCHEMA_KEYS = new Set([
@@ -183,6 +234,7 @@ export function isAllowedProxyHost(req: http.IncomingMessage): boolean {
 const tokenRefreshers = new Map<string, () => Promise<string | null>>();
 let currentCoworkSessionId: string | null = null;
 const toolCallExtraContentById = new Map<string, unknown>();
+let proxyRequestSeq = 0;
 
 export function setCoworkProxySessionId(sessionId: string | null): void {
   currentCoworkSessionId = sessionId;
@@ -2070,7 +2122,8 @@ function processResponsesStreamEvent(
 
 async function handleResponsesStreamResponse(
   upstreamResponse: Response,
-  res: http.ServerResponse
+  res: http.ServerResponse,
+  timing: ProxyTimingContext
 ): Promise<void> {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -2109,6 +2162,17 @@ async function handleResponsesStreamResponse(
     const { value, done } = await reader.read();
     if (done) {
       break;
+    }
+
+    timing.chunkCount += 1;
+    timing.byteCount += value.byteLength;
+    if (!timing.firstUpstreamChunkAtMs) {
+      timing.firstUpstreamChunkAtMs = Date.now();
+      logProxyTiming(timing, 'received first upstream stream chunk.', [
+        `fetchToFirstChunk=${formatProxyTimingDuration(timing.upstreamFetchStartedAtMs, timing.firstUpstreamChunkAtMs)}`,
+        `headersToFirstChunk=${timing.upstreamHeadersAtMs ? formatProxyTimingDuration(timing.upstreamHeadersAtMs, timing.firstUpstreamChunkAtMs) : 'unknown'}`,
+        `bytes=${value.byteLength}`,
+      ]);
     }
 
     buffer += decoder.decode(value, { stream: true });
@@ -2160,7 +2224,8 @@ async function handleResponsesStreamResponse(
 
 async function handleChatCompletionsStreamResponse(
   upstreamResponse: Response,
-  res: http.ServerResponse
+  res: http.ServerResponse,
+  timing: ProxyTimingContext
 ): Promise<void> {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -2181,7 +2246,6 @@ async function handleChatCompletionsStreamResponse(
 
   let buffer = '';
   let sawDoneMarker = false;
-  let chunkCount = 0;
 
   const flushDone = () => {
     if (!state.hasMessageStart) {
@@ -2202,11 +2266,20 @@ async function handleChatCompletionsStreamResponse(
   while (true) {
     const { value, done } = await reader.read();
     if (done) {
-      console.log(`[CoworkProxy] Stream: upstream done after ${chunkCount} chunks, sawDoneMarker=${sawDoneMarker}`);
+      console.log(`[CoworkProxy] Stream: upstream done after ${timing.chunkCount} chunks, sawDoneMarker=${sawDoneMarker}`);
       break;
     }
 
-    chunkCount++;
+    timing.chunkCount += 1;
+    timing.byteCount += value.byteLength;
+    if (!timing.firstUpstreamChunkAtMs) {
+      timing.firstUpstreamChunkAtMs = Date.now();
+      logProxyTiming(timing, 'received first upstream stream chunk.', [
+        `fetchToFirstChunk=${formatProxyTimingDuration(timing.upstreamFetchStartedAtMs, timing.firstUpstreamChunkAtMs)}`,
+        `headersToFirstChunk=${timing.upstreamHeadersAtMs ? formatProxyTimingDuration(timing.upstreamHeadersAtMs, timing.firstUpstreamChunkAtMs) : 'unknown'}`,
+        `bytes=${value.byteLength}`,
+      ]);
+    }
     buffer += decoder.decode(value, { stream: true });
 
     let boundary = findSSEPacketBoundary(buffer);
@@ -2595,8 +2668,21 @@ async function handleRequest(
     ? convertChatCompletionsRequestToResponsesRequest(openAIRequest)
     : openAIRequest;
   const stream = Boolean(upstreamRequest.stream);
+  const timing: ProxyTimingContext = {
+    requestId: nextProxyRequestId(),
+    provider: upstreamConfig.provider || 'unknown',
+    model: typeof upstreamRequest.model === 'string' ? upstreamRequest.model : upstreamConfig.model,
+    sessionId: currentCoworkSessionId,
+    apiType: upstreamAPIType,
+    stream,
+    requestedAtMs: Date.now(),
+    upstreamFetchStartedAtMs: 0,
+    chunkCount: 0,
+    byteCount: 0,
+  };
 
   console.log(`[CoworkProxy] Upstream: apiType=${upstreamAPIType}, model=${upstreamRequest.model}, stream=${stream}, provider=${upstreamConfig.provider}`);
+  logProxyTiming(timing, 'received model request.');
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -2624,7 +2710,12 @@ async function handleRequest(
     targetURL: string
   ): Promise<Response> => {
     currentTargetURL = targetURL;
+    timing.upstreamFetchStartedAtMs = Date.now();
     console.log(`[CoworkProxy] Sending upstream request to: ${targetURL}`);
+    logProxyTiming(timing, 'sending upstream request.', [
+      `target=${formatProxyTargetURL(targetURL)}`,
+      `requestElapsed=${formatProxyTimingDuration(timing.requestedAtMs, timing.upstreamFetchStartedAtMs)}`,
+    ]);
     return session.defaultSession.fetch(targetURL, {
       method: 'POST',
       headers,
@@ -2637,12 +2728,26 @@ async function handleRequest(
   try {
     console.log(`[CoworkProxy] Awaiting upstream fetch (stream=${stream}, model=${upstreamRequest.model})...`);
     upstreamResponse = await sendUpstreamRequest(upstreamRequest, targetURLs[0]);
+    timing.upstreamHeadersAtMs = Date.now();
     const fetchDuration = Date.now() - fetchStartTime;
     console.log(`[CoworkProxy] Upstream response: status=${upstreamResponse.status}, ok=${upstreamResponse.ok}, fetchTime=${fetchDuration}ms, stream=${stream}`);
+    logProxyTiming(timing, 'received upstream response headers.', [
+      `target=${formatProxyTargetURL(currentTargetURL)}`,
+      `status=${upstreamResponse.status}`,
+      `ok=${upstreamResponse.ok}`,
+      `contentType=${upstreamResponse.headers.get('content-type') || 'unknown'}`,
+      `fetchElapsed=${formatProxyTimingDuration(timing.upstreamFetchStartedAtMs, timing.upstreamHeadersAtMs)}`,
+      `totalElapsed=${formatProxyTimingDuration(timing.requestedAtMs, timing.upstreamHeadersAtMs)}`,
+    ]);
   } catch (error) {
     const fetchDuration = Date.now() - fetchStartTime;
     const message = error instanceof Error ? error.message : 'Network error';
     console.error(`[CoworkProxy] Upstream fetch error after ${fetchDuration}ms (stream=${stream}): ${message}`);
+    logProxyTiming(timing, 'upstream fetch failed.', [
+      `target=${formatProxyTargetURL(currentTargetURL)}`,
+      `elapsed=${formatProxyTimingDuration(timing.upstreamFetchStartedAtMs || timing.requestedAtMs)}`,
+      `error=${message}`,
+    ]);
     lastProxyError = message;
     writeJSON(res, 502, createAnthropicErrorBody(message));
     return;
@@ -2790,11 +2895,17 @@ async function handleRequest(
   if (stream) {
     console.log(`[CoworkProxy] Handling streaming response (type=${upstreamAPIType})`);
     if (upstreamAPIType === 'responses') {
-      await handleResponsesStreamResponse(upstreamResponse, res);
+      await handleResponsesStreamResponse(upstreamResponse, res, timing);
     } else {
-      await handleChatCompletionsStreamResponse(upstreamResponse, res);
+      await handleChatCompletionsStreamResponse(upstreamResponse, res, timing);
     }
     console.log('[CoworkProxy] Streaming response completed');
+    logProxyTiming(timing, 'completed streaming response.', [
+      `firstChunkElapsed=${timing.firstUpstreamChunkAtMs ? formatProxyTimingDuration(timing.requestedAtMs, timing.firstUpstreamChunkAtMs) : 'none'}`,
+      `totalElapsed=${formatProxyTimingDuration(timing.requestedAtMs)}`,
+      `chunks=${timing.chunkCount}`,
+      `bytes=${timing.byteCount}`,
+    ]);
     return;
   }
 
@@ -2802,6 +2913,9 @@ async function handleRequest(
   let upstreamJSON: unknown;
   try {
     upstreamJSON = await upstreamResponse.json();
+    logProxyTiming(timing, 'received non-streaming upstream body.', [
+      `totalElapsed=${formatProxyTimingDuration(timing.requestedAtMs)}`,
+    ]);
   } catch {
     lastProxyError = 'Failed to parse upstream JSON response';
     writeJSON(res, 502, createAnthropicErrorBody('Failed to parse upstream JSON response'));

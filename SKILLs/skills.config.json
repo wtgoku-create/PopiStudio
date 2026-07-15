@@ -2,50 +2,233 @@
   "version": 1,
   "description": "Default skill configuration for Popiai",
   "defaults": {
-    "docx": { "order": 10, "enabled": true },
-    "web-search": { "order": 15, "enabled": true },
-    "xlsx": { "order": 20, "enabled": true },
-    "pptx": { "order": 30, "enabled": true },
-    "pdf": { "order": 40, "enabled": true },
-    "remotion": { "order": 50, "enabled": true },
-    "hyperframes": { "order": 51, "enabled": true },
-    "hyperframes-cli": { "order": 52, "enabled": true },
-    "hyperframes-media": { "order": 53, "enabled": true },
-    "hyperframes-registry": { "order": 54, "enabled": true },
-    "website-to-hyperframes": { "order": 55, "enabled": true },
-    "remotion-to-hyperframes": { "order": 56, "enabled": true },
-    "gsap": { "order": 57, "enabled": true },
-    "tailwind": { "order": 58, "enabled": true },
-    "css-animations": { "order": 59, "enabled": true },
-    "animejs": { "order": 61, "enabled": true },
-    "lottie": { "order": 62, "enabled": true },
-    "three": { "order": 63, "enabled": true },
-    "waapi": { "order": 64, "enabled": true },
-    "typegpu": { "order": 65, "enabled": true },
-    "contribute-catalog": { "order": 66, "enabled": true },
-    "develop-web-game": { "order": 60, "enabled": true },
-    "playwright": { "order": 70, "enabled": true },
-    "create-plan": { "order": 80, "enabled": true },
-    "canvas-design": { "order": 90, "enabled": true },
-    "frontend-design": { "order": 100, "enabled": true },
-    "content-planner": { "order": 120, "enabled": true },
-    "article-writer": { "order": 121, "enabled": true },
-    "daily-trending": { "order": 122, "enabled": true },
-    "local-tools": { "order": 200, "enabled": true },
-    "weather": { "order": 210, "enabled": true },
-    "imap-smtp-email": { "order": 211, "enabled": true },
-    "seedance": { "order": 212, "enabled": true },
-    "seedream": { "order": 213, "enabled": true },
-    "popiart": { "order": 214, "enabled": true },
-    "popi-alice-vlog-director": { "order": 216, "enabled": true },
-    "popi-alice-storyboard-skill": { "order": 217, "enabled": true },
-    "films-search": { "order": 222, "enabled": true },
-    "music-search": { "order": 223, "enabled": true },
-    "skill-creator": { "order": 300, "enabled": true },
-    "image-image2image-2dcharacterin3dworld": { "order": 310, "enabled": true },
-    "popiskill-image-real2anime": { "order": 312, "enabled": true },
-    "popiskill-video-image2video-character-in-scene": { "order": 313, "enabled": true },
-    "popi-mcn-avatarize-media": { "order": 314, "enabled": true },
-    "cheat-on-content": { "order": 400, "enabled": true }
+    "docx": {
+      "order": 10,
+      "enabled": true
+    },
+    "knowledge-base": {
+      "order": 12,
+      "enabled": true
+    },
+    "web-search": {
+      "order": 15,
+      "enabled": true
+    },
+    "xlsx": {
+      "order": 20,
+      "enabled": true
+    },
+    "pptx": {
+      "order": 30,
+      "enabled": true
+    },
+    "pdf": {
+      "order": 40,
+      "enabled": true
+    },
+    "remotion": {
+      "order": 50,
+      "enabled": true
+    },
+    "hyperframes": {
+      "order": 51,
+      "enabled": true
+    },
+    "hyperframes-cli": {
+      "order": 52,
+      "enabled": true
+    },
+    "hyperframes-media": {
+      "order": 53,
+      "enabled": true
+    },
+    "hyperframes-registry": {
+      "order": 54,
+      "enabled": true
+    },
+    "website-to-hyperframes": {
+      "order": 55,
+      "enabled": true
+    },
+    "remotion-to-hyperframes": {
+      "order": 56,
+      "enabled": true
+    },
+    "gsap": {
+      "order": 57,
+      "enabled": true
+    },
+    "tailwind": {
+      "order": 58,
+      "enabled": true
+    },
+    "css-animations": {
+      "order": 59,
+      "enabled": true
+    },
+    "animejs": {
+      "order": 61,
+      "enabled": true
+    },
+    "lottie": {
+      "order": 62,
+      "enabled": true
+    },
+    "three": {
+      "order": 63,
+      "enabled": true
+    },
+    "waapi": {
+      "order": 64,
+      "enabled": true
+    },
+    "typegpu": {
+      "order": 65,
+      "enabled": true
+    },
+    "contribute-catalog": {
+      "order": 66,
+      "enabled": true
+    },
+    "develop-web-game": {
+      "order": 60,
+      "enabled": true
+    },
+    "playwright": {
+      "order": 70,
+      "enabled": true
+    },
+    "create-plan": {
+      "order": 80,
+      "enabled": true
+    },
+    "canvas-design": {
+      "order": 90,
+      "enabled": true
+    },
+    "frontend-design": {
+      "order": 100,
+      "enabled": true
+    },
+    "content-planner": {
+      "order": 120,
+      "enabled": true
+    },
+    "article-writer": {
+      "order": 121,
+      "enabled": true
+    },
+    "daily-trending": {
+      "order": 122,
+      "enabled": true
+    },
+    "local-tools": {
+      "order": 200,
+      "enabled": true
+    },
+    "weather": {
+      "order": 210,
+      "enabled": true
+    },
+    "imap-smtp-email": {
+      "order": 211,
+      "enabled": true
+    },
+    "seedance": {
+      "order": 212,
+      "enabled": true
+    },
+    "seedream": {
+      "order": 213,
+      "enabled": true
+    },
+    "popiart": {
+      "order": 214,
+      "enabled": true
+    },
+    "popi-alice-vlog-director": {
+      "order": 216,
+      "enabled": true
+    },
+    "popi-alice-storyboard-skill": {
+      "order": 217,
+      "enabled": true
+    },
+    "films-search": {
+      "order": 222,
+      "enabled": true
+    },
+    "music-search": {
+      "order": 223,
+      "enabled": true
+    },
+    "skill-creator": {
+      "order": 300,
+      "enabled": true
+    },
+    "image-image2image-2dcharacterin3dworld": {
+      "order": 310,
+      "enabled": true
+    },
+    "popiskill-image-real2anime": {
+      "order": 312,
+      "enabled": true
+    },
+    "popiskill-video-image2video-character-in-scene": {
+      "order": 313,
+      "enabled": true
+    },
+    "popi-mcn-avatarize-media": {
+      "order": 314,
+      "enabled": true
+    },
+    "cheat-on-content": {
+      "order": 400,
+      "enabled": true
+    },
+    "wechat-article-writing": {
+      "order": 124,
+      "enabled": true
+    },
+    "content-quality-review": {
+      "order": 125,
+      "enabled": true
+    },
+    "bilibili-script": {
+      "order": 126,
+      "enabled": true
+    },
+    "bilibili-humanizer": {
+      "order": 127,
+      "enabled": true
+    },
+    "bilibili-strategy": {
+      "order": 128,
+      "enabled": true
+    },
+    "xhs-writing": {
+      "order": 129,
+      "enabled": true
+    },
+    "xhs-humanizer": {
+      "order": 130,
+      "enabled": true
+    },
+    "xhs-strategy": {
+      "order": 131,
+      "enabled": true
+    },
+    "douyin-script": {
+      "order": 132,
+      "enabled": true
+    },
+    "douyin-humanizer": {
+      "order": 133,
+      "enabled": true
+    },
+    "douyin-strategy": {
+      "order": 134,
+      "enabled": true
+    }
   }
 }

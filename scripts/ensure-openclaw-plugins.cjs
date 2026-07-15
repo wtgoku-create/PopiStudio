@@ -47,6 +47,17 @@ function copyDirRecursive(src, dest) {
   fs.cpSync(src, dest, { recursive: true, force: true });
 }
 
+function mergeDirectoryContents(src, dest) {
+  if (!fs.existsSync(src)) return;
+  ensureDir(dest);
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    fs.cpSync(path.join(src, entry.name), path.join(dest, entry.name), {
+      recursive: true,
+      force: true,
+    });
+  }
+}
+
 /**
  * Fix broken symlinks in node_modules/.bin/ directories.
  *
@@ -86,6 +97,136 @@ function fixBinSymlinks(baseDir) {
     }
   };
   walk(baseDir);
+}
+
+function listDirectories(dir) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(dir, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+function findFilesByName(root, fileName, maxDepth = 8) {
+  const results = [];
+  const walk = (dir, depth) => {
+    if (depth > maxDepth) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isFile() && entry.name === fileName) {
+        results.push(full);
+      } else if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' && depth > 1) continue;
+        walk(full, depth + 1);
+      }
+    }
+  };
+
+  walk(root, 0);
+  return results;
+}
+
+function pluginDirectoryMatches(dir, plugin) {
+  const manifest = readJsonFile(path.join(dir, 'openclaw.plugin.json'));
+  if (manifest?.id === plugin.id) return true;
+  if (Array.isArray(manifest?.channels) && manifest.channels.includes(plugin.id)) return true;
+
+  const pkg = readJsonFile(path.join(dir, 'package.json'));
+  if (pkg?.name === plugin.npm) return true;
+  if (pkg?.openclaw?.channel?.id === plugin.id) return true;
+  if (Array.isArray(pkg?.openclaw?.channels) && pkg.openclaw.channels.includes(plugin.id)) return true;
+  return false;
+}
+
+function hasPluginShape(dir) {
+  return fs.existsSync(path.join(dir, 'openclaw.plugin.json')) ||
+    fs.existsSync(path.join(dir, 'package.json'));
+}
+
+function packageNameToNodeModulesPath(packageName) {
+  const parts = String(packageName || '').split('/').filter(Boolean);
+  return parts.length > 0 ? path.join('node_modules', ...parts) : null;
+}
+
+function findInstallProjectDirForNestedPlugin(stagingDir, plugin, nestedPluginDir) {
+  const dependencyPath = packageNameToNodeModulesPath(plugin.npm);
+  if (!dependencyPath) return null;
+  const suffix = `${path.sep}${dependencyPath}`;
+  if (!nestedPluginDir.endsWith(suffix)) return null;
+  const projectDir = nestedPluginDir.slice(0, -suffix.length);
+  return projectDir && fs.existsSync(path.join(projectDir, 'package.json')) ? projectDir : null;
+}
+
+function findInstalledPluginDir(stagingDir, plugin) {
+  const expectedDir = path.join(stagingDir, 'extensions', plugin.id);
+  if (fs.existsSync(expectedDir)) {
+    return { pluginDir: expectedDir, installProjectDir: null };
+  }
+
+  const extensionDirs = listDirectories(path.join(stagingDir, 'extensions'));
+  const matchingExtensionDir = extensionDirs.find((dir) => pluginDirectoryMatches(dir, plugin));
+  if (matchingExtensionDir) {
+    return { pluginDir: matchingExtensionDir, installProjectDir: null };
+  }
+  if (extensionDirs.length === 1 && hasPluginShape(extensionDirs[0])) {
+    return { pluginDir: extensionDirs[0], installProjectDir: null };
+  }
+
+  const manifestDirs = findFilesByName(stagingDir, 'openclaw.plugin.json')
+    .map((file) => path.dirname(file));
+  const matchingManifestDir = manifestDirs.find((dir) => pluginDirectoryMatches(dir, plugin));
+  if (matchingManifestDir) {
+    return {
+      pluginDir: matchingManifestDir,
+      installProjectDir: findInstallProjectDirForNestedPlugin(stagingDir, plugin, matchingManifestDir),
+    };
+  }
+
+  const packageDirs = findFilesByName(stagingDir, 'package.json')
+    .map((file) => path.dirname(file));
+  const dependencyPath = packageNameToNodeModulesPath(plugin.npm);
+  if (dependencyPath) {
+    for (const dir of packageDirs) {
+      const pkg = readJsonFile(path.join(dir, 'package.json'));
+      const deps = {
+        ...(pkg?.dependencies && typeof pkg.dependencies === 'object' ? pkg.dependencies : {}),
+        ...(pkg?.devDependencies && typeof pkg.devDependencies === 'object' ? pkg.devDependencies : {}),
+        ...(pkg?.optionalDependencies && typeof pkg.optionalDependencies === 'object' ? pkg.optionalDependencies : {}),
+      };
+      if (!Object.prototype.hasOwnProperty.call(deps, plugin.npm)) continue;
+      const nestedPluginDir = path.join(dir, dependencyPath);
+      if (
+        fs.existsSync(nestedPluginDir) &&
+        pluginDirectoryMatches(nestedPluginDir, plugin)
+      ) {
+        return { pluginDir: nestedPluginDir, installProjectDir: dir };
+      }
+    }
+  }
+
+  const matchingPackageDir = packageDirs.find((dir) => pluginDirectoryMatches(dir, plugin));
+  if (matchingPackageDir) {
+    return {
+      pluginDir: matchingPackageDir,
+      installProjectDir: findInstallProjectDirForNestedPlugin(stagingDir, plugin, matchingPackageDir),
+    };
+  }
+
+  const shapedDirs = [...manifestDirs, ...packageDirs]
+    .filter((dir, index, dirs) => dirs.indexOf(dir) === index)
+    .filter((dir) => !dir.includes(`${path.sep}node_modules${path.sep}`));
+  return shapedDirs.length === 1
+    ? { pluginDir: shapedDirs[0], installProjectDir: null }
+    : null;
 }
 
 function ensureDir(dirPath) {
@@ -171,6 +312,110 @@ function readJsonFile(filePath) {
     return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
   } catch {
     return null;
+  }
+}
+
+function patchWeixinGatewayMethods(channelPath, label) {
+  if (!fs.existsSync(channelPath)) {
+    return;
+  }
+
+  let src = fs.readFileSync(channelPath, 'utf8');
+  if (!src.includes('gatewayMethods')) {
+    const marker = 'configSchema: {';
+    const idx = src.indexOf(marker);
+    if (idx !== -1) {
+      src = src.slice(0, idx) + 'gatewayMethods: ["web.login.start", "web.login.wait"],\n  ' + src.slice(idx);
+      fs.writeFileSync(channelPath, src);
+      log(`Patched ${label}: added gatewayMethods declaration`);
+    }
+  } else {
+    log(`${label} already has gatewayMethods, skipping patch`);
+  }
+}
+
+function patchWeixinStartupActivation(manifestPath) {
+  if (!fs.existsSync(manifestPath)) {
+    return;
+  }
+
+  const manifest = readJsonFile(manifestPath);
+  if (!manifest) {
+    log('openclaw-weixin/openclaw.plugin.json could not be parsed, skipping startup activation patch');
+    return;
+  }
+
+  if (manifest?.activation?.onStartup !== true) {
+    manifest.activation = {
+      ...(manifest.activation && typeof manifest.activation === 'object' ? manifest.activation : {}),
+      onStartup: true,
+    };
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+    log('Patched openclaw-weixin/openclaw.plugin.json: enabled startup activation for QR login discovery');
+  } else {
+    log('openclaw-weixin/openclaw.plugin.json already has startup activation, skipping patch');
+  }
+}
+
+function patchWeixinDmPolicy(processMsgPath, label) {
+  if (!fs.existsSync(processMsgPath)) {
+    return;
+  }
+
+  let pmSrc = fs.readFileSync(processMsgPath, 'utf8');
+  const dmPolicyPatchMarker = 'chanCfg_dmPolicy_patch';
+  if (!pmSrc.includes(dmPolicyPatchMarker)) {
+    const oldAllowFrom = 'configuredAllowFrom: [],';
+    const oldDmPolicy = 'dmPolicy: "pairing",';
+    const patchedDmPolicy = `dmPolicy: (() => { /* ${dmPolicyPatchMarker} */ const _cc = (deps.config.channels)?.['openclaw-weixin'] ?? {}; return _cc.dmPolicy || 'pairing'; })(),`;
+    if (pmSrc.includes(oldDmPolicy) && pmSrc.includes(oldAllowFrom)) {
+      pmSrc = pmSrc.replaceAll(oldDmPolicy, patchedDmPolicy);
+      pmSrc = pmSrc.replace(
+        oldAllowFrom,
+        `configuredAllowFrom: (() => { const _cc = (deps.config.channels)?.['openclaw-weixin'] ?? {}; return Array.isArray(_cc.allowFrom) ? _cc.allowFrom.map(String) : []; })(),`
+      );
+      fs.writeFileSync(processMsgPath, pmSrc);
+      log(`Patched ${label}: dmPolicy/allowFrom now read from config`);
+    }
+  } else {
+    log(`${label} dmPolicy patch already applied, skipping`);
+  }
+}
+
+function patchWeixinAllowFromWildcard(processMsgPath, label) {
+  if (!fs.existsSync(processMsgPath)) {
+    return;
+  }
+
+  let pmSrc = fs.readFileSync(processMsgPath, 'utf8');
+  const wildcardNeedle = "list.includes('*')";
+  if (pmSrc.includes(wildcardNeedle)) {
+    log(`${label} allowFrom wildcard patch already applied, skipping`);
+    return;
+  }
+
+  const replacements = [
+    {
+      from: 'isSenderAllowed: (id: string, list: string[]) => list.length === 0 || list.includes(id),',
+      to: "isSenderAllowed: (id: string, list: string[]) => list.length === 0 || list.includes('*') || list.includes(id),",
+    },
+    {
+      from: 'isSenderAllowed: (id, list) => list.length === 0 || list.includes(id),',
+      to: "isSenderAllowed: (id, list) => list.length === 0 || list.includes('*') || list.includes(id),",
+    },
+  ];
+
+  let patched = false;
+  for (const { from, to } of replacements) {
+    if (pmSrc.includes(from)) {
+      pmSrc = pmSrc.replaceAll(from, to);
+      patched = true;
+    }
+  }
+
+  if (patched) {
+    fs.writeFileSync(processMsgPath, pmSrc);
+    log(`Patched ${label}: allowFrom now honors wildcard entries`);
   }
 }
 
@@ -562,38 +807,35 @@ function main() {
 
         installPluginWithRetries(installSpec, stagingDir, plugin);
 
-        // The CLI installs to {OPENCLAW_STATE_DIR}/extensions/{pluginId}/
-        const installedDir = path.join(stagingDir, 'extensions', id);
-        if (!fs.existsSync(installedDir)) {
-          // Some plugins use a different directory name than the declared id.
-          // Scan the extensions directory for the installed plugin.
-          const extDir = path.join(stagingDir, 'extensions');
-          const entries = fs.existsSync(extDir) ? fs.readdirSync(extDir) : [];
-          if (entries.length === 0) {
-            throw new Error(`No plugin found in staging directory after install`);
-          }
-          // Use the first (and likely only) directory
-          const actualDir = path.join(extDir, entries[0]);
-          if (!fs.existsSync(path.join(actualDir, 'openclaw.plugin.json')) &&
-              !fs.existsSync(path.join(actualDir, 'package.json'))) {
-            throw new Error(`Installed plugin directory ${entries[0]} has no plugin manifest`);
-          }
-          // Copy the actual directory
-          if (fs.existsSync(cacheDir)) {
-            fs.rmSync(cacheDir, { recursive: true, force: true });
-          }
-          ensureDir(path.dirname(cacheDir));
-          copyDirRecursive(actualDir, cacheDir);
-          fixBinSymlinks(cacheDir);
-        } else {
-          // Replace cache dir with new content
-          if (fs.existsSync(cacheDir)) {
-            fs.rmSync(cacheDir, { recursive: true, force: true });
-          }
-          ensureDir(path.dirname(cacheDir));
-          copyDirRecursive(installedDir, cacheDir);
-          fixBinSymlinks(cacheDir);
+        // Older OpenClaw installs to {OPENCLAW_STATE_DIR}/extensions/{pluginId}/.
+        // Newer CLI builds may place npm installs under
+        // {OPENCLAW_STATE_DIR}/npm/projects/<pkg>/ and link them from config.
+        // Resolve both layouts by scanning for the installed plugin manifest.
+        const installedDir = findInstalledPluginDir(stagingDir, plugin);
+        if (!installedDir?.pluginDir) {
+          throw new Error(`No plugin found in staging directory after install`);
         }
+        if (!hasPluginShape(installedDir.pluginDir)) {
+          throw new Error(`Installed plugin directory ${path.basename(installedDir.pluginDir)} has no plugin manifest`);
+        }
+
+        // Replace cache dir with new content
+        if (fs.existsSync(cacheDir)) {
+          fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+        ensureDir(path.dirname(cacheDir));
+        copyDirRecursive(installedDir.pluginDir, cacheDir);
+        if (installedDir.installProjectDir) {
+          mergeDirectoryContents(
+            path.join(installedDir.installProjectDir, 'node_modules'),
+            path.join(cacheDir, 'node_modules')
+          );
+          const dependencyPath = packageNameToNodeModulesPath(npmSpec);
+          if (dependencyPath) {
+            fs.rmSync(path.join(cacheDir, dependencyPath), { recursive: true, force: true });
+          }
+        }
+        fixBinSymlinks(cacheDir);
 
         // Write install info for cache validation
         fs.writeFileSync(
@@ -662,21 +904,17 @@ function main() {
   // cannot discover the plugin for web.login.start/web.login.wait RPC calls
   // (used by our embedded web UI — the standard CLI login path uses
   // plugin.auth.login instead and does not need this).
-  const weixinChannelPath = path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'channel.ts');
-  if (fs.existsSync(weixinChannelPath)) {
-    let src = fs.readFileSync(weixinChannelPath, 'utf8');
-    if (!src.includes('gatewayMethods')) {
-      const marker = 'configSchema: {';
-      const idx = src.indexOf(marker);
-      if (idx !== -1) {
-        src = src.slice(0, idx) + 'gatewayMethods: ["web.login.start", "web.login.wait"],\n  ' + src.slice(idx);
-        fs.writeFileSync(weixinChannelPath, src);
-        log('Patched openclaw-weixin/src/channel.ts: added gatewayMethods declaration');
-      }
-    } else {
-      log('openclaw-weixin/src/channel.ts already has gatewayMethods, skipping patch');
-    }
-  }
+  patchWeixinGatewayMethods(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'channel.ts'),
+    'openclaw-weixin/src/channel.ts'
+  );
+  patchWeixinGatewayMethods(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'channel.js'),
+    'openclaw-weixin/dist/src/channel.js'
+  );
+  patchWeixinStartupActivation(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'openclaw.plugin.json')
+  );
 
   // --- Post-install patch: openclaw-weixin dmPolicy from config ---
   // The plugin hardcodes dmPolicy:"pairing" and configuredAllowFrom:[] in
@@ -684,31 +922,22 @@ function main() {
   // This causes all inbound messages from non-bot senders to be silently
   // dropped as "unauthorized" even when the config specifies dmPolicy:"open"
   // with allowFrom:["*"].  Patch it to read from deps.config.channels.
-  const weixinProcessMsgPath = path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'messaging', 'process-message.ts');
-  if (fs.existsSync(weixinProcessMsgPath)) {
-    let pmSrc = fs.readFileSync(weixinProcessMsgPath, 'utf8');
-    const dmPolicyPatchMarker = 'chanCfg_dmPolicy_patch';
-    if (!pmSrc.includes(dmPolicyPatchMarker)) {
-      const oldAllowFrom = 'configuredAllowFrom: [],';
-      // There are two occurrences of dmPolicy: "pairing" — one in
-      // resolveSenderCommandAuthorizationWithRuntime and one in
-      // resolveDirectDmAuthorizationOutcome.  Both must use the config value.
-      // We use replaceAll to patch both at once.
-      const oldDmPolicy = 'dmPolicy: "pairing",';
-      const patchedDmPolicy = `dmPolicy: (() => { /* ${dmPolicyPatchMarker} */ const _cc = (deps.config.channels)?.['openclaw-weixin'] ?? {}; return _cc.dmPolicy || 'pairing'; })(),`;
-      if (pmSrc.includes(oldDmPolicy) && pmSrc.includes(oldAllowFrom)) {
-        pmSrc = pmSrc.replaceAll(oldDmPolicy, patchedDmPolicy);
-        pmSrc = pmSrc.replace(
-          oldAllowFrom,
-          `configuredAllowFrom: (() => { const _cc = (deps.config.channels)?.['openclaw-weixin'] ?? {}; return Array.isArray(_cc.allowFrom) ? _cc.allowFrom.map(String) : []; })(),`
-        );
-        fs.writeFileSync(weixinProcessMsgPath, pmSrc);
-        log('Patched openclaw-weixin/src/messaging/process-message.ts: dmPolicy/allowFrom now read from config');
-      }
-    } else {
-      log('openclaw-weixin/src/messaging/process-message.ts dmPolicy patch already applied, skipping');
-    }
-  }
+  patchWeixinDmPolicy(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'messaging', 'process-message.ts'),
+    'openclaw-weixin/src/messaging/process-message.ts'
+  );
+  patchWeixinAllowFromWildcard(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'src', 'messaging', 'process-message.ts'),
+    'openclaw-weixin/src/messaging/process-message.ts'
+  );
+  patchWeixinDmPolicy(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'messaging', 'process-message.js'),
+    'openclaw-weixin/dist/src/messaging/process-message.js'
+  );
+  patchWeixinAllowFromWildcard(
+    path.join(runtimeExtensionsDir, 'openclaw-weixin', 'dist', 'src', 'messaging', 'process-message.js'),
+    'openclaw-weixin/dist/src/messaging/process-message.js'
+  );
 
   // --- Post-install patch: openclaw-lark deferred startup loading ---
   // The openclaw-lark plugin eagerly loads the 86K-line @larksuiteoapi/node-sdk and

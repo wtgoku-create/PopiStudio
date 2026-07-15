@@ -16,7 +16,14 @@ import {
   ContextCompactionStatus,
   CoworkSystemMessageKind,
 } from '../../../common/coworkSystemMessages';
-import { OpenClawRuntimeAdapter, pickPersistedAssistantSegment } from './openclawRuntimeAdapter';
+import {
+  OpenClawSessionReasoningLevel,
+} from '../../../common/openclawSession';
+import {
+  isSignificantAssistantStreamReset,
+  OpenClawRuntimeAdapter,
+  pickPersistedAssistantSegment,
+} from './openclawRuntimeAdapter';
 
 test('pickPersistedAssistantSegment: stream authority keeps previous when same length or longer', () => {
   expect(pickPersistedAssistantSegment('aa', 'a', true)).toEqual({
@@ -56,6 +63,13 @@ test('pickPersistedAssistantSegment: empty branches', () => {
     content: 'prev',
     reason: 'previous_only',
   });
+});
+
+test('isSignificantAssistantStreamReset ignores tiny drops and accepts large resets', () => {
+  expect(isSignificantAssistantStreamReset(120, 118)).toBe(false);
+  expect(isSignificantAssistantStreamReset(120, 90)).toBe(false);
+  expect(isSignificantAssistantStreamReset(120, 70)).toBe(true);
+  expect(isSignificantAssistantStreamReset(5, 1)).toBe(false);
 });
 
 test('context usage ignores non-checkpoint compactionCount', () => {
@@ -440,6 +454,7 @@ test('continueSession patches a session override before chat.send even when the 
   expect(requests[0].params).toEqual({
     key: 'agent:main:popiai:session-1',
     model,
+    reasoningLevel: OpenClawSessionReasoningLevel.Stream,
   });
 });
 
@@ -526,6 +541,22 @@ function createReconcileStore(messages: Array<Record<string, unknown>>) {
           ...message,
         };
         session.messages.push(created);
+        return created;
+      },
+      insertMessageBeforeId: (sessionId: string, beforeMessageId: string, message: Record<string, unknown>) => {
+        expect(sessionId).toBe(session.id);
+        const created = {
+          id: `msg-${nextId++}`,
+          timestamp: nextId,
+          metadata: {},
+          ...message,
+        };
+        const targetIndex = session.messages.findIndex((item) => item.id === beforeMessageId);
+        if (targetIndex >= 0) {
+          session.messages.splice(targetIndex, 0, created);
+        } else {
+          session.messages.push(created);
+        }
         return created;
       },
       updateSession: (sessionId: string, patch: Record<string, unknown>) => {
@@ -894,6 +925,84 @@ test('lifecycle fallback backfills missing tool result for the current turn', as
   expect(session.status).toBe('completed');
 });
 
+test('history thinking reconciliation reuses a finalized stream thinking message before a tool', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'read the gateway log', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:popiai:${session.id}`;
+  const turn = createActiveTurn(session.id, sessionKey, 'run-thinking-reuse');
+  turn.currentThinkingText = 'Need to inspect the log.';
+  adapter.activeTurns.set(session.id, turn);
+
+  adapter.syncThinkingMessage(session.id, turn);
+  const thinkingMessageId = turn.thinkingMessageId;
+  expect(thinkingMessageId).toBeTruthy();
+
+  const finalizedThinkingMessageId = adapter.splitAssistantSegmentBeforeTool(session.id, turn);
+  expect(finalizedThinkingMessageId).toBe(thinkingMessageId);
+
+  const toolUseMessage = store.addMessage(session.id, {
+    type: 'tool_use',
+    content: 'Using tool: read',
+    metadata: { toolUseId: 'call-read' },
+  });
+  turn.toolUseMessageIdByToolCallId.set('call-read', toolUseMessage.id);
+  turn.thinkingMessageIdByKey = new Map([['tool:call-read:thinking:0', thinkingMessageId]]);
+
+  adapter.syncThinkingBlocksFromHistory(session.id, turn, [
+    { role: 'user', content: 'read the gateway log' },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'Need to inspect the log.' },
+        { type: 'toolCall', id: 'call-read', name: 'read', arguments: { path: 'gateway.log' } },
+      ],
+    },
+  ], { includeUnanchored: false });
+
+  const thinkingMessages = session.messages.filter((message) => message.metadata?.isThinking === true);
+  expect(thinkingMessages).toHaveLength(1);
+  expect(thinkingMessages[0].id).toBe(thinkingMessageId);
+  expect(thinkingMessages[0].metadata).toMatchObject({
+    isFinal: true,
+    isStreaming: false,
+    openclawThinkingAnchorToolCallId: 'call-read',
+    openclawThinkingKey: 'tool:call-read:thinking:0',
+  });
+});
+
+test('agent thinking stream creates and updates a streaming thinking message', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'read the gateway log', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:popiai:${session.id}`;
+  const turn = createActiveTurn(session.id, sessionKey, 'run-thinking-stream');
+  adapter.activeTurns.set(session.id, turn);
+  adapter.sessionIdByRunId.set('run-thinking-stream', session.id);
+  adapter.rememberSessionKey(session.id, sessionKey);
+
+  adapter.handleAgentEvent({
+    runId: 'run-thinking-stream',
+    sessionKey,
+    stream: 'thinking',
+    data: { text: 'Need to inspect the log.' },
+  }, 1);
+
+  const thinkingMessages = session.messages.filter((message) => message.metadata?.isThinking === true);
+  expect(thinkingMessages).toHaveLength(1);
+  expect(thinkingMessages[0]).toMatchObject({
+    content: 'Need to inspect the log.',
+    metadata: {
+      isThinking: true,
+      isStreaming: true,
+      isFinal: false,
+    },
+  });
+  expect(turn.thinkingMessageId).toBe(thinkingMessages[0].id);
+});
+
 test('lifecycle fallback waits when history sync returns a short assistant segment after large tool results', async () => {
   vi.useFakeTimers();
   try {
@@ -999,6 +1108,56 @@ test('lifecycle fallback waits when history sync returns a short assistant segme
   } finally {
     vi.useRealTimers();
   }
+});
+
+test('assistant stream inserts OpenAI reasoning block before visible assistant text', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'explain the plan', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:popiai:${session.id}`;
+  const messageSpy = vi.fn();
+  const updateSpy = vi.fn();
+
+  session.status = 'running';
+  adapter.on('message', messageSpy);
+  adapter.on('messageUpdate', updateSpy);
+  const turn = createActiveTurn(session.id, sessionKey, 'run-reasoning');
+  adapter.activeTurns.set(session.id, turn);
+  adapter.sessionIdByRunId.set('run-reasoning', session.id);
+  adapter.rememberSessionKey(session.id, sessionKey);
+
+  adapter.processAgentAssistantText({
+    runId: 'run-reasoning',
+    sessionKey,
+    stream: 'assistant',
+    data: { text: 'Visible answer.' },
+  });
+  adapter.processAgentAssistantText({
+    runId: 'run-reasoning',
+    sessionKey,
+    stream: 'assistant',
+    data: {
+      text: 'Visible answer.',
+      reasoning_content: 'Need to explain the plan first.',
+    },
+  });
+
+  const assistantMessages = session.messages.filter((message) => message.type === 'assistant');
+  expect(assistantMessages).toHaveLength(2);
+  expect(assistantMessages.map((message) => message.metadata?.isThinking === true)).toEqual([true, false]);
+  expect(assistantMessages.map((message) => message.content)).toEqual([
+    'Need to explain the plan first.',
+    'Visible answer.',
+  ]);
+  expect(messageSpy).toHaveBeenCalledWith(
+    session.id,
+    expect.objectContaining({
+      content: 'Need to explain the plan first.',
+      metadata: expect.objectContaining({ isThinking: true }),
+    }),
+    assistantMessages[1].id,
+  );
 });
 
 test('chat final backfills only current-turn tool results from history', async () => {
@@ -1698,6 +1857,51 @@ test('compaction stream shows context maintenance state while keeping the sessio
   expect(adapter.activeTurns.get(session.id)?.hasContextCompactionEvent).toBe(false);
   expect(adapter.activeTurns.get(session.id)?.pendingRecoverableFollowup).toBe(true);
   expect(adapter.activeTurns.has(session.id)).toBe(true);
+});
+
+test('compaction retry wait clears context maintenance when no follow-up arrives', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'continue the task', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:popiai:${session.id}`;
+    const maintenanceSpy = vi.fn();
+    const completeSpy = vi.fn();
+
+    session.status = 'running';
+    adapter.on('contextMaintenance', maintenanceSpy);
+    adapter.on('complete', completeSpy);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-compaction-timeout'));
+
+    adapter.handleAgentEvent({
+      runId: 'run-compaction-timeout',
+      sessionKey,
+      stream: 'compaction',
+      data: { phase: 'start' },
+    }, 1);
+
+    adapter.handleAgentEvent({
+      runId: 'run-compaction-timeout',
+      sessionKey,
+      stream: 'compaction',
+      data: { phase: 'end', completed: true, willRetry: true },
+    }, 2);
+
+    expect(maintenanceSpy).toHaveBeenLastCalledWith(session.id, true);
+    expect(adapter.activeTurns.has(session.id)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await Promise.resolve();
+
+    expect(maintenanceSpy).toHaveBeenLastCalledWith(session.id, false);
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-compaction-timeout');
+    expect(session.status).toBe('completed');
+    expect(adapter.activeTurns.has(session.id)).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('compaction stream reuses active structured message for duplicate start events', () => {
@@ -2892,8 +3096,8 @@ test('reconcileWithHistory: tail window starting with assistant updates anchored
 
   expect(getReplaceCallCount()).toBe(1);
   expect(getLastReplaceArgs()!.authoritative).toEqual([
-    { role: 'user', text: 'First question', timestamp: 1 },
-    { role: 'assistant', text: 'First answer', timestamp: 2 },
+    { role: 'user', text: 'First question', timestamp: 1, metadata: {} },
+    { role: 'assistant', text: 'First answer', timestamp: 2, metadata: {} },
     { role: 'user', text: 'Second question', timestamp: 3 },
     { role: 'assistant', text: 'Full complete answer from gateway.' },
   ]);
@@ -2924,7 +3128,7 @@ test('reconcileWithHistory: tail window repairs stale leading assistant before a
 
   expect(getReplaceCallCount()).toBe(1);
   expect(getLastReplaceArgs()!.authoritative).toEqual([
-    { role: 'user', text: 'First question', timestamp: 1 },
+    { role: 'user', text: 'First question', timestamp: 1, metadata: {} },
     { role: 'assistant', text: 'Correct previous answer' },
     { role: 'user', text: 'Second question', timestamp: 3 },
     { role: 'assistant', text: 'Full complete answer from gateway.' },
@@ -3293,6 +3497,112 @@ test('syncSystemMessagesFromHistory skips pure heartbeat ack system messages', (
   expect(getSystemMessages(session).map((message) => message.content)).toEqual(['Reminder fired']);
 });
 
+test('child lifecycle end marks matching subagent done before local session resolution', () => {
+  const runs = new Map<string, Record<string, unknown>>();
+  const subagentRunStore = {
+    insertSubagentRun: vi.fn((run: Record<string, unknown>) => {
+      runs.set(run.id as string, { ...run });
+    }),
+    updateSubagentRunStatus: vi.fn((id: string, status: string, endedAt?: number) => {
+      const run = runs.get(id);
+      if (run) {
+        run.status = status;
+        run.endedAt = endedAt;
+      }
+    }),
+    listSubagentRuns: () => [],
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    { getSession: () => null } as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const childSessionKey = 'agent:main:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31';
+
+  adapter.subagentTracker.onToolStart(
+    'call-fibonacci',
+    { taskName: 'fibonacci', task: 'calculate fibonacci' },
+    'parent-session',
+  );
+  adapter.subagentTracker.onSpawnResult(
+    'call-fibonacci',
+    JSON.stringify({
+      status: 'accepted',
+      childSessionKey,
+      runId: '7d6f0db8-1066-4900-b6ea-a47b23825c8e',
+    }),
+    {},
+  );
+
+  adapter.handleAgentEvent({
+    runId: '7d6f0db8-1066-4900-b6ea-a47b23825c8e',
+    sessionKey: childSessionKey,
+    stream: 'lifecycle',
+    data: { phase: 'end' },
+  }, 1);
+
+  expect(subagentRunStore.updateSubagentRunStatus).toHaveBeenCalledWith(
+    'call-fibonacci',
+    'done',
+    expect.any(Number),
+  );
+  expect(runs.get('call-fibonacci')?.status).toBe('done');
+});
+
+test('child chat final marks matching subagent done before local session resolution', () => {
+  const runs = new Map<string, Record<string, unknown>>();
+  const subagentRunStore = {
+    insertSubagentRun: vi.fn((run: Record<string, unknown>) => {
+      runs.set(run.id as string, { ...run });
+    }),
+    updateSubagentRunStatus: vi.fn((id: string, status: string, endedAt?: number) => {
+      const run = runs.get(id);
+      if (run) {
+        run.status = status;
+        run.endedAt = endedAt;
+      }
+    }),
+    listSubagentRuns: () => [],
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    { getSession: () => null } as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const childSessionKey = 'agent:main:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31';
+
+  adapter.subagentTracker.onToolStart(
+    'call-fibonacci',
+    { taskName: 'fibonacci', task: 'calculate fibonacci' },
+    'parent-session',
+  );
+  adapter.subagentTracker.onSpawnResult(
+    'call-fibonacci',
+    JSON.stringify({
+      status: 'accepted',
+      childSessionKey,
+      runId: '7d6f0db8-1066-4900-b6ea-a47b23825c8e',
+    }),
+    {},
+  );
+
+  adapter.handleChatEvent({
+    state: 'final',
+    runId: '7d6f0db8-1066-4900-b6ea-a47b23825c8e',
+    sessionKey: childSessionKey,
+    message: { role: 'assistant', content: 'completed' },
+  }, 1);
+
+  expect(subagentRunStore.updateSubagentRunStatus).toHaveBeenCalledWith(
+    'call-fibonacci',
+    'done',
+    expect.any(Number),
+  );
+  expect(runs.get('call-fibonacci')?.status).toBe('done');
+});
+
 test('collectChannelHistoryEntries skips heartbeat prompt and ack messages', () => {
   const { store } = createHistoryStore([]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
@@ -3328,4 +3638,50 @@ test('getSessionKeysForSession prefers channel keys before managed fallback', ()
     'agent:main:openai-user:dingtalk-connector:__default__:2459325231940374',
     'agent:main:popiai:session-1',
   ]);
+});
+
+test('onSessionDeleted deletes gateway transcripts for all session keys', async () => {
+  const request = vi.fn(async () => ({}));
+  const subagentRunStore = {
+    listSubagentRuns: () => [],
+    deleteSubagentRunsByParent: vi.fn(),
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    { getSession: () => null } as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const channelSessionKey = 'agent:main:openclaw-weixin:bot-1:direct:user-1@im.wechat';
+  const managedSessionKey = 'agent:main:popiai:session-1';
+
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request,
+  };
+  adapter.channelSessionSync = {
+    isChannelSessionKey: (key: string) => key === channelSessionKey,
+    onSessionDeleted: vi.fn(),
+  } as never;
+  adapter.sessionIdBySessionKey.set(channelSessionKey, 'session-1');
+  adapter.sessionIdBySessionKey.set(managedSessionKey, 'session-1');
+
+  adapter.onSessionDeleted('session-1');
+
+  await vi.waitFor(() => {
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledWith(
+      'sessions.delete',
+      { key: channelSessionKey, deleteTranscript: true },
+      { timeoutMs: 5_000 },
+    );
+    expect(request).toHaveBeenCalledWith(
+      'sessions.delete',
+      { key: managedSessionKey, deleteTranscript: true },
+      { timeoutMs: 5_000 },
+    );
+  });
+  expect(adapter.deletedChannelKeys.has(channelSessionKey)).toBe(false);
+  expect(adapter.deletedChannelKeys.has(managedSessionKey)).toBe(false);
 });

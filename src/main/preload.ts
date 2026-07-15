@@ -12,6 +12,7 @@ import { FolderIpc } from '../shared/folder/constants';
 import {
   KnowledgeIpc,
   type GetChunkByIdRequest,
+  type GetDistillPageRequest,
   type GetWikiPageRequest,
   type PreviewRagContextRequest,
   type SearchRecentKnowledgeRequest,
@@ -268,6 +269,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('cowork:session:start', options),
     continueSession: (options: { sessionId: string; prompt: string; knowledgeBases?: Array<{ id: string; name: string }>; knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>; systemPrompt?: string; activeSkillIds?: string[]; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
       ipcRenderer.invoke('cowork:session:continue', options),
+    submitSteer: (options: { sessionId: string; text: string; clientSteerId: string }) =>
+      ipcRenderer.invoke(CoworkIpcChannel.SubmitSteer, options),
     stopSession: (sessionId: string) =>
       ipcRenderer.invoke('cowork:session:stop', sessionId),
     deleteSession: (sessionId: string) =>
@@ -286,7 +289,9 @@ contextBridge.exposeInMainWorld('electron', {
     listAgentSidebarSessions: () =>
       ipcRenderer.invoke(CoworkIpcChannel.ListAgentSidebarSessions),
     getSessionMessages: (options: { sessionId: string; limit?: number; offset?: number }) =>
-      ipcRenderer.invoke('cowork:session:getMessages', options),
+      ipcRenderer.invoke(CoworkIpcChannel.GetMessages, options),
+    getSessionMessageRailIndex: (sessionId: string, limit?: number) =>
+      ipcRenderer.invoke(CoworkIpcChannel.GetMessageRailIndex, { sessionId, limit }),
     getContextUsage: (sessionId: string) =>
       ipcRenderer.invoke('cowork:session:contextUsage', sessionId),
     compactContext: (sessionId: string) =>
@@ -305,9 +310,11 @@ contextBridge.exposeInMainWorld('electron', {
 
     // Subagent tracking
     getSubTaskHistory: (options: { parentSessionId: string; agentId: string; sessionKey?: string }) =>
-      ipcRenderer.invoke('cowork:subTask:history', options),
+      ipcRenderer.invoke(CoworkIpcChannel.SubTaskHistory, options),
     listSubagentSessions: (parentSessionId: string) =>
-      ipcRenderer.invoke('cowork:subagent:list', { parentSessionId }),
+      ipcRenderer.invoke(CoworkIpcChannel.SubagentList, { parentSessionId }),
+    deleteSubagentSession: (options: { parentSessionId: string; runId: string }) =>
+      ipcRenderer.invoke(CoworkIpcChannel.SubagentDelete, options),
 
     // Permission handling
     respondToPermission: (options: { requestId: string; result: any }) =>
@@ -461,6 +468,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(KnowledgeIpc.PreviewRagContext, request),
     getWikiPage: (request: GetWikiPageRequest) =>
       ipcRenderer.invoke(KnowledgeIpc.GetWikiPage, request),
+    getDistillPage: (request: GetDistillPageRequest) =>
+      ipcRenderer.invoke(KnowledgeIpc.GetDistillPage, request),
     getChunkById: (request: GetChunkByIdRequest) =>
       ipcRenderer.invoke(KnowledgeIpc.GetChunkById, request),
     uploadLocalSessionMarkdown: (request: UploadLocalSessionMarkdownRequest) =>
@@ -688,8 +697,8 @@ contextBridge.exposeInMainWorld('electron', {
     countRuns: (taskId: string) => ipcRenderer.invoke(ScheduledTaskIpc.CountRuns, taskId),
     listAllRuns: (limit?: number, offset?: number, filter?: any) =>
       ipcRenderer.invoke(ScheduledTaskIpc.ListAllRuns, limit, offset, filter),
-    resolveSession: (sessionKey: string) =>
-      ipcRenderer.invoke(ScheduledTaskIpc.ResolveSession, sessionKey),
+    resolveSession: (input: string | { sessionId?: string | null; sessionKey?: string | null }) =>
+      ipcRenderer.invoke(ScheduledTaskIpc.ResolveSession, input),
 
     // Delivery channels
     listChannels: () => ipcRenderer.invoke(ScheduledTaskIpc.ListChannels),

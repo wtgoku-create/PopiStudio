@@ -3,10 +3,11 @@ import React, { useEffect, useRef,useState } from 'react';
 import { useDispatch,useSelector } from 'react-redux';
 
 import { buildSessionTitleFromInput } from '../../../common/sessionTitle';
+import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
-import { appendPopiTVCanvasContext } from '../../services/popitvCanvasContext';
+import { buildOptionalPopiTVCanvasContext } from '../../services/popitvCanvasContext';
 import { registerPopiTVCanvasAutoOpenHandler } from '../../services/popitvCanvasToolRouter';
 import { quickActionService } from '../../services/quickAction';
 import { RootState } from '../../store';
@@ -18,7 +19,7 @@ import {
 import { addMessage, setCurrentSession, setStreaming, updateSessionStatus } from '../../store/slices/coworkSlice';
 import { clearSelection,selectAction, setActions } from '../../store/slices/quickActionSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../../store/slices/skillSlice';
-import type { CoworkImageAttachment, CoworkSession, OpenClawEngineStatus, SubagentSessionSummary } from '../../types/cowork';
+import type { CoworkImageAttachment, CoworkPermissionRequest, CoworkPermissionResult, CoworkSession, OpenClawEngineStatus, SubagentSessionSummary } from '../../types/cowork';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { PromptPanel,QuickActionBar } from '../quick-actions';
 import type { SettingsOpenOptions } from '../Settings';
@@ -48,9 +49,21 @@ export interface CoworkViewProps {
   onToggleSidebar?: () => void;
   onNewChat?: () => void;
   updateBadge?: React.ReactNode;
+  minimizedPermission?: CoworkPermissionRequest | null;
+  onRestorePermission?: () => void;
+  onRespondToPermission?: (result: CoworkPermissionResult) => void;
 }
 
-const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapsed, onToggleSidebar, onNewChat, updateBadge }) => {
+const CoworkView: React.FC<CoworkViewProps> = ({
+  onShowSkills,
+  isSidebarCollapsed,
+  onToggleSidebar,
+  onNewChat,
+  updateBadge,
+  minimizedPermission,
+  onRestorePermission,
+  onRespondToPermission,
+}) => {
   const dispatch = useDispatch();
   const [isInitialized, setIsInitialized] = useState(false);
   const [openClawStatus, setOpenClawStatus] = useState<OpenClawEngineStatus | null>(null);
@@ -103,6 +116,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
   const currentAgentSelectedModel = useAgentSelectedModel(currentAgentId, currentAgent?.model ?? '');
   const hasCurrentSessionMessages = Boolean(
     currentSession && ((currentSession.totalMessages ?? 0) > 0 || currentSession.messages.length > 0),
+  );
+  const isCurrentSessionRemoteSource = currentSession?.source?.kind === CoworkSessionSourceKind.ScheduledTask
+    || currentSession?.source?.kind === CoworkSessionSourceKind.IM;
+  const shouldShowCurrentSessionDetail = Boolean(
+    currentSession
+      && (hasCurrentSessionMessages || isCurrentSessionRemoteSource),
   );
 
   const resolveEngineStatusText = (status: OpenClawEngineStatus): string => {
@@ -264,11 +283,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
         const popitvContextSkillIds = sessionSkillIds.length > 0
           ? sessionSkillIds
           : loadedSession?.activeSkillIds ?? [];
-        const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+        const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
           shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
           sessionId: existingSessionSummary.id,
         });
-        const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
+        const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
         const sent = await coworkService.continueSession({
           sessionId: existingSessionSummary.id,
           prompt,
@@ -341,10 +360,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       // auto-routing prompt to avoid injecting Claude SDK tool-calling instructions
       // that confuse non-Claude models (e.g. kimi-k2.5 falls back to text-based
       // tool calls, producing empty tool names and err=true failures).
-      const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+      const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
         shouldInclude: sessionSkillIds.includes(POPITV_SKILL_ID),
       });
-      const combinedSystemPrompt = buildCoworkSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
+      const combinedSystemPrompt = buildCoworkSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
 
       // Start the actual session immediately with fallback title
       const sessionModelOverride = currentAgentSelectedModel ? toOpenClawModelRef(currentAgentSelectedModel) : '';
@@ -420,11 +439,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
       const popitvContextSkillIds = sessionSkillIds.length > 0
         ? sessionSkillIds
         : currentSession.activeSkillIds;
-      const effectiveSkillPrompt = appendPopiTVCanvasContext(skillPrompt, {
+      const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
         shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
         sessionId: currentSession.id,
       });
-      const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(effectiveSkillPrompt, config.systemPrompt);
+      const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
 
       const sent = await coworkService.continueSession({
         sessionId: currentSession.id,
@@ -631,7 +650,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
 
   // When there's a current session with chat messages, show the session detail view.
   // Empty agentHome sessions still use the home prompt state.
-  if (currentSession && hasCurrentSessionMessages) {
+  if (shouldShowCurrentSessionDetail) {
     return (
       <div className="flex-1 flex flex-col h-full">
         {engineStatusBanner}
@@ -643,6 +662,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({ onShowSkills, isSidebarCollapse
           onToggleSidebar={onToggleSidebar}
           onNewChat={onNewChat}
           updateBadge={updateBadge}
+          minimizedPermission={minimizedPermission}
+          onRestorePermission={onRestorePermission}
+          onRespondToPermission={onRespondToPermission}
         />
       </div>
     );

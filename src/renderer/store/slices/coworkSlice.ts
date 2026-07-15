@@ -1,6 +1,16 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 import {
+  COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
+  type CoworkMessageRailIndexItem,
+  getCoworkRailPreview,
+} from '../../../shared/cowork/rail';
+import {
+  type CoworkPendingSteer,
+  CoworkSteerStatus,
+  type CoworkSteerStatus as CoworkSteerStatusType,
+} from '../../../shared/cowork/steer';
+import {
   type CoworkConfig,
   type CoworkContextUsage,
   type CoworkMessage,
@@ -28,6 +38,12 @@ interface CoworkState {
   draftPrompts: Record<string, string>;
   /** Keyed by draftKey (sessionId or '__home__'), stores pending attachments */
   draftAttachments: Record<string, DraftAttachment[]>;
+  /** Keyed by sessionId, stores steer drafts separately from normal drafts. */
+  steerDrafts: Record<string, string>;
+  /** Keyed by sessionId, stores follow-up inputs queued while a turn is active. */
+  pendingSteers: Record<string, CoworkPendingSteer[]>;
+  /** Keyed by sessionId, stores steer requests rejected by the runtime. */
+  rejectedSteers: Record<string, CoworkPendingSteer[]>;
   unreadSessionIds: string[];
   isCoworkActive: boolean;
   isStreaming: boolean;
@@ -35,6 +51,8 @@ interface CoworkState {
   compactingSessionIds: string[];
   contextMaintenanceSessionIds: string[];
   notifiedCompactionBySessionId: Record<string, number>;
+  messageRailIndexBySessionId: Record<string, CoworkMessageRailIndexItem[]>;
+  messageRailIndexLoadingBySessionId: Record<string, boolean>;
   remoteManaged: boolean;
   pendingPermissions: CoworkPermissionRequest[];
   config: CoworkConfig;
@@ -47,6 +65,9 @@ const initialState: CoworkState = {
   currentSession: null,
   draftPrompts: {},
   draftAttachments: {},
+  steerDrafts: {},
+  pendingSteers: {},
+  rejectedSteers: {},
   unreadSessionIds: [],
   isCoworkActive: false,
   isStreaming: false,
@@ -54,6 +75,8 @@ const initialState: CoworkState = {
   compactingSessionIds: [],
   contextMaintenanceSessionIds: [],
   notifiedCompactionBySessionId: {},
+  messageRailIndexBySessionId: {},
+  messageRailIndexLoadingBySessionId: {},
   remoteManaged: false,
   pendingPermissions: [],
   config: {
@@ -83,6 +106,9 @@ const initialState: CoworkState = {
     },
   },
 };
+
+export const COWORK_STEER_QUEUE_LIMIT = 20;
+const COWORK_STEER_REJECTED_PREVIEW_LIMIT = 20;
 
 const markSessionRead = (state: CoworkState, sessionId: string | null) => {
   if (!sessionId) return;
@@ -116,6 +142,82 @@ const getLatestMessagePreview = (messages: CoworkMessage[]): string | undefined 
   return undefined;
 };
 
+const buildRailIndexItemFromMessage = (
+  message: CoworkMessage,
+  messageOffset: number,
+  fallbackLabelIndex: number,
+): CoworkMessageRailIndexItem | null => {
+  if ((message.type !== 'user' && message.type !== 'assistant') || !message.content.trim()) {
+    return null;
+  }
+
+  return {
+    messageId: message.id,
+    type: message.type,
+    sequence: null,
+    messageOffset,
+    timestamp: message.timestamp,
+    preview: getCoworkRailPreview(
+      message.content,
+      message.type === 'user' ? `Turn ${fallbackLabelIndex + 1}` : 'Popiai',
+      COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
+    ),
+    contentLen: message.content.length,
+  };
+};
+
+const resolveRailMessageOffset = (
+  state: CoworkState,
+  sessionId: string,
+  message: CoworkMessage,
+  fallbackOffset: number,
+): number => {
+  if (state.currentSession?.id !== sessionId) {
+    return fallbackOffset;
+  }
+  const messageIndex = state.currentSession.messages.findIndex(item => item.id === message.id);
+  return messageIndex >= 0
+    ? state.currentSession.messagesOffset + messageIndex
+    : fallbackOffset;
+};
+
+const upsertRailIndexItem = (
+  state: CoworkState,
+  sessionId: string,
+  message: CoworkMessage,
+): void => {
+  const existingItems = state.messageRailIndexBySessionId[sessionId];
+  if (!existingItems) return;
+
+  const existingIndex = existingItems.findIndex(item => item.messageId === message.id);
+  const existingItem = existingIndex >= 0 ? existingItems[existingIndex] : null;
+  const fallbackOffset = existingItem?.messageOffset ?? existingItems.length;
+  const messageOffset = resolveRailMessageOffset(state, sessionId, message, fallbackOffset);
+  const item = buildRailIndexItemFromMessage(
+    message,
+    messageOffset,
+    existingIndex >= 0 ? existingIndex : existingItems.length,
+  );
+  if (!item) {
+    if (existingIndex >= 0) {
+      existingItems.splice(existingIndex, 1);
+    }
+    return;
+  }
+
+  if (existingIndex >= 0) {
+    existingItems[existingIndex] = {
+      ...existingItems[existingIndex],
+      ...item,
+      sequence: existingItems[existingIndex].sequence,
+      messageOffset: existingItems[existingIndex].messageOffset,
+    };
+    return;
+  }
+
+  existingItems.push(item);
+};
+
 const toSessionSummary = (session: CoworkSession): CoworkSessionSummary => ({
   id: session.id,
   title: session.title,
@@ -124,6 +226,7 @@ const toSessionSummary = (session: CoworkSession): CoworkSessionSummary => ({
   pinned: session.pinned ?? false,
   pinOrder: session.pinOrder ?? null,
   agentId: session.agentId,
+  source: session.source,
   createdAt: session.createdAt,
   updatedAt: session.updatedAt,
 });
@@ -142,6 +245,19 @@ const coworkSlice = createSlice({
       state.unreadSessionIds = state.unreadSessionIds.filter((id) => {
         return validSessionIds.has(id) && id !== state.currentSessionId;
       });
+    },
+
+    upsertSessionSummary(state, action: PayloadAction<CoworkSession>) {
+      const summary = toSessionSummary(action.payload);
+      const sessionIndex = state.sessions.findIndex((session) => session.id === summary.id);
+      if (sessionIndex !== -1) {
+        state.sessions[sessionIndex] = {
+          ...state.sessions[sessionIndex],
+          ...summary,
+        };
+      } else {
+        state.sessions.unshift(summary);
+      }
     },
 
     setHasMoreSessions(state, action: PayloadAction<boolean>) {
@@ -200,6 +316,119 @@ const coworkSlice = createSlice({
       }
     },
 
+    setSteerDraft(state, action: PayloadAction<{ sessionId: string; draft: string }>) {
+      const { sessionId, draft } = action.payload;
+      if (draft) {
+        state.steerDrafts[sessionId] = draft;
+      } else {
+        delete state.steerDrafts[sessionId];
+      }
+    },
+
+    addPendingSteer(state, action: PayloadAction<CoworkPendingSteer>) {
+      const steer = action.payload;
+      const pending = state.pendingSteers[steer.sessionId] ?? [];
+      const existingIndex = pending.findIndex(item => item.id === steer.id);
+      if (existingIndex >= 0) {
+        pending[existingIndex] = steer;
+      } else {
+        if (pending.length >= COWORK_STEER_QUEUE_LIMIT) {
+          return;
+        }
+        pending.push(steer);
+      }
+      state.pendingSteers[steer.sessionId] = pending;
+    },
+
+    updateSteerStatus(
+      state,
+      action: PayloadAction<{
+        sessionId: string;
+        steerId: string;
+        status: CoworkSteerStatusType;
+        error?: string;
+        reason?: CoworkPendingSteer['reason'];
+      }>,
+    ) {
+      const { sessionId, steerId, status, error, reason } = action.payload;
+      const pending = state.pendingSteers[sessionId] ?? [];
+      const pendingIndex = pending.findIndex(item => item.id === steerId);
+      const existing = pendingIndex >= 0
+        ? pending[pendingIndex]
+        : (state.rejectedSteers[sessionId] ?? []).find(item => item.id === steerId);
+      if (!existing) return;
+
+      const next: CoworkPendingSteer = {
+        ...existing,
+        status,
+        updatedAt: Date.now(),
+        ...(error ? { error } : {}),
+        ...(reason ? { reason } : {}),
+      };
+
+      if (pendingIndex >= 0) {
+        pending.splice(pendingIndex, 1);
+        if (pending.length > 0) {
+          state.pendingSteers[sessionId] = pending;
+        } else {
+          delete state.pendingSteers[sessionId];
+        }
+      }
+
+      if (status === CoworkSteerStatus.Rejected) {
+        const rejected = state.rejectedSteers[sessionId] ?? [];
+        const rejectedIndex = rejected.findIndex(item => item.id === steerId);
+        if (rejectedIndex >= 0) {
+          rejected[rejectedIndex] = next;
+        } else {
+          rejected.push(next);
+        }
+        state.rejectedSteers[sessionId] = rejected.slice(-COWORK_STEER_REJECTED_PREVIEW_LIMIT);
+        return;
+      }
+
+      if (status !== CoworkSteerStatus.Pending) {
+        const rejected = state.rejectedSteers[sessionId] ?? [];
+        state.rejectedSteers[sessionId] = rejected.filter(item => item.id !== steerId);
+        if (state.rejectedSteers[sessionId].length === 0) {
+          delete state.rejectedSteers[sessionId];
+        }
+      }
+    },
+
+    removePendingSteer(
+      state,
+      action: PayloadAction<{ sessionId: string; steerId: string }>,
+    ) {
+      const { sessionId, steerId } = action.payload;
+      const pending = state.pendingSteers[sessionId] ?? [];
+      const nextPending = pending.filter(item => item.id !== steerId);
+      if (nextPending.length > 0) {
+        state.pendingSteers[sessionId] = nextPending;
+      } else {
+        delete state.pendingSteers[sessionId];
+      }
+    },
+
+    removeRejectedSteer(
+      state,
+      action: PayloadAction<{ sessionId: string; steerId: string }>,
+    ) {
+      const { sessionId, steerId } = action.payload;
+      const rejected = state.rejectedSteers[sessionId] ?? [];
+      const nextRejected = rejected.filter(item => item.id !== steerId);
+      if (nextRejected.length > 0) {
+        state.rejectedSteers[sessionId] = nextRejected;
+      } else {
+        delete state.rejectedSteers[sessionId];
+      }
+    },
+
+    clearSteerQueue(state, action: PayloadAction<string>) {
+      delete state.pendingSteers[action.payload];
+      delete state.rejectedSteers[action.payload];
+    },
+
     addSession(state, action: PayloadAction<CoworkSession>) {
       const summary = toSessionSummary(action.payload);
       state.sessions.unshift(summary);
@@ -237,15 +466,57 @@ const coworkSlice = createSlice({
 
     deleteSession(state, action: PayloadAction<string>) {
       removeSessionFromState(state, action.payload);
+      delete state.steerDrafts[action.payload];
+      delete state.pendingSteers[action.payload];
+      delete state.rejectedSteers[action.payload];
+      delete state.messageRailIndexBySessionId[action.payload];
+      delete state.messageRailIndexLoadingBySessionId[action.payload];
     },
 
     deleteSessions(state, action: PayloadAction<string[]>) {
       removeSessionsFromState(state, action.payload);
+      for (const sessionId of action.payload) {
+        delete state.steerDrafts[sessionId];
+        delete state.pendingSteers[sessionId];
+        delete state.rejectedSteers[sessionId];
+        delete state.messageRailIndexBySessionId[sessionId];
+        delete state.messageRailIndexLoadingBySessionId[sessionId];
+      }
+    },
+
+    setMessageRailIndexLoading(state, action: PayloadAction<{ sessionId: string; loading: boolean }>) {
+      const { sessionId, loading } = action.payload;
+      if (loading) {
+        state.messageRailIndexLoadingBySessionId[sessionId] = true;
+      } else {
+        delete state.messageRailIndexLoadingBySessionId[sessionId];
+      }
+    },
+
+    setMessageRailIndex(state, action: PayloadAction<{ sessionId: string; items: CoworkMessageRailIndexItem[] }>) {
+      const { sessionId, items } = action.payload;
+      state.messageRailIndexBySessionId[sessionId] = items;
+      delete state.messageRailIndexLoadingBySessionId[sessionId];
+    },
+
+    setMessageWindow(
+      state,
+      action: PayloadAction<{
+        sessionId: string;
+        messages: CoworkMessage[];
+        messagesOffset: number;
+        totalMessages: number;
+      }>,
+    ) {
+      const { sessionId, messages, messagesOffset, totalMessages } = action.payload;
+      if (state.currentSession?.id !== sessionId) return;
+      state.currentSession.messages = messages;
+      state.currentSession.messagesOffset = messagesOffset;
+      state.currentSession.totalMessages = totalMessages;
     },
 
     addMessage(state, action: PayloadAction<{ sessionId: string; message: CoworkMessage; beforeMessageId?: string }>) {
       const { sessionId, message, beforeMessageId } = action.payload;
-
       if (state.currentSession?.id === sessionId) {
         const exists = state.currentSession.messages.some((item) => item.id === message.id);
         if (!exists) {
@@ -254,7 +525,6 @@ const coworkSlice = createSlice({
           let inserted = false;
           if (beforeMessageId) {
             const targetIndex = state.currentSession.messages.findIndex((item) => item.id === beforeMessageId);
-            console.log('[ThinkingOrder] Redux addMessage: beforeMessageId=', beforeMessageId, 'targetIndex=', targetIndex, 'messageId=', message.id, 'totalMessages=', state.currentSession.messages.length);
             if (targetIndex !== -1) {
               state.currentSession.messages.splice(targetIndex, 0, message);
               inserted = true;
@@ -268,6 +538,7 @@ const coworkSlice = createSlice({
         }
       }
 
+      upsertRailIndexItem(state, sessionId, message);
       // Update session in list
       const sessionIndex = state.sessions.findIndex(s => s.id === sessionId);
       if (sessionIndex !== -1) {
@@ -289,6 +560,17 @@ const coworkSlice = createSlice({
       const toInsert = messages.filter(m => !existingIds.has(m.id));
       state.currentSession.messages = [...toInsert, ...state.currentSession.messages];
       state.currentSession.messagesOffset = newOffset;
+    },
+
+    /** Append newer messages when a paged message window reaches its local bottom. */
+    appendMessages(state, action: PayloadAction<{ sessionId: string; messages: CoworkMessage[]; totalMessages: number }>) {
+      const { sessionId, messages, totalMessages } = action.payload;
+      if (state.currentSession?.id !== sessionId) return;
+      if (messages.length === 0) return;
+      const existingIds = new Set(state.currentSession.messages.map(m => m.id));
+      const toInsert = messages.filter(m => !existingIds.has(m.id));
+      state.currentSession.messages = [...state.currentSession.messages, ...toInsert];
+      state.currentSession.totalMessages = totalMessages;
     },
 
     updateMessageContent(state, action: PayloadAction<{ sessionId: string; messageId: string; content: string; metadata?: Record<string, unknown> }>) {
@@ -315,6 +597,13 @@ const coworkSlice = createSlice({
         if (metadata?.isThinking !== true && content.trim().length > 0) {
           state.sessions[sessionIndex].lastMessagePreview = toMessagePreview(content);
         }
+      }
+
+      const updatedMessage = state.currentSession?.id === sessionId
+        ? state.currentSession.messages.find(m => m.id === messageId)
+        : null;
+      if (updatedMessage) {
+        upsertRailIndexItem(state, sessionId, updatedMessage);
       }
 
       markSessionUnread(state, sessionId);
@@ -345,6 +634,15 @@ const coworkSlice = createSlice({
         state.contextMaintenanceSessionIds.push(sessionId);
       } else if (!active && existing) {
         state.contextMaintenanceSessionIds = state.contextMaintenanceSessionIds.filter(id => id !== sessionId);
+      }
+    },
+
+    finishSessionActivity(state, action: PayloadAction<{ sessionId: string }>) {
+      const { sessionId } = action.payload;
+      state.contextMaintenanceSessionIds = state.contextMaintenanceSessionIds.filter(id => id !== sessionId);
+      state.compactingSessionIds = state.compactingSessionIds.filter(id => id !== sessionId);
+      if (state.currentSession?.id === sessionId) {
+        state.isStreaming = false;
       }
     },
 
@@ -449,11 +747,18 @@ const coworkSlice = createSlice({
 export const {
   setCoworkActive,
   setSessions,
+  upsertSessionSummary,
   setHasMoreSessions,
   appendSessions,
   setCurrentSessionId,
   setCurrentSession,
   setDraftPrompt,
+  setSteerDraft,
+  addPendingSteer,
+  updateSteerStatus,
+  removePendingSteer,
+  removeRejectedSteer,
+  clearSteerQueue,
   setDraftAttachments,
   addDraftAttachment,
   clearDraftAttachments,
@@ -461,13 +766,18 @@ export const {
   updateSessionStatus,
   deleteSession,
   deleteSessions,
+  setMessageRailIndexLoading,
+  setMessageRailIndex,
+  setMessageWindow,
   addMessage,
+  appendMessages,
   prependMessages,
   updateMessageContent,
   setStreaming,
   setContextUsage,
   setContextCompacting,
   setContextMaintenance,
+  finishSessionActivity,
   markCompactionNotified,
   setRemoteManaged,
   updateSessionPinned,
