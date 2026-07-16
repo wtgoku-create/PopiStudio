@@ -6,7 +6,17 @@
 import express, { NextFunction, Request, Response } from 'express';
 import { Server } from 'http';
 import { PlaywrightManager } from './playwright/manager';
-import { launchBrowser, closeBrowser, isBrowserRunning, BrowserInstance } from './playwright/browser';
+import {
+  launchBrowser,
+  closeBrowser,
+  isBrowserRunning,
+  isCdpEndpointReachable,
+  probeCdpEndpoint,
+  closeUnattachableCdpBrowser,
+  adoptBrowser,
+  CdpPortInUseError,
+  BrowserInstance
+} from './playwright/browser';
 import { BingSearch } from './search/bing';
 import { GoogleSearch } from './search/google';
 import { navigate, screenshot, getContent, getTextContent } from './playwright/operations';
@@ -15,6 +25,11 @@ import { SearchResponse } from './search/types';
 
 type SearchEngine = 'google' | 'bing';
 type SearchEnginePreference = SearchEngine | 'auto';
+
+interface EnsureBrowserResult {
+  instance: BrowserInstance;
+  reused: boolean;
+}
 
 const ALLOWED_URL_SCHEMES = ['http:', 'https:'];
 
@@ -75,6 +90,8 @@ export class BridgeServer {
   private bingSearch: BingSearch;
   private googleSearch: GoogleSearch;
   private browserInstance: BrowserInstance | null = null;
+  private ensureBrowserPromise: Promise<EnsureBrowserResult> | null = null;
+  private sharedPageQueue: Promise<unknown> = Promise.resolve();
   private httpServer: Server | null = null;
   private config: Config;
 
@@ -192,20 +209,13 @@ export class BridgeServer {
       return false;
     }
 
+    if (instance.pid === null) {
+      return true;
+    }
+
     try {
       process.kill(instance.pid, 0);
       return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async isCdpReachable(port: number): Promise<boolean> {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
-        signal: AbortSignal.timeout(1500)
-      });
-      return response.ok;
     } catch {
       return false;
     }
@@ -224,10 +234,29 @@ export class BridgeServer {
     }
   }
 
-  private async ensureBrowserReady(): Promise<{ instance: BrowserInstance; reused: boolean }> {
+  /**
+   * Wait for any in-flight launch to settle so a close/stop racing it cannot
+   * let the freshly spawned Chrome escape and leak.
+   */
+  private async waitForPendingBrowserLaunch(): Promise<void> {
+    if (this.ensureBrowserPromise) {
+      await this.ensureBrowserPromise.catch(() => undefined);
+    }
+  }
+
+  private async ensureBrowserReady(): Promise<EnsureBrowserResult> {
+    if (!this.ensureBrowserPromise) {
+      this.ensureBrowserPromise = this.ensureBrowserReadyExclusive().finally(() => {
+        this.ensureBrowserPromise = null;
+      });
+    }
+    return this.ensureBrowserPromise;
+  }
+
+  private async ensureBrowserReadyExclusive(): Promise<EnsureBrowserResult> {
     if (this.browserInstance) {
       const processAlive = this.isBrowserProcessAlive(this.browserInstance);
-      const cdpReachable = processAlive ? await this.isCdpReachable(this.browserInstance.cdpPort) : false;
+      const cdpReachable = processAlive ? await isCdpEndpointReachable(this.browserInstance.cdpPort) : false;
 
       if (processAlive && cdpReachable) {
         return { instance: this.browserInstance, reused: true };
@@ -237,7 +266,41 @@ export class BridgeServer {
       await this.resetBrowserState();
     }
 
-    this.browserInstance = await launchBrowser(this.config.browser);
+    const cdpPort = this.config.browser.cdpPort;
+
+    if (await isCdpEndpointReachable(cdpPort)) {
+      const probe = await probeCdpEndpoint(cdpPort);
+      if (probe.attachable) {
+        console.log(`[Bridge Server] Adopting existing CDP browser on port ${cdpPort} (pid: ${probe.browserPid ?? 'unknown'})`);
+        this.browserInstance = adoptBrowser(cdpPort, probe.browserPid);
+        return { instance: this.browserInstance, reused: true };
+      }
+
+      console.warn(`[Bridge Server] CDP endpoint on port ${cdpPort} rejects automation clients; closing the stale browser...`);
+      const closed = await closeUnattachableCdpBrowser(cdpPort);
+      if (!closed) {
+        throw new Error(
+          `CDP port ${cdpPort} is occupied by a browser that rejects automation clients and could not be closed; ` +
+          'close that browser manually and retry'
+        );
+      }
+      console.log(`[Bridge Server] Stale browser on port ${cdpPort} closed`);
+    }
+
+    try {
+      this.browserInstance = await launchBrowser(this.config.browser);
+    } catch (error) {
+      if (error instanceof CdpPortInUseError) {
+        const probe = await probeCdpEndpoint(cdpPort);
+        if (probe.attachable) {
+          console.warn(`[Bridge Server] ${error.message}; adopting existing browser instead`);
+          this.browserInstance = adoptBrowser(cdpPort, probe.browserPid);
+          return { instance: this.browserInstance, reused: true };
+        }
+      }
+      throw error;
+    }
+
     return { instance: this.browserInstance, reused: false };
   }
 
@@ -345,6 +408,7 @@ export class BridgeServer {
   // Close browser and disconnect all connections
   private async handleBrowserClose(req: Request, res: Response): Promise<void> {
     try {
+      await this.waitForPendingBrowserLaunch();
       await this.resetBrowserState();
 
       res.json({
@@ -363,7 +427,7 @@ export class BridgeServer {
   private async handleBrowserStatus(req: Request, res: Response): Promise<void> {
     const processAlive = this.isBrowserProcessAlive(this.browserInstance);
     const cdpReachable = processAlive && this.browserInstance
-      ? await this.isCdpReachable(this.browserInstance.cdpPort)
+      ? await isCdpEndpointReachable(this.browserInstance.cdpPort)
       : false;
 
     res.json({
@@ -374,9 +438,23 @@ export class BridgeServer {
         cdpReachable,
         connections: this.playwrightManager.getConnectionCount(),
         pid: this.browserInstance?.pid,
-        cdpPort: this.browserInstance?.cdpPort
+        cdpPort: this.browserInstance?.cdpPort,
+        adopted: this.browserInstance?.adopted
       }
     });
+  }
+
+  /**
+   * Search-flow operations drive the one page shared by every CDP connection;
+   * concurrent page.goto calls abort each other. Serialize them.
+   */
+  private enqueueSharedPageOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.sharedPageQueue.then(operation, operation);
+    this.sharedPageQueue = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
   }
 
   // Search operation
@@ -393,7 +471,9 @@ export class BridgeServer {
       }
 
       const preferredEngine = this.normalizeEnginePreference(engine);
-      const results = await this.searchWithFallback(connectionId, query, maxResults, preferredEngine);
+      const results = await this.enqueueSharedPageOperation(
+        () => this.searchWithFallback(connectionId, query, maxResults, preferredEngine)
+      );
 
       res.json({
         success: true,
@@ -469,7 +549,9 @@ export class BridgeServer {
 
       validateNavigationUrl(url);
 
-      const content = await this.bingSearch.getResultContent(connectionId, url);
+      const content = await this.enqueueSharedPageOperation(
+        () => this.bingSearch.getResultContent(connectionId, url)
+      );
 
       res.json({
         success: true,
@@ -637,6 +719,9 @@ export class BridgeServer {
    */
   async stop(): Promise<void> {
     console.log('\n[Bridge Server] Shutting down...');
+
+    // A launch may still be in flight; wait so its Chrome cannot outlive us.
+    await this.waitForPendingBrowserLaunch();
 
     // Disconnect all Playwright connections
     await this.playwrightManager.disconnectAll();
