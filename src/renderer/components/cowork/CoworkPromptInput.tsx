@@ -1505,7 +1505,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const textareaPlaceholder = steerInputActive ? i18nService.t('coworkSteerPlaceholder') : placeholder;
 
   const readOnlyContextRow = isLarge && showReadOnlyContext && !useHomeContextLayout ? (
-    <div className="mt-2 grid min-h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4">
+    <div className="my-2 grid min-h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4">
       <div aria-hidden="true" />
       {readOnlyContextTrailingText && (
         <span className="pointer-events-none min-w-0 max-w-full select-none truncate text-center text-[13px] text-muted opacity-85">

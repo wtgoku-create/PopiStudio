@@ -98,6 +98,7 @@ const AssistantTurnBlock: React.FC<{
   onOpenLocalService?: (artifact: Artifact) => void;
   showTypingIndicator?: boolean;
   showCopyButtons?: boolean;
+  alwaysShowLastAssistantMeta?: boolean;
   renderToolGroupFooter?: (group: ToolGroupItem) => React.ReactNode;
 }> = ({
   turn,
@@ -107,6 +108,7 @@ const AssistantTurnBlock: React.FC<{
   onOpenLocalService,
   showTypingIndicator = false,
   showCopyButtons = true,
+  alwaysShowLastAssistantMeta = false,
   renderToolGroupFooter,
 }) => {
   const visibleAssistantItems = getVisibleAssistantItems(turn.assistantItems);
@@ -225,6 +227,7 @@ const AssistantTurnBlock: React.FC<{
                     resolveLocalFilePath={resolveLocalFilePath}
                     mapDisplayText={mapDisplayText}
                     showCopyButton={isLastAssistant}
+                    alwaysShowMeta={alwaysShowLastAssistantMeta && isLastAssistant}
                     turnMetadata={isLastAssistant ? (item.message.metadata as CoworkMessageMetadata) : undefined}
                   />
                 );

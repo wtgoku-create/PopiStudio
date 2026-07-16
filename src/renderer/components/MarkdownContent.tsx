@@ -386,17 +386,17 @@ const createMarkdownComponents = (
     </strong>
   ),
   h1: ({ node: _node, className: _className, children, ...props }: any) => (
-    <h1 className="text-2xl font-semibold mt-6 mb-3 text-foreground" {...props}>
+    <h1 className="mt-4 mb-2 text-[18px] font-semibold leading-7 text-foreground" {...props}>
       {children}
     </h1>
   ),
   h2: ({ node: _node, className: _className, children, ...props }: any) => (
-    <h2 className="text-xl font-semibold mt-5 mb-2 text-foreground" {...props}>
+    <h2 className="mt-3.5 mb-1.5 text-[16px] font-semibold leading-6 text-foreground" {...props}>
       {children}
     </h2>
   ),
   h3: ({ node: _node, className: _className, children, ...props }: any) => (
-    <h3 className="text-lg font-semibold mt-4 mb-2 text-foreground" {...props}>
+    <h3 className="mt-3 mb-1.5 text-[15px] font-semibold leading-[23px] text-foreground" {...props}>
       {children}
     </h3>
   ),

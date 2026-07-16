@@ -20,12 +20,14 @@ const AssistantMessageItem: React.FC<{
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   mapDisplayText?: (value: string) => string;
   showCopyButton?: boolean;
+  alwaysShowMeta?: boolean;
   turnMetadata?: CoworkMessageMetadata | null;
 }> = ({
   message,
   resolveLocalFilePath,
   mapDisplayText,
   showCopyButton = false,
+  alwaysShowMeta = false,
   turnMetadata,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -33,6 +35,7 @@ const AssistantMessageItem: React.FC<{
   const rawContent = mapDisplayText ? mapDisplayText(message.content) : message.content;
   const displayContent = rawContent.replace(MEDIA_TOKEN_DISPLAY_RE, '').trimEnd();
   const modelLabel = getMessageModelLabel(turnMetadata);
+  const metaVisible = alwaysShowMeta || isHovered;
   const handleBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
     if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
@@ -64,12 +67,12 @@ const AssistantMessageItem: React.FC<{
         />
       </div>
       {showCopyButton && (
-        <div className={messageMetaClassName(isHovered)} aria-hidden={!isHovered}>
+        <div className={messageMetaClassName(metaVisible)} aria-hidden={!metaVisible}>
           <span>{formatMessageDateTime(message.timestamp)}</span>
           {modelLabel && <span>{modelLabel}</span>}
           <MessageCopyButton
             content={displayContent}
-            visible={isHovered}
+            visible={metaVisible}
           />
         </div>
       )}

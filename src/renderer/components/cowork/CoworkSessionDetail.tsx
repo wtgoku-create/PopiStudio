@@ -3617,6 +3617,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 onOpenLocalService={handleOpenLocalServiceArtifact}
                 showTypingIndicator={showTypingIndicator}
                 showCopyButtons={!isStreaming || !isLastTurn}
+                alwaysShowLastAssistantMeta={!isStreaming && isLastTurn}
                 renderToolGroupFooter={(group) => {
                   const groupSubagents = getToolGroupSubagents(group);
                   if (groupSubagents.length === 0) return null;
@@ -4065,7 +4066,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               </div>
             </div>
           )}
-          <div className="h-20" />
+          <div className="h-2" />
         </div>
 
         {/* Turn Navigation Rail — to the left of scrollbar */}
@@ -4247,7 +4248,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       <div
         ref={promptInputAreaRef}
         className={`relative shrink-0 ${COWORK_DETAIL_GUTTER_CLASS} ${
-          isArtifactPanelExpanded ? 'z-50 bg-background pb-2 pt-1' : 'pb-4 pt-0'
+          isArtifactPanelExpanded ? 'z-50 bg-background pb-2 pt-1' : 'pt-0'
         } ${isArtifactPanelExpanded && isExpandedPromptInputHidden ? 'hidden' : ''}`}
       >
         {isArtifactPanelExpanded && !isExpandedPromptInputHidden && (
