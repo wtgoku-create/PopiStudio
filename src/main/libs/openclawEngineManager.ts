@@ -15,6 +15,11 @@ import {
   getRecentGatewayLogEntries,
   pruneGatewayLogs,
 } from './gatewayLogRotation';
+import {
+  checkPackagedOpenClawRuntimeResources,
+  isOpenClawRuntimeResourceError,
+  type OpenClawRuntimeResourceCheckResult,
+} from './installerResourceRecovery';
 import { mergeNoProxyValue } from './noProxyEnv';
 import { getCodexHomeDir } from './openaiCodexAuth';
 import { migrateLegacyCronStorageWithDoctor } from './openclawCronLegacyMigration';
@@ -88,6 +93,7 @@ type RuntimeMetadata = {
   root: string | null;
   version: string | null;
   expectedPathHint: string;
+  resourceError?: string;
 };
 
 const parseJsonFile = <T>(filePath: string): T | null => {
@@ -237,7 +243,14 @@ export class OpenClawEngineManager extends EventEmitter {
     const runtime = this.resolveRuntimeMetadata();
     this.desiredVersion = runtime.version || DEFAULT_OPENCLAW_VERSION;
 
-    this.status = runtime.root
+    this.status = runtime.resourceError
+      ? {
+          phase: 'error',
+          version: runtime.version || null,
+          message: runtime.resourceError,
+          canRetry: true,
+        }
+      : runtime.root
       ? {
           phase: 'ready',
           version: this.desiredVersion,
@@ -381,6 +394,15 @@ export class OpenClawEngineManager extends EventEmitter {
       });
       return this.getStatus();
     }
+    if (runtime.resourceError) {
+      this.setStatus({
+        phase: 'error',
+        version: runtime.version,
+        message: runtime.resourceError,
+        canRetry: true,
+      });
+      return this.getStatus();
+    }
 
     const localExtensionSync = syncLocalOpenClawExtensionsIntoRuntime(runtime.root);
     if (localExtensionSync.copied.length > 0) {
@@ -475,6 +497,15 @@ export class OpenClawEngineManager extends EventEmitter {
         phase: 'not_installed',
         version: null,
         message: `Bundled OpenClaw runtime is missing. Expected: ${runtime.expectedPathHint}`,
+        canRetry: true,
+      });
+      return this.getStatus();
+    }
+    if (runtime.resourceError) {
+      this.setStatus({
+        phase: 'error',
+        version: runtime.version,
+        message: runtime.resourceError,
         canRetry: true,
       });
       return this.getStatus();
@@ -778,10 +809,22 @@ export class OpenClawEngineManager extends EventEmitter {
         expectedPathHint,
       };
     }
+    const version = this.readRuntimeVersion(runtimeRoot) || DEFAULT_OPENCLAW_VERSION;
+    const resourceCheck: OpenClawRuntimeResourceCheckResult = app.isPackaged
+      ? checkPackagedOpenClawRuntimeResources(runtimeRoot, process.resourcesPath)
+      : { ok: true as const };
+    if (isOpenClawRuntimeResourceError(resourceCheck)) {
+      return {
+        root: runtimeRoot,
+        version,
+        expectedPathHint,
+        resourceError: resourceCheck.message,
+      };
+    }
 
     return {
       root: runtimeRoot,
-      version: this.readRuntimeVersion(runtimeRoot) || DEFAULT_OPENCLAW_VERSION,
+      version,
       expectedPathHint,
     };
   }
