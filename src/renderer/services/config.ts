@@ -1,6 +1,7 @@
 import { ApiFormat, type ProviderConfig, ProviderName, ProviderRegistry } from '@shared/providers';
 
 import { normalizeBrowserWebAccessConfig } from '../../shared/browserWebAccess/constants';
+import { normalizeNotificationSettings } from '../../shared/notifications/constants';
 import { AppConfig, CONFIG_KEYS, defaultConfig, isCustomProvider } from '../config';
 import { localStore } from './store';
 
@@ -377,6 +378,7 @@ class ConfigService {
           } as AppConfig['shortcuts'],
           providers: mergedProviders as AppConfig['providers'],
           browserWebAccess: normalizeBrowserWebAccessConfig(storedConfig.browserWebAccess),
+          notificationSettings: normalizeNotificationSettings(storedConfig.notificationSettings),
         });
       }
     } catch (error) {
@@ -403,6 +405,9 @@ class ConfigService {
       ...(normalizedProviders ? { providers: normalizedProviders } : {}),
       browserWebAccess: normalizeBrowserWebAccessConfig(
         newConfig.browserWebAccess ?? base.browserWebAccess,
+      ),
+      notificationSettings: normalizeNotificationSettings(
+        newConfig.notificationSettings ?? base.notificationSettings,
       ),
     };
     await localStore.setItem(CONFIG_KEYS.APP_CONFIG, this.config);

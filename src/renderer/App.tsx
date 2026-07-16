@@ -3,6 +3,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux';
 
 import {
+  SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
+} from '../shared/cowork/constants';
+import {
   APP_UPDATE_HEARTBEAT_INTERVAL_MS,
   APP_UPDATE_POLL_INTERVAL_MS,
   type AppUpdateInfo,
@@ -105,6 +108,21 @@ const App: React.FC = () => {
     ? minimizedPermissionIds.includes(pendingPermission.requestId)
     : false;
   const isPermissionModalOpen = pendingPermission !== null && !isPendingPermissionMinimized;
+
+  useEffect(() => {
+    void window.electron.cowork.markSessionViewed?.(currentSessionId ?? null);
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    const unsubscribe = window.electron.cowork.onOpenSessionFromNotification?.(({ sessionId }) => {
+      setMainView(MainView.Cowork);
+      if (sessionId === SESSION_AGNOSTIC_PERMISSION_SESSION_ID) return;
+      void coworkService.loadSession(sessionId);
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
 
   const waitWithTimeout = useCallback(
     async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {

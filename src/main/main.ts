@@ -86,6 +86,7 @@ import { saveCoworkApiConfig } from './libs/coworkConfigStore';
 import { getCoworkLogPath } from './libs/coworkLogger';
 import { registerProxyTokenRefresher, startCoworkOpenAICompatProxy, stopCoworkOpenAICompatProxy } from './libs/coworkOpenAICompatProxy';
 import { generateSessionTitle, probeCoworkModelReadiness } from './libs/coworkUtil';
+import { DesktopNotificationManager } from './libs/desktopNotificationManager';
 import { getKnowledgeDefaultBaseUrl, getKnowledgeFrameSource, getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession, isPreviewServerUrl, stopHtmlPreviewServer } from './libs/htmlPreviewServer';
@@ -166,6 +167,7 @@ import {
   resolveInitialAppWindowState,
 } from './windowState';
 import { createWindowStatePersistManager } from './windowStatePersist';
+import { normalizeNotificationSettings, type NotificationSettings } from '../shared/notifications/constants';
 
 const gwDiagTs = (): string => {
   const d = new Date();
@@ -1772,6 +1774,10 @@ const bindCoworkRuntimeForwarder = (): void => {
       return;
     }
     const safeRequest = sanitizePermissionRequestForIpc(request);
+    desktopNotificationManager.handlePermissionRequest(sessionId, safeRequest as {
+      requestId?: string;
+      toolName?: string;
+    });
     const windows = BrowserWindow.getAllWindows();
     windows.forEach((win) => {
       if (win.isDestroyed()) return;
@@ -1784,6 +1790,7 @@ const bindCoworkRuntimeForwarder = (): void => {
   });
 
   runtime.on('complete', (sessionId: string, claudeSessionId: string | null) => {
+    desktopNotificationManager.handleComplete(sessionId);
     const windows = BrowserWindow.getAllWindows();
     windows.forEach((win) => {
       if (win.isDestroyed()) return;
@@ -1865,6 +1872,12 @@ const getMcpRuntime = () => {
       getStore,
       getPopiTVMcpUrl: () => popiTVToolBridgeServer?.mcpUrl ?? null,
       getWeknoraOpenClawMcpProxyUrl,
+      onAskUserPermissionRequest: (sessionId, request) => {
+        desktopNotificationManager.handlePermissionRequest(sessionId, request);
+      },
+      onAskUserPermissionDismiss: (requestId) => {
+        desktopNotificationManager.handlePermissionResolved(requestId);
+      },
     });
   }
   return mcpRuntime;
@@ -2153,6 +2166,13 @@ const getAppIconPath = (): string | undefined => {
     : path.join(basePath, 'tray-icon.png');
 };
 
+const getNotificationIconPath = (): string => {
+  const platformIcon = getAppIconPath();
+  if (platformIcon && fs.existsSync(platformIcon)) return platformIcon;
+  const fallbackPath = path.join(__dirname, '../build/icons/png/512x512.png');
+  return fs.existsSync(fallbackPath) ? fallbackPath : '';
+};
+
 // 保存对主窗口的引用
 let mainWindow: BrowserWindow | null = null;
 
@@ -2173,11 +2193,35 @@ type AppConfigSettings = {
   useSystemProxy?: boolean;
   sqliteAutoBackupEnabled?: boolean;
   browserWebAccess?: Partial<BrowserWebAccessConfig>;
+  notificationSettings?: NotificationSettings;
 };
 
 const getUseSystemProxyFromConfig = (config?: { useSystemProxy?: boolean }): boolean => {
   return config?.useSystemProxy === true;
 };
+
+const focusMainWindow = (): void => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  if (!mainWindow.isFocused()) mainWindow.focus();
+};
+
+const desktopNotificationManager = new DesktopNotificationManager({
+  getWindow: () => mainWindow,
+  getNotificationIconPath,
+  getNotificationSettings: () => normalizeNotificationSettings(
+    getStore().get<AppConfigSettings>('app_config')?.notificationSettings,
+  ),
+  getSessionTitle: (sessionId: string) => {
+    try {
+      return getCoworkStore().getSession(sessionId)?.title ?? null;
+    } catch {
+      return null;
+    }
+  },
+  focusMainWindow,
+});
 
 const hasBrowserWebAccessConfigChanged = (
   previousConfig?: AppConfigSettings,
@@ -3365,10 +3409,19 @@ if (!gotTheLock) {
     }
   });
 
+  ipcMain.handle(CoworkIpcChannel.MarkSessionViewed, async (_event, sessionId: string | null) => {
+    desktopNotificationManager.setActiveSession(sessionId ?? null);
+    if (sessionId) {
+      desktopNotificationManager.markSessionViewed(sessionId);
+    }
+    return { success: true };
+  });
+
   ipcMain.handle('cowork:session:stop', async (_event, sessionId: string) => {
     try {
       const runtime = getCoworkEngineRouter();
       runtime.stopSession(sessionId);
+      desktopNotificationManager.handleSessionStopped(sessionId);
       return { success: true };
     } catch (error) {
       return {
@@ -3383,6 +3436,7 @@ if (!gotTheLock) {
       getCoworkEngineRouter().stopSession(sessionId);
       const coworkStoreInstance = getCoworkStore();
       coworkStoreInstance.deleteSession(sessionId);
+      desktopNotificationManager.handleSessionDeleted(sessionId);
       // Clean up IM session mapping so that new channel messages
       // create a fresh session instead of referencing a deleted one.
       try {
@@ -3414,6 +3468,7 @@ if (!gotTheLock) {
       });
       const coworkStoreInstance = getCoworkStore();
       coworkStoreInstance.deleteSessions(sessionIds);
+      sessionIds.forEach(sessionId => desktopNotificationManager.handleSessionDeleted(sessionId));
       const router = getCoworkEngineRouter();
       for (const sessionId of sessionIds) {
         try {
@@ -3926,6 +3981,7 @@ if (!gotTheLock) {
 
       // AskUserQuestion plugin responses go to the MCP runtime bridge, not the agent runtime.
       if (options.requestId) {
+        desktopNotificationManager.handlePermissionResolved(options.requestId);
         const result = options.result;
         const askUserResponse: import('./mcpRuntime').AskUserResponse = {
           behavior: result.behavior === 'allow' ? 'allow' : 'deny',
@@ -6841,6 +6897,10 @@ end tell'`, { timeout: 5000 });
       if (openClawEngineManager && !mainWindow?.isDestroyed()) {
         mainWindow.webContents.send('openclaw:engine:onProgress', openClawEngineManager.getStatus());
       }
+    });
+
+    mainWindow.on('focus', () => {
+      desktopNotificationManager.handleWindowFocused();
     });
 
     // 处理窗口关闭

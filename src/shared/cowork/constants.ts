@@ -10,6 +10,8 @@ export const COWORK_MESSAGE_PAGE_SIZE = 30;
  */
 export const SESSION_AGNOSTIC_PERMISSION_SESSION_ID = '__session_agnostic_permission__';
 
+export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
+
 export const CoworkSessionSourceKind = {
   AgentHome: 'agentHome',
   ScheduledTask: 'scheduledTask',
@@ -27,6 +29,8 @@ export const CoworkIpcChannel = {
   SubagentList: 'cowork:subagent:list',
   SubagentDelete: 'cowork:subagent:delete',
   SubmitSteer: 'cowork:session:submitSteer',
+  MarkSessionViewed: 'cowork:session:markViewed',
+  OpenSessionFromNotification: 'cowork:session:openFromNotification',
 } as const;
 
 export type CoworkIpcChannel =

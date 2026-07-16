@@ -4,6 +4,10 @@ import {
   type BrowserWebAccessConfig,
   defaultBrowserWebAccessConfig,
 } from '../shared/browserWebAccess/constants';
+import {
+  type NotificationSettings,
+  defaultNotificationSettings,
+} from '../shared/notifications/constants';
 
 // 配置类型定义
 export interface AppConfig {
@@ -34,6 +38,8 @@ export interface AppConfig {
   sqliteAutoBackupEnabled?: boolean;
   // 浏览器与网页访问配置
   browserWebAccess: BrowserWebAccessConfig;
+  // 桌面通知配置
+  notificationSettings: NotificationSettings;
   // 语言初始化标记 (用于判断是否是首次启动)
   language_initialized?: boolean;
   // 应用配置
@@ -87,6 +93,7 @@ export const defaultConfig: AppConfig = {
   useSystemProxy: false,
   sqliteAutoBackupEnabled: false,
   browserWebAccess: defaultBrowserWebAccessConfig,
+  notificationSettings: defaultNotificationSettings,
   app: {
     port: 3000,
     isDevelopment: process.env.NODE_ENV === 'development',
