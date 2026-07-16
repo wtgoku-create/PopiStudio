@@ -7,14 +7,80 @@ import {
 import type { CoworkMessage } from '../types/cowork';
 
 /**
+ * Normalize a local artifact path from markdown, MEDIA tokens, or tool metadata.
+ */
+export function normalizeArtifactFilePath(filePath: string): string {
+  let normalized = filePath.trim();
+  const mediaMatch = normalized.match(/(?:^|[\\/])MEDIA:\s*(.+)$/i);
+  if (mediaMatch) {
+    normalized = mediaMatch[1].trim();
+  } else {
+    normalized = normalized.replace(/^MEDIA:\s*/i, '').trim();
+  }
+  if (normalized.startsWith('file:///')) {
+    normalized = normalized.slice(7);
+  } else if (normalized.startsWith('file://')) {
+    normalized = normalized.slice(7);
+  } else if (normalized.startsWith('file:/')) {
+    normalized = normalized.slice(5);
+  } else if (normalized.startsWith('localfile:///')) {
+    normalized = normalized.slice(12);
+  } else if (normalized.startsWith('localfile://')) {
+    normalized = normalized.slice(12);
+  }
+  const queryIndex = normalized.search(/[?#]/);
+  if (queryIndex >= 0) {
+    normalized = normalized.slice(0, queryIndex);
+  }
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {
+    // Keep literal percent signs as-is.
+  }
+  if (/^\/[A-Za-z]:/.test(normalized)) normalized = normalized.slice(1);
+  return normalized;
+}
+
+/**
  * Normalize file path for deduplication comparison.
  * Handles Windows file:// URL leading slash and backslash differences.
  */
 export function normalizeFilePathForDedup(p: string): string {
-  // Strip leading / before drive letter (e.g. /D:/path from file:///D:/path)
-  if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1);
+  const normalized = normalizeArtifactFilePath(p);
   // Unify separators and case for comparison
-  return p.replace(/\\/g, '/').toLowerCase();
+  return normalized.replace(/\\/g, '/').toLowerCase();
+}
+
+export function toAbsoluteArtifactPath(filePath: string, cwd?: string): string {
+  const rawPath = normalizeArtifactFilePath(filePath);
+  if (rawPath.startsWith('/') || /^[A-Za-z]:/.test(rawPath) || rawPath.startsWith('~')) {
+    return rawPath;
+  }
+  const base = cwd?.trim().replace(/[\\/]+$/, '');
+  if (!base) return rawPath;
+  return `${base}/${rawPath.replace(/^\.\//, '')}`;
+}
+
+const IGNORED_ARTIFACT_DIRECTORY_NAMES = new Set(['node_modules']);
+
+export function isIgnoredArtifactPath(filePath: string): boolean {
+  const normalized = normalizeArtifactFilePath(filePath).replace(/\\/g, '/');
+  const segments = normalized
+    .split('/')
+    .filter(segment => segment && segment !== '.' && segment !== '..' && segment !== '~');
+  return segments.some(segment => {
+    const lower = segment.toLowerCase();
+    return lower.startsWith('.') || IGNORED_ARTIFACT_DIRECTORY_NAMES.has(lower);
+  });
+}
+
+export function isPathInsideDirectory(filePath: string, directory: string): boolean {
+  const file = normalizeFilePathForDedup(filePath);
+  const dir = normalizeProjectDirectoryForDedup(directory);
+  if (!file || !dir) return false;
+  if (file === dir) return true;
+  const prefix = dir.endsWith('/') ? dir : `${dir}/`;
+  return file.startsWith(prefix);
 }
 
 const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {

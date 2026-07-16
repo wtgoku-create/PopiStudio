@@ -16,7 +16,8 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo,useRef, useStat
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { dedupeArtifactsForDisplay, normalizeFilePathForDedup, normalizeLocalServiceUrlForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseRemoteImageArtifactsFromText, parseToolArtifact, parseToolResultMediaArtifacts, shouldParseFilePathsFromToolResult, stripFileLinksFromText } from '../../services/artifactParser';
+import { collectSessionArtifacts, loadDetectedFileArtifact } from '../../services/artifactDetection';
+import { dedupeArtifactsForDisplay, normalizeFilePathForDedup, parseMediaTokensFromText, parseToolResultMediaArtifacts } from '../../services/artifactParser';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { knowledgeService } from '../../services/knowledge';
@@ -214,38 +215,6 @@ const waitForNextFrame = (): Promise<void> =>
   new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
-
-const decodeArtifactDataUrl = async (dataUrl: string, isTextType: boolean): Promise<string> => {
-  if (!isTextType) return dataUrl;
-  try {
-    const base64 = dataUrl.split(',')[1] || '';
-    const chunkSize = 32 * 1024;
-    const chunks: Uint8Array[] = [];
-    let byteLength = 0;
-
-    for (let offset = 0; offset < base64.length; offset += chunkSize) {
-      await waitForNextFrame();
-      const binary = atob(base64.slice(offset, offset + chunkSize));
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index);
-      }
-      chunks.push(bytes);
-      byteLength += bytes.length;
-    }
-
-    const merged = new Uint8Array(byteLength);
-    let writeOffset = 0;
-    for (const chunk of chunks) {
-      merged.set(chunk, writeOffset);
-      writeOffset += chunk.length;
-    }
-
-    return new TextDecoder('utf-8').decode(merged);
-  } catch {
-    return dataUrl;
-  }
-};
 
 const loadImageFromBase64 = (pngBase64: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
@@ -2446,133 +2415,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     if (isStreaming) return;
 
     try {
-      const messages = currentSession.messages;
-      const detected: Artifact[] = [];
-      const pushFileArtifactIfNew = (artifact: Artifact, seenFilePaths: Set<string>) => {
-        const normalized = artifact.filePath ? normalizeFilePathForDedup(artifact.filePath) : '';
-        if (!artifact.filePath || seenFilePaths.has(normalized)) return;
-        seenFilePaths.add(normalized);
-        detected.push(artifact);
-      };
-      const pushLocalServiceArtifactIfNew = (artifact: Artifact, seenLocalServiceUrls: Set<string>) => {
-        const url = artifact.url || artifact.content;
-        const normalized = normalizeLocalServiceUrlForDedup(url);
-        if (!url || seenLocalServiceUrls.has(normalized)) return;
-        seenLocalServiceUrls.add(normalized);
-        detected.push(artifact);
-      };
-
-      for (const msg of messages) {
-        if (msg.type === 'assistant' && !msg.metadata?.isThinking && msg.content) {
-          const seenFilePaths = new Set<string>();
-          const seenLocalServiceUrls = new Set<string>();
-          const localServiceArtifacts = parseLocalServiceUrlsFromText(
-            msg.content,
-            msg.id,
-            sessionId,
-            { projectDirectory: currentSession?.cwd },
-          );
-          for (const serviceArtifact of localServiceArtifacts) {
-            pushLocalServiceArtifactIfNew(serviceArtifact, seenLocalServiceUrls);
-          }
-
-          const fileLinks = parseFileLinksFromMessage(msg.content, msg.id, sessionId);
-          for (const fl of fileLinks) {
-            pushFileArtifactIfNew(fl, seenFilePaths);
-          }
-
-          const contentWithoutFileLinks = stripFileLinksFromText(msg.content);
-          const pathArtifacts = parseFilePathsFromText(contentWithoutFileLinks, msg.id, sessionId);
-          for (const pa of pathArtifacts) {
-            pushFileArtifactIfNew(pa, seenFilePaths);
-          }
-
-          detected.push(...parseRemoteImageArtifactsFromText(msg.content, msg.id, sessionId, 'artifact-remote-assistant'));
-        }
-
-        if (msg.type === 'tool_result') {
-          const seenFilePaths = new Set<string>();
-          const toolMediaArtifacts = parseToolResultMediaArtifacts(msg, sessionId);
-          if (toolMediaArtifacts.length > 0) {
-            for (const mediaArtifact of toolMediaArtifacts) {
-              if (mediaArtifact.filePath) {
-                pushFileArtifactIfNew(mediaArtifact, seenFilePaths);
-              } else {
-                detected.push(mediaArtifact);
-              }
-            }
-            continue;
-          }
-
-          if (!msg.content) continue;
-
-          const mediaArtifacts = parseMediaTokensFromText(msg.content, msg.id, sessionId);
-          for (const ma of mediaArtifacts) {
-            pushFileArtifactIfNew(ma, seenFilePaths);
-          }
-
-          const toolUseId = msg.metadata?.toolUseId;
-          const pairedToolUse = toolUseId
-            ? messages.find(m => m.type === 'tool_use' && m.metadata?.toolUseId === toolUseId)
-            : undefined;
-          const toolName = pairedToolUse?.metadata?.toolName
-            ? String(pairedToolUse.metadata.toolName)
-            : '';
-          if (shouldParseFilePathsFromToolResult(toolName)) {
-            const pathArtifacts = parseFilePathsFromText(msg.content, msg.id, sessionId, 'artifact-toolresult');
-            for (const pa of pathArtifacts) {
-              pushFileArtifactIfNew(pa, seenFilePaths);
-            }
-          }
-          detected.push(...parseRemoteImageArtifactsFromText(msg.content, msg.id, sessionId, 'artifact-remote-toolresult'));
-        }
-
-        if (msg.type === 'system') {
-          const seenFilePaths = new Set<string>();
-          const toolMediaArtifacts = parseToolResultMediaArtifacts(msg, sessionId);
-          if (toolMediaArtifacts.length > 0) {
-            for (const mediaArtifact of toolMediaArtifacts) {
-              if (mediaArtifact.filePath) {
-                pushFileArtifactIfNew(mediaArtifact, seenFilePaths);
-              } else {
-                detected.push(mediaArtifact);
-              }
-            }
-            continue;
-          }
-
-          if (!msg.content) continue;
-
-          const fileLinks = parseFileLinksFromMessage(msg.content, msg.id, sessionId);
-          for (const fl of fileLinks) {
-            pushFileArtifactIfNew(fl, seenFilePaths);
-          }
-
-          const contentWithoutFileLinks = stripFileLinksFromText(msg.content);
-          const pathArtifacts = parseFilePathsFromText(contentWithoutFileLinks, msg.id, sessionId, 'artifact-system-path');
-          for (const pa of pathArtifacts) {
-            pushFileArtifactIfNew(pa, seenFilePaths);
-          }
-
-          detected.push(...parseRemoteImageArtifactsFromText(msg.content, msg.id, sessionId, 'artifact-remote-system'));
-        }
-      }
-
-      for (let i = 0; i < messages.length; i++) {
-        const msg = messages[i];
-        if (msg.type === 'tool_use') {
-          const toolUseId = msg.metadata?.toolUseId;
-          const toolResult = toolUseId
-            ? messages.find(m => m.type === 'tool_result' && m.metadata?.toolUseId === toolUseId)
-            : messages[i + 1]?.type === 'tool_result' ? messages[i + 1] : undefined;
-          const toolArtifact = parseToolArtifact(msg, toolResult, sessionId);
-          if (toolArtifact && toolArtifact.filePath) {
-            detected.push(toolArtifact);
-          }
-        }
-      }
-
       const cwd = currentSession.cwd;
+      const detected = collectSessionArtifacts(currentSession.messages, sessionId, cwd);
+
       for (const artifact of detected) {
         if (artifact.type === ArtifactTypeValue.LocalService) {
           dispatch(addArtifact({ sessionId, artifact }));
@@ -2585,62 +2430,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       const loadFiles = async () => {
         for (const artifact of toLoad) {
           await waitForNextFrame();
-          let rawPath = artifact.filePath!;
-          if (rawPath.startsWith('file:///')) {
-            rawPath = rawPath.slice(7);
-          } else if (rawPath.startsWith('file://')) {
-            rawPath = rawPath.slice(7);
-          } else if (rawPath.startsWith('file:/')) {
-            rawPath = rawPath.slice(5);
-          }
-          // Strip leading / before Windows drive letter
-          if (/^\/[A-Za-z]:/.test(rawPath)) {
-            rawPath = rawPath.slice(1);
-          }
-          const absPath = rawPath.startsWith('/')
-            ? rawPath
-            : (/^[A-Za-z]:/.test(rawPath) ? rawPath : `${cwd}/${rawPath}`);
-          if (artifact.type === ArtifactTypeValue.Html) {
-            try {
-              const stat = await window.electron.dialog.statFile(absPath);
-              if (stat?.success && stat.isFile) {
-                dispatch(addArtifact({
-                  sessionId,
-                  artifact: { ...artifact, content: '', filePath: absPath, contentVersion: Date.now() },
-                }));
-              }
-            } catch {
-              // File unreadable or missing.
-            }
-            loadedFileIdsRef.current.add(artifact.id);
-            continue;
-          }
-          try {
-            if (artifact.type === ArtifactTypeValue.Video || artifact.type === ArtifactTypeValue.Audio) {
-              loadedFileIdsRef.current.add(artifact.id);
-              dispatch(addArtifact({
-                sessionId,
-                artifact: { ...artifact, content: '', filePath: absPath },
-              }));
-              continue;
-            }
-            const result = await window.electron.dialog.readFileAsDataUrl(absPath);
-            if (result?.success && result.dataUrl) {
-              const isTextType = artifact.type !== 'image'
-                && artifact.type !== 'document';
-              const content = await decodeArtifactDataUrl(result.dataUrl, isTextType);
-              loadedFileIdsRef.current.add(artifact.id);
-              dispatch(addArtifact({
-                sessionId,
-                artifact: { ...artifact, content, filePath: absPath },
-              }));
-            } else {
-              // File does not exist or is unreadable — mark as loaded to avoid retrying
-              loadedFileIdsRef.current.add(artifact.id);
-            }
-          } catch {
-            // File unreadable or missing — mark as loaded to avoid retrying
-            loadedFileIdsRef.current.add(artifact.id);
+          const loaded = await loadDetectedFileArtifact(artifact, cwd);
+          loadedFileIdsRef.current.add(artifact.id);
+          if (loaded) {
+            dispatch(addArtifact({ sessionId, artifact: loaded }));
           }
         }
       };
@@ -2701,50 +2494,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         for (const artifact of toLoad) {
           if (loadedFileIdsRef.current.has(artifact.id)) continue;
           await waitForNextFrame();
-          let rawPath = artifact.filePath!;
-          if (rawPath.startsWith('file:///')) {
-            rawPath = rawPath.slice(7);
-          } else if (rawPath.startsWith('file://')) {
-            rawPath = rawPath.slice(7);
-          } else if (rawPath.startsWith('file:/')) {
-            rawPath = rawPath.slice(5);
-          }
-          if (/^\/[A-Za-z]:/.test(rawPath)) {
-            rawPath = rawPath.slice(1);
-          }
-          const absPath = rawPath.startsWith('/')
-            ? rawPath
-            : (/^[A-Za-z]:/.test(rawPath) ? rawPath : `${cwd}/${rawPath}`);
-          if (artifact.type === ArtifactTypeValue.Html) {
-            try {
-              const stat = await window.electron.dialog.statFile(absPath);
-              if (stat?.success && stat.isFile) {
-                dispatch(addArtifact({
-                  sessionId,
-                  artifact: { ...artifact, content: '', filePath: absPath, contentVersion: Date.now() },
-                }));
-              }
-            } catch {
-              // File unreadable or missing.
-            }
-            loadedFileIdsRef.current.add(artifact.id);
-            continue;
-          }
-          try {
-            const result = await window.electron.dialog.readFileAsDataUrl(absPath);
-            if (result?.success && result.dataUrl) {
-              const isTextType = artifact.type !== 'image' && artifact.type !== 'document';
-              const content = await decodeArtifactDataUrl(result.dataUrl, isTextType);
-              loadedFileIdsRef.current.add(artifact.id);
-              dispatch(addArtifact({
-                sessionId,
-                artifact: { ...artifact, content, filePath: absPath },
-              }));
-            } else {
-              loadedFileIdsRef.current.add(artifact.id);
-            }
-          } catch {
-            loadedFileIdsRef.current.add(artifact.id);
+          const loaded = await loadDetectedFileArtifact(artifact, cwd);
+          loadedFileIdsRef.current.add(artifact.id);
+          if (loaded) {
+            dispatch(addArtifact({ sessionId, artifact: loaded }));
           }
         }
       };
