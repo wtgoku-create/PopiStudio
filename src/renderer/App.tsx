@@ -621,7 +621,12 @@ const App: React.FC = () => {
   // Listen for toast events from child components
   useEffect(() => {
     const handler = (e: Event) => {
-      const message = (e as CustomEvent<string>).detail;
+      const detail = (e as CustomEvent<unknown>).detail;
+      const message = typeof detail === 'string'
+        ? detail
+        : detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string'
+          ? detail.message
+          : '';
       if (message) showToast(message);
     };
     window.addEventListener('app:showToast', handler);
