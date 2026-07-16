@@ -71,6 +71,11 @@ import MarkdownContent from '../MarkdownContent';
 import AssistantTurnBlock, { ContextCompactionDivider } from './AssistantTurnBlock';
 import { type CoworkOpenShareOptionsEventDetail,CoworkUiEvent } from './constants';
 import ContextUsageIndicator from './ContextUsageIndicator';
+import {
+  canScrollElementInWheelDirection,
+  isWheelScrollingAwayFromBottom,
+  shouldAutoScrollForPosition,
+} from './conversationScrollPolicy';
 import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
 import LazyRenderTurn, { clearHeightCache } from './LazyRenderTurn';
 import {
@@ -100,7 +105,6 @@ interface CoworkSessionDetailProps {
   onRespondToPermission?: (result: CoworkPermissionResult) => void;
 }
 
-const AUTO_SCROLL_THRESHOLD = 120;
 const NAV_SCROLL_LOCK_DURATION = 800;
 const NAV_BOTTOM_SNAP_THRESHOLD = 20;
 const SCROLL_TO_BOTTOM_SETTLE_THRESHOLD = 24;
@@ -122,6 +126,12 @@ const AUTO_PREVIEW_ARTIFACT_SETTLE_MS = 600;
 const EXPANDED_CONVERSATION_PREVIEW_ITEM_LIMIT = 6;
 const EXPANDED_CONVERSATION_PREVIEW_ITEM_MAX_LENGTH = 140;
 const EXPANDED_CONVERSATION_PREVIEW_COLLAPSED_MAX_LENGTH = 90;
+const AutoScrollDetachSource = {
+  ConversationWheel: 'conversation_wheel',
+  RailWheel: 'rail_wheel',
+  ScrollToBottomControlWheel: 'scroll_to_bottom_control_wheel',
+} as const;
+type AutoScrollDetachSource = typeof AutoScrollDetachSource[keyof typeof AutoScrollDetachSource];
 const toWikiArtifactId = (sessionId: string, kbId: string, slug: string): string => (
   `artifact-wiki-${sessionId}-${encodeURIComponent(kbId)}-${encodeURIComponent(slug)}`
 );
@@ -214,6 +224,33 @@ const waitForNextFrame = (): Promise<void> =>
   new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
+
+const isWheelHandledByNestedScroller = (
+  target: EventTarget | null,
+  conversationContainer: HTMLElement,
+  deltaY: number,
+): boolean => {
+  let element = target instanceof HTMLElement ? target : null;
+  while (element && element !== conversationContainer) {
+    const style = window.getComputedStyle(element);
+    const hasScrollableOverflow = style.overflowY === 'auto' || style.overflowY === 'scroll';
+    if (hasScrollableOverflow && element.scrollHeight > element.clientHeight) {
+      if (style.overscrollBehaviorY === 'contain' || style.overscrollBehaviorY === 'none') {
+        return true;
+      }
+      if (canScrollElementInWheelDirection(
+        element.scrollTop,
+        element.scrollHeight,
+        element.clientHeight,
+        deltaY,
+      )) {
+        return true;
+      }
+    }
+    element = element.parentElement;
+  }
+  return false;
+};
 
 const decodeArtifactDataUrl = async (dataUrl: string, isTextType: boolean): Promise<string> => {
   if (!isTextType) return dataUrl;
@@ -1172,6 +1209,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [steerPreviewPortalTarget, setSteerPreviewPortalTarget] = useState<HTMLDivElement | null>(null);
   const compactConfirmRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const shouldAutoScrollRef = useRef(true);
+  const userDetachedFromBottomRef = useRef(false);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
   const [showCompactConfirm, setShowCompactConfirm] = useState(false);
   const isLoadingMoreMessagesRef = useRef(false);
@@ -1189,13 +1228,32 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     scrollToBottomSettleTimersRef.current.forEach(timer => clearTimeout(timer));
     scrollToBottomSettleTimersRef.current = [];
   }, []);
-  const cancelAutoScrollForManualScroll = useCallback((container: HTMLDivElement, nextScrollTop = container.scrollTop) => {
-    const distanceToBottom = container.scrollHeight - nextScrollTop - container.clientHeight;
-    if (distanceToBottom <= AUTO_SCROLL_THRESHOLD) return;
+  const updateShouldAutoScroll = useCallback((enabled: boolean) => {
+    shouldAutoScrollRef.current = enabled;
+    setShouldAutoScroll((current) => (current === enabled ? current : enabled));
+  }, []);
+  const detachAutoScrollForUserIntent = useCallback((source: AutoScrollDetachSource) => {
+    const hadScrollToBottomIntent = scrollToBottomIntentRef.current;
+    if (userDetachedFromBottomRef.current && !hadScrollToBottomIntent) return;
+
+    userDetachedFromBottomRef.current = true;
     scrollToBottomIntentRef.current = false;
     clearScrollToBottomSettleTimers();
-    setShouldAutoScroll(false);
-  }, [clearScrollToBottomSettleTimers]);
+    updateShouldAutoScroll(false);
+
+    const container = scrollContainerRef.current;
+    const distanceToBottom = container
+      ? Math.max(0, Math.round(container.scrollHeight - container.scrollTop - container.clientHeight))
+      : -1;
+    console.debug(
+      `[CoworkSessionDetail] Auto-scroll detached by user input; session=${currentSession?.id ?? 'unknown'}; source=${source}; distanceToBottom=${distanceToBottom}; cancelledScrollToBottom=${hadScrollToBottomIntent}.`,
+    );
+  }, [clearScrollToBottomSettleTimers, currentSession?.id, updateShouldAutoScroll]);
+  const cancelAutoScrollForManualScroll = useCallback((container: HTMLDivElement, nextScrollTop = container.scrollTop) => {
+    const distanceToBottom = container.scrollHeight - nextScrollTop - container.clientHeight;
+    if (shouldAutoScrollForPosition(distanceToBottom, userDetachedFromBottomRef.current)) return;
+    detachAutoScrollForUserIntent(AutoScrollDetachSource.RailWheel);
+  }, [detachAutoScrollForUserIntent]);
   const clearAutoPreviewArtifactSettleTimer = useCallback(() => {
     if (autoPreviewArtifactSettleTimerRef.current) {
       clearTimeout(autoPreviewArtifactSettleTimerRef.current);
@@ -1287,8 +1345,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [showExportOptions, setShowExportOptions] = useState(false);
 
   useEffect(() => {
-    setShouldAutoScroll(true);
-  }, [currentSession?.id]);
+    userDetachedFromBottomRef.current = false;
+    updateShouldAutoScroll(true);
+  }, [currentSession?.id, updateShouldAutoScroll]);
 
   const handleCompactContext = useCallback(() => {
     if (!currentSession?.id) {
@@ -2771,6 +2830,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     currentRailIndexRef.current = -1;
     isNavigatingRef.current = false;
     scrollToBottomIntentRef.current = false;
+    userDetachedFromBottomRef.current = false;
     turnElsCacheRef.current = [];
     loadedRailRangeRef.current = null;
     isLoadingRailTargetRef.current = false;
@@ -3027,8 +3087,17 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const container = scrollContainerRef.current;
     if (!container) return;
     const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    const isNearBottom = distanceToBottom <= AUTO_SCROLL_THRESHOLD;
-    setShouldAutoScroll((prev) => (prev === isNearBottom ? prev : isNearBottom));
+    const nextShouldAutoScroll = shouldAutoScrollForPosition(
+      distanceToBottom,
+      userDetachedFromBottomRef.current,
+    );
+    if (userDetachedFromBottomRef.current && nextShouldAutoScroll) {
+      userDetachedFromBottomRef.current = false;
+      console.debug(
+        `[CoworkSessionDetail] Auto-scroll reattached at conversation bottom; session=${currentSession?.id ?? 'unknown'}; distanceToBottom=${Math.max(0, Math.round(distanceToBottom))}.`,
+      );
+    }
+    updateShouldAutoScroll(nextShouldAutoScroll);
     if (scrollToBottomIntentRef.current && distanceToBottom <= SCROLL_TO_BOTTOM_SETTLE_THRESHOLD) {
       scrollToBottomIntentRef.current = false;
       clearScrollToBottomSettleTimers();
@@ -3136,6 +3205,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     currentSession?.messages.length,
     currentSession?.messagesOffset,
     currentSession?.totalMessages,
+    updateShouldAutoScroll,
   ]);
 
   // Auto-load older messages if content doesn't fill the container (no scrollbar = onScroll never fires)
@@ -3223,6 +3293,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const handleMessagesWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    if (isWheelScrollingAwayFromBottom(event.deltaY)) {
+      if (!isWheelHandledByNestedScroller(event.target, event.currentTarget, event.deltaY)) {
+        detachAutoScrollForUserIntent(AutoScrollDetachSource.ConversationWheel);
+      }
+      return;
+    }
     const deltaMultiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE
       ? WHEEL_DELTA_LINE_HEIGHT
       : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
@@ -3233,17 +3309,18 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       Math.min(container.scrollHeight - container.clientHeight, container.scrollTop + event.deltaY * deltaMultiplier),
     );
     cancelAutoScrollForManualScroll(container, nextScrollTop);
-  }, [cancelAutoScrollForManualScroll]);
+  }, [cancelAutoScrollForManualScroll, detachAutoScrollForUserIntent]);
 
   const handleScrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
     clearScrollToBottomSettleTimers();
+    userDetachedFromBottomRef.current = false;
     scrollToBottomIntentRef.current = true;
     const reducedMotion = prefersReducedMotion();
     if (reducedMotion) {
-      setShouldAutoScroll(true);
+      updateShouldAutoScroll(true);
     }
 
     container.scrollTo({
@@ -3264,7 +3341,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         if (latestDistance <= SCROLL_TO_BOTTOM_SETTLE_THRESHOLD) {
           scrollToBottomIntentRef.current = false;
           clearScrollToBottomSettleTimers();
-          setShouldAutoScroll(true);
+          updateShouldAutoScroll(true);
           return;
         }
         latestContainer.scrollTo({
@@ -3276,11 +3353,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       }, delayMs);
       scrollToBottomSettleTimersRef.current.push(timer);
     });
-  }, [clearScrollToBottomSettleTimers]);
+  }, [clearScrollToBottomSettleTimers, updateShouldAutoScroll]);
 
   const handleScrollToBottomWheel = useCallback((event: React.WheelEvent<HTMLButtonElement>) => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    if (isWheelScrollingAwayFromBottom(event.deltaY)) {
+      detachAutoScrollForUserIntent(AutoScrollDetachSource.ScrollToBottomControlWheel);
+    }
     const deltaMultiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE
       ? WHEEL_DELTA_LINE_HEIGHT
       : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
@@ -3292,11 +3372,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     );
     if (nextScrollTop === container.scrollTop) return;
     event.stopPropagation();
-    setShouldAutoScroll(false);
-    scrollToBottomIntentRef.current = false;
-    clearScrollToBottomSettleTimers();
     container.scrollTop = nextScrollTop;
-  }, [clearScrollToBottomSettleTimers]);
+  }, [detachAutoScrollForUserIntent]);
 
   const navigateToRailItem = useCallback(async (railIndex: number) => {
     if (railIndex < 0 || railIndex >= railItemCountRef.current) return;
@@ -3305,7 +3382,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
     const isNavigatingToLastRailItem = railIndex >= railItemCountRef.current - 1;
     if (!isNavigatingToLastRailItem) {
-      setShouldAutoScroll(false);
+      userDetachedFromBottomRef.current = true;
+      updateShouldAutoScroll(false);
       scrollToBottomIntentRef.current = false;
     }
     clearScrollToBottomSettleTimers();
@@ -3728,7 +3806,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     if (isNavigatingRef.current) {
       return;
     }
-    if (!shouldAutoScroll) {
+    if (!shouldAutoScrollRef.current) {
       return;
     }
     const container = scrollContainerRef.current;
@@ -3744,7 +3822,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       currentRailIndexRef.current = lastRail;
       setCurrentRailIndex(lastRail);
     }
-  }, [messagesLength, lastMessageContent, isContextCompacting, isStreaming, shouldAutoScroll, turns.length]);
+  }, [messagesLength, lastMessageContent, isContextCompacting, isStreaming, turns.length]);
 
 
   if (!currentSession) {
