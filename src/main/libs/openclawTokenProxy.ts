@@ -90,6 +90,29 @@ function collectRequestBody(req: http.IncomingMessage): Promise<Buffer> {
   });
 }
 
+function logLlmChatRequestSummary(upstreamPath: string, body: Buffer): void {
+  if (upstreamPath !== POPIAI_LLM_CHAT_PATH || body.length === 0) {
+    return;
+  }
+
+  try {
+    const payload = JSON.parse(body.toString('utf8')) as Record<string, unknown>;
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    const tools = Array.isArray(payload.tools) ? payload.tools : [];
+    const streamOptions = payload.stream_options && typeof payload.stream_options === 'object'
+      ? Object.keys(payload.stream_options as Record<string, unknown>)
+      : [];
+
+    console.debug(
+      `[OpenClawTokenProxy] llmChat request summary model=${String(payload.model ?? 'unknown')} `
+      + `stream=${String(payload.stream)} messages=${messages.length} tools=${tools.length} `
+      + `streamOptions=${streamOptions.join(',') || 'none'} bodyBytes=${body.byteLength}`,
+    );
+  } catch {
+    console.debug(`[OpenClawTokenProxy] llmChat request body is not JSON bytes=${body.byteLength}`);
+  }
+}
+
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   try {
     const tokens = tokenGetter?.();
@@ -111,15 +134,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const upstreamPath = resolveUpstreamPath(req.url || '/');
     const upstreamUrl = `${serverBaseUrl}${upstreamPath}`;
     console.debug(`[OpenClawTokenProxy] forwarding request to ${upstreamUrl}`);
+    logLlmChatRequestSummary(upstreamPath, body);
 
-    const result = await forwardRequest(upstreamUrl, req.method || 'POST', tokens.accessToken, body, req.headers);
+    const result = await forwardRequest(upstreamUrl, upstreamPath, req.method || 'POST', tokens.accessToken, body, req.headers);
     console.debug(`[OpenClawTokenProxy] upstream responded with status ${result.status}`);
 
     if ((result.status === 401 || result.status === 403) && !result.skipAuthRefresh && tokenRefresher) {
       console.log(`[OpenClawTokenProxy] received ${result.status}, attempting token refresh`);
       const newToken = await tokenRefresher('openclaw-proxy');
       if (newToken) {
-        const retryResult = await forwardRequest(upstreamUrl, req.method || 'POST', newToken, body, req.headers);
+        const retryResult = await forwardRequest(upstreamUrl, upstreamPath, req.method || 'POST', newToken, body, req.headers);
         console.debug(`[OpenClawTokenProxy] upstream retry responded with status ${retryResult.status}`);
         pipeResponse(retryResult, res);
         return;
@@ -187,7 +211,15 @@ type UpstreamResult = {
   headers: Record<string, string>;
   body: NodeJS.ReadableStream | ReadableStream<Uint8Array> | Buffer;
   isStream: boolean;
+  diagnostics: UpstreamDiagnostics;
   skipAuthRefresh?: boolean;
+};
+
+type UpstreamDiagnostics = {
+  method: string;
+  upstreamPath: string;
+  startedAt: number;
+  headersAt: number;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -243,17 +275,25 @@ function normalizeLlmChatBusinessError(responseText: string): UpstreamResult | n
       },
     })),
     isStream: false,
+    diagnostics: {
+      method: 'POST',
+      upstreamPath: POPIAI_LLM_CHAT_PATH,
+      startedAt: Date.now(),
+      headersAt: Date.now(),
+    },
     skipAuthRefresh: true,
   };
 }
 
 async function forwardRequest(
   url: string,
+  upstreamPath: string,
   method: string,
   accessToken: string,
   body: Buffer,
   incomingHeaders: http.IncomingHttpHeaders,
 ): Promise<UpstreamResult> {
+  const startedAt = Date.now();
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${accessToken}`,
     'Content-Type': incomingHeaders['content-type'] || 'application/json',
@@ -269,9 +309,14 @@ async function forwardRequest(
     headers,
     body: body.length > 0 ? new Uint8Array(body) : undefined,
   });
+  const headersAt = Date.now();
 
   const contentType = resp.headers.get('content-type') || '';
   const isStream = contentType.includes('text/event-stream');
+  console.debug(
+    `[OpenClawTokenProxy] upstream headers received in ${headersAt - startedAt}ms `
+    + `for ${method} ${upstreamPath} status=${resp.status} contentType=${contentType || 'unknown'}`,
+  );
 
   const responseHeaders: Record<string, string> = {};
   resp.headers.forEach((value, key) => {
@@ -284,21 +329,29 @@ async function forwardRequest(
       headers: responseHeaders,
       body: resp.body,
       isStream: true,
+      diagnostics: { method, upstreamPath, startedAt, headersAt },
     };
   }
 
   const respBuffer = Buffer.from(await resp.arrayBuffer());
   const responseText = respBuffer.toString('utf8');
-  console.debug('[OpenClawTokenProxy] upstream response body:', responseText);
+  console.debug(
+    `[OpenClawTokenProxy] upstream non-stream body received in ${Date.now() - startedAt}ms `
+    + `for ${method} ${upstreamPath} bytes=${respBuffer.byteLength}`,
+  );
   const normalizedBusinessError = normalizeLlmChatBusinessError(responseText);
   if (normalizedBusinessError) {
-    return normalizedBusinessError;
+    return {
+      ...normalizedBusinessError,
+      diagnostics: { method, upstreamPath, startedAt, headersAt },
+    };
   }
   return {
     status: resp.status,
     headers: responseHeaders,
     body: respBuffer,
     isStream: false,
+    diagnostics: { method, upstreamPath, startedAt, headersAt },
   };
 }
 
@@ -308,6 +361,8 @@ async function forwardWeknoraOpenClawMcpRequest(
   body: Buffer,
   incomingHeaders: http.IncomingHttpHeaders,
 ): Promise<UpstreamResult> {
+  const startedAt = Date.now();
+  const upstreamPath = '/mcp';
   const headers: Record<string, string> = {
     'X-API-Key': accessToken,
     'Content-Type': headerValueToString(incomingHeaders['content-type']) || 'application/json',
@@ -350,6 +405,7 @@ async function forwardWeknoraOpenClawMcpRequest(
         upstream: `${getKnowledgeDefaultBaseUrl()}/mcp`,
       })),
       isStream: false,
+      diagnostics: { method, upstreamPath, startedAt, headersAt: Date.now() },
     };
   }
 
@@ -367,6 +423,7 @@ async function forwardWeknoraOpenClawMcpRequest(
       headers: responseHeaders,
       body: resp.body,
       isStream: true,
+      diagnostics: { method, upstreamPath, startedAt, headersAt: Date.now() },
     };
   }
 
@@ -376,6 +433,7 @@ async function forwardWeknoraOpenClawMcpRequest(
     headers: responseHeaders,
     body: respBuffer,
     isStream: false,
+    diagnostics: { method, upstreamPath, startedAt, headersAt: Date.now() },
   };
 }
 
@@ -442,26 +500,87 @@ function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {
   res.writeHead(result.status, buildResponseHeaders(result));
 
   if (result.isStream && 'pipe' in result.body && typeof (result.body as NodeJS.ReadableStream).pipe === 'function') {
-    (result.body as NodeJS.ReadableStream).pipe(res);
+    pipeNodeReadableResponse(result.body as NodeJS.ReadableStream, res, result.diagnostics);
   } else if (Buffer.isBuffer(result.body)) {
+    console.debug(
+      `[OpenClawTokenProxy] completed non-stream response in ${Date.now() - result.diagnostics.startedAt}ms `
+      + `for ${result.diagnostics.method} ${result.diagnostics.upstreamPath} bytes=${result.body.byteLength}`,
+    );
     res.end(result.body);
   } else {
     // Web ReadableStream from net.fetch — need to consume manually
-    const webStream = result.body as unknown as ReadableStream<Uint8Array>;
-    const reader = webStream.getReader();
-    const pump = (): void => {
-      reader.read().then(({ done, value }) => {
-        if (done) {
-          res.end();
-          return;
-        }
-        res.write(value);
-        pump();
-      }).catch((err) => {
-        console.error('[OpenClawTokenProxy] stream read error:', err);
-        res.end();
-      });
-    };
-    pump();
+    pipeWebReadableResponse(result.body as unknown as ReadableStream<Uint8Array>, res, result.diagnostics);
   }
+}
+
+function pipeNodeReadableResponse(
+  stream: NodeJS.ReadableStream,
+  res: http.ServerResponse,
+  diagnostics: UpstreamDiagnostics,
+): void {
+  let chunkCount = 0;
+  let byteCount = 0;
+
+  stream.on('data', (chunk: Buffer | Uint8Array | string) => {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    chunkCount += 1;
+    byteCount += buffer.byteLength;
+    if (chunkCount === 1) {
+      console.debug(
+        `[OpenClawTokenProxy] first upstream body chunk received in ${Date.now() - diagnostics.startedAt}ms `
+        + `for ${diagnostics.method} ${diagnostics.upstreamPath} bytes=${buffer.byteLength}`,
+      );
+    }
+    res.write(buffer);
+  });
+
+  stream.on('end', () => {
+    console.debug(
+      `[OpenClawTokenProxy] completed streaming response in ${Date.now() - diagnostics.startedAt}ms `
+      + `for ${diagnostics.method} ${diagnostics.upstreamPath} chunks=${chunkCount} bytes=${byteCount}`,
+    );
+    res.end();
+  });
+
+  stream.on('error', (err) => {
+    console.error('[OpenClawTokenProxy] stream read error:', err);
+    res.end();
+  });
+}
+
+function pipeWebReadableResponse(
+  webStream: ReadableStream<Uint8Array>,
+  res: http.ServerResponse,
+  diagnostics: UpstreamDiagnostics,
+): void {
+  const reader = webStream.getReader();
+  let chunkCount = 0;
+  let byteCount = 0;
+
+  const pump = (): void => {
+    reader.read().then(({ done, value }) => {
+      if (done) {
+        console.debug(
+          `[OpenClawTokenProxy] completed streaming response in ${Date.now() - diagnostics.startedAt}ms `
+          + `for ${diagnostics.method} ${diagnostics.upstreamPath} chunks=${chunkCount} bytes=${byteCount}`,
+        );
+        res.end();
+        return;
+      }
+      chunkCount += 1;
+      byteCount += value.byteLength;
+      if (chunkCount === 1) {
+        console.debug(
+          `[OpenClawTokenProxy] first upstream body chunk received in ${Date.now() - diagnostics.startedAt}ms `
+          + `for ${diagnostics.method} ${diagnostics.upstreamPath} bytes=${value.byteLength}`,
+        );
+      }
+      res.write(value);
+      pump();
+    }).catch((err) => {
+      console.error('[OpenClawTokenProxy] stream read error:', err);
+      res.end();
+    });
+  };
+  pump();
 }
