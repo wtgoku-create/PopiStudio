@@ -1,6 +1,5 @@
 import { ExclamationTriangleIcon, PauseCircleIcon, PlayCircleIcon } from '@heroicons/react/24/outline';
 import { ArrowUpIcon, FolderIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
-import * as PopoverPrimitive from '@radix-ui/react-popover';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
@@ -303,11 +302,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [goalInputMode, setGoalInputMode] = useState<GoalInputMode>('start');
     const [showAddMenu, setShowAddMenu] = useState(false);
     const [showSkillsPopover, setShowSkillsPopover] = useState(false);
+    const [showKnowledgeSubmenu, setShowKnowledgeSubmenu] = useState(false);
     const [isDraggingFiles, setIsDraggingFiles] = useState(false);
     const [isAddingFile, setIsAddingFile] = useState(false);
     const [imageVisionHint, setImageVisionHint] = useState(false);
     const [isPatchingModel, setIsPatchingModel] = useState(false);
-    const [isKnowledgeMenuOpen, setIsKnowledgeMenuOpen] = useState(false);
     const [isLoadingKnowledgeBases, setIsLoadingKnowledgeBases] = useState(false);
     const [knowledgeBases, setKnowledgeBases] = useState<RemoteKnowledgeBase[]>([]);
     const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
@@ -315,10 +314,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const addMenuButtonRef = useRef<HTMLButtonElement>(null);
     const addMenuRef = useRef<HTMLDivElement>(null);
+    const knowledgeMenuItemRef = useRef<HTMLButtonElement>(null);
     const skillMenuItemRef = useRef<HTMLButtonElement>(null);
     const dragDepthRef = useRef(0);
     const modelPatchRequestIdRef = useRef(0);
     const skillSubmenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const knowledgeSubmenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const goalInputBaselineRef = useRef<string | null>(null);
     const goalInputReturnDraftRef = useRef<string | null>(null);
 
@@ -526,9 +527,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   useEffect(() => {
     if (!showAddMenu) {
       setShowSkillsPopover(false);
+      setShowKnowledgeSubmenu(false);
       if (skillSubmenuCloseTimerRef.current) {
         clearTimeout(skillSubmenuCloseTimerRef.current);
         skillSubmenuCloseTimerRef.current = null;
+      }
+      if (knowledgeSubmenuCloseTimerRef.current) {
+        clearTimeout(knowledgeSubmenuCloseTimerRef.current);
+        knowledgeSubmenuCloseTimerRef.current = null;
       }
     }
   }, [showAddMenu]);
@@ -787,6 +793,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const handleOpenAddMenu = useCallback(() => {
     setShowSkillsPopover(false);
+    setShowKnowledgeSubmenu(false);
     setShowAddMenu(prev => !prev);
   }, []);
 
@@ -795,6 +802,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       clearTimeout(skillSubmenuCloseTimerRef.current);
       skillSubmenuCloseTimerRef.current = null;
     }
+    setShowKnowledgeSubmenu(false);
     setShowAddMenu(true);
     setShowSkillsPopover(true);
   }, []);
@@ -806,12 +814,27 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   }, []);
 
+  const cancelCloseKnowledgeSubmenu = useCallback(() => {
+    if (knowledgeSubmenuCloseTimerRef.current) {
+      clearTimeout(knowledgeSubmenuCloseTimerRef.current);
+      knowledgeSubmenuCloseTimerRef.current = null;
+    }
+  }, []);
+
   const handleCloseSkillsPopover = useCallback(() => {
     if (skillSubmenuCloseTimerRef.current) {
       clearTimeout(skillSubmenuCloseTimerRef.current);
       skillSubmenuCloseTimerRef.current = null;
     }
     setShowSkillsPopover(false);
+  }, []);
+
+  const handleCloseKnowledgeSubmenu = useCallback(() => {
+    if (knowledgeSubmenuCloseTimerRef.current) {
+      clearTimeout(knowledgeSubmenuCloseTimerRef.current);
+      knowledgeSubmenuCloseTimerRef.current = null;
+    }
+    setShowKnowledgeSubmenu(false);
   }, []);
 
   const scheduleCloseSkillsPopover = useCallback(() => {
@@ -826,6 +849,21 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       }
       setShowSkillsPopover(false);
       skillSubmenuCloseTimerRef.current = null;
+    }, 120);
+  }, []);
+
+  const scheduleCloseKnowledgeSubmenu = useCallback(() => {
+    if (knowledgeSubmenuCloseTimerRef.current) {
+      clearTimeout(knowledgeSubmenuCloseTimerRef.current);
+    }
+    knowledgeSubmenuCloseTimerRef.current = setTimeout(() => {
+      const activeElement = document.activeElement;
+      if (activeElement && addMenuRef.current?.contains(activeElement)) {
+        knowledgeSubmenuCloseTimerRef.current = null;
+        return;
+      }
+      setShowKnowledgeSubmenu(false);
+      knowledgeSubmenuCloseTimerRef.current = null;
     }, 120);
   }, []);
 
@@ -851,9 +889,15 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   }, [isLoadingKnowledgeBases]);
 
-  const handleKnowledgeMenuOpenChange = useCallback((open: boolean) => {
-    setIsKnowledgeMenuOpen(open);
-    if (open && knowledgeBases.length === 0) {
+  const handleOpenKnowledgeSubmenu = useCallback(() => {
+    if (knowledgeSubmenuCloseTimerRef.current) {
+      clearTimeout(knowledgeSubmenuCloseTimerRef.current);
+      knowledgeSubmenuCloseTimerRef.current = null;
+    }
+    setShowSkillsPopover(false);
+    setShowAddMenu(true);
+    setShowKnowledgeSubmenu(true);
+    if (knowledgeBases.length === 0) {
       void loadKnowledgeBases();
     }
   }, [knowledgeBases.length, loadKnowledgeBases]);
@@ -1411,86 +1455,62 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </button>
   ) : null;
 
-  const renderKnowledgeBaseSelector = (compact = false) => {
-    const tooltip = selectedKnowledgeBases.map(base => base.name).join(', ') || i18nService.t('knowledgeBase');
-
-    return !remoteManaged ? (
-      <PopoverPrimitive.Root open={isKnowledgeMenuOpen} onOpenChange={handleKnowledgeMenuOpenChange}>
-        <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            className={`flex ${compact ? 'h-7 w-7 flex-shrink-0' : 'h-[34px] w-[34px]'} items-center justify-center rounded-lg transition-colors ${
-              selectedKnowledgeBaseIds.length > 0
-                ? 'bg-primary/10 text-primary hover:bg-primary/15'
-                : 'text-secondary hover:bg-surface-raised hover:text-foreground'
-            }`}
-            title={tooltip}
-            aria-label={i18nService.t('knowledgeBase')}
-            disabled={disabled || isStreaming}
-          >
-            <AcademicCapIcon className={`${compact ? 'h-[18px] w-[18px]' : 'h-5 w-5'} shrink-0`} />
-          </button>
-        </PopoverPrimitive.Trigger>
-      {isKnowledgeMenuOpen && (
-        <PopoverPrimitive.Portal>
-          <PopoverPrimitive.Content
-            side="top"
-            align="start"
-            sideOffset={8}
-            collisionPadding={12}
-            className="z-[1000] w-72 overflow-hidden rounded-lg border border-border bg-surface shadow-card outline-none popover-enter"
-          >
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <span className="text-sm font-medium text-foreground">{i18nService.t('knowledgeBase')}</span>
+  const renderKnowledgeSubmenu = () => (
+    <div
+      className="absolute bottom-0 left-[calc(100%-1px)] z-50 w-72 overflow-hidden rounded-xl border border-border bg-surface shadow-popover"
+      role="menu"
+      onMouseEnter={cancelCloseKnowledgeSubmenu}
+      onMouseLeave={scheduleCloseKnowledgeSubmenu}
+    >
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <span className="text-sm font-medium text-foreground">{i18nService.t('knowledgeBase')}</span>
+      </div>
+      <div className="max-h-[300px] min-h-[180px] overflow-y-auto py-1">
+        {isLoadingKnowledgeBases && (
+          <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('folderLoading')}</div>
+        )}
+        {!isLoadingKnowledgeBases && knowledgeBases.length === 0 && (
+          <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('knowledgeBaseEmpty')}</div>
+        )}
+        {!isLoadingKnowledgeBases && knowledgeBases.length > 0 && (
+          <div className="py-1">
+            {knowledgeBases.map((base) => {
+              const selected = selectedKnowledgeBaseIds.includes(base.id);
+              return (
+                <label
+                  key={base.id}
+                  className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised ${
+                    selected ? 'text-primary' : 'text-foreground'
+                  }`}
+                  role="menuitemcheckbox"
+                  aria-checked={selected}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => {
+                      setSelectedKnowledgeBaseIds((current) => (
+                        current.includes(base.id)
+                          ? current.filter(id => id !== base.id)
+                          : [...current, base.id]
+                      ));
+                    }}
+                    className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{base.name}</span>
+                  <span className="shrink-0 truncate text-xs text-secondary">
+                    {base.documentCount !== undefined
+                      ? `${base.documentCount} ${i18nService.t('knowledgeBaseDocuments')}`
+                      : base.description || base.id}
+                  </span>
+                </label>
+              );
+            })}
           </div>
-          <div className="max-h-72 overflow-y-auto py-1">
-            {isLoadingKnowledgeBases && (
-              <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('folderLoading')}</div>
-            )}
-            {!isLoadingKnowledgeBases && knowledgeBases.length === 0 && (
-              <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('knowledgeBaseEmpty')}</div>
-            )}
-            {!isLoadingKnowledgeBases && knowledgeBases.length > 0 && (
-              <div className="py-1">
-                {knowledgeBases.map((base) => {
-                  const selected = selectedKnowledgeBaseIds.includes(base.id);
-                  return (
-                    <label
-                      key={base.id}
-                      className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised ${
-                        selected ? 'text-primary' : 'text-foreground'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => {
-                          setSelectedKnowledgeBaseIds((current) => (
-                            current.includes(base.id)
-                              ? current.filter(id => id !== base.id)
-                              : [...current, base.id]
-                          ));
-                        }}
-                        className="h-4 w-4 shrink-0 rounded border-border accent-primary"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{base.name}</span>
-                      <span className="shrink-0 truncate text-xs text-secondary">
-                        {base.documentCount !== undefined
-                          ? `${base.documentCount} ${i18nService.t('knowledgeBaseDocuments')}`
-                          : base.description || base.id}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          </PopoverPrimitive.Content>
-        </PopoverPrimitive.Portal>
-      )}
-      </PopoverPrimitive.Root>
-    ) : null;
-  };
+        )}
+      </div>
+    </div>
+  );
 
   const addMenuAction = !remoteManaged ? (
     <div className="relative">
@@ -1519,14 +1539,45 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           <button
             type="button"
             onClick={handleAddFile}
-            onMouseEnter={handleCloseSkillsPopover}
-            onFocus={handleCloseSkillsPopover}
+            onMouseEnter={() => {
+              handleCloseSkillsPopover();
+              handleCloseKnowledgeSubmenu();
+            }}
+            onFocus={() => {
+              handleCloseSkillsPopover();
+              handleCloseKnowledgeSubmenu();
+            }}
             disabled={disabled || isStreaming || isAddingFile}
             className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
             role="menuitem"
           >
             <PaperClipIcon className="h-5 w-5 shrink-0 text-secondary" />
             <span className="min-w-0 truncate">{i18nService.t('coworkAddFile')}</span>
+          </button>
+          <button
+            ref={knowledgeMenuItemRef}
+            type="button"
+            onClick={handleOpenKnowledgeSubmenu}
+            onMouseEnter={handleOpenKnowledgeSubmenu}
+            onFocus={handleOpenKnowledgeSubmenu}
+            disabled={disabled || isStreaming}
+            className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              showKnowledgeSubmenu || selectedKnowledgeBaseIds.length > 0
+                ? 'bg-surface-raised text-primary'
+                : 'text-foreground hover:bg-surface-raised'
+            }`}
+            role="menuitem"
+            aria-haspopup="menu"
+            aria-expanded={showKnowledgeSubmenu}
+          >
+            <AcademicCapIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <span className="min-w-0 flex-1 truncate">{i18nService.t('knowledgeBase')}</span>
+            {selectedKnowledgeBases.length > 0 && (
+              <span className="max-w-[72px] truncate text-xs text-secondary">
+                {selectedKnowledgeBases.length}
+              </span>
+            )}
+            <ChevronRightIcon className="h-4 w-4 shrink-0 text-secondary" />
           </button>
           <button
             ref={skillMenuItemRef}
@@ -1548,8 +1599,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           <button
             type="button"
             onClick={() => handleEnableGoalInput(goal ? 'set' : 'start', goal?.objective)}
-            onMouseEnter={handleCloseSkillsPopover}
-            onFocus={handleCloseSkillsPopover}
+            onMouseEnter={() => {
+              handleCloseSkillsPopover();
+              handleCloseKnowledgeSubmenu();
+            }}
+            onFocus={() => {
+              handleCloseSkillsPopover();
+              handleCloseKnowledgeSubmenu();
+            }}
             disabled={disabled || isPatchingModel || (!!sessionId && !onGoalCommand)}
             className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               goalInputActive ? 'bg-surface-raised text-foreground' : 'text-foreground hover:bg-surface-raised'
@@ -1576,6 +1633,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             onMouseEnter={cancelCloseSkillsPopover}
             onMouseLeave={scheduleCloseSkillsPopover}
           />
+          {showKnowledgeSubmenu && renderKnowledgeSubmenu()}
         </div>
       )}
     </div>
@@ -1584,7 +1642,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const largeInputActions = !remoteManaged ? (
     <div className="flex items-center gap-2">
       {addMenuAction}
-      {renderKnowledgeBaseSelector()}
     </div>
   ) : null;
   const largeSendButtonSizeClass = useCompactSendButton ? 'h-7 w-7' : 'h-8 w-8';
@@ -1836,6 +1893,30 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </div>
   ) : null;
 
+  const attachmentPreviewContent = attachments.length > 0 ? (
+    <div className="flex flex-wrap gap-2">
+      {attachments.map((attachment) => (
+        <AttachmentCard
+          key={attachment.path}
+          attachment={attachment}
+          onRemove={handleRemoveAttachment}
+        />
+      ))}
+    </div>
+  ) : null;
+
+  const largeAttachmentPreview = attachmentPreviewContent ? (
+    <div className={`${isCompact ? 'max-h-[88px] px-3 pb-1 pt-2' : 'max-h-[156px] px-4 pb-1 pt-3'} overflow-y-auto`}>
+      {attachmentPreviewContent}
+    </div>
+  ) : null;
+
+  const compactAttachmentPreview = attachmentPreviewContent ? (
+    <div className="mb-2 max-h-[136px] overflow-y-auto">
+      {attachmentPreviewContent}
+    </div>
+  ) : null;
+
   const activeContextRow = isLarge && hasContextBadges ? (
     <div
       className="flex cursor-text flex-wrap items-center gap-x-2 gap-y-1 px-4 pt-4"
@@ -1908,17 +1989,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     <div className="relative">
       {queuedFollowUpList}
       {sessionGoalStatusBar}
-      {attachments.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2 max-h-[136px] overflow-y-auto">
-          {attachments.map((attachment) => (
-            <AttachmentCard
-              key={attachment.path}
-              attachment={attachment}
-              onRemove={handleRemoveAttachment}
-            />
-          ))}
-        </div>
-      )}
+      {!isLarge && !isCompact && compactAttachmentPreview}
       {imageVisionHint && (
         <div className="mb-2 flex items-start gap-1.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
           <ExclamationTriangleIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
@@ -1950,6 +2021,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           useHomeContextLayout ? (
             <>
               <div className="relative z-10 rounded-2xl border border-border bg-surface shadow-card">
+                {largeAttachmentPreview}
                 {activeContextRow}
                 {activeModeRow}
                 <textarea
@@ -1985,6 +2057,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             </>
           ) : (
             <>
+              {largeAttachmentPreview}
               {activeContextRow}
               {activeModeRow}
               <textarea
@@ -2020,6 +2093,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           )
         ) : (
           <>
+            {compactAttachmentPreview}
             <textarea
               ref={textareaRef}
               value={activeTextareaValue}

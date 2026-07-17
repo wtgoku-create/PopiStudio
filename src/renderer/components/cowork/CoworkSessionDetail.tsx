@@ -253,38 +253,6 @@ const isWheelHandledByNestedScroller = (
   return false;
 };
 
-const decodeArtifactDataUrl = async (dataUrl: string, isTextType: boolean): Promise<string> => {
-  if (!isTextType) return dataUrl;
-  try {
-    const base64 = dataUrl.split(',')[1] || '';
-    const chunkSize = 32 * 1024;
-    const chunks: Uint8Array[] = [];
-    let byteLength = 0;
-
-    for (let offset = 0; offset < base64.length; offset += chunkSize) {
-      await waitForNextFrame();
-      const binary = atob(base64.slice(offset, offset + chunkSize));
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index);
-      }
-      chunks.push(bytes);
-      byteLength += bytes.length;
-    }
-
-    const merged = new Uint8Array(byteLength);
-    let writeOffset = 0;
-    for (const chunk of chunks) {
-      merged.set(chunk, writeOffset);
-      writeOffset += chunk.length;
-    }
-
-    return new TextDecoder('utf-8').decode(merged);
-  } catch {
-    return dataUrl;
-  }
-};
-
 const loadImageFromBase64 = (pngBase64: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
     const img = new Image();
