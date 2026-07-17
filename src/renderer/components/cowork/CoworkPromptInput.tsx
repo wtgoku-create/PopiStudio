@@ -1664,7 +1664,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       <SendButtonIcon className={largeSendIconSizeClass} />
     </button>
   );
-  const largeSendButton = isStreaming && !streamingSubmitCanRun ? (
+  const largeSendButton = isStreaming ? (
     <button
       type="button"
       onClick={handleStopClick}
@@ -2118,7 +2118,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
               </div>
             )}
 
-            {isStreaming && !streamingSubmitCanRun ? (
+            {isStreaming ? (
               <div className="flex flex-shrink-0 items-center gap-3">
                 {contextUsageControl}
                 <button
