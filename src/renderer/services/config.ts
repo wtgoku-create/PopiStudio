@@ -9,6 +9,7 @@ import {
   isCustomProvider,
   normalizeFontPreference,
 } from '../config';
+import { normalizeNotificationSettings } from '../../shared/notifications/constants';
 import { localStore } from './store';
 
 const getFixedProviderApiFormat = (providerKey: string): ApiFormat | null => {
@@ -396,6 +397,7 @@ class ConfigService {
             FontPreferences.CodeFontSizeMax,
           ),
           browserWebAccess: normalizeBrowserWebAccessConfig(storedConfig.browserWebAccess),
+          notificationSettings: normalizeNotificationSettings(storedConfig.notificationSettings),
         });
       }
     } catch (error) {
@@ -434,6 +436,9 @@ class ConfigService {
       ),
       browserWebAccess: normalizeBrowserWebAccessConfig(
         newConfig.browserWebAccess ?? base.browserWebAccess,
+      ),
+      notificationSettings: normalizeNotificationSettings(
+        newConfig.notificationSettings ?? base.notificationSettings,
       ),
     };
     await localStore.setItem(CONFIG_KEYS.APP_CONFIG, this.config);

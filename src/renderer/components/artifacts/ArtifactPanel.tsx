@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
+import { writeBlobToClipboard, writeTextToClipboard } from '@/services/clipboard';
 import { i18nService } from '@/services/i18n';
 import type { RootState } from '@/store';
 import {
@@ -428,30 +429,43 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
 
   const handleCopy = useCallback(async () => {
     if (!selectedArtifact) return;
-    if (selectedArtifact.type === 'image') {
-      if (selectedArtifact.filePath) {
-        const result = await window.electron?.clipboard?.writeImageFromFile(selectedArtifact.filePath);
-        if (!result?.success) {
-          window.dispatchEvent(new CustomEvent('app:showToast', { detail: result?.error || t('copyFailed') }));
-          return;
+    try {
+      if (selectedArtifact.type === 'image') {
+        if (selectedArtifact.filePath) {
+          const result = await window.electron?.clipboard?.writeImageFromFile(selectedArtifact.filePath);
+          if (!result?.success) {
+            window.dispatchEvent(new CustomEvent('app:showToast', { detail: result?.error || t('copyFailed') }));
+            return;
+          }
+        } else if (selectedArtifact.content) {
+          const blob = await dataUrlToPngBlob(selectedArtifact.content);
+          const result = await writeBlobToClipboard(blob);
+          if (!result.ok) {
+            window.dispatchEvent(new CustomEvent('app:showToast', { detail: result.error || t('copyFailed') }));
+            return;
+          }
         }
-      } else if (selectedArtifact.content) {
-        const blob = await dataUrlToPngBlob(selectedArtifact.content);
-        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-      }
-    } else {
-      if (selectedArtifact.filePath && !selectedArtifact.content && selectedArtifact.type !== 'document') {
-        const result = await window.electron?.dialog?.readTextFile?.(selectedArtifact.filePath);
-        if (!result?.success || typeof result.content !== 'string') {
-          window.dispatchEvent(new CustomEvent('app:showToast', { detail: result?.error || t('copyFailed') }));
-          return;
-        }
-        await navigator.clipboard.writeText(result.content);
       } else {
-        await navigator.clipboard.writeText(selectedArtifact.content);
+        let text = selectedArtifact.content;
+        if (selectedArtifact.filePath && !selectedArtifact.content && selectedArtifact.type !== 'document') {
+          const result = await window.electron?.dialog?.readTextFile?.(selectedArtifact.filePath);
+          if (!result?.success || typeof result.content !== 'string') {
+            window.dispatchEvent(new CustomEvent('app:showToast', { detail: result?.error || t('copyFailed') }));
+            return;
+          }
+          text = result.content;
+        }
+        const result = await writeTextToClipboard(text);
+        if (!result.ok) {
+          window.dispatchEvent(new CustomEvent('app:showToast', { detail: result.error || t('copyFailed') }));
+          return;
+        }
       }
+      window.dispatchEvent(new CustomEvent('app:showToast', { detail: t('messageCopied') }));
+    } catch (error) {
+      console.error('[ArtifactPanel] Failed to copy artifact:', error);
+      window.dispatchEvent(new CustomEvent('app:showToast', { detail: t('copyFailed') }));
     }
-    window.dispatchEvent(new CustomEvent('app:showToast', { detail: t('messageCopied') }));
   }, [selectedArtifact]);
 
   const handleRevealInFolder = useCallback(() => {

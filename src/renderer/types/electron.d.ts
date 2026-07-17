@@ -583,6 +583,9 @@ interface IElectronAPI {
     remoteManaged: (
       sessionId: string,
     ) => Promise<{ success: boolean; remoteManaged: boolean; error?: string }>;
+    markSessionViewed?: (
+      sessionId: string | null,
+    ) => Promise<{ success: boolean; error?: string }>;
     listSessions: (options?: { limit?: number; offset?: number; agentId?: string }) => Promise<{
       success: boolean;
       sessions?: CoworkSessionSummary[];
@@ -740,6 +743,9 @@ interface IElectronAPI {
     ) => () => void;
     onStreamError: (callback: (data: { sessionId: string; error: string }) => void) => () => void;
     onSessionsChanged: (callback: (data?: { sessionId?: string }) => void) => () => void;
+    onOpenSessionFromNotification?: (
+      callback: (data: { sessionId: string }) => void,
+    ) => () => void;
   };
   dialog: {
     selectDirectory: () => Promise<{ success: boolean; path: string | null }>;

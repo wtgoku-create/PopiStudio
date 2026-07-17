@@ -22,6 +22,15 @@ export interface McpRuntimeDeps {
   getStore: () => SqliteStore;
   getPopiTVMcpUrl: () => string | null;
   getWeknoraOpenClawMcpProxyUrl: () => string | null;
+  onAskUserPermissionRequest?: (
+    sessionId: string,
+    request: {
+      requestId: string;
+      toolName: string;
+      toolInput: Record<string, unknown>;
+    },
+  ) => void;
+  onAskUserPermissionDismiss?: (requestId: string) => void;
 }
 
 const WEKNORA_OPENCLAW_MCP_SERVER_NAME = 'weknora-openclaw';
@@ -81,19 +90,21 @@ export class McpRuntime {
       }
 
       const windows = BrowserWindow.getAllWindows();
+      const permissionRequest = {
+        requestId: request.requestId,
+        toolName: 'AskUserQuestion',
+        toolInput: {
+          questions: request.questions,
+          ...(request.sessionKey ? { sessionKey: request.sessionKey } : {}),
+        },
+      };
+      this.deps.onAskUserPermissionRequest?.(sessionId, permissionRequest);
       windows.forEach((win) => {
         if (win.isDestroyed()) return;
         try {
           win.webContents.send('cowork:stream:permission', {
             sessionId,
-            request: {
-              requestId: request.requestId,
-              toolName: 'AskUserQuestion',
-              toolInput: {
-                questions: request.questions,
-                ...(request.sessionKey ? { sessionKey: request.sessionKey } : {}),
-              },
-            },
+            request: permissionRequest,
           });
         } catch (error) {
           console.error('[AskUser] failed to send permission request to window:', error);
@@ -102,6 +113,7 @@ export class McpRuntime {
     });
 
     this.bridgeServer.onAskUserDismiss((requestId) => {
+      this.deps.onAskUserPermissionDismiss?.(requestId);
       const windows = BrowserWindow.getAllWindows();
       windows.forEach((win) => {
         if (win.isDestroyed()) return;

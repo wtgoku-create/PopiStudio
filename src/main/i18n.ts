@@ -43,6 +43,13 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Thinking-only hint
     taskThinkingOnly:
       '[模型未输出内容] 模型已完成思考但未生成可见回复。你可以继续对话，让模型重新输出结果。',
+    taskCompletionNotificationTitle: '任务已完成',
+    taskCompletionNotificationBody: '「{title}」已完成。',
+    permissionNotificationTitle: '待确认操作',
+    permissionNotificationBody: '「{title}」需要你确认工具操作。',
+    permissionNotificationBodyGeneric: '有一个任务需要你确认工具操作。',
+    questionNotificationTitle: '待回答问题',
+    questionNotificationBody: '「{title}」需要你回答问题。',
 
     // Feishu bot install
     feishuVerifyCredentialsFailed: '凭证验证失败，请检查 App ID 和 App Secret 是否正确',
@@ -298,6 +305,13 @@ const translations: Record<LanguageType, Record<string, string>> = {
     // Thinking-only hint
     taskThinkingOnly:
       '[No output] The model finished thinking but did not generate a visible reply. You can continue the conversation to ask it to output the result.',
+    taskCompletionNotificationTitle: 'Task completed',
+    taskCompletionNotificationBody: '"{title}" has completed.',
+    permissionNotificationTitle: 'Confirmation needed',
+    permissionNotificationBody: '"{title}" needs tool confirmation.',
+    permissionNotificationBodyGeneric: 'A task needs tool confirmation.',
+    questionNotificationTitle: 'Answer needed',
+    questionNotificationBody: '"{title}" needs your answer.',
 
     // Feishu bot install
     feishuVerifyCredentialsFailed:

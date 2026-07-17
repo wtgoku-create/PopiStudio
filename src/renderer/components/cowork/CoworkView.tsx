@@ -125,6 +125,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({
   );
 
   const resolveEngineStatusText = (status: OpenClawEngineStatus): string => {
+    if (status.message?.trim()) {
+      return status.message.trim();
+    }
     switch (status.phase) {
       case 'not_installed':
         return i18nService.t('coworkOpenClawNotInstalledNotice');

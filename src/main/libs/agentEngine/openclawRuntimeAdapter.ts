@@ -57,7 +57,10 @@ import {
   stripTrailingSilentReplyToken,
 } from '../openclawHistory';
 import { buildOpenClawLocalTimeContextPrompt } from '../openclawLocalTimeContextPrompt';
-import { resolveChannelSessionNextStatus } from './channelSessionRunStatus';
+import {
+  resolveChannelSessionNextStatus,
+  resolveChannelSessionTerminalStatus,
+} from './channelSessionRunStatus';
 import { AgentLifecyclePhase, type AgentLifecyclePhase as AgentLifecyclePhaseValue } from './constants';
 import {
   buildCoworkContinuityCapsule,
@@ -99,6 +102,12 @@ import type {
 } from './types';
 
 const OPENCLAW_GATEWAY_TOOL_EVENTS_CAP = 'tool-events';
+const OpenClawGatewayEvent = {
+  SessionsChanged: 'sessions.changed',
+} as const;
+const OpenClawGatewayMethod = {
+  SessionsSubscribe: 'sessions.subscribe',
+} as const;
 const BRIDGE_MAX_MESSAGES = 20;
 const BRIDGE_MAX_MESSAGE_CHARS = 1200;
 const ASSISTANT_STREAM_RESET_MIN_DROP_CHARS = 40;
@@ -222,6 +231,11 @@ type GatewayClientLike = {
 };
 
 type GatewayClientCtor = new (options: Record<string, unknown>) => GatewayClientLike;
+
+type ChannelSessionLifecycleRun = {
+  runId: string;
+  observedAtMs: number;
+};
 
 type OpenClawQueueSteerResult = {
   queued?: boolean;
@@ -1290,9 +1304,17 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private readonly manuallyStoppedSessions = new Set<string>();
   /** Session keys whose origin is "heartbeat" — discovered via polling, used to filter real-time events. */
   private readonly heartbeatSessionKeys = new Set<string>();
+  /**
+   * Native IM runs are announced by `sessions.changed`, but can be absent from
+   * the gateway's chat-specific `hasActiveRun` flag. Keep the explicit lifecycle
+   * signal authoritative while it is fresh so polling does not end loading early.
+   */
+  private readonly channelLifecycleRunBySessionKey = new Map<string, ChannelSessionLifecycleRun>();
   private channelPollingTimer: ReturnType<typeof setInterval> | null = null;
 
   private static readonly CHANNEL_POLL_INTERVAL_MS = 10_000;
+  private static readonly CHANNEL_LIFECYCLE_RUN_GRACE_MS = 60_000;
+  private static readonly GATEWAY_SESSION_SUBSCRIBE_TIMEOUT_MS = 5_000;
   private static readonly FULL_HISTORY_SYNC_LIMIT = 50;
   private browserPrewarmAttempted = false;
 
@@ -1885,6 +1907,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     this.channelSessionSync.clearCache();
+    this.channelLifecycleRunBySessionKey.clear();
     for (const [sessionKey] of this.sessionIdBySessionKey.entries()) {
       if (this.channelSessionSync.isChannelSessionKey(sessionKey)) {
         this.sessionIdBySessionKey.delete(sessionKey);
@@ -2205,6 +2228,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       console.warn('[ChannelSync] pollChannelSessions: skipped — gatewayClient:', !!this.gatewayClient, 'channelSessionSync:', !!this.channelSessionSync);
       return;
     }
+    this.pruneStaleChannelLifecycleRuns();
     try {
       const params = { activeMinutes: 60, limit: CHANNEL_SESSION_DISCOVERY_LIMIT };
       const result = await this.gatewayClient.request('sessions.list', params);
@@ -2316,13 +2340,21 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const session = this.store.getSession(coworkSessionId);
     if (!session) return false;
 
+    const rawStatus = typeof row.status === 'string' ? row.status.trim().toLowerCase() : '';
+    const terminalStatus = resolveChannelSessionTerminalStatus(rawStatus);
+    if (this.getFreshChannelLifecycleRun(openClawSessionKey) && !terminalStatus) {
+      return false;
+    }
+    if (terminalStatus) {
+      this.channelLifecycleRunBySessionKey.delete(openClawSessionKey);
+    }
+
     const hasActiveRun =
       row.hasActiveRun === true
         ? true
         : row.hasActiveRun === false
           ? false
           : null;
-    const rawStatus = typeof row.status === 'string' ? row.status.trim().toLowerCase() : '';
     const nextStatus = resolveChannelSessionNextStatus({
       hasActiveRun,
       rawStatus,
@@ -3288,6 +3320,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         this.gatewayClient = client;
         this.gatewayClientVersion = connection.version;
         this.gatewayClientEntryPath = connection.clientEntryPath;
+        this.subscribeToGatewaySessionEvents(client);
         settleResolve();
         this.lastTickTimestamp = Date.now();
         this.startTickWatchdog();
@@ -3357,6 +3390,22 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     client.start();
   }
 
+  private subscribeToGatewaySessionEvents(client: GatewayClientLike): void {
+    void client.request<{ subscribed?: boolean }>(
+      OpenClawGatewayMethod.SessionsSubscribe,
+      {},
+      { timeoutMs: OpenClawRuntimeAdapter.GATEWAY_SESSION_SUBSCRIBE_TIMEOUT_MS },
+    ).then((result) => {
+      if (result?.subscribed !== true) {
+        console.warn('[ChannelSync] gateway session event subscription was not confirmed.');
+        return;
+      }
+      console.log('[ChannelSync] subscribed to gateway session lifecycle events.');
+    }).catch((error) => {
+      console.warn('[ChannelSync] failed to subscribe to gateway session lifecycle events:', error);
+    });
+  }
+
   private stopGatewayClient(): void {
     this.gatewayStoppingIntentionally = true;
     this.stopChannelPolling();
@@ -3377,6 +3426,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.channelSessionSync?.clearCache();
     this.knownChannelSessionIds.clear();
     this.heartbeatSessionKeys.clear();
+    this.channelLifecycleRunBySessionKey.clear();
     this.stoppedSessions.clear();
     this.recentlyClosedRunIds.clear();
     this.browserPrewarmAttempted = false;
@@ -3463,6 +3513,33 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       return false;
     }
     return true;
+  }
+
+  private getFreshChannelLifecycleRun(sessionKey: string): ChannelSessionLifecycleRun | null {
+    const activeRun = this.channelLifecycleRunBySessionKey.get(sessionKey);
+    if (!activeRun) return null;
+
+    const configuredTimeoutMs = Number.isFinite(this.agentTimeoutSeconds)
+      ? Math.max(1, this.agentTimeoutSeconds) * 1_000
+      : OPENCLAW_AGENT_TIMEOUT_SECONDS * 1_000;
+    const maxAgeMs = configuredTimeoutMs + OpenClawRuntimeAdapter.CHANNEL_LIFECYCLE_RUN_GRACE_MS;
+    if (Date.now() - activeRun.observedAtMs <= maxAgeMs) {
+      return activeRun;
+    }
+
+    this.channelLifecycleRunBySessionKey.delete(sessionKey);
+    console.warn(
+      '[ChannelSync] discarded stale IM lifecycle run marker.',
+      `SessionKey ${sessionKey}.`,
+      `Run ${activeRun.runId || 'unknown'}.`,
+    );
+    return null;
+  }
+
+  private pruneStaleChannelLifecycleRuns(): void {
+    for (const sessionKey of this.channelLifecycleRunBySessionKey.keys()) {
+      this.getFreshChannelLifecycleRun(sessionKey);
+    }
   }
 
   private reopenRecentlyClosedRunForRetry(sessionId: string, sessionKey: string, runId: string): boolean {
@@ -4018,6 +4095,15 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       return;
     }
 
+    if (event.event === OpenClawGatewayEvent.SessionsChanged) {
+      try {
+        this.handleChannelSessionLifecycleEvent(event.payload);
+      } catch (error) {
+        console.warn('[ChannelSync] failed to process gateway session lifecycle event:', error);
+      }
+      return;
+    }
+
     if (event.event === 'chat') {
       this.handleChatEvent(event.payload, event.seq);
       return;
@@ -4052,6 +4138,106 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (event.event === 'cron') {
       console.debug('[OpenClawRuntime] received cron event:', JSON.stringify(event));
       this.scheduleImConversationSyncAfterCronDelivery(event.payload);
+    }
+  }
+
+  private handleChannelSessionLifecycleEvent(payload: unknown): void {
+    if (!this.channelSessionSync || !isRecord(payload)) return;
+
+    const sessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey.trim() : '';
+    const phase = normalizeAgentLifecyclePhase(payload.phase);
+    if (
+      !sessionKey
+      || !parseChannelSessionKey(sessionKey)
+      || !this.channelSessionSync.isCurrentBindingKey(sessionKey)
+      || (
+        phase !== AgentLifecyclePhase.Start
+        && phase !== AgentLifecyclePhase.End
+        && phase !== AgentLifecyclePhase.Error
+      )
+    ) {
+      return;
+    }
+
+    if (this.deletedChannelKeys.has(sessionKey) && phase !== AgentLifecyclePhase.Start) {
+      return;
+    }
+
+    const runId = typeof payload.runId === 'string' ? payload.runId.trim() : '';
+    const trackedRun = this.getFreshChannelLifecycleRun(sessionKey);
+    if (
+      phase !== AgentLifecyclePhase.Start
+      && trackedRun?.runId
+      && runId
+      && trackedRun.runId !== runId
+    ) {
+      console.debug('[ChannelSync] ignored stale IM lifecycle terminal event for a superseded run.');
+      return;
+    }
+
+    const sessionId = this.resolveSessionIdBySessionKey(sessionKey)
+      ?? this.channelSessionSync.resolveOrCreateSession(sessionKey);
+    if (!sessionId) return;
+
+    const activeTurn = this.activeTurns.get(sessionId);
+    if (
+      phase !== AgentLifecyclePhase.Start
+      && activeTurn
+      && runId
+      && activeTurn.runId !== runId
+      && !activeTurn.knownRunIds.has(runId)
+    ) {
+      console.debug('[ChannelSync] ignored IM lifecycle terminal event for a non-current local turn.');
+      return;
+    }
+
+    if (phase === AgentLifecyclePhase.Start) {
+      this.channelLifecycleRunBySessionKey.set(sessionKey, {
+        runId,
+        observedAtMs: Date.now(),
+      });
+      if (this.deletedChannelKeys.delete(sessionKey)) {
+        this.deletedChannelKeySnapshots.delete(sessionKey);
+        this.fullySyncedSessions.add(sessionId);
+        this.reCreatedChannelSessionIds.add(sessionId);
+      }
+    } else {
+      this.channelLifecycleRunBySessionKey.delete(sessionKey);
+    }
+
+    this.rememberSessionKey(sessionId, sessionKey);
+    const isNewlyKnownSession = !this.knownChannelSessionIds.has(sessionId);
+    const session = this.store.getSession(sessionId);
+    if (!session) return;
+
+    const rawStatus = typeof payload.status === 'string' ? payload.status.trim().toLowerCase() : '';
+    const nextStatus: CoworkSessionStatus = phase === AgentLifecyclePhase.Start
+      ? 'running'
+      : phase === AgentLifecyclePhase.Error
+        ? 'error'
+        : resolveChannelSessionNextStatus({
+          hasActiveRun: false,
+          rawStatus,
+          currentStatus: session.status,
+        }) ?? 'completed';
+
+    if (session.status !== nextStatus) {
+      const previousStatus = session.status;
+      this.store.updateSession(sessionId, { status: nextStatus });
+      this.emitSessionStatus(sessionId, nextStatus);
+      console.debug(
+        '[ChannelSync] synced IM session lifecycle status.',
+        `Session ${sessionId}.`,
+        `Status ${previousStatus} -> ${nextStatus}.`,
+        `Phase ${phase}.`,
+      );
+    }
+    if (isNewlyKnownSession) {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('cowork:sessions:changed', { sessionId });
+        }
+      }
     }
   }
 
@@ -7436,6 +7622,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // Polling re-creates them only after the gateway reports new activity.
     for (const key of removedChannelKeys) {
       this.deletedChannelKeys.add(key);
+      this.channelLifecycleRunBySessionKey.delete(key);
       this.deletedChannelKeySnapshots.set(key, {
         updatedAt: null,
         contextTokens: this.sessionContextTokensCache.get(key) ?? null,
