@@ -18,8 +18,8 @@ import {
   normalizeCoworkGoal,
 } from '../shared/cowork/goal';
 import {
-  type CoworkMessageRailIndexItem,
   COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
+  type CoworkMessageRailIndexItem,
   getCoworkRailPreview,
 } from '../shared/cowork/rail';
 import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
@@ -411,6 +411,9 @@ export interface CoworkMessageMetadata {
   isStreaming?: boolean;
   isFinal?: boolean;
   skillIds?: string[];
+  kitIds?: string[];
+  kitReferences?: unknown[];
+  resolvedKitCapabilities?: unknown;
   usage?: {
     inputTokens?: number;
     outputTokens?: number;

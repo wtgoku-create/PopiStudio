@@ -1,12 +1,12 @@
 import { app } from 'electron';
 
-import { APP_UPDATE_CHANNEL } from './appUpdateConfig';
-import type { SqliteStore } from '../sqliteStore';
 import {
   getKnowledgeBasesUrl as resolveKnowledgeBasesUrl,
   getKnowledgeDefaultBaseUrl as resolveKnowledgeDefaultBaseUrl,
   getKnowledgeFrameSource as resolveKnowledgeFrameSource,
 } from '../../shared/knowledge/constants';
+import type { SqliteStore } from '../sqliteStore';
+import { APP_UPDATE_CHANNEL } from './appUpdateConfig';
 
 let cachedTestMode: boolean | null = null;
 
@@ -65,6 +65,12 @@ export const getSkillHubListUrl = (): string => (
 
 export const getSkillHubCategoryListUrl = (): string => (
   `${getServerApiBaseUrl()}/api_client/skill/category/list?pageSize=99999`
+);
+
+export const getKitStoreUrl = (): string => (
+  isTestMode()
+    ? 'https://api-overmind.youdao.com/openapi/get/luna/hardware/lobsterai/test/kit-store'
+    : 'https://api-overmind.youdao.com/openapi/get/luna/hardware/lobsterai/prod/kit-store'
 );
 
 export const getKnowledgeDefaultBaseUrl = (): string => (

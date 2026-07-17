@@ -15,6 +15,7 @@ import sendIconUrl from '../../assets/agent-avatars/Send.png';
 import { configService } from '../../services/config';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
+import { buildKitReferences, getInstalledKitSkillIds, resolveSelectedKitCapabilities } from '../../services/kitCapability';
 import { knowledgeService } from '../../services/knowledge';
 import { skillService } from '../../services/skill';
 import { RootState } from '../../store';
@@ -32,6 +33,7 @@ import {
   setSteerDraft,
   updateCurrentSessionModelOverride,
 } from '../../store/slices/coworkSlice';
+import { toggleActiveKit } from '../../store/slices/kitSlice';
 import type { Model } from '../../store/slices/modelSlice';
 import { setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
 import { CoworkImageAttachment } from '../../types/cowork';
@@ -48,10 +50,12 @@ import PromptAddIcon from '../icons/PromptAddIcon';
 import SkillIcon from '../icons/SkillIcon';
 import TaskPauseIcon from '../icons/TaskPauseIcon';
 import XMarkIcon from '../icons/XMarkIcon';
+import { ActiveKitBadge, KitsButton } from '../kits';
 import ModelSelector from '../ModelSelector';
 import { ActiveSkillBadge, SkillsPopover } from '../skills';
 import { resolveAgentModelSelection, resolveEffectiveModel, useAgentSelectedModel } from './agentModelSelection';
 import AttachmentCard from './AttachmentCard';
+import { buildSelectedKitContextPrompt } from './selectedKitContextPrompt';
 import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
@@ -84,6 +88,9 @@ const getGoalSummary = (goal: CoworkGoal): string => {
 export interface CoworkPromptSubmitOptions {
   knowledgeBases?: Array<{ id: string; name: string }>;
   knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
+  kitIds?: string[];
+  kitReferences?: ReturnType<typeof buildKitReferences>;
+  resolvedKitCapabilities?: ReturnType<typeof resolveSelectedKitCapabilities>;
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.tiff', '.tif', '.ico', '.avif']);
@@ -237,6 +244,7 @@ interface CoworkPromptInputProps {
   showReadOnlyContext?: boolean;
   readOnlyContextTrailingText?: string;
   onManageSkills?: () => void;
+  onManageKits?: () => void;
   sessionId?: string;
   goal?: CoworkGoal | null;
   onGoalCommand?: (command: string) => boolean | void | Promise<boolean | void>;
@@ -267,6 +275,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       showReadOnlyContext = false,
       readOnlyContextTrailingText,
       onManageSkills,
+      onManageKits,
       sessionId,
       goal,
       onGoalCommand,
@@ -399,12 +408,16 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);
+  const activeKitIds = useSelector((state: RootState) => state.kit.activeKitIds);
+  const installedKits = useSelector((state: RootState) => state.kit.installedKits);
+  const marketplaceKits = useSelector((state: RootState) => state.kit.marketplaceKits);
   const hasActiveSkills = activeSkillIds.some(id => skills.some(skill => skill.id === id));
+  const hasActiveKits = activeKitIds.length > 0;
   const selectedKnowledgeBases = selectedKnowledgeBaseIds
     .map(id => knowledgeBases.find(base => base.id === id))
     .filter((base): base is RemoteKnowledgeBase => Boolean(base));
   const hasSelectedKnowledge = selectedKnowledgeBases.length > 0;
-  const hasContextBadges = hasActiveSkills || hasSelectedKnowledge;
+  const hasContextBadges = hasActiveSkills || hasActiveKits || hasSelectedKnowledge;
   const modelTargetAgentId = currentSession && currentSession.id === sessionId
     ? currentSession.agentId
     : currentAgentId;
@@ -688,15 +701,19 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     // Get active skills prompts and combine them
     const knowledgeBases = selectedKnowledgeBases.map(base => ({ id: base.id, name: base.name }));
     const hasSelectedKnowledgeBases = knowledgeBases.length > 0;
-    const effectiveActiveSkillIds = hasSelectedKnowledgeBases && !activeSkillIds.includes(KnowledgeSkill.Base)
-      ? [...activeSkillIds, KnowledgeSkill.Base]
-      : activeSkillIds;
+    const kitSkillIds = activeKitIds.flatMap(kitId => getInstalledKitSkillIds(installedKits[kitId]));
+    const mergedSkillIds = Array.from(new Set([...activeSkillIds, ...kitSkillIds]));
+    const effectiveActiveSkillIds = hasSelectedKnowledgeBases && !mergedSkillIds.includes(KnowledgeSkill.Base)
+      ? [...mergedSkillIds, KnowledgeSkill.Base]
+      : mergedSkillIds;
     const activeSkills = effectiveActiveSkillIds
       .map(id => skills.find(s => s.id === id))
       .filter((s): s is Skill => s !== undefined);
-    const skillPrompt = activeSkills.length > 0
+    const activeSkillPrompt = activeSkills.length > 0
       ? activeSkills.map(buildInlinedSkillPrompt).join('\n\n')
       : undefined;
+    const kitPrompt = buildSelectedKitContextPrompt(activeKitIds, marketplaceKits, installedKits);
+    const skillPrompt = [activeSkillPrompt, kitPrompt].filter(Boolean).join('\n\n') || undefined;
 
     // Extract image attachments (with base64 data) for vision-capable models
     console.log('[CoworkPromptInput] handleSubmit: attachment diagnosis', {
@@ -768,9 +785,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         })),
       });
     }
-    const submitOptions: CoworkPromptSubmitOptions | undefined = hasSelectedKnowledgeBases
+    const submitOptions: CoworkPromptSubmitOptions | undefined = hasSelectedKnowledgeBases || activeKitIds.length > 0
       ? {
-        knowledgeBases,
+        ...(hasSelectedKnowledgeBases ? { knowledgeBases } : {}),
+        ...(activeKitIds.length > 0 ? {
+          kitIds: [...activeKitIds],
+          kitReferences: buildKitReferences(activeKitIds, marketplaceKits),
+          resolvedKitCapabilities: resolveSelectedKitCapabilities(activeKitIds, installedKits),
+        } : {}),
       }
       : undefined;
     const result = await onSubmit(finalPrompt, skillPrompt, imageAtts.length > 0 ? imageAtts : undefined, submitOptions);
@@ -779,10 +801,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
     setImageVisionHint(false);
-  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, pendingSteers.length, dispatch, draftKey, onSubmit, activeSkillIds, skills, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
+  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, pendingSteers.length, dispatch, draftKey, onSubmit, activeSkillIds, activeKitIds, installedKits, marketplaceKits, skills, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBases]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     dispatch(toggleActiveSkill(skill.id));
+  }, [dispatch]);
+
+  const handleSelectKit = useCallback((kitId: string) => {
+    dispatch(toggleActiveKit(kitId));
   }, [dispatch]);
 
   const handleManageSkills = useCallback(() => {
@@ -790,6 +816,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       onManageSkills();
     }
   }, [onManageSkills]);
+
+  const handleManageKits = useCallback(() => {
+    setShowAddMenu(false);
+    if (onManageKits) {
+      onManageKits();
+    }
+  }, [onManageKits]);
 
   const handleOpenAddMenu = useCallback(() => {
     setShowSkillsPopover(false);
@@ -881,7 +914,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         setKnowledgeBases([]);
         setSelectedKnowledgeBaseIds([]);
       }
-    } catch (error) {
+    } catch {
       setKnowledgeBases([]);
       setSelectedKnowledgeBaseIds([]);
     } finally {
@@ -1640,8 +1673,20 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   ) : null;
 
   const largeInputActions = !remoteManaged ? (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-0.5">
       {addMenuAction}
+      <KitsButton
+        onSelectKit={handleSelectKit}
+        onManageKits={handleManageKits}
+        onOpenChange={(open) => {
+          if (open) {
+            setShowAddMenu(false);
+            handleCloseSkillsPopover();
+            handleCloseKnowledgeSubmenu();
+          }
+        }}
+        className={hasActiveKits ? 'bg-surface-raised text-primary' : ''}
+      />
     </div>
   ) : null;
   const largeSendButtonSizeClass = useCompactSendButton ? 'h-7 w-7' : 'h-8 w-8';
@@ -1925,6 +1970,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       }}
     >
       {hasActiveSkills && <ActiveSkillBadge />}
+      {hasActiveKits && <ActiveKitBadge />}
       {activeKnowledgeBadges}
     </div>
   ) : null;
@@ -2043,7 +2089,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                   style={{ minHeight: `${minHeight}px` }}
                 />
                 <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-1">
-                  <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-0.5">
                     {largeInputActions}
                     {largeWorkingDirectoryControl}
                   </div>

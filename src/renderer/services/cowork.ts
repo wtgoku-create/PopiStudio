@@ -10,8 +10,8 @@ import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkSessionSource
 import { normalizeCoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import {
-  type CoworkSteerRequest,
   CoworkSteerRejectReason,
+  type CoworkSteerRequest,
   CoworkSteerStatus,
 } from '../../shared/cowork/steer';
 import { store } from '../store';
@@ -42,13 +42,13 @@ import {
   setRemoteManaged,
   setSessions,
   setStreaming,
-  upsertSessionSummary,
   updateMessageContent,
   updateSessionGoal,
   updateSessionPinned,
   updateSessionStatus,
   updateSessionTitle,
   updateSteerStatus,
+  upsertSessionSummary,
 } from '../store/slices/coworkSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../store/slices/skillSlice';
 import type {
@@ -146,6 +146,23 @@ class CoworkService {
     if (!mainHomeSession) return;
 
     await this.loadSession(mainHomeSession.id);
+  }
+
+  async ensureDefaultAgentHomeSession(): Promise<CoworkSession | null> {
+    if (store.getState().cowork.currentSessionId) {
+      return store.getState().cowork.currentSession;
+    }
+
+    const result = await this.listAgentSidebarSessions();
+    if (!result.success) return null;
+
+    const mainHomeSession = result.sessions?.find((session) => (
+      (session.agentId?.trim() || AgentId.Main) === AgentId.Main
+      && session.source?.kind === CoworkSessionSourceKind.AgentHome
+    ));
+    if (!mainHomeSession) return null;
+
+    return this.loadSession(mainHomeSession.id);
   }
 
   private setupStreamListeners(): void {
@@ -731,6 +748,10 @@ class CoworkService {
       knowledgeFiles: options.knowledgeFiles,
       systemPrompt: options.systemPrompt,
       activeSkillIds: options.activeSkillIds,
+      runtimeSkillIds: options.runtimeSkillIds,
+      kitIds: options.kitIds,
+      kitReferences: options.kitReferences,
+      resolvedKitCapabilities: options.resolvedKitCapabilities,
       imageAttachments: options.imageAttachments,
     });
     if (!result.success) {

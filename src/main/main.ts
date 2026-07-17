@@ -31,6 +31,7 @@ import {
 import { stripNullChars } from '../shared/cowork/text';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
+import type { KitReference, ResolvedKitCapabilities } from '../shared/kit/constants';
 import {
   KnowledgeBaseUrl,
   KnowledgeBrowserPartition,
@@ -38,6 +39,7 @@ import {
   KnowledgeSkill,
 } from '../shared/knowledge/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
+import { normalizeNotificationSettings, type NotificationSettings } from '../shared/notifications/constants';
 import { PlatformRegistry } from '../shared/platform';
 // PopiArt CLI 登录态同步与 IPC 处理
 import { ProviderName } from '../shared/providers';
@@ -57,6 +59,7 @@ import {
 } from './im/imPairingStore';
 import { pollNimQrLogin, startNimQrLogin } from './im/nimQrLoginService';
 import type { DingTalkInstanceConfig, DiscordInstanceConfig, EmailMultiInstanceConfig, FeishuInstanceConfig, NimInstanceConfig, Platform, QQInstanceConfig, TelegramInstanceConfig, WecomInstanceConfig } from './im/types';
+import { registerKitHandlers } from './ipcHandlers/kits';
 import { registerNimQrLoginHandlers } from './ipcHandlers/nimQrLogin';
 import {
   getCronJobService,
@@ -87,7 +90,7 @@ import { getCoworkLogPath } from './libs/coworkLogger';
 import { registerProxyTokenRefresher, startCoworkOpenAICompatProxy, stopCoworkOpenAICompatProxy } from './libs/coworkOpenAICompatProxy';
 import { generateSessionTitle, probeCoworkModelReadiness } from './libs/coworkUtil';
 import { DesktopNotificationManager } from './libs/desktopNotificationManager';
-import { getKnowledgeDefaultBaseUrl, getKnowledgeFrameSource, getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
+import { getKitStoreUrl, getKnowledgeDefaultBaseUrl, getKnowledgeFrameSource, getServerApiBaseUrl, getSkillHubCategoryListUrl, getSkillHubListUrl, refreshEndpointsTestMode } from './libs/endpoints';
 import { mergeEnterpriseOpenclawConfig, resolveEnterpriseConfigPath, syncEnterpriseConfig } from './libs/enterpriseConfigSync';
 import { createOfficePreviewSession, createPreviewSession, destroyPreviewSession, isPreviewServerUrl, stopHtmlPreviewServer } from './libs/htmlPreviewServer';
 import { initializeKeyfromAttribution } from './libs/keyfromAttribution';
@@ -167,7 +170,6 @@ import {
   resolveInitialAppWindowState,
 } from './windowState';
 import { createWindowStatePersistManager } from './windowStatePersist';
-import { normalizeNotificationSettings, type NotificationSettings } from '../shared/notifications/constants';
 
 const gwDiagTs = (): string => {
   const d = new Date();
@@ -1015,10 +1017,11 @@ const resolveCoworkRuntimePrompt = async (options: {
 
 const resolveRuntimeSkillIds = (options: {
   activeSkillIds?: string[];
+  runtimeSkillIds?: string[];
   knowledgeBases?: Array<{ id: string }>;
   knowledgeFiles?: Array<{ id: string }>;
 }): string[] | undefined => {
-  const nextSkillIds = options.activeSkillIds ? [...options.activeSkillIds] : [];
+  const nextSkillIds = options.runtimeSkillIds ? [...options.runtimeSkillIds] : options.activeSkillIds ? [...options.activeSkillIds] : [];
   const hasSelectedKnowledge = Boolean(options.knowledgeBases?.some(item => item.id))
     || Boolean(options.knowledgeFiles?.some(item => item.id));
   if (hasSelectedKnowledge && !nextSkillIds.includes(KnowledgeSkill.Base)) {
@@ -1026,6 +1029,42 @@ const resolveRuntimeSkillIds = (options: {
   }
   return nextSkillIds.length > 0 ? nextSkillIds : undefined;
 };
+
+function buildCoworkUserSelectionMetadata(options: {
+  prompt?: string;
+  skillIds?: string[];
+  kitIds?: string[];
+  kitReferences?: KitReference[] | unknown[];
+  resolvedKitCapabilities?: ResolvedKitCapabilities | unknown;
+  knowledgeBases?: Array<{ id: string; name: string }>;
+  knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
+  imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
+}): Record<string, unknown> | undefined {
+  const metadata: Record<string, unknown> = {};
+  if (options.skillIds?.length) {
+    metadata.skillIds = options.skillIds;
+  }
+  if (options.kitIds?.length) {
+    metadata.kitIds = options.kitIds;
+    if (options.kitReferences?.length) {
+      metadata.kitReferences = options.kitReferences;
+    }
+    if (options.resolvedKitCapabilities) {
+      metadata.resolvedKitCapabilities = options.resolvedKitCapabilities;
+    }
+  }
+  if (options.knowledgeBases?.length) {
+    metadata.knowledgeBases = options.knowledgeBases;
+  }
+  if (options.knowledgeFiles?.length) {
+    metadata.knowledgeFiles = options.knowledgeFiles;
+  }
+  if (options.imageAttachments?.length) {
+    metadata.imageAttachments = options.imageAttachments;
+  }
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
 
 const forwardCoworkMessage = (sessionId: string, message: unknown, beforeMessageId?: string): void => {
   const safeMessage = sanitizeCoworkMessageForIpc(message);
@@ -2764,6 +2803,12 @@ if (!gotTheLock) {
     }
   });
 
+  registerKitHandlers({
+    getStore,
+    getKitStoreUrl,
+    getSkillManager,
+  });
+
   ipcMain.handle('openclaw:engine:getStatus', async () => {
     try {
       const manager = getOpenClawEngineManager();
@@ -3138,6 +3183,10 @@ if (!gotTheLock) {
     systemPrompt?: string;
     title?: string;
     activeSkillIds?: string[];
+    runtimeSkillIds?: string[];
+    kitIds?: string[];
+    kitReferences?: KitReference[];
+    resolvedKitCapabilities?: ResolvedKitCapabilities;
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
     agentId?: string;
     modelOverride?: string;
@@ -3178,7 +3227,7 @@ if (!gotTheLock) {
         taskWorkingDirectory,
         systemPrompt,
         config.executionMode || 'local',
-        options.activeSkillIds || [],
+        options.runtimeSkillIds || options.activeSkillIds || [],
         options.agentId || 'main',
         options.modelOverride || ''
       );
@@ -3192,16 +3241,6 @@ if (!gotTheLock) {
       coworkStoreInstance.updateSession(session.id, { status: 'running' });
 
       // Build metadata, include imageAttachments if present
-      const messageMetadata: Record<string, unknown> = {};
-      if (options.activeSkillIds?.length) {
-        messageMetadata.skillIds = options.activeSkillIds;
-      }
-      if (options.knowledgeBases?.length) {
-        messageMetadata.knowledgeBases = options.knowledgeBases;
-      }
-      if (options.knowledgeFiles?.length) {
-        messageMetadata.knowledgeFiles = options.knowledgeFiles;
-      }
       if (options.imageAttachments?.length) {
         console.log('[Cowork:StartSession] imageAttachments received via IPC:', {
           count: options.imageAttachments.length,
@@ -3211,12 +3250,20 @@ if (!gotTheLock) {
             base64Length: img.base64Data?.length ?? 0,
           })),
         });
-        messageMetadata.imageAttachments = options.imageAttachments;
       }
+      const messageMetadata = buildCoworkUserSelectionMetadata({
+        skillIds: options.activeSkillIds,
+        kitIds: options.kitIds,
+        kitReferences: options.kitReferences,
+        resolvedKitCapabilities: options.resolvedKitCapabilities,
+        knowledgeBases: options.knowledgeBases,
+        knowledgeFiles: options.knowledgeFiles,
+        imageAttachments: options.imageAttachments,
+      });
       coworkStoreInstance.addMessage(session.id, {
         type: 'user',
         content: prompt,
-        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
+        metadata: messageMetadata,
       });
 
       // Start the session asynchronously (skip initial user message since we already added it)
@@ -3272,6 +3319,10 @@ if (!gotTheLock) {
     knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
     systemPrompt?: string;
     activeSkillIds?: string[];
+    runtimeSkillIds?: string[];
+    kitIds?: string[];
+    kitReferences?: KitReference[];
+    resolvedKitCapabilities?: ResolvedKitCapabilities;
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
   }) => {
     try {
@@ -3297,23 +3348,19 @@ if (!gotTheLock) {
       }
 
       const prompt = stripNullChars(options.prompt);
-      const messageMetadata: Record<string, unknown> = {};
-      if (options.activeSkillIds?.length) {
-        messageMetadata.skillIds = options.activeSkillIds;
-      }
-      if (options.knowledgeBases?.length) {
-        messageMetadata.knowledgeBases = options.knowledgeBases;
-      }
-      if (options.knowledgeFiles?.length) {
-        messageMetadata.knowledgeFiles = options.knowledgeFiles;
-      }
-      if (options.imageAttachments?.length) {
-        messageMetadata.imageAttachments = options.imageAttachments;
-      }
+      const messageMetadata = buildCoworkUserSelectionMetadata({
+        skillIds: options.activeSkillIds,
+        kitIds: options.kitIds,
+        kitReferences: options.kitReferences,
+        resolvedKitCapabilities: options.resolvedKitCapabilities,
+        knowledgeBases: options.knowledgeBases,
+        knowledgeFiles: options.knowledgeFiles,
+        imageAttachments: options.imageAttachments,
+      });
       const userMessage = coworkStoreInstance.addMessage(options.sessionId, {
         type: 'user',
         content: prompt,
-        metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
+        metadata: messageMetadata,
       });
       forwardCoworkMessage(options.sessionId, userMessage);
       if (options.imageAttachments?.length) {

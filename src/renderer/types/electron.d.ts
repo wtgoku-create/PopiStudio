@@ -4,6 +4,8 @@ import type {
   BrowserDiagnosticResult,
   BrowserRuntimeProfile,
 } from '../../shared/browserWebAccess/constants';
+import type { CoworkGoal } from '../../shared/cowork/goal';
+import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type {
   DistillPage,
@@ -22,8 +24,6 @@ import type {
   WikiPage,
 } from '../../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
-import type { CoworkGoal } from '../../shared/cowork/goal';
-import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 interface ApiResponse {
   ok: boolean;
   status: number;
@@ -407,6 +407,20 @@ interface IElectronAPI {
     }>;
     onChanged: (callback: () => void) => () => void;
   };
+  kits: {
+    fetchStore: () => Promise<{ success: boolean; data?: string; error?: string }>;
+    listInstalled: () => Promise<{ success: boolean; installed?: Record<string, import('./kit').InstalledKit>; error?: string }>;
+    install: (params: {
+      kitId: string;
+      bundleUrl: string;
+      version: string;
+      skillListIds: string[];
+      skillList?: Array<{ id: string; name?: unknown; description?: unknown }>;
+      mcpServers?: unknown[] | null;
+      connectors?: unknown[] | null;
+    }) => Promise<{ success: boolean; skillIds?: string[]; error?: string }>;
+    uninstall: (kitId: string) => Promise<{ success: boolean; error?: string }>;
+  };
   mcp: {
     list: () => Promise<{ success: boolean; servers?: McpServerConfigIPC[]; error?: string }>;
     create: (
@@ -528,7 +542,12 @@ interface IElectronAPI {
       systemPrompt?: string;
       title?: string;
       activeSkillIds?: string[];
+      runtimeSkillIds?: string[];
+      kitIds?: string[];
+      kitReferences?: unknown[];
+      resolvedKitCapabilities?: unknown;
       agentId?: string;
+      modelOverride?: string;
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
     }) => Promise<{
       success: boolean;
@@ -544,6 +563,10 @@ interface IElectronAPI {
       knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
       systemPrompt?: string;
       activeSkillIds?: string[];
+      runtimeSkillIds?: string[];
+      kitIds?: string[];
+      kitReferences?: unknown[];
+      resolvedKitCapabilities?: unknown;
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
     }) => Promise<{
       success: boolean;

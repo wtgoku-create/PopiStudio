@@ -3,15 +3,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux';
 
 import {
-  SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
-} from '../shared/cowork/constants';
-import {
   APP_UPDATE_HEARTBEAT_INTERVAL_MS,
   APP_UPDATE_POLL_INTERVAL_MS,
   type AppUpdateInfo,
   type AppUpdateRuntimeState,
   AppUpdateStatus,
 } from '../shared/appUpdate/constants';
+import {
+  SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
+} from '../shared/cowork/constants';
 import {
   KnowledgeNavigationEvent,
   type OpenKnowledgeGraphEventDetail,
@@ -23,6 +23,7 @@ import CoworkPermissionModal from './components/cowork/CoworkPermissionModal';
 import CoworkQuestionWizard from './components/cowork/CoworkQuestionWizard';
 import EngineStartupOverlay from './components/cowork/EngineStartupOverlay';
 import { FolderView } from './components/folder';
+import KitsView from './components/kits/KitsView';
 import LoginDialog from './components/LoginDialog';
 import { McpView } from './components/mcp';
 import PrivacyDialog from './components/PrivacyDialog';
@@ -54,6 +55,7 @@ import {
   selectPendingPermissions,
 } from './store/selectors/coworkSelectors';
 import { setDraftPrompt } from './store/slices/coworkSlice';
+import { setActiveKitIds } from './store/slices/kitSlice';
 import { setDefaultSelectedModel } from './store/slices/modelSlice';
 import { clearSelection } from './store/slices/quickActionSlice';
 import type { CoworkPermissionResult } from './types/cowork';
@@ -95,6 +97,7 @@ const App: React.FC = () => {
   } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const hasInitialized = useRef(false);
+  const lastSelectedSessionIdRef = useRef<string | null>(null);
   const previousUpdateStatusRef = useRef<AppUpdateRuntimeState['status']>(AppUpdateStatus.Idle);
   const shouldInstallReadyUpdateRef = useRef(false);
   const dispatch = useDispatch();
@@ -112,7 +115,23 @@ const App: React.FC = () => {
 
   useEffect(() => {
     void window.electron.cowork.markSessionViewed?.(currentSessionId ?? null);
+    if (currentSessionId) {
+      lastSelectedSessionIdRef.current = currentSessionId;
+    }
   }, [currentSessionId]);
+
+  const restoreCoworkSelection = useCallback(async () => {
+    if (store.getState().cowork.currentSessionId) return;
+
+    const lastSelectedSessionId = lastSelectedSessionIdRef.current;
+    if (lastSelectedSessionId) {
+      const restoredSession = await coworkService.loadSession(lastSelectedSessionId);
+      if (restoredSession) return;
+      lastSelectedSessionIdRef.current = null;
+    }
+
+    await coworkService.ensureDefaultAgentHomeSession();
+  }, []);
 
   useEffect(() => {
     const unsubscribe = window.electron.cowork.onOpenSessionFromNotification?.(({ sessionId }) => {
@@ -327,10 +346,32 @@ const App: React.FC = () => {
     setMainView(MainView.Skills);
   }, []);
 
+  const handleShowKits = useCallback(() => {
+    coworkService.clearSession();
+    setMainView(MainView.Kits);
+    setIsAgentPanelCollapsed(true);
+  }, []);
+
+  const handleTryAskingKit = useCallback((text: string, kitId: string) => {
+    dispatch(setActiveKitIds([kitId]));
+    dispatch(setDraftPrompt({ sessionId: currentSessionId ?? '__home__', draft: text }));
+    setMainView(MainView.Cowork);
+    void restoreCoworkSelection();
+    window.dispatchEvent(new CustomEvent('cowork:focus-input'));
+  }, [currentSessionId, dispatch, restoreCoworkSelection]);
+
+  const handleUseKit = useCallback((kitId: string) => {
+    dispatch(setActiveKitIds([kitId]));
+    setMainView(MainView.Cowork);
+    void restoreCoworkSelection();
+    window.dispatchEvent(new CustomEvent('cowork:focus-input'));
+  }, [dispatch, restoreCoworkSelection]);
+
   const handleShowCowork = useCallback(() => {
     setMainView(MainView.Cowork);
     setIsAgentPanelCollapsed(false);
-  }, []);
+    void restoreCoworkSelection();
+  }, [restoreCoworkSelection]);
 
   const handleShowScheduledTasks = useCallback(() => {
     setMainView(MainView.ScheduledTasks);
@@ -962,6 +1003,7 @@ const App: React.FC = () => {
           onShowLogin={handleShowLogin}
           onShowSettings={handleShowSettings}
           activeView={mainView}
+          onShowKits={handleShowKits}
           onShowSkills={handleShowSkills}
           onShowCowork={handleShowCowork}
           onShowScheduledTasks={handleShowScheduledTasks}
@@ -989,7 +1031,12 @@ const App: React.FC = () => {
           <div className="flex-1 min-w-0 transition-[padding] duration-200 ease-out">
             <div className="relative h-full min-h-0 overflow-hidden rounded-xl bg-background">
               <EngineStartupOverlay />
-              {mainView === MainView.Skills ? (
+              {mainView === MainView.Kits ? (
+                <KitsView
+                  onTryAsking={handleTryAskingKit}
+                  onUseKit={handleUseKit}
+                />
+              ) : mainView === MainView.Skills ? (
                 <SkillsView
                   isSidebarCollapsed={isAgentPanelCollapsed}
                   onToggleSidebar={handleToggleSidebar}
@@ -1018,6 +1065,7 @@ const App: React.FC = () => {
                     privacyAgreed === true && !showWelcome ? handleShowSettings : undefined
                   }
                   onShowSkills={handleShowSkills}
+                  onShowKits={handleShowKits}
                   isSidebarCollapsed={isAgentPanelCollapsed}
                   onToggleSidebar={handleToggleSidebar}
                   onNewChat={handleNewChat}

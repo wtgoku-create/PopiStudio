@@ -10,10 +10,10 @@ import { CoworkIpcChannel } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc } from '../shared/folder/constants';
 import {
-  KnowledgeIpc,
   type GetChunkByIdRequest,
   type GetDistillPageRequest,
   type GetWikiPageRequest,
+  KnowledgeIpc,
   type PreviewRagContextRequest,
   type SearchRecentKnowledgeRequest,
   type UploadLocalSessionMarkdownRequest,
@@ -69,6 +69,20 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('skills:changed', handler);
       return () => ipcRenderer.removeListener('skills:changed', handler);
     },
+  },
+  kits: {
+    fetchStore: () => ipcRenderer.invoke('kits:fetchStore'),
+    listInstalled: () => ipcRenderer.invoke('kits:listInstalled'),
+    install: (params: {
+      kitId: string;
+      bundleUrl: string;
+      version: string;
+      skillListIds: string[];
+      skillList?: Array<{ id: string; name?: unknown; description?: unknown }>;
+      mcpServers?: unknown[] | null;
+      connectors?: unknown[] | null;
+    }) => ipcRenderer.invoke('kits:install', params),
+    uninstall: (kitId: string) => ipcRenderer.invoke('kits:uninstall', kitId),
   },
   mcp: {
     list: () => ipcRenderer.invoke('mcp:list'),
@@ -265,9 +279,9 @@ contextBridge.exposeInMainWorld('electron', {
   },
   cowork: {
     // Session management
-    startSession: (options: { prompt: string; knowledgeBases?: Array<{ id: string; name: string }>; knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>; cwd?: string; systemPrompt?: string; title?: string; activeSkillIds?: string[]; agentId?: string; modelOverride?: string; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
+    startSession: (options: { prompt: string; knowledgeBases?: Array<{ id: string; name: string }>; knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>; cwd?: string; systemPrompt?: string; title?: string; activeSkillIds?: string[]; runtimeSkillIds?: string[]; kitIds?: string[]; kitReferences?: unknown[]; resolvedKitCapabilities?: unknown; agentId?: string; modelOverride?: string; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
       ipcRenderer.invoke('cowork:session:start', options),
-    continueSession: (options: { sessionId: string; prompt: string; knowledgeBases?: Array<{ id: string; name: string }>; knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>; systemPrompt?: string; activeSkillIds?: string[]; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
+    continueSession: (options: { sessionId: string; prompt: string; knowledgeBases?: Array<{ id: string; name: string }>; knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>; systemPrompt?: string; activeSkillIds?: string[]; runtimeSkillIds?: string[]; kitIds?: string[]; kitReferences?: unknown[]; resolvedKitCapabilities?: unknown; imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }> }) =>
       ipcRenderer.invoke('cowork:session:continue', options),
     submitSteer: (options: { sessionId: string; text: string; clientSteerId: string }) =>
       ipcRenderer.invoke(CoworkIpcChannel.SubmitSteer, options),

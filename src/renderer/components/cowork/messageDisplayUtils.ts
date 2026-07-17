@@ -46,7 +46,7 @@ export type ConversationTurn = {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-export const COWORK_DETAIL_CONTENT_CLASS = 'mx-auto w-full max-w-[760px]';
+export const COWORK_DETAIL_CONTENT_CLASS = 'mx-auto w-full max-w-[700px]';
 export const COWORK_DETAIL_GUTTER_CLASS = 'px-6 sm:px-8 lg:px-10';
 
 const TOOL_USE_ERROR_TAG_PATTERN = /^<tool_use_error>([\s\S]*?)<\/tool_use_error>$/i;

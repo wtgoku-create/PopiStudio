@@ -1,4 +1,5 @@
 import type { CoworkGoal } from '../../shared/cowork/goal';
+import type { KitReference, ResolvedKitCapabilities } from '../../shared/kit/constants';
 
 // Cowork image attachment for vision-capable models
 export interface CoworkImageAttachment {
@@ -51,6 +52,9 @@ export interface CoworkMessageMetadata {
   isFinal?: boolean;
   isThinking?: boolean;
   skillIds?: string[];
+  kitIds?: string[];
+  kitReferences?: KitReference[];
+  resolvedKitCapabilities?: ResolvedKitCapabilities;
   knowledgeBases?: Array<{ id: string; name: string }>;
   knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
   usage?: {
@@ -275,6 +279,10 @@ export interface CoworkStartOptions {
   systemPrompt?: string;
   title?: string;
   activeSkillIds?: string[];
+  runtimeSkillIds?: string[];
+  kitIds?: string[];
+  kitReferences?: KitReference[];
+  resolvedKitCapabilities?: ResolvedKitCapabilities;
   agentId?: string;
   modelOverride?: string;
   imageAttachments?: CoworkImageAttachment[];
@@ -288,6 +296,10 @@ export interface CoworkContinueOptions {
   knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
   systemPrompt?: string;
   activeSkillIds?: string[];
+  runtimeSkillIds?: string[];
+  kitIds?: string[];
+  kitReferences?: KitReference[];
+  resolvedKitCapabilities?: ResolvedKitCapabilities;
   imageAttachments?: CoworkImageAttachment[];
 }
 

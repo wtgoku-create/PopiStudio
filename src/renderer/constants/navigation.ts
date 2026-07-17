@@ -1,5 +1,6 @@
 export const MainView = {
   Cowork: 'cowork',
+  Kits: 'kits',
   Skills: 'skills',
   ScheduledTasks: 'scheduledTasks',
   Mcp: 'mcp',

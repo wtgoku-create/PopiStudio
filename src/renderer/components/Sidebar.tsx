@@ -3,12 +3,14 @@ import React, { useEffect } from 'react';
 import { MainView, type MainView as MainViewType } from '../constants/navigation';
 import { i18nService } from '../services/i18n';
 import SidebarAutomationIcon from './icons/SidebarAutomationIcon';
-import LoginButton from './LoginButton';
+import SidebarKitsIcon from './icons/SidebarKitsIcon';
 import TeamOutlinedIcon from './icons/TeamOutlinedIcon';
+import LoginButton from './LoginButton';
 interface SidebarProps {
   onShowSettings: () => void;
   onShowLogin?: () => void;
   activeView: MainViewType;
+  onShowKits: () => void;
   onShowSkills: () => void;
   onShowCowork: () => void;
   onShowFolder: () => void;
@@ -148,6 +150,7 @@ const SidebarIconButton: React.FC<SidebarIconButtonProps> = ({
 const Sidebar: React.FC<SidebarProps> = ({
   onShowSettings,
   activeView,
+  onShowKits,
   onShowSkills,
   onShowCowork,
   onShowFolder,
@@ -226,6 +229,16 @@ const Sidebar: React.FC<SidebarProps> = ({
             }}
           >
             <SidebarAutomationIcon className={sidebarIconClassName} />
+          </SidebarIconButton>
+          <SidebarIconButton
+            label={i18nService.t('kits')}
+            active={activeView === MainView.Kits}
+            onClick={() => {
+              onShowKits();
+              onCollapseAgentPanel();
+            }}
+          >
+            <SidebarKitsIcon className={sidebarIconClassName} />
           </SidebarIconButton>
           <SidebarIconButton
             label={i18nService.t('skills')}

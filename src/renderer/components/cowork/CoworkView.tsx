@@ -7,6 +7,7 @@ import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
+import { resolveSelectedKitCapabilities } from '../../services/kitCapability';
 import { buildOptionalPopiTVCanvasContext } from '../../services/popitvCanvasContext';
 import { registerPopiTVCanvasAutoOpenHandler } from '../../services/popitvCanvasToolRouter';
 import { quickActionService } from '../../services/quickAction';
@@ -17,6 +18,7 @@ import {
   selectIsStreaming,
 } from '../../store/selectors/coworkSelectors';
 import { addMessage, setCurrentSession, setStreaming, updateSessionStatus } from '../../store/slices/coworkSlice';
+import { clearActiveKits } from '../../store/slices/kitSlice';
 import { clearSelection,selectAction, setActions } from '../../store/slices/quickActionSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../../store/slices/skillSlice';
 import type { CoworkImageAttachment, CoworkPermissionRequest, CoworkPermissionResult, CoworkSession, OpenClawEngineStatus, SubagentSessionSummary } from '../../types/cowork';
@@ -45,6 +47,7 @@ const isPopiTVSession = (session: CoworkSession | null | undefined): boolean => 
 export interface CoworkViewProps {
   onRequestAppSettings?: (options?: SettingsOpenOptions) => void;
   onShowSkills?: () => void;
+  onShowKits?: () => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   onNewChat?: () => void;
@@ -56,6 +59,7 @@ export interface CoworkViewProps {
 
 const CoworkView: React.FC<CoworkViewProps> = ({
   onShowSkills,
+  onShowKits,
   isSidebarCollapsed,
   onToggleSidebar,
   onNewChat,
@@ -106,6 +110,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({
   }, [currentSession?.id]);
 
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
+  const activeKitIds = useSelector((state: RootState) => state.kit.activeKitIds);
+  const installedKits = useSelector((state: RootState) => state.kit.installedKits);
   const skills = useSelector((state: RootState) => state.skill.skills);
   const quickActions = useSelector((state: RootState) => state.quickAction.actions);
   const selectedActionId = useSelector((state: RootState) => state.quickAction.selectedActionId);
@@ -274,6 +280,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
       // Capture active skill IDs before clearing them
       const sessionSkillIds = [...activeSkillIds];
+      const sessionKitIds = [...activeKitIds];
+      const kitCapabilities = options?.resolvedKitCapabilities
+        ?? resolveSelectedKitCapabilities(sessionKitIds, installedKits);
+      const runtimeSkillIds = Array.from(new Set([...sessionSkillIds, ...kitCapabilities.skillIds]));
       const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
       const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
       const existingSessionResult = await coworkService.listSessionsForAgentPreview(currentAgentId, 1, 0);
@@ -283,8 +293,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
       if (existingSessionSummary) {
         const loadedSession = await coworkService.loadSession(existingSessionSummary.id);
-        const popitvContextSkillIds = sessionSkillIds.length > 0
-          ? sessionSkillIds
+        const popitvContextSkillIds = runtimeSkillIds.length > 0
+          ? runtimeSkillIds
           : loadedSession?.activeSkillIds ?? [];
         const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
           shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
@@ -298,10 +308,17 @@ const CoworkView: React.FC<CoworkViewProps> = ({
           knowledgeFiles,
           systemPrompt: combinedSystemPrompt,
           activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
+          runtimeSkillIds: runtimeSkillIds.length > 0 ? runtimeSkillIds : undefined,
+          kitIds: sessionKitIds.length > 0 ? sessionKitIds : undefined,
+          kitReferences: options?.kitReferences,
+          resolvedKitCapabilities: options?.resolvedKitCapabilities,
           imageAttachments,
         });
         if (sent && sessionSkillIds.length > 0) {
           dispatch(clearActiveSkills());
+        }
+        if (sent && sessionKitIds.length > 0) {
+          dispatch(clearActiveKits());
         }
         dispatch(clearSelection());
         return sent;
@@ -327,7 +344,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         systemPrompt: '',
         modelOverride: currentAgentSelectedModel ? toOpenClawModelRef(currentAgentSelectedModel) : '',
         executionMode: config.executionMode || 'local',
-        activeSkillIds: sessionSkillIds,
+        activeSkillIds: runtimeSkillIds,
         agentId: currentAgentId,
         messages: [
           {
@@ -335,9 +352,14 @@ const CoworkView: React.FC<CoworkViewProps> = ({
             type: 'user',
             content: prompt,
             timestamp: now,
-            metadata: (sessionSkillIds.length > 0 || knowledgeBases?.length || knowledgeFiles?.length || (imageAttachments && imageAttachments.length > 0))
+            metadata: (sessionSkillIds.length > 0 || sessionKitIds.length > 0 || knowledgeBases?.length || knowledgeFiles?.length || (imageAttachments && imageAttachments.length > 0))
               ? {
                 ...(sessionSkillIds.length > 0 ? { skillIds: sessionSkillIds } : {}),
+                ...(sessionKitIds.length > 0 ? {
+                  kitIds: sessionKitIds,
+                  kitReferences: options?.kitReferences,
+                  resolvedKitCapabilities: options?.resolvedKitCapabilities,
+                } : {}),
                 ...(knowledgeBases?.length ? { knowledgeBases } : {}),
                 ...(knowledgeFiles?.length ? { knowledgeFiles } : {}),
                 ...(imageAttachments && imageAttachments.length > 0 ? { imageAttachments } : {}),
@@ -356,6 +378,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       // Clear active skills and quick action selection after starting session
       // so they don't persist to next session
       dispatch(clearActiveSkills());
+      dispatch(clearActiveKits());
       dispatch(clearSelection());
 
       // Combine skill prompt with system prompt.
@@ -364,7 +387,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       // that confuse non-Claude models (e.g. kimi-k2.5 falls back to text-based
       // tool calls, producing empty tool names and err=true failures).
       const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
-        shouldInclude: sessionSkillIds.includes(POPITV_SKILL_ID),
+        shouldInclude: runtimeSkillIds.includes(POPITV_SKILL_ID),
       });
       const combinedSystemPrompt = buildCoworkSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
 
@@ -379,6 +402,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         cwd: currentAgentWorkingDirectory || undefined,
         systemPrompt: combinedSystemPrompt,
         activeSkillIds: sessionSkillIds,
+        runtimeSkillIds,
+        kitIds: sessionKitIds.length > 0 ? sessionKitIds : undefined,
+        kitReferences: options?.kitReferences,
+        resolvedKitCapabilities: options?.resolvedKitCapabilities,
         agentId: currentAgentId,
         modelOverride: sessionModelOverride,
         imageAttachments,
@@ -434,13 +461,17 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
       // Capture active skill IDs before clearing
       const sessionSkillIds = [...activeSkillIds];
+      const sessionKitIds = [...activeKitIds];
+      const kitCapabilities = options?.resolvedKitCapabilities
+        ?? resolveSelectedKitCapabilities(sessionKitIds, installedKits);
+      const runtimeSkillIds = Array.from(new Set([...sessionSkillIds, ...kitCapabilities.skillIds]));
       const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
       const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
 
       // Only send a continuation system prompt when this turn selects new skills.
       // Otherwise the main process falls back to the session prompt created on the first turn.
-      const popitvContextSkillIds = sessionSkillIds.length > 0
-        ? sessionSkillIds
+      const popitvContextSkillIds = runtimeSkillIds.length > 0
+        ? runtimeSkillIds
         : currentSession.activeSkillIds;
       const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
         shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
@@ -455,10 +486,17 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         knowledgeFiles,
         systemPrompt: combinedSystemPrompt,
         activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
+        runtimeSkillIds: runtimeSkillIds.length > 0 ? runtimeSkillIds : undefined,
+        kitIds: sessionKitIds.length > 0 ? sessionKitIds : undefined,
+        kitReferences: options?.kitReferences,
+        resolvedKitCapabilities: options?.resolvedKitCapabilities,
         imageAttachments,
       });
       if (sent && sessionSkillIds.length > 0) {
         dispatch(clearActiveSkills());
+      }
+      if (sent && sessionKitIds.length > 0) {
+        dispatch(clearActiveKits());
       }
       return sent;
     } finally {
@@ -666,6 +704,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         {engineStatusBanner}
         <CoworkSessionDetail
           onManageSkills={() => onShowSkills?.()}
+          onManageKits={() => onShowKits?.()}
           onContinue={handleContinueSession}
           onStop={handleStopSession}
           isSidebarCollapsed={isSidebarCollapsed}
@@ -726,6 +765,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
               showModelSelector={true}
               showAgentSelector={true}
               onManageSkills={() => onShowSkills?.()}
+              onManageKits={() => onShowKits?.()}
             />
           </div>
 

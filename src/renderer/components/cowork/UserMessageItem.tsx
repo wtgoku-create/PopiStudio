@@ -1,9 +1,13 @@
 import { PhotoIcon } from '@heroicons/react/24/outline';
 import React, { useCallback, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 
 import { hasGoalSettingMessageMetadata } from '../../../common/goalCommandDisplay';
+import type { KitReference } from '../../../shared/kit/constants';
 import { i18nService } from '../../services/i18n';
+import { buildKitReferences } from '../../services/kitCapability';
 import { skillService } from '../../services/skill';
+import { RootState } from '../../store';
 import type { CoworkImageAttachment, CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import type { Skill } from '../../types/skill';
 import { formatMessageDateTime } from '../../utils/tokenFormat';
@@ -12,6 +16,7 @@ import AcademicCapIcon from '../icons/AcademicCapIcon';
 import EditIcon from '../icons/EditIcon';
 import GoalIcon from '../icons/GoalIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
+import SidebarKitsIcon from '../icons/SidebarKitsIcon';
 import SkillIcon from '../icons/SkillIcon';
 import ImagePreviewModal, { type ImagePreviewSource } from './ImagePreviewModal';
 import { MessageCopyButton } from './MessageActionButton';
@@ -103,11 +108,31 @@ const UserMessageKnowledgeBadges: React.FC<{
   );
 };
 
+const UserMessageKitBadges: React.FC<{ kitReferences: KitReference[] }> = ({ kitReferences }) => {
+  if (kitReferences.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {kitReferences.map(kit => (
+        <div
+          key={kit.id}
+          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground"
+          title={i18nService.t('kits')}
+        >
+          <SidebarKitsIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
+          <span className="min-w-0 truncate">{kit.name || kit.id}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const UserMessageItem: React.FC<{
   message: CoworkMessage;
   skills: Skill[];
   onReEdit?: (message: CoworkMessage) => void;
 }> = React.memo(({ message, skills, onReEdit }) => {
+  const marketplaceKits = useSelector((state: RootState) => state.kit.marketplaceKits);
   const [isHovered, setIsHovered] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
   const modelLabel = getMessageModelLabel(message.metadata);
@@ -138,11 +163,18 @@ const UserMessageItem: React.FC<{
   const messageSkills = messageSkillIds
     .map(id => skills.find(s => s.id === id))
     .filter((s): s is NonNullable<typeof s> => s !== undefined);
+  const metadataKitReferences = Array.isArray(metadata?.kitReferences)
+    ? metadata.kitReferences as KitReference[]
+    : [];
+  const messageKitIds = Array.isArray(metadata?.kitIds) ? metadata.kitIds : [];
+  const messageKitReferences = metadataKitReferences.length > 0
+    ? metadataKitReferences
+    : buildKitReferences(messageKitIds, marketplaceKits);
   const messageKnowledgeBases = (metadata?.knowledgeBases ?? [])
     .filter((base): base is { id: string; name: string } => Boolean(base?.id));
   const messageKnowledgeFiles = (metadata?.knowledgeFiles ?? [])
     .filter((file): file is { id: string; title: string; knowledgeBaseName?: string; fileType?: string } => Boolean(file?.id));
-  const hasContextBadges = messageSkills.length > 0 || messageKnowledgeBases.length > 0 || messageKnowledgeFiles.length > 0;
+  const hasContextBadges = messageSkills.length > 0 || messageKitReferences.length > 0 || messageKnowledgeBases.length > 0 || messageKnowledgeFiles.length > 0;
 
   const imageAttachments = (metadata?.imageAttachments ?? []) as CoworkImageAttachment[];
 
@@ -164,6 +196,7 @@ const UserMessageItem: React.FC<{
                   <div className={(displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <UserMessageSkillBadges skills={messageSkills} />
+                      <UserMessageKitBadges kitReferences={messageKitReferences} />
                       <UserMessageKnowledgeBadges bases={messageKnowledgeBases} files={messageKnowledgeFiles} />
                     </div>
                   </div>
