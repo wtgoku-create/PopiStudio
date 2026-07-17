@@ -1,7 +1,14 @@
 import { ApiFormat, type ProviderConfig, ProviderName, ProviderRegistry } from '@shared/providers';
 
 import { normalizeBrowserWebAccessConfig } from '../../shared/browserWebAccess/constants';
-import { AppConfig, CONFIG_KEYS, defaultConfig, isCustomProvider } from '../config';
+import {
+  AppConfig,
+  CONFIG_KEYS,
+  defaultConfig,
+  FontPreferences,
+  isCustomProvider,
+  normalizeFontPreference,
+} from '../config';
 import { localStore } from './store';
 
 const getFixedProviderApiFormat = (providerKey: string): ApiFormat | null => {
@@ -376,6 +383,18 @@ class ConfigService {
             ...(storedConfig.shortcuts ?? {}),
           } as AppConfig['shortcuts'],
           providers: mergedProviders as AppConfig['providers'],
+          uiFontSize: normalizeFontPreference(
+            storedConfig.uiFontSize,
+            FontPreferences.UiFontSizeDefault,
+            FontPreferences.UiFontSizeMin,
+            FontPreferences.UiFontSizeMax,
+          ),
+          codeFontSize: normalizeFontPreference(
+            storedConfig.codeFontSize,
+            FontPreferences.CodeFontSizeDefault,
+            FontPreferences.CodeFontSizeMin,
+            FontPreferences.CodeFontSizeMax,
+          ),
           browserWebAccess: normalizeBrowserWebAccessConfig(storedConfig.browserWebAccess),
         });
       }
@@ -401,6 +420,18 @@ class ConfigService {
       ...base,
       ...newConfig,
       ...(normalizedProviders ? { providers: normalizedProviders } : {}),
+      uiFontSize: normalizeFontPreference(
+        newConfig.uiFontSize ?? base.uiFontSize,
+        FontPreferences.UiFontSizeDefault,
+        FontPreferences.UiFontSizeMin,
+        FontPreferences.UiFontSizeMax,
+      ),
+      codeFontSize: normalizeFontPreference(
+        newConfig.codeFontSize ?? base.codeFontSize,
+        FontPreferences.CodeFontSizeDefault,
+        FontPreferences.CodeFontSizeMin,
+        FontPreferences.CodeFontSizeMax,
+      ),
       browserWebAccess: normalizeBrowserWebAccessConfig(
         newConfig.browserWebAccess ?? base.browserWebAccess,
       ),

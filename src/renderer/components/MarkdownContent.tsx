@@ -376,7 +376,7 @@ const createMarkdownComponents = (
   spacing: MarkdownSpacing = 'normal',
 ) => ({
   p: ({ node: _node, className: _className, children, ...props }: any) => (
-    <p className="my-1 first:mt-0 last:mb-0 leading-[23px] text-foreground/90" {...props}>
+    <p className="my-1 first:mt-0 last:mb-0 text-markdown-body-compact text-foreground/90" {...props}>
       {children}
     </p>
   ),
@@ -386,17 +386,17 @@ const createMarkdownComponents = (
     </strong>
   ),
   h1: ({ node: _node, className: _className, children, ...props }: any) => (
-    <h1 className="mt-4 mb-2 text-[18px] font-semibold leading-7 text-foreground" {...props}>
+    <h1 className="mt-4 mb-2 font-semibold text-foreground" style={{ fontSize: 'var(--lobster-text-markdownH1)', lineHeight: 'var(--lobster-leading-markdownH1)' }} {...props}>
       {children}
     </h1>
   ),
   h2: ({ node: _node, className: _className, children, ...props }: any) => (
-    <h2 className="mt-3.5 mb-1.5 text-[16px] font-semibold leading-6 text-foreground" {...props}>
+    <h2 className="mt-3.5 mb-1.5 font-semibold text-foreground" style={{ fontSize: 'var(--lobster-text-markdownH2)', lineHeight: 'var(--lobster-leading-markdownH2)' }} {...props}>
       {children}
     </h2>
   ),
   h3: ({ node: _node, className: _className, children, ...props }: any) => (
-    <h3 className="mt-3 mb-1.5 text-[15px] font-semibold leading-[23px] text-foreground" {...props}>
+    <h3 className="mt-3 mb-1.5 font-semibold text-foreground" style={{ fontSize: 'var(--lobster-text-markdownH3)', lineHeight: 'var(--lobster-leading-markdownH3)' }} {...props}>
       {children}
     </h3>
   ),
@@ -411,7 +411,7 @@ const createMarkdownComponents = (
     </ol>
   ),
   li: ({ node: _node, className: _className, children, ...props }: any) => (
-    <li className="my-0.5 leading-[23px] text-foreground/90" {...props}>
+    <li className="my-0.5 text-markdown-body-compact text-foreground/90" {...props}>
       {children}
     </li>
   ),
@@ -711,7 +711,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
 
   if (useLargePreview) {
     return (
-      <div className={`markdown-content min-w-0 max-w-full text-[15px] leading-[23px] ${className}`}>
+      <div className={`markdown-content min-w-0 max-w-full text-markdown-body-compact ${className}`}>
         <div className="rounded-lg border border-border bg-surface-raised/60">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 text-xs text-muted">
             <span>
@@ -734,7 +734,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
   }
 
   return (
-    <div className={`markdown-content min-w-0 max-w-full text-[15px] leading-[23px] ${className}`}>
+    <div className={`markdown-content min-w-0 max-w-full text-markdown-body-compact ${className}`}>
       {canUseLargePreview && (
         <div className="mb-2 flex justify-end">
           <button

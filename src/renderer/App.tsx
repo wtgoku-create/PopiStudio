@@ -43,6 +43,7 @@ import { i18nService } from './services/i18n';
 import { scheduledTaskService } from './services/scheduledTask';
 import { matchesShortcut } from './services/shortcuts';
 import { themeService } from './services/theme';
+import { applyTypographyPreferences } from './services/typography';
 import { RootState, store } from './store';
 import {
   selectCurrentSessionId,
@@ -176,6 +177,7 @@ const App: React.FC = () => {
         mark('authService.init done');
 
         const config = await configService.getConfig();
+        applyTypographyPreferences(config);
         const apiConfig: ApiConfig = {
           apiKey: config.api.key,
           baseUrl: config.api.baseUrl,

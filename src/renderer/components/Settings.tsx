@@ -9,7 +9,7 @@ import {
   normalizeBrowserWebAccessConfig,
 } from '../../shared/browserWebAccess/constants';
 import { ProviderRegistry, resolveCodingPlanBaseUrl } from '../../shared/providers';
-import { type AppConfig, defaultConfig, getVisibleProviders } from '../config';
+import { type AppConfig, defaultConfig, FontPreferences, getVisibleProviders } from '../config';
 import { APP_ID, EXPORT_FORMAT_TYPE, EXPORT_PASSWORD } from '../constants/app';
 import { apiService } from '../services/api';
 import { authService } from '../services/auth';
@@ -19,6 +19,7 @@ import { decryptSecret, decryptWithPassword, EncryptedPayload, encryptWithPasswo
 import { i18nService, LanguageType } from '../services/i18n';
 import { imService } from '../services/im';
 import { themeService } from '../services/theme';
+import { applyTypographyPreferences } from '../services/typography';
 import type { RootState } from '../store';
 import { selectCoworkConfig } from '../store/selectors/coworkSelectors';
 import type {
@@ -443,6 +444,43 @@ const SettingsToggleRow: React.FC<{
   </div>
 );
 
+const SettingsNumberInputRow: React.FC<{
+  id: string;
+  title: string;
+  description: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}> = ({ id, title, description, value, min, max, onChange }) => {
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = Number(event.target.value);
+    if (!Number.isFinite(nextValue)) return;
+    onChange(Math.min(max, Math.max(min, Math.round(nextValue))));
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <label htmlFor={id} className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-foreground">{title}</span>
+        <span className="mt-1 block text-xs text-secondary">{description}</span>
+      </label>
+      <div className="flex shrink-0 items-center gap-2">
+        <input
+          id={id}
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          onChange={handleChange}
+          className="h-8 w-16 rounded-lg border border-border bg-surface px-2 text-right text-sm text-foreground outline-none transition-colors focus:border-primary"
+        />
+        <span className="text-xs text-muted">px</span>
+      </div>
+    </div>
+  );
+};
+
 const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, noticeI18nKey, noticeExtra, onUpdateFound, enterpriseConfig }) => {
   // 状态
   const resolveInitialTab = (tab?: TabType): TabType => (
@@ -451,6 +489,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
   const [activeTab, setActiveTab] = useState<TabType>(resolveInitialTab(initialTab));
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
   const [themeId, setThemeId] = useState<string>(themeService.getThemeId());
+  const [uiFontSize, setUiFontSize] = useState<number>(FontPreferences.UiFontSizeDefault);
+  const [codeFontSize, setCodeFontSize] = useState<number>(FontPreferences.CodeFontSizeDefault);
   const [language, setLanguage] = useState<LanguageType>('zh');
   const [autoLaunch, setAutoLaunchState] = useState(false);
   const [useSystemProxy, setUseSystemProxy] = useState(false);
@@ -481,6 +521,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
   const [isExportingProviders, setIsExportingProviders] = useState(false);
   const initialThemeRef = useRef<'light' | 'dark' | 'system'>(themeService.getTheme());
   const initialThemeIdRef = useRef<string>(themeService.getThemeId());
+  const initialUiFontSizeRef = useRef<number>(FontPreferences.UiFontSizeDefault);
+  const initialCodeFontSizeRef = useRef<number>(FontPreferences.CodeFontSizeDefault);
   const initialLanguageRef = useRef<LanguageType>(i18nService.getLanguage());
   const didSaveRef = useRef(false);
 
@@ -824,8 +866,12 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
 
       // Set general settings
       initialThemeRef.current = config.theme;
+      initialUiFontSizeRef.current = config.uiFontSize ?? FontPreferences.UiFontSizeDefault;
+      initialCodeFontSizeRef.current = config.codeFontSize ?? FontPreferences.CodeFontSizeDefault;
       initialLanguageRef.current = config.language;
       setTheme(config.theme);
+      setUiFontSize(config.uiFontSize ?? FontPreferences.UiFontSizeDefault);
+      setCodeFontSize(config.codeFontSize ?? FontPreferences.CodeFontSizeDefault);
       setLanguage(config.language);
       setUseSystemProxy(config.useSystemProxy ?? false);
       setSqliteAutoBackupEnabled(config.sqliteAutoBackupEnabled === true);
@@ -1062,12 +1108,18 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
   useEffect(() => {
     const initialThemeId = initialThemeIdRef.current;
     const initialTheme = initialThemeRef.current;
+    const initialUiFontSize = initialUiFontSizeRef.current;
+    const initialCodeFontSize = initialCodeFontSizeRef.current;
     const initialLanguage = initialLanguageRef.current;
     return () => {
       if (didSaveRef.current) {
         return;
       }
       themeService.restoreTheme(initialThemeId, initialTheme);
+      applyTypographyPreferences({
+        uiFontSize: initialUiFontSize,
+        codeFontSize: initialCodeFontSize,
+      });
       i18nService.setLanguage(initialLanguage, { persist: false });
     };
   }, []);
@@ -1814,6 +1866,8 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
         },
         providers: normalizedProviders, // Save all providers configuration
         theme,
+        uiFontSize,
+        codeFontSize,
         language,
         useSystemProxy,
         sqliteAutoBackupEnabled,
@@ -1831,6 +1885,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
 
       // 应用主题
       themeService.setTheme(theme);
+      applyTypographyPreferences({ uiFontSize, codeFontSize });
 
       // 应用语言
       i18nService.setLanguage(language, { persist: false });
@@ -1906,6 +1961,22 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     }
     setActiveTab(tab);
   };
+
+  const handleUiFontSizeChange = useCallback((nextValue: number) => {
+    setUiFontSize(nextValue);
+    applyTypographyPreferences({
+      uiFontSize: nextValue,
+      codeFontSize,
+    });
+  }, [codeFontSize]);
+
+  const handleCodeFontSizeChange = useCallback((nextValue: number) => {
+    setCodeFontSize(nextValue);
+    applyTypographyPreferences({
+      uiFontSize,
+      codeFontSize: nextValue,
+    });
+  }, [uiFontSize]);
 
   // Mapping from shortcut key to i18n label key for conflict messages
   const shortcutLabelMap: Record<string, string> = {
@@ -2758,6 +2829,31 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
             </>
           );
         })()}
+
+        <div className="mt-5 divide-y divide-border rounded-xl border border-border bg-surface">
+          <div className="px-4 py-3">
+            <SettingsNumberInputRow
+              id="ui-font-size"
+              title={i18nService.t('uiFontSize')}
+              description={i18nService.t('uiFontSizeDescription')}
+              value={uiFontSize}
+              min={FontPreferences.UiFontSizeMin}
+              max={FontPreferences.UiFontSizeMax}
+              onChange={handleUiFontSizeChange}
+            />
+          </div>
+          <div className="px-4 py-3">
+            <SettingsNumberInputRow
+              id="code-font-size"
+              title={i18nService.t('codeFontSize')}
+              description={i18nService.t('codeFontSizeDescription')}
+              value={codeFontSize}
+              min={FontPreferences.CodeFontSizeMin}
+              max={FontPreferences.CodeFontSizeMax}
+              onChange={handleCodeFontSizeChange}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

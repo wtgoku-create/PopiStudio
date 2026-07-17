@@ -581,14 +581,14 @@ function buildSearchPanel(view: EditorView): Panel {
 
 const baseTheme = EditorView.theme({
   '&': {
-    fontSize: '13px',
+    fontSize: 'var(--lobster-code-font-size)',
     fontFamily: "'SF Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace",
   },
   '.cm-gutters': { border: 'none', userSelect: 'none' },
   '.cm-lineNumbers .cm-gutterElement': {
     minWidth: '2.5em',
     padding: '0 8px 0 4px',
-    fontSize: '12px',
+    fontSize: 'var(--lobster-code-font-size)',
     opacity: '0.5',
   },
   '.cm-content': { padding: '8px 0' },
@@ -609,7 +609,7 @@ const baseTheme = EditorView.theme({
     borderBottom: '1px solid var(--lobster-border)',
     background: 'var(--lobster-surface-raised)',
     fontFamily: "'SF Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace",
-    fontSize: '12px',
+    fontSize: 'var(--lobster-code-font-size)',
   },
   '.cm-search-input': {
     flex: '0 0 160px',
@@ -619,7 +619,7 @@ const baseTheme = EditorView.theme({
     border: '1px solid var(--lobster-border)',
     background: 'var(--lobster-surface)',
     color: 'var(--lobster-foreground)',
-    fontSize: '12px',
+    fontSize: 'var(--lobster-code-font-size)',
     outline: 'none',
   },
   '.cm-search-input:focus': {
@@ -628,7 +628,7 @@ const baseTheme = EditorView.theme({
   '.cm-search-count': {
     flex: '0 0 auto',
     minWidth: '36px',
-    fontSize: '11px',
+    fontSize: 'calc(var(--lobster-code-font-size) - 1px)',
     color: 'var(--lobster-text-secondary)',
     textAlign: 'center',
     fontVariantNumeric: 'tabular-nums',
@@ -669,7 +669,7 @@ const baseTheme = EditorView.theme({
     padding: '0 6px',
     borderRadius: '5px',
     border: '1px solid transparent',
-    fontSize: '12px',
+    fontSize: 'var(--lobster-code-font-size)',
     lineHeight: '1',
     color: 'var(--lobster-text-secondary)',
     cursor: 'pointer',
@@ -1512,7 +1512,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ node, className, children, ...pro
             />
           )
         ) : (
-          <div className="m-0 overflow-x-auto dark:bg-[#282c34] bg-[#f0f2f5] text-[13px] leading-6">
+          <div className="m-0 overflow-x-auto dark:bg-[#282c34] bg-[#f0f2f5] text-code">
             <code className="block px-4 py-3 font-mono dark:text-gray-100 text-gray-800 whitespace-pre dark:bg-[#282c34] bg-[#f0f2f5] w-max min-w-full">
               {trimmedCodeText}
             </code>
