@@ -14,56 +14,46 @@ description_i18n:
 
 # PopiArt CLI
 
-使用内置的 PopiArt CLI 处理图片、视频、语音、音乐、任务查询和产物下载。
+使用内置 `popiart` CLI 处理图片、视频、语音、音乐、任务查询、媒体上传和产物下载。
 
 ## 核心约束
 
-- **始终使用 `popiart` CLI**：优先使用 `popiart image generate`、`popiart image img2img`、`popiart image transform`、`popiart image describe`、`popiart video generate`、`popiart video img2video`、`popiart video from-image`、`popiart video action-transfer`、`popiart video seedance`、`popiart speech synthesize`、`popiart music generate`。
-- **不要运行 `popiart auth`**：登录由 Settings 页面和主进程自动同步。
-- **不要传递 `--key` 或 `--api-key`**：不要把密钥写进命令、prompt 或 tool 输入。
-- **优先使用 agent/CI 友好参数**：推荐统一带上 `--output json --quiet --non-interactive`；需要等待完成时再加 `--wait`。
-- **本地文件可以直接传**：传本地 `--image`、`--video`、`--audio` 时，CLI 会自动处理上传和稳定媒体 URL。
-- **生成后默认下载到本地**：每次图片、视频、语音、音乐生成成功后，都要继续把产物下载到本地目录，不要只返回远端 URL 或只汇报 `artifact_id`。
-- **主站模式不要优先用单 artifact 下载**：`popiart artifacts pull <artifact_id>` 在主站模式下可能返回 `UNSUPPORTED_IN_POPI_ART_MODE`，优先使用 `artifacts list`、`artifacts get`、`artifacts pull-all`。
+- 始终使用 `popiart` CLI，不要改用裸 API。
+- 不要运行 `popiart auth`；登录由 Settings 和主进程同步。
+- 不要传 `--key` / `--api-key`，也不要把密钥写入 prompt 或 tool 输入。
+- Agent/CI 默认追加：`--output json --quiet --non-interactive`。需要等结果时加 `--wait`；只提交任务时用 `--async`。
+- 本地 `--image` / `--video` / `--audio` 可直接传，CLI 会处理上传和稳定媒体 URL。
+- 图片、视频、语音、音乐生成成功后，默认继续下载到本地目录；不要只返回远端 URL、`job_id`、`task_id` 或 `artifact_id`。
+- 主站模式下不要优先用 `popiart artifacts pull <artifact_id>`，它可能返回 `UNSUPPORTED_IN_POPI_ART_MODE`；优先 `artifacts list` / `artifacts get` / `artifacts pull-all`。
 
-## 常用全局参数
-
-Agent / CI 场景默认带：
+## 默认参数
 
 ```bash
 --output json --quiet --non-interactive
 ```
 
-常用参数：
-
-| 参数 | 用途 |
-| --- | --- |
-| `--output json` | 输出稳定 JSON；agent 应优先使用。 |
-| `--quiet` | 减少非结果输出。 |
-| `--non-interactive` | 不弹交互提示，缺参数时直接报错。 |
-| `--wait` | 等待任务完成后再返回。 |
-| `--async` | 只提交任务并立即返回 `job_id` / `task_id`。 |
-| `--dry-run` | 预览归一化后的请求，不执行生成。 |
+可选：`--wait` 等待完成；`--async` 只提交任务；`--dry-run` 预览请求。
 
 ## 推荐入口
 
-- 文生图：`popiart image generate`
-- 图生图：`popiart image img2img`
-- 显式图生图：`popiart image transform`
-- 图片理解 / prompt 生成：`popiart image describe`
-- 文生/图生视频：`popiart video generate`
-- 显式图生视频：`popiart video img2video`
-- `from-image` 视频入口：`popiart video from-image`
-- 动作迁移：`popiart video action-transfer`
-- Seedance / 豆包视频：`popiart video seedance`
-- 语音合成：`popiart speech synthesize`
-- 音乐生成：`popiart music generate`
-- 作业查询：`popiart jobs get` / `popiart jobs wait`
-- 产物列表 / 元数据：`popiart artifacts list` / `popiart artifacts get`
-- 任务结果下载：`popiart artifacts pull-all`
-- artifact 上传：`popiart artifacts upload`
-- 媒体上传：`popiart media upload`
-- 媒体查询：`popiart media get`
+| 任务 | 命令 |
+| --- | --- |
+| 文生图 | `popiart image generate` |
+| 图生图 | `popiart image img2img` |
+| 显式图生图 | `popiart image transform` |
+| 图片理解 / prompt 生成 | `popiart image describe` |
+| 通用视频 | `popiart video generate` |
+| 显式图生视频 | `popiart video img2video` |
+| from-image 视频 | `popiart video from-image` |
+| 动作迁移 | `popiart video action-transfer` |
+| Seedance / 豆包视频 | `popiart video seedance` |
+| 语音合成 | `popiart speech synthesize` |
+| 音乐生成 | `popiart music generate` |
+| 作业查询 | `popiart jobs get` / `popiart jobs wait` |
+| 产物查看 | `popiart artifacts list` / `popiart artifacts get` |
+| 产物下载 | `popiart artifacts pull-all` |
+| artifact 上传 | `popiart artifacts upload` |
+| 媒体上传 / 查询 | `popiart media upload` / `popiart media get` |
 
 ## 常用命令
 
@@ -92,18 +82,6 @@ popiart image img2img \
   --non-interactive
 ```
 
-### 显式图生图
-
-```bash
-popiart image transform \
-  --image ./source.png \
-  --prompt "Turn this into a cyberpunk poster" \
-  --wait \
-  --output json \
-  --quiet \
-  --non-interactive
-```
-
 ### 图片理解 / prompt 生成
 
 ```bash
@@ -115,7 +93,29 @@ popiart image describe \
   --non-interactive
 ```
 
-### 通用视频生成
+### 图生图 / 显式图生图
+
+```bash
+popiart image img2img \
+  --image ./source.png \
+  --prompt "Turn this into a poster-style portrait" \
+  --wait \
+  --output json \
+  --quiet \
+  --non-interactive
+```
+
+```bash
+popiart image transform \
+  --image ./source.png \
+  --prompt "Turn this into a cyberpunk poster" \
+  --wait \
+  --output json \
+  --quiet \
+  --non-interactive
+```
+
+### 视频
 
 ```bash
 popiart video generate \
@@ -127,20 +127,6 @@ popiart video generate \
   --non-interactive
 ```
 
-### 显式图生视频
-
-```bash
-popiart video img2video \
-  --image ./source.png \
-  --prompt "Add gentle motion and a slow push-in" \
-  --wait \
-  --output json \
-  --quiet \
-  --non-interactive
-```
-
-### from-image 视频入口
-
 ```bash
 popiart video from-image \
   --image ./source.png \
@@ -151,19 +137,7 @@ popiart video from-image \
   --non-interactive
 ```
 
-### 动作迁移
-
-```bash
-popiart video action-transfer \
-  --image ./face.jpg \
-  --video ./motion.mp4 \
-  --wait \
-  --output json \
-  --quiet \
-  --non-interactive
-```
-
-### 首尾帧视频
+### 首尾帧 / 动作迁移
 
 ```bash
 popiart video generate \
@@ -171,6 +145,16 @@ popiart video generate \
   --last-frame ./last-frame.png \
   --prompt "从第一帧自然过渡到最后一帧，镜头平稳推进" \
   --duration 6 \
+  --wait \
+  --output json \
+  --quiet \
+  --non-interactive
+```
+
+```bash
+popiart video action-transfer \
+  --image ./face.jpg \
+  --video ./motion.mp4 \
   --wait \
   --output json \
   --quiet \
@@ -190,8 +174,6 @@ popiart video seedance \
   --non-interactive
 ```
 
-### Seedance 首尾帧
-
 ```bash
 popiart video seedance \
   --image ./first-frame.png \
@@ -204,8 +186,6 @@ popiart video seedance \
   --non-interactive
 ```
 
-### Seedance 生成音频
-
 ```bash
 popiart video seedance \
   --image ./actor.png \
@@ -217,7 +197,7 @@ popiart video seedance \
   --non-interactive
 ```
 
-### 语音合成
+### 语音 / 音乐
 
 ```bash
 popiart speech synthesize \
@@ -226,8 +206,6 @@ popiart speech synthesize \
   --quiet \
   --non-interactive
 ```
-
-### 音乐生成
 
 ```bash
 popiart music generate \
@@ -242,7 +220,10 @@ popiart music generate \
 
 ## 模型与默认路由
 
-CLI配置有默认模型，但是当用户指定模型或者命令返回 `MODEL_NOT_FOUND` / `MODEL_SUBTYPE_UNSUPPORTED`默认模型不可用时，需要先用 `popiart models list` 或 `popiart models routes` 查询可用模型，再指定 `--model` 或 `--route`。--model <model_id> 只影响本次请求，--route <route> 会覆盖项目默认路由。一般情况下都使用--model或者默认模型即可，不推荐--route
+CLI 有默认模型。用户指定模型，或命令返回 `MODEL_NOT_FOUND` / `MODEL_SUBTYPE_UNSUPPORTED` 时，先查询可用模型/路由，再指定 `--model` 或 `--route`。
+
+- `--model <model_id>` 只影响本次请求，优先使用。
+- `--route <route>` 会覆盖项目默认路由，一般不推荐。
 
 ```bash
 popiart models list --output json --quiet --non-interactive
@@ -250,8 +231,6 @@ popiart models list --capability text2image --output json --quiet --non-interact
 popiart models routes --output json --quiet --non-interactive
 popiart models routes --route image.text2image --output json --quiet --non-interactive
 ```
-
-
 
 常用 route：
 
