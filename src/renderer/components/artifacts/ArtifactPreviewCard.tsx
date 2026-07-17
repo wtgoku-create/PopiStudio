@@ -324,7 +324,7 @@ const ArtifactPreviewCard: React.FC<ArtifactPreviewCardProps> = ({ artifact, onO
 
   if (isDocumentWithFile) {
     return (
-      <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-surface-raised hover:bg-surface-hover transition-colors max-w-sm w-full text-left">
+      <div className="artifact-preview-card-row group flex min-h-[58px] items-center gap-3 px-4 py-3 transition-colors w-full text-left hover:bg-surface-hover">
         <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
           <IconComponent className="w-5 h-5 text-primary" />
         </div>
@@ -360,7 +360,7 @@ const ArtifactPreviewCard: React.FC<ArtifactPreviewCardProps> = ({ artifact, onO
     <button
       type="button"
       onClick={handleClick}
-      className="flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-surface-raised hover:bg-surface-hover transition-colors cursor-pointer max-w-sm w-full text-left"
+      className="artifact-preview-card-row group flex min-h-[58px] items-center gap-3 px-4 py-3 transition-colors cursor-pointer w-full text-left hover:bg-surface-hover"
     >
       <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
         <IconComponent className="w-5 h-5 text-primary" />

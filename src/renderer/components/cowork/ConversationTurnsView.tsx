@@ -24,6 +24,7 @@ export interface ConversationTurnsViewProps {
   artifacts?: Artifact[];
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   mapDisplayText?: (value: string) => string;
+  localServiceDirectory?: string;
   onOpenLocalService?: (artifact: Artifact) => void;
   onReEdit?: (message: CoworkMessage) => void;
   /** When true, hides re-edit buttons and other interactive elements */
@@ -48,6 +49,7 @@ const ConversationTurnsView: React.FC<ConversationTurnsViewProps> = ({
   artifacts = EMPTY_ARTIFACTS,
   resolveLocalFilePath,
   mapDisplayText,
+  localServiceDirectory,
   onOpenLocalService,
   onReEdit,
   readOnly = false,
@@ -117,6 +119,7 @@ const ConversationTurnsView: React.FC<ConversationTurnsViewProps> = ({
                   artifacts={turnArtifacts}
                   resolveLocalFilePath={resolveLocalFilePath}
                   mapDisplayText={mapDisplayText}
+                  localServiceDirectory={localServiceDirectory}
                   onOpenLocalService={onOpenLocalService}
                   showTypingIndicator={showTypingIndicator}
                   showCopyButtons={!isStreaming || !isLastTurn}

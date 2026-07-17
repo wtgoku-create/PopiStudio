@@ -1443,6 +1443,8 @@ const translations: Record<LanguageType, Record<string, string>> = {
     openFileFailed: '打开文件失败',
     showInFolderFailed: '打开文件所在目录失败',
     fileCreated: '文件已创建',
+    artifactPreviewCardShowMore: '显示另外 {count} 个',
+    artifactPreviewCardShowLess: '收起',
 
     // 插件管理
     pluginsTab: '插件',
@@ -3826,6 +3828,8 @@ const translations: Record<LanguageType, Record<string, string>> = {
     openFileFailed: 'Failed to open file',
     showInFolderFailed: 'Failed to show file in folder',
     fileCreated: 'File created',
+    artifactPreviewCardShowMore: 'Show {count} more',
+    artifactPreviewCardShowLess: 'Show less',
 
     // Plugins
     pluginsTab: 'Plugins',

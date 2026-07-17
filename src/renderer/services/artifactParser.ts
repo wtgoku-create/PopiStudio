@@ -92,6 +92,8 @@ const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
   '.jpeg': 'image',
   '.gif': 'image',
   '.webp': 'image',
+  '.bmp': 'image',
+  '.avif': 'image',
   '.mp4': 'video',
   '.mov': 'video',
   '.webm': 'video',
@@ -120,7 +122,7 @@ const EXTENSION_TO_ARTIFACT_TYPE: Record<string, ArtifactType> = {
   '.pdf': 'document',
 };
 
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.avif']);
 const MEDIA_EXTENSIONS = new Set([
   '.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv', '.wmv', '.flv',
   '.mp3', '.wav', '.m4a',
@@ -579,6 +581,82 @@ export function dedupeArtifactsForDisplay(
   return result;
 }
 
+export function resolveArtifactIdForDisplay(
+  artifacts: Artifact[],
+  artifactId: string,
+  options: DedupeArtifactsOptions = {},
+): string {
+  const target = artifacts.find(artifact => artifact.id === artifactId);
+  if (!target) return artifactId;
+
+  const displayArtifacts = dedupeArtifactsForDisplay(artifacts, options);
+  if (displayArtifacts.some(artifact => artifact.id === artifactId)) {
+    return artifactId;
+  }
+
+  const targetKeys = new Set(getArtifactIdentityKeys(target));
+  if (targetKeys.size === 0) return artifactId;
+
+  const displayArtifact = displayArtifacts.find(artifact =>
+    getArtifactIdentityKeys(artifact).some(key => targetKeys.has(key))
+  );
+
+  return displayArtifact?.id ?? artifactId;
+}
+
+export function dedupeArtifactsWithinMessages(artifacts: Artifact[]): Artifact[] {
+  const result: Artifact[] = [];
+  const keyToIndex = new Map<string, number>();
+
+  for (const artifact of artifacts) {
+    const keys = getArtifactIdentityKeys(artifact).map(key => `${artifact.messageId}:${key}`);
+    const existingIndex = keys
+      .map(key => keyToIndex.get(key))
+      .find((index): index is number => index !== undefined);
+
+    if (existingIndex === undefined) {
+      const nextIndex = result.length;
+      result.push(artifact);
+      for (const key of keys) {
+        keyToIndex.set(key, nextIndex);
+      }
+      continue;
+    }
+
+    if (shouldPreferArtifactForDisplay(artifact, result[existingIndex])) {
+      result[existingIndex] = artifact;
+    }
+    for (const key of keys) {
+      keyToIndex.set(key, existingIndex);
+    }
+  }
+
+  return result;
+}
+
+export function hasToolResultMediaAssets(toolResultMsg: CoworkMessage | undefined): boolean {
+  if (!toolResultMsg?.metadata || toolResultMsg.metadata.isError) return false;
+
+  const details = toolResultMsg.metadata.toolResultDetails;
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return false;
+
+  const assets = (details as Record<string, unknown>).assets;
+  if (!Array.isArray(assets)) return false;
+
+  return assets.some(asset => {
+    if (!asset || typeof asset !== 'object' || Array.isArray(asset)) return false;
+    const item = asset as Record<string, unknown>;
+    if (item.type !== ArtifactTypeValue.Image && item.type !== ArtifactTypeValue.Video) return false;
+    const url = typeof item.url === 'string' ? item.url.trim() : '';
+    const filePath = typeof item.filePath === 'string' ? item.filePath.trim() : '';
+    const localPath = typeof item.localPath === 'string' ? item.localPath.trim() : '';
+    if (item.type === ArtifactTypeValue.Video) {
+      return Boolean(filePath || localPath);
+    }
+    return Boolean(url || filePath || localPath);
+  });
+}
+
 function isLocalServiceUrl(url: string): boolean {
   try {
     const parsed = new URL(trimLocalServiceUrl(url));
@@ -727,13 +805,37 @@ export function parseMediaTokensFromText(
   return artifacts;
 }
 
-const FILE_LINK_RE = /\[([^\]]+)\]\(file:\/\/([^)]+)\)/g;
+const ANY_MARKDOWN_LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g;
 
 export function stripFileLinksFromText(text: string): string {
   return text.replace(/\[([^\]]+)\]\(file:\/\/([^)]+)\)/g, '');
 }
 
-const BARE_FILE_PATH_RE = /(?:^|[\s"'`(])(\/?(?:[^\s"'`()\[\]]+\/)*[^\s"'`()\[\]]+\.(?:docx|xlsx|pptx|pdf|md|txt|log|csv|mp4|mov|webm|m4v|avi|mkv|wmv|flv|mp3|wav|m4a))(?:[\s"'`)]|$)/gmi;
+function resolveLocalHrefPath(rawHref: string): string | null {
+  let href = rawHref.trim();
+  if (href.startsWith('<') && href.endsWith('>')) {
+    href = href.slice(1, -1).trim();
+  }
+  if (!href || href.startsWith('#') || href.startsWith('//')) return null;
+  if (/^(?:file|localfile):/i.test(href)) {
+    return normalizeArtifactFilePath(href) || null;
+  }
+
+  const isWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(href);
+  if (!isWindowsAbsolute && /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
+
+  const candidate = normalizeArtifactFilePath(href);
+  if (!candidate) return null;
+  const isPosixAbsolute = candidate.startsWith('/');
+  const isHomePath = candidate === '~' || candidate.startsWith('~/') || candidate.startsWith('~\\');
+  const hasSeparator = candidate.includes('/') || candidate.includes('\\');
+  if (isPosixAbsolute || isWindowsAbsolute || isHomePath || hasSeparator) {
+    return candidate;
+  }
+  return null;
+}
+
+const BARE_FILE_PATH_RE = /(?:^|[\s"'`(])((?:\/|[A-Za-z]:[\\/])?(?:[^\s"'`()\[\]\\/]+[\\/]+)+[^\s"'`()\[\]\\/]+\.(?:png|jpe?g|gif|webp|bmp|avif|mp4|webm|mov|m4v|avi|mkv|wmv|flv|mp3|wav|m4a|docx|xlsx|pptx|pdf|md|txt|log|csv|html?|svg))(?:[\s"'`)]|$)/gmi;
 
 export function parseFilePathsFromText(
   messageContent: string,
@@ -744,25 +846,15 @@ export function parseFilePathsFromText(
   if (!messageContent) return [];
 
   const artifacts: Artifact[] = [];
-  const re = new RegExp(BARE_FILE_PATH_RE.source, 'gm');
+  const re = new RegExp(BARE_FILE_PATH_RE.source, 'gmi');
   let match: RegExpExecArray | null;
   let index = 0;
 
   while ((match = re.exec(messageContent)) !== null) {
-    let filePath = match[1];
+    const rawMatch = match[1];
+    if (/:\/\//.test(rawMatch) && !/^file:/i.test(rawMatch.trim())) continue;
 
-    if (filePath.startsWith('file:///')) {
-      filePath = filePath.slice(7);
-    } else if (filePath.startsWith('file://')) {
-      filePath = filePath.slice(7);
-    } else if (filePath.startsWith('file:/')) {
-      filePath = filePath.slice(5);
-    }
-
-    // Strip leading / before Windows drive letter (e.g. /D:/path from file:///D:/path)
-    if (/^\/[A-Za-z]:/.test(filePath)) {
-      filePath = filePath.slice(1);
-    }
+    const filePath = normalizeArtifactFilePath(rawMatch);
 
     const ext = getFileExtension(filePath);
     const artifactType = getArtifactTypeFromExtension(ext);
@@ -796,22 +888,14 @@ export function parseFileLinksFromMessage(
   if (!messageContent) return [];
 
   const artifacts: Artifact[] = [];
-  const re = new RegExp(FILE_LINK_RE.source, 'g');
+  const re = new RegExp(ANY_MARKDOWN_LINK_RE.source, 'g');
   let match: RegExpExecArray | null;
   let index = 0;
 
   while ((match = re.exec(messageContent)) !== null) {
     const linkText = match[1];
-    let filePath: string;
-    try {
-      filePath = decodeURIComponent(match[2]);
-    } catch {
-      filePath = match[2];
-    }
-    // Strip leading / before Windows drive letter (e.g. /D:/path from file:///D:/path)
-    if (/^\/[A-Za-z]:/.test(filePath)) {
-      filePath = filePath.slice(1);
-    }
+    const filePath = resolveLocalHrefPath(match[2]);
+    if (!filePath) continue;
     const ext = getFileExtension(filePath);
     const artifactType = getArtifactTypeFromExtension(ext);
     if (!artifactType) continue;
@@ -909,9 +993,9 @@ export function parseToolResultMediaArtifacts(
       ? item.url.trim()
       : '';
     const filePath = typeof item.filePath === 'string' && item.filePath.trim()
-      ? item.filePath.trim()
+      ? normalizeArtifactFilePath(item.filePath)
       : typeof item.localPath === 'string' && item.localPath.trim()
-        ? item.localPath.trim()
+        ? normalizeArtifactFilePath(item.localPath)
         : '';
     if (artifactType === ArtifactTypeValue.Video && !filePath) continue;
     if (!url && !filePath) continue;
@@ -931,7 +1015,7 @@ export function parseToolResultMediaArtifacts(
       content: filePath ? '' : url,
       fileName: filename,
       ...(filePath ? { filePath } : {}),
-      ...(url ? { remoteUrl: url } : {}),
+      ...(filePath && url ? { remoteUrl: url } : {}),
       source: 'tool',
       createdAt: toolResultMsg.timestamp || Date.now(),
     });
@@ -950,7 +1034,15 @@ export function shouldParseFilePathsFromToolResult(toolName: string | undefined 
   return IMAGE_GEN_TOOL_NAMES_FOR_PATH_DETECTION.has(toolName.toLowerCase());
 }
 
-const WRITE_TOOL_NAMES = new Set(['write', 'writefile', 'write_file']);
+const WRITE_TOOL_NAMES = new Set([
+  'write',
+  'writefile',
+  'write_file',
+  'edit',
+  'editfile',
+  'multiedit',
+  'createfile',
+]);
 
 function normalizeToolName(name: string): string {
   return name.toLowerCase().replace(/[_\s]/g, '');
@@ -994,7 +1086,8 @@ export function parseToolArtifact(
   const toolInput = toolUseMsg.metadata?.toolInput as Record<string, unknown> | undefined;
   if (!toolInput) return null;
 
-  const filePath = extractFilePath(toolInput);
+  const rawFilePath = extractFilePath(toolInput);
+  const filePath = rawFilePath ? normalizeArtifactFilePath(rawFilePath) : null;
   if (!filePath) return null;
 
   const ext = getFileExtension(filePath);

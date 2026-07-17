@@ -1,7 +1,9 @@
-import React from 'react';
+import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { ContextCompactionStatus } from '../../../common/coworkSystemMessages';
 import { getScheduledReminderDisplayText } from '../../../scheduledTask/reminderText';
+import { dedupeArtifactsForDisplay } from '../../services/artifactParser';
 import { i18nService } from '../../services/i18n';
 import type { Artifact } from '../../types/artifact';
 import type { CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
@@ -95,6 +97,7 @@ const AssistantTurnBlock: React.FC<{
   artifacts?: Artifact[];
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   mapDisplayText?: (value: string) => string;
+  localServiceDirectory?: string;
   onOpenLocalService?: (artifact: Artifact) => void;
   showTypingIndicator?: boolean;
   showCopyButtons?: boolean;
@@ -105,13 +108,32 @@ const AssistantTurnBlock: React.FC<{
   artifacts,
   resolveLocalFilePath,
   mapDisplayText,
+  localServiceDirectory,
   onOpenLocalService,
   showTypingIndicator = false,
   showCopyButtons = true,
   alwaysShowLastAssistantMeta = false,
   renderToolGroupFooter,
 }) => {
+  const [artifactCardsExpanded, setArtifactCardsExpanded] = useState(false);
   const visibleAssistantItems = getVisibleAssistantItems(turn.assistantItems);
+  const artifactCards = useMemo(
+    () => artifacts
+      ? dedupeArtifactsForDisplay(
+          artifacts,
+          { defaultProjectDirectory: localServiceDirectory },
+        )
+      : [],
+    [artifacts, localServiceDirectory],
+  );
+  const visibleArtifactCards = useMemo(() => {
+    return artifactCardsExpanded ? artifactCards : artifactCards.slice(0, 3);
+  }, [artifactCards, artifactCardsExpanded]);
+  const hiddenArtifactCardCount = Math.max(0, artifactCards.length - visibleArtifactCards.length);
+
+  useEffect(() => {
+    setArtifactCardsExpanded(false);
+  }, [turn.id]);
 
   const renderSystemMessage = (message: CoworkMessage) => {
     const isError = !hasText(message.content) && typeof message.metadata?.error === 'string';
@@ -266,15 +288,42 @@ const AssistantTurnBlock: React.FC<{
               );
             })}
             {showTypingIndicator && <TypingDots />}
-            {artifacts && artifacts.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-1">
-                {artifacts.map(artifact => (
-                  <ArtifactPreviewCard
-                    key={artifact.id}
-                    artifact={artifact}
-                    onOpenLocalService={onOpenLocalService}
-                  />
-                ))}
+            {artifactCards.length > 0 && (
+              <div className="space-y-2 pt-1">
+                <div className="artifact-preview-card-group w-full overflow-hidden rounded-lg border border-border">
+                  <div className="divide-y divide-border">
+                    {visibleArtifactCards.map(artifact => (
+                      <ArtifactPreviewCard
+                        key={artifact.id}
+                        artifact={artifact}
+                        onOpenLocalService={onOpenLocalService}
+                      />
+                    ))}
+                  </div>
+                  {(hiddenArtifactCardCount > 0 || (artifactCardsExpanded && artifactCards.length > 3)) && (
+                    <div className="border-t border-border px-4 py-2 text-center">
+                      {hiddenArtifactCardCount > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setArtifactCardsExpanded(true)}
+                          className="inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-secondary hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.035] transition-colors"
+                        >
+                          <span>{i18nService.t('artifactPreviewCardShowMore').replace('{count}', String(hiddenArtifactCardCount))}</span>
+                          <ChevronDownIcon className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setArtifactCardsExpanded(false)}
+                          className="inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-secondary hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.035] transition-colors"
+                        >
+                          <span>{i18nService.t('artifactPreviewCardShowLess')}</span>
+                          <ChevronUpIcon className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
