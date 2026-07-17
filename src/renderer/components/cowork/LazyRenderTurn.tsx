@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 /**
  * LazyRenderTurn — Viewport-based lazy rendering wrapper for conversation turns.
@@ -71,7 +71,7 @@ const LazyRenderTurn: React.FC<LazyRenderTurnProps> = ({
 
     const ro = new ResizeObserver(([entry]) => {
       const h = entry.contentRect.height;
-      if (h > 0) {
+      if (h > 0 && heightCache.get(turnId) !== h) {
         heightCache.set(turnId, h);
       }
     });

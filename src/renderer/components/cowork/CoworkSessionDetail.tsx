@@ -78,7 +78,7 @@ import {
   shouldAutoScrollForPosition,
 } from './conversationScrollPolicy';
 import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
-import LazyRenderTurn, { clearHeightCache } from './LazyRenderTurn';
+import LazyRenderTurn from './LazyRenderTurn';
 import {
   buildConversationTurns,
   buildDisplayItems,
@@ -1174,6 +1174,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const headerAgentName = getAgentDisplayName(headerAgent);
   const detailRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollContentRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
   const [steerPreviewPortalTarget, setSteerPreviewPortalTarget] = useState<HTMLDivElement | null>(null);
   const [goalStatusBarPortalTarget, setGoalStatusBarPortalTarget] = useState<HTMLDivElement | null>(null);
@@ -1181,12 +1182,19 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const shouldAutoScrollRef = useRef(true);
   const userDetachedFromBottomRef = useRef(false);
+  // True while the initial-entry bottom-pinning rAF loop is active. During this
+  // window, transient non-bottom scroll readings caused by lazily-rendered turns
+  // and async content growing over several frames must NOT be treated as the user
+  // scrolling up to read history.
+  const initialPinningRef = useRef(false);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
   const [showCompactConfirm, setShowCompactConfirm] = useState(false);
   const isLoadingMoreMessagesRef = useRef(false);
   const prevScrollHeightRef = useRef<number | null>(null);
+  const userInitiatedHistoryScrollRef = useRef(false);
   const scrollToBottomIntentRef = useRef(false);
   const scrollToBottomSettleTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const lastScrollHeightRef = useRef<number>(0);
   const autoPreviewHandledTurnIdsRef = useRef<Record<string, Set<string>>>({});
   const autoPreviewArtifactSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousAutoPreviewSessionIdRef = useRef<string | undefined>(sessionId);
@@ -1202,12 +1210,61 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     shouldAutoScrollRef.current = enabled;
     setShouldAutoScroll((current) => (current === enabled ? current : enabled));
   }, []);
+  const settleScrollToBottom = useCallback((options: {
+    markIntent?: boolean;
+    reducedMotion?: boolean;
+    scheduleSettle?: boolean;
+  } = {}) => {
+    const { markIntent = false, reducedMotion = true, scheduleSettle = false } = options;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    clearScrollToBottomSettleTimers();
+    userDetachedFromBottomRef.current = false;
+    userInitiatedHistoryScrollRef.current = false;
+    if (markIntent) {
+      scrollToBottomIntentRef.current = true;
+    }
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: reducedMotion ? 'auto' : 'smooth',
+    });
+    if (!scheduleSettle) return;
+
+    SCROLL_TO_BOTTOM_SETTLE_DELAYS_MS.forEach((delayMs, index) => {
+      const timer = setTimeout(() => {
+        const latestContainer = scrollContainerRef.current;
+        if (!latestContainer) return;
+        if (userDetachedFromBottomRef.current) return;
+        if (markIntent && !scrollToBottomIntentRef.current) return;
+
+        const latestDistance = latestContainer.scrollHeight - latestContainer.scrollTop - latestContainer.clientHeight;
+        if (latestDistance <= SCROLL_TO_BOTTOM_SETTLE_THRESHOLD) {
+          if (markIntent) {
+            scrollToBottomIntentRef.current = false;
+          }
+          clearScrollToBottomSettleTimers();
+          updateShouldAutoScroll(true);
+          return;
+        }
+        latestContainer.scrollTo({
+          top: latestContainer.scrollHeight,
+          behavior: reducedMotion || index === SCROLL_TO_BOTTOM_SETTLE_DELAYS_MS.length - 1
+            ? 'auto'
+            : 'smooth',
+        });
+      }, delayMs);
+      scrollToBottomSettleTimersRef.current.push(timer);
+    });
+  }, [clearScrollToBottomSettleTimers, updateShouldAutoScroll]);
   const detachAutoScrollForUserIntent = useCallback((source: AutoScrollDetachSource) => {
     const hadScrollToBottomIntent = scrollToBottomIntentRef.current;
     if (userDetachedFromBottomRef.current && !hadScrollToBottomIntent) return;
 
     userDetachedFromBottomRef.current = true;
+    userInitiatedHistoryScrollRef.current = true;
     scrollToBottomIntentRef.current = false;
+    initialPinningRef.current = false;
     clearScrollToBottomSettleTimers();
     updateShouldAutoScroll(false);
 
@@ -1244,11 +1301,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       setAutoPreviewPendingTurnId(null);
     }
   }, [autoPreviewPendingTurnId, getAutoPreviewHandledTurnIds, sessionId]);
-
-  // Clear lazy-render height cache when session changes
-  useEffect(() => {
-    clearHeightCache();
-  }, [sessionId]);
 
   useEffect(() => clearScrollToBottomSettleTimers, [clearScrollToBottomSettleTimers]);
 
@@ -2588,8 +2640,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setCurrentRailIndex(-1);
     currentRailIndexRef.current = -1;
     isNavigatingRef.current = false;
+    prevScrollHeightRef.current = null;
+    isLoadingMoreMessagesRef.current = false;
+    setIsLoadingMoreMessages(false);
+    userInitiatedHistoryScrollRef.current = false;
     scrollToBottomIntentRef.current = false;
     userDetachedFromBottomRef.current = false;
+    updateShouldAutoScroll(true);
+    lastScrollHeightRef.current = 0;
     turnElsCacheRef.current = [];
     loadedRailRangeRef.current = null;
     isLoadingRailTargetRef.current = false;
@@ -2601,7 +2659,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     clearAutoPreviewArtifactSettleTimer();
     setAutoPreviewPendingTurnId(null);
     setHoveredRailIndex(null);
-  }, [clearAutoPreviewArtifactSettleTimer, currentSession?.id]);
+  }, [clearAutoPreviewArtifactSettleTimer, currentSession?.id, updateShouldAutoScroll]);
 
   useEffect(() => {
     const handleOpenShareOptions = (event: Event) => {
@@ -2846,10 +2904,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const container = scrollContainerRef.current;
     if (!container) return;
     const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    const nextShouldAutoScroll = shouldAutoScrollForPosition(
+    // While the initial-entry pin loop is running, content is still growing over
+    // several frames, so a momentarily large distance-to-bottom is expected and
+    // must not be misread as the user scrolling up. Treat it as "at bottom".
+    const nextShouldAutoScroll = initialPinningRef.current || shouldAutoScrollForPosition(
       distanceToBottom,
       userDetachedFromBottomRef.current,
     );
+    if (!nextShouldAutoScroll && !scrollToBottomIntentRef.current && !isNavigatingRef.current) {
+      userInitiatedHistoryScrollRef.current = true;
+    }
     if (userDetachedFromBottomRef.current && nextShouldAutoScroll) {
       userDetachedFromBottomRef.current = false;
       console.debug(
@@ -2868,7 +2932,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     if (!scrollable) return;
 
     // Load older messages when scrolled near the top
-    if (container.scrollTop <= 80 && !isLoadingMoreMessagesRef.current) {
+    if (userInitiatedHistoryScrollRef.current && container.scrollTop <= 80 && !isLoadingMoreMessagesRef.current) {
       const sessionId = currentSession?.id;
       const offset = currentSession?.messagesOffset ?? 0;
       if (sessionId && offset > 0) {
@@ -2974,6 +3038,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const sessionId = currentSession?.id;
     const offset = currentSession?.messagesOffset ?? 0;
     if (!sessionId || offset <= 0) return;
+    if (!userInitiatedHistoryScrollRef.current) return;
     if (container.scrollHeight <= container.clientHeight) {
       isLoadingMoreMessagesRef.current = true;
       setIsLoadingMoreMessages(true);
@@ -3074,45 +3139,110 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    clearScrollToBottomSettleTimers();
-    userDetachedFromBottomRef.current = false;
-    scrollToBottomIntentRef.current = true;
     const reducedMotion = prefersReducedMotion();
     if (reducedMotion) {
       updateShouldAutoScroll(true);
     }
 
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: reducedMotion ? 'auto' : 'smooth',
-    });
+    settleScrollToBottom({ markIntent: true, reducedMotion, scheduleSettle: true });
 
     const lastRail = railItemCountRef.current > 0 ? railItemCountRef.current - 1 : -1;
     currentRailIndexRef.current = lastRail;
     setCurrentRailIndex(lastRail);
 
-    SCROLL_TO_BOTTOM_SETTLE_DELAYS_MS.forEach((delayMs, index) => {
-      const timer = setTimeout(() => {
-        if (!scrollToBottomIntentRef.current) return;
-        const latestContainer = scrollContainerRef.current;
-        if (!latestContainer) return;
-        const latestDistance = latestContainer.scrollHeight - latestContainer.scrollTop - latestContainer.clientHeight;
-        if (latestDistance <= SCROLL_TO_BOTTOM_SETTLE_THRESHOLD) {
-          scrollToBottomIntentRef.current = false;
-          clearScrollToBottomSettleTimers();
-          updateShouldAutoScroll(true);
-          return;
+  }, [settleScrollToBottom, updateShouldAutoScroll]);
+
+  // Keep the viewport pinned to the true bottom as content height changes.
+  //
+  // A single ResizeObserver on the always-present content wrapper is used instead
+  // of per-turn callbacks: lazily-rendered turns disconnect their own observer once
+  // they scroll out of view, so their late async growth (code highlighting, KaTeX,
+  // images) would otherwise push the real bottom down with nothing following it —
+  // which left first entry stuck a screenful short of the bottom. The wrapper's
+  // observer never disconnects, so every height change is caught.
+  //
+  // ResizeObserver fires after layout but before paint, so adjusting scrollTop here
+  // is synchronous and free of the one-frame lag that caused visible jitter.
+  useEffect(() => {
+    const content = scrollContentRef.current;
+    if (!content || typeof ResizeObserver === 'undefined') return undefined;
+
+    const ro = new ResizeObserver(() => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      const newHeight = container.scrollHeight;
+      if (isNavigatingRef.current) {
+        lastScrollHeightRef.current = newHeight;
+        return;
+      }
+      if (shouldAutoScrollRef.current && !userDetachedFromBottomRef.current) {
+        // Following the bottom: re-pin every time content grows, so an initially
+        // under-estimated scrollHeight settles onto the real bottom without flicker.
+        container.scrollTop = newHeight;
+      } else {
+        // Reading history: keep visible content stable when content above the
+        // viewport grows, by shifting scrollTop by the height delta.
+        const prevHeight = lastScrollHeightRef.current;
+        if (prevHeight > 0 && prevHeight !== newHeight) {
+          container.scrollTop += newHeight - prevHeight;
         }
-        latestContainer.scrollTo({
-          top: latestContainer.scrollHeight,
-          behavior: reducedMotion || index === SCROLL_TO_BOTTOM_SETTLE_DELAYS_MS.length - 1
-            ? 'auto'
-            : 'smooth',
-        });
-      }, delayMs);
-      scrollToBottomSettleTimersRef.current.push(timer);
+      }
+      lastScrollHeightRef.current = newHeight;
     });
-  }, [clearScrollToBottomSettleTimers, updateShouldAutoScroll]);
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, []);
+
+  // First-entry bottom lock.
+  //
+  // When a session is opened (or its messages first load), turns render lazily and
+  // their async content (code highlighting, KaTeX, images) grows over many frames,
+  // repeatedly pushing the real bottom down. A single scroll-to-bottom can't reach a
+  // target that keeps moving, so the view ends up stuck short of the bottom. This
+  // rAF loop re-pins to the bottom every frame until the height holds steady, then
+  // releases. It bails out immediately once the user takes over (wheel/drag/rail
+  // detaches auto-scroll), so it never fights a deliberate upward scroll.
+  useEffect(() => {
+    if (!currentSession?.id) return undefined;
+    if (!shouldAutoScrollRef.current || userDetachedFromBottomRef.current) return undefined;
+
+    let rafId = 0;
+    let frames = 0;
+    let stableFrames = 0;
+    let lastHeight = -1;
+    initialPinningRef.current = true;
+
+    const step = () => {
+      const container = scrollContainerRef.current;
+      if (!container || !shouldAutoScrollRef.current || userDetachedFromBottomRef.current || isNavigatingRef.current) {
+        initialPinningRef.current = false;
+        return;
+      }
+      const height = container.scrollHeight;
+      container.scrollTop = height;
+      lastScrollHeightRef.current = height;
+
+      if (height === lastHeight) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+        lastHeight = height;
+      }
+      frames += 1;
+      // Release once height has been steady for several frames, or after a hard
+      // frame cap (~5s at 60fps) so the loop can never run away.
+      if (stableFrames >= 8 || frames >= 300) {
+        initialPinningRef.current = false;
+        return;
+      }
+      rafId = requestAnimationFrame(step);
+    };
+    rafId = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(rafId);
+      initialPinningRef.current = false;
+    };
+  }, [currentSession?.id, messagesLength]);
 
   const handleScrollToBottomWheel = useCallback((event: React.WheelEvent<HTMLButtonElement>) => {
     const container = scrollContainerRef.current;
@@ -3264,7 +3394,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
     currentRailIndexRef.current = railIndex;
     setCurrentRailIndex(railIndex);
-  }, [clearScrollToBottomSettleTimers, currentSession?.id]);
+  }, [clearScrollToBottomSettleTimers, currentSession?.id, updateShouldAutoScroll]);
 
   // lastMessageContent and messagesLength are now sourced from memoized
   // selectors (selectLastMessageContent / selectCurrentMessagesLength)
@@ -3560,8 +3690,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     railItems.length,
   ]);
 
-  // Auto scroll to bottom when new messages arrive or content updates (streaming)
-  useEffect(() => {
+  // Auto scroll to bottom before paint when messages arrive or content updates.
+  useLayoutEffect(() => {
     if (isNavigatingRef.current) {
       return;
     }
@@ -3570,7 +3700,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     }
     const container = scrollContainerRef.current;
     if (container) {
+      clearScrollToBottomSettleTimers();
       container.scrollTop = container.scrollHeight;
+      // Keep the height baseline in sync so the content ResizeObserver's history-mode
+      // delta adjustment measures from the real bottom, not a stale value. Any further
+      // growth (placeholder → real content, or late async content) is re-pinned there.
+      lastScrollHeightRef.current = container.scrollHeight;
       setIsScrollable(container.scrollHeight > container.clientHeight);
     }
     // Sync rail index to last when auto-scrolled to bottom
@@ -3581,7 +3716,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       currentRailIndexRef.current = lastRail;
       setCurrentRailIndex(lastRail);
     }
-  }, [messagesLength, lastMessageContent, isContextCompacting, isStreaming, turns.length]);
+  }, [clearScrollToBottomSettleTimers, messagesLength, lastMessageContent, isContextCompacting, isStreaming, turns.length]);
 
 
   if (!currentSession) {
@@ -3676,7 +3811,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         a => turnMessageIds.has(a.messageId) && PREVIEWABLE_ARTIFACT_TYPES.has(a.type)
       );
       return (
-        <LazyRenderTurn key={turn.id} turnId={turn.id} alwaysRender={alwaysRender} data-turn-index={index}>
+        <LazyRenderTurn
+          key={turn.id}
+          turnId={turn.id}
+          alwaysRender={alwaysRender}
+          data-turn-index={index}
+        >
           {turn.userMessage && (
             <div
               data-export-role="user-message"
@@ -4134,24 +4274,26 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           onScroll={handleMessagesScroll}
           onWheel={handleMessagesWheel}
           className="h-full min-h-0 overflow-y-auto pt-3"
-          style={{ scrollbarGutter: 'stable both-edges' }}
+          style={{ scrollbarGutter: 'stable both-edges', overflowAnchor: 'none' }}
         >
           {isLoadingMoreMessages && (
             <div className="py-2 text-center text-xs dark:text-claude-darkTextSecondary text-claude-textSecondary">
               {i18nService.t('loading')}
             </div>
           )}
-          {renderConversationTurns()}
-          {isContextCompacting && (
-            <div className={`${COWORK_DETAIL_GUTTER_CLASS} animate-message-in`}>
-              <div className={COWORK_DETAIL_CONTENT_CLASS}>
-                <ContextCompactionDivider
-                  label={i18nService.t('coworkContextCompacting')}
-                  active
-                />
+          <div ref={scrollContentRef}>
+            {renderConversationTurns()}
+            {isContextCompacting && (
+              <div className={`${COWORK_DETAIL_GUTTER_CLASS} animate-message-in`}>
+                <div className={COWORK_DETAIL_CONTENT_CLASS}>
+                  <ContextCompactionDivider
+                    label={i18nService.t('coworkContextCompacting')}
+                    active
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
           <div className="h-2" />
         </div>
 
