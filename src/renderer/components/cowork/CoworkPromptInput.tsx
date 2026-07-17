@@ -2079,7 +2079,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 style={{ minHeight: `${minHeight}px` }}
               />
               <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-1.5">
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 items-center">
                   {largeInputActions}
                   {largeWorkingDirectoryControl}
                 </div>
