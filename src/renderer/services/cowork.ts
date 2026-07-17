@@ -7,6 +7,7 @@ import {
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
 import { AgentId } from '../../shared/agent';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkSessionSourceKind } from '../../shared/cowork/constants';
+import { normalizeCoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import {
   type CoworkSteerRequest,
@@ -43,6 +44,7 @@ import {
   setStreaming,
   upsertSessionSummary,
   updateMessageContent,
+  updateSessionGoal,
   updateSessionPinned,
   updateSessionStatus,
   updateSessionTitle,
@@ -217,6 +219,13 @@ class CoworkService {
     });
     if (contextUsageCleanup) {
       this.streamListenerCleanups.push(contextUsageCleanup);
+    }
+
+    const goalCleanup = cowork.onStreamGoal?.(({ sessionId, goal }) => {
+      store.dispatch(updateSessionGoal({ sessionId, goal: normalizeCoworkGoal(goal) }));
+    });
+    if (goalCleanup) {
+      this.streamListenerCleanups.push(goalCleanup);
     }
 
     const contextMaintenanceCleanup = cowork.onStreamContextMaintenance?.(({ sessionId, active }) => {
@@ -830,6 +839,78 @@ class CoworkService {
 
   async submitQueuedFollowUp(sessionId: string, steerId: string): Promise<boolean> {
     return this.queuedFollowUpCoordinator.submitSelected(sessionId, steerId);
+  }
+
+  async runGoalCommand(sessionId: string, command: string): Promise<boolean> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.runGoalCommand) {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkGoalUnavailable'),
+      }));
+      return false;
+    }
+
+    const normalizedSessionId = sessionId.trim();
+    const normalizedCommand = command.trim();
+    if (!normalizedSessionId || !normalizedCommand) return false;
+
+    const action = normalizedCommand.split(/\s+/, 2)[1]?.toLowerCase() ?? 'status';
+    const mayStartRun = action === 'start'
+      || action === 'create'
+      || action === 'set'
+      || action === 'resume';
+    const stateBeforeGoalCommand = store.getState();
+    const currentSessionBeforeGoalCommand = stateBeforeGoalCommand.cowork.currentSession?.id === normalizedSessionId
+      ? stateBeforeGoalCommand.cowork.currentSession
+      : undefined;
+    const listedSessionBeforeGoalCommand = stateBeforeGoalCommand.cowork.sessions.find(
+      session => session.id === normalizedSessionId,
+    );
+    const previousStatus = currentSessionBeforeGoalCommand?.status ?? listedSessionBeforeGoalCommand?.status;
+    const restoreGoalCommandStatus = () => {
+      if (!mayStartRun) return;
+      this.setCurrentSessionStreaming(normalizedSessionId, false);
+      if (previousStatus && previousStatus !== CoworkSessionStatusValue.Running) {
+        store.dispatch(updateSessionStatus({
+          sessionId: normalizedSessionId,
+          status: previousStatus,
+        }));
+      }
+    };
+
+    try {
+      if (mayStartRun) {
+        this.setCurrentSessionStreaming(normalizedSessionId, true);
+        store.dispatch(updateSessionStatus({
+          sessionId: normalizedSessionId,
+          status: CoworkSessionStatusValue.Running,
+        }));
+      }
+
+      const result = await cowork.runGoalCommand({
+        sessionId: normalizedSessionId,
+        command: normalizedCommand,
+      });
+      if (result?.success) {
+        store.dispatch(updateSessionGoal({
+          sessionId: normalizedSessionId,
+          goal: normalizeCoworkGoal(result.goal),
+        }));
+        return true;
+      }
+
+      restoreGoalCommandStatus();
+      const error = result?.error || i18nService.t('coworkGoalCommandFailed');
+      window.dispatchEvent(new CustomEvent('app:showToast', { detail: error }));
+      return false;
+    } catch (error) {
+      restoreGoalCommandStatus();
+      console.warn(`[CoworkGoal] failed to run goal command for session ${normalizedSessionId}.`, error);
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: error instanceof Error ? error.message : i18nService.t('coworkGoalCommandFailed'),
+      }));
+      return false;
+    }
   }
 
   async interruptForQueuedFollowUp(sessionId: string, steerId: string): Promise<boolean> {

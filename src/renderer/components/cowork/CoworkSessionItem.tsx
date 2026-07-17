@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+import { CoworkGoalStatus, type CoworkGoal } from '../../../shared/cowork/goal';
 import { i18nService } from '../../services/i18n';
 import type { CoworkSessionStatus, CoworkSessionSummary } from '../../types/cowork';
 import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import { AgentConfirmDialogVariant } from '../agent/constants';
 import EllipsisHorizontalIcon from '../icons/EllipsisHorizontalIcon';
+import GoalIcon from '../icons/GoalIcon';
 import ListChecksIcon from '../icons/ListChecksIcon';
 import PencilSquareIcon from '../icons/PencilSquareIcon';
 import PushPinIcon from '../icons/PushPinIcon';
@@ -31,6 +33,25 @@ const statusLabels: Record<CoworkSessionStatus, string> = {
   running: 'coworkStatusRunning',
   completed: 'coworkStatusCompleted',
   error: 'coworkStatusError',
+};
+
+const getGoalStatusLabel = (goal: CoworkGoal): string => {
+  switch (goal.status) {
+    case CoworkGoalStatus.Active:
+      return i18nService.t('coworkGoalStatusActive');
+    case CoworkGoalStatus.Paused:
+      return i18nService.t('coworkGoalStatusPaused');
+    case CoworkGoalStatus.Blocked:
+      return i18nService.t('coworkGoalStatusBlocked');
+    case CoworkGoalStatus.UsageLimited:
+      return i18nService.t('coworkGoalStatusUsageLimited');
+    case CoworkGoalStatus.BudgetLimited:
+      return i18nService.t('coworkGoalStatusBudgetLimited');
+    case CoworkGoalStatus.Complete:
+      return i18nService.t('coworkGoalStatusComplete');
+    default:
+      return i18nService.t('coworkGoal');
+  }
 };
 
 const formatRelativeTime = (timestamp: number): { compact: string; full: string } => {
@@ -338,6 +359,15 @@ const CoworkSessionItem: React.FC<CoworkSessionItemProps> = ({
                 {showPendingConfirmationIndicator && (
                   <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-amber-700 dark:text-amber-300">
                     {i18nService.t('coworkPermissionAwaiting')}
+                  </span>
+                )}
+                {session.goal && (
+                  <span
+                    className="inline-flex min-w-0 max-w-[8rem] shrink-0 items-center gap-1 rounded-md border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary"
+                    title={`${getGoalStatusLabel(session.goal)}: ${session.goal.objective}`}
+                  >
+                    <GoalIcon className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{getGoalStatusLabel(session.goal)}</span>
                   </span>
                 )}
               </div>

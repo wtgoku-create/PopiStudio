@@ -475,6 +475,13 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     return handleStartSession(prompt, skillPrompt, imageAttachments, options);
   };
 
+  const handleHomeGoalCommand = async (command: string): Promise<boolean | void> => {
+    const trimmedCommand = command.trim();
+    if (!trimmedCommand) return false;
+    const result = await handleHomeSubmit(trimmedCommand);
+    return result !== false;
+  };
+
   const handleStopSession = async () => {
     if (!currentSession) return;
     if (currentSession.id.startsWith('temp-') && pendingStartRef.current) {
@@ -705,6 +712,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
             <CoworkPromptInput
               ref={promptInputRef}
               onSubmit={handleHomeSubmit}
+              onGoalCommand={handleHomeGoalCommand}
               onStop={handleStopSession}
               isStreaming={isStreaming}
               disabled={!isEngineReady}

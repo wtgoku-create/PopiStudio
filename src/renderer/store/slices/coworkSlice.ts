@@ -227,6 +227,7 @@ const toSessionSummary = (session: CoworkSession): CoworkSessionSummary => ({
   pinned: session.pinned ?? false,
   pinOrder: session.pinOrder ?? null,
   agentId: session.agentId,
+  goal: session.goal ?? null,
   source: session.source,
   createdAt: session.createdAt,
   updatedAt: session.updatedAt,
@@ -679,6 +680,20 @@ const coworkSlice = createSlice({
       }
     },
 
+    updateSessionGoal(state, action: PayloadAction<{ sessionId: string; goal: CoworkSession['goal'] }>) {
+      const { sessionId, goal } = action.payload;
+      const updatedAt = Date.now();
+      const sessionIndex = state.sessions.findIndex(s => s.id === sessionId);
+      if (sessionIndex !== -1) {
+        state.sessions[sessionIndex].goal = goal ?? null;
+        state.sessions[sessionIndex].updatedAt = updatedAt;
+      }
+      if (state.currentSession?.id === sessionId) {
+        state.currentSession.goal = goal ?? null;
+        state.currentSession.updatedAt = updatedAt;
+      }
+    },
+
     updateCurrentSessionModelOverride(state, action: PayloadAction<{ sessionId: string; modelOverride: string }>) {
       const { sessionId, modelOverride } = action.payload;
       if (state.currentSession?.id !== sessionId) return;
@@ -783,6 +798,7 @@ export const {
   setRemoteManaged,
   updateSessionPinned,
   updateSessionTitle,
+  updateSessionGoal,
   updateCurrentSessionModelOverride,
   enqueuePendingPermission,
   dequeuePendingPermission,

@@ -1,3 +1,5 @@
+import type { CoworkGoal } from '../../shared/cowork/goal';
+
 // Cowork image attachment for vision-capable models
 export interface CoworkImageAttachment {
   name: string;
@@ -101,6 +103,7 @@ export interface CoworkSession {
   executionMode: CoworkExecutionMode;
   activeSkillIds: string[];
   agentId: string;
+  goal?: CoworkGoal | null;
   messages: CoworkMessage[];
   /** Offset of the first loaded message in the full message history. 0 means loaded from the beginning. */
   messagesOffset: number;
@@ -236,6 +239,7 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId?: string;
+  goal?: CoworkGoal | null;
   source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;

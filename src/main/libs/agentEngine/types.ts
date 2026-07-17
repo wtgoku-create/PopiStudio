@@ -1,5 +1,6 @@
 import type { OpenClawSessionPatch } from '../../../common/openclawSession';
 import type { CoworkSteerResponse } from '../../../shared/cowork/steer';
+import type { CoworkGoal } from '../../../shared/cowork/goal';
 import type { CoworkMessage, CoworkSessionStatus } from '../../coworkStore';
 
 export type CoworkAgentEngine = 'openclaw';
@@ -32,6 +33,7 @@ export interface CoworkRuntimeEvents {
   messageUpdate: (sessionId: string, messageId: string, content: string, metadata?: Record<string, unknown>) => void;
   sessionStatus: (sessionId: string, status: CoworkSessionStatus) => void;
   contextUsageUpdate: (sessionId: string, usage: CoworkContextUsage) => void;
+  goalUpdate: (sessionId: string, goal: CoworkGoal | null) => void;
   contextMaintenance: (sessionId: string, active: boolean) => void;
   permissionRequest: (sessionId: string, request: PermissionRequest) => void;
   complete: (sessionId: string, claudeSessionId: string | null) => void;
@@ -94,6 +96,7 @@ export interface CoworkRuntime {
   getContextUsage?(sessionId: string): Promise<CoworkContextUsage | null>;
   compactContext?(sessionId: string): Promise<{ compacted: boolean; reason?: string; usage?: CoworkContextUsage | null }>;
   submitSteer?(sessionId: string, text: string, clientSteerId: string): Promise<CoworkSteerResponse>;
+  runGoalCommand?(sessionId: string, command: string): Promise<CoworkGoal | null>;
   stopSession(sessionId: string): void;
   stopAllSessions(): void;
   respondToPermission(requestId: string, result: PermissionResult): void;

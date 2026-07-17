@@ -1754,6 +1754,18 @@ const bindCoworkRuntimeForwarder = (): void => {
     });
   });
 
+  runtime.on('goalUpdate', (sessionId: string, goal: unknown) => {
+    const windows = BrowserWindow.getAllWindows();
+    windows.forEach((win) => {
+      if (win.isDestroyed()) return;
+      try {
+        win.webContents.send(CoworkIpcChannel.StreamGoal, { sessionId, goal });
+      } catch (error) {
+        console.error('[CoworkRuntime] failed to forward goal update:', error);
+      }
+    });
+  });
+
   runtime.on('contextMaintenance', (sessionId: string, active: boolean) => {
     const windows = BrowserWindow.getAllWindows();
     console.log(`[CoworkRuntime] forwarding context maintenance ${active ? 'start' : 'end'} for session ${sessionId} to ${windows.length} windows.`);
@@ -3307,6 +3319,47 @@ if (!gotTheLock) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to continue session',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.GoalCommand, async (
+    _event,
+    options: { sessionId: string; command: string },
+  ) => {
+    try {
+      const engineStatus = await ensureOpenClawRunningForCowork();
+      if (engineStatus.phase !== 'running') {
+        return getEngineNotReadyResponse(engineStatus);
+      }
+      const sessionId = typeof options?.sessionId === 'string' ? options.sessionId.trim() : '';
+      const command = typeof options?.command === 'string' ? options.command.trim() : '';
+      if (!sessionId || !command) {
+        return {
+          success: false,
+          error: 'Session id and goal command are required.',
+        };
+      }
+      const runtime = getCoworkEngineRouter();
+      if (!runtime.runGoalCommand) {
+        return {
+          success: false,
+          error: 'Goal commands are not supported by the current runtime.',
+        };
+      }
+      const action = command.split(/\s+/, 2)[1] ?? 'status';
+      console.debug(
+        '[CoworkGoal] goal command IPC received.',
+        `Session ${sessionId}.`,
+        `Action ${action}.`,
+      );
+      const goal = await runtime.runGoalCommand(sessionId, command);
+      return { success: true, goal };
+    } catch (error) {
+      console.error('[CoworkGoal] goal command IPC failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to run goal command',
       };
     }
   });

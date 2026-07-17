@@ -1139,6 +1139,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
   const [steerPreviewPortalTarget, setSteerPreviewPortalTarget] = useState<HTMLDivElement | null>(null);
+  const [goalStatusBarPortalTarget, setGoalStatusBarPortalTarget] = useState<HTMLDivElement | null>(null);
   const compactConfirmRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
@@ -1293,6 +1294,11 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     console.log(`[CoworkSessionDetail] manual context compaction confirmed for session ${currentSession.id}.`);
     setShowCompactConfirm(false);
     void coworkService.compactContext(currentSession.id);
+  }, [currentSession?.id]);
+
+  const handleGoalCommand = useCallback((command: string) => {
+    if (!currentSession?.id) return false;
+    return coworkService.runGoalCommand(currentSession.id, command);
   }, [currentSession?.id]);
 
   // ─── Artifact detection ─────────────────────────────────────────────
@@ -3536,6 +3542,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const artifactPanelInnerWidth = artifactPanelIsOverlay ? '100%' : artifactPanelFrameWidth;
   const shouldShowTurnNavigationRail = railItems.length > 1 && isScrollable;
   const showExternalSteerPreview = queuedSteerCount > 0 && !remoteManaged && !isExpandedPromptInputHidden;
+  const showExternalGoalStatusBar = Boolean(currentSession?.goal && !remoteManaged && !isExpandedPromptInputHidden);
   const isPopiTVSession = currentSession.activeSkillIds.includes('popitv')
     || currentSession.messages.some((message) => {
       const skillIds = (message.metadata as CoworkMessageMetadata | undefined)?.skillIds;
@@ -4424,8 +4431,13 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           </div>
         )}
         <div className={COWORK_DETAIL_CONTENT_CLASS}>
+          {showExternalGoalStatusBar && (
+            <div className={`relative z-10 ${showExternalSteerPreview ? 'mb-1.5' : '-mb-px'}`}>
+              <div ref={setGoalStatusBarPortalTarget} />
+            </div>
+          )}
           {showExternalSteerPreview && (
-            <div className="relative z-10">
+            <div className="relative z-10 -mb-px">
               <div ref={setSteerPreviewPortalTarget} />
             </div>
           )}
@@ -4445,7 +4457,11 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             readOnlyContextTrailingText={isArtifactPanelExpanded ? undefined : i18nService.t('aiGeneratedDisclaimer')}
             workingDirectory={currentSession?.cwd ?? ''}
             sessionId={currentSession?.id}
+            goal={currentSession?.goal ?? null}
+            onGoalCommand={!remoteManaged && currentSession?.id ? handleGoalCommand : undefined}
             steerPreviewPortalTarget={showExternalSteerPreview ? steerPreviewPortalTarget : null}
+            goalStatusBarPortalTarget={showExternalGoalStatusBar ? goalStatusBarPortalTarget : null}
+            goalStatusBarAttached={!showExternalSteerPreview}
             contextUsageControl={(
               <div ref={compactConfirmRef} className="relative inline-flex flex-shrink-0">
                 <ContextUsageIndicator

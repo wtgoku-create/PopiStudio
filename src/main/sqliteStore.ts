@@ -87,6 +87,7 @@ export class SqliteStore {
         system_prompt TEXT NOT NULL DEFAULT '',
         model_override TEXT NOT NULL DEFAULT '',
         execution_mode TEXT,
+        goal_json TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -391,6 +392,10 @@ export class SqliteStore {
         this.db.exec(
           "ALTER TABLE cowork_sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'main';",
         );
+        this.didRunMigration = true;
+      }
+      if (!sessionColNames.includes('goal_json')) {
+        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN goal_json TEXT;');
         this.didRunMigration = true;
       }
     } catch {

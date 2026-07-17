@@ -1,6 +1,7 @@
 import { PhotoIcon } from '@heroicons/react/24/outline';
 import React, { useCallback, useMemo, useState } from 'react';
 
+import { hasGoalSettingMessageMetadata } from '../../../common/goalCommandDisplay';
 import { i18nService } from '../../services/i18n';
 import { skillService } from '../../services/skill';
 import type { CoworkImageAttachment, CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
@@ -9,6 +10,7 @@ import { formatMessageDateTime } from '../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
 import AcademicCapIcon from '../icons/AcademicCapIcon';
 import EditIcon from '../icons/EditIcon';
+import GoalIcon from '../icons/GoalIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
 import SkillIcon from '../icons/SkillIcon';
 import ImagePreviewModal, { type ImagePreviewSource } from './ImagePreviewModal';
@@ -122,6 +124,7 @@ const UserMessageItem: React.FC<{
   }, []);
 
   const metadata = message.metadata as CoworkMessageMetadata | undefined;
+  const isGoalSettingMessage = hasGoalSettingMessageMetadata(metadata);
   const displayContent = useMemo(
     () => parseUserMessageForDisplay(message.content || '', {
       localMediaAttachments: Array.isArray(metadata?.localMediaAttachments)
@@ -196,18 +199,26 @@ const UserMessageItem: React.FC<{
                   </div>
                 )}
               </div>
-              <div className={messageMetaClassName(isHovered, 'right')} aria-hidden={!isHovered}>
-                <span>{formatMessageDateTime(message.timestamp)}</span>
-                {modelLabel && <span>{modelLabel}</span>}
-                <MessageCopyButton
-                  content={message.content}
-                  visible={isHovered}
-                />
-                {onReEdit && (
-                  <ReEditButton
+              <div className="flex w-full items-center justify-end gap-2">
+                <div className={messageMetaClassName(isHovered, 'right')} aria-hidden={!isHovered}>
+                  <span>{formatMessageDateTime(message.timestamp)}</span>
+                  {modelLabel && <span>{modelLabel}</span>}
+                  <MessageCopyButton
+                    content={message.content}
                     visible={isHovered}
-                    onClick={() => onReEdit(message)}
                   />
+                  {onReEdit && (
+                    <ReEditButton
+                      visible={isHovered}
+                      onClick={() => onReEdit(message)}
+                    />
+                  )}
+                </div>
+                {isGoalSettingMessage && (
+                  <div className="mt-1 inline-flex h-5 shrink-0 items-center gap-1 text-[11px] leading-none text-zinc-400 dark:text-zinc-500 select-none">
+                    <GoalIcon className="h-4 w-4 text-[var(--icon-secondary)]" />
+                    <span>{i18nService.t('coworkGoalSetAsGoal')}</span>
+                  </div>
                 )}
               </div>
             </div>

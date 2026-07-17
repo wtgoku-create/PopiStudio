@@ -1,10 +1,15 @@
-import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { ExclamationTriangleIcon, PauseCircleIcon, PlayCircleIcon } from '@heroicons/react/24/outline';
 import { ArrowUpIcon, FolderIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
+import {
+  type CoworkGoal,
+  CoworkGoalStatus,
+  formatCoworkGoalUsage,
+} from '../../../shared/cowork/goal';
 import { CoworkSteerStatus } from '../../../shared/cowork/steer';
 import { KnowledgeSkill, type RemoteKnowledgeBase } from '../../../shared/knowledge/constants';
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
@@ -36,11 +41,16 @@ import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
 import type { BrowserAnnotationPayload } from '../artifacts';
 import AcademicCapIcon from '../icons/AcademicCapIcon';
+import ChevronRightIcon from '../icons/ChevronRightIcon';
+import EditIcon from '../icons/EditIcon';
+import GoalIcon from '../icons/GoalIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
+import PromptAddIcon from '../icons/PromptAddIcon';
+import SkillIcon from '../icons/SkillIcon';
 import TaskPauseIcon from '../icons/TaskPauseIcon';
 import XMarkIcon from '../icons/XMarkIcon';
 import ModelSelector from '../ModelSelector';
-import { ActiveSkillBadge, SkillsButton } from '../skills';
+import { ActiveSkillBadge, SkillsPopover } from '../skills';
 import { resolveAgentModelSelection, resolveEffectiveModel, useAgentSelectedModel } from './agentModelSelection';
 import AttachmentCard from './AttachmentCard';
 import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
@@ -48,6 +58,29 @@ import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
 // so that attachment state survives view switches (cowork ↔ skills, etc.)
 type CoworkAttachment = DraftAttachment;
+type GoalInputMode = 'start' | 'set';
+
+const getGoalStatusLabel = (goal: CoworkGoal): string => {
+  switch (goal.status) {
+    case CoworkGoalStatus.Active:
+      return i18nService.t('coworkGoalStatusActive');
+    case CoworkGoalStatus.Paused:
+      return i18nService.t('coworkGoalStatusPaused');
+    case CoworkGoalStatus.Blocked:
+      return i18nService.t('coworkGoalStatusBlocked');
+    case CoworkGoalStatus.UsageLimited:
+      return i18nService.t('coworkGoalStatusUsageLimited');
+    case CoworkGoalStatus.BudgetLimited:
+      return i18nService.t('coworkGoalStatusBudgetLimited');
+    case CoworkGoalStatus.Complete:
+      return i18nService.t('coworkGoalStatusComplete');
+  }
+};
+
+const getGoalSummary = (goal: CoworkGoal): string => {
+  const usage = formatCoworkGoalUsage(goal);
+  return [getGoalStatusLabel(goal), usage].filter(Boolean).join(' · ');
+};
 
 export interface CoworkPromptSubmitOptions {
   knowledgeBases?: Array<{ id: string; name: string }>;
@@ -206,7 +239,11 @@ interface CoworkPromptInputProps {
   readOnlyContextTrailingText?: string;
   onManageSkills?: () => void;
   sessionId?: string;
+  goal?: CoworkGoal | null;
+  onGoalCommand?: (command: string) => boolean | void | Promise<boolean | void>;
   steerPreviewPortalTarget?: HTMLElement | null;
+  goalStatusBarPortalTarget?: HTMLElement | null;
+  goalStatusBarAttached?: boolean;
   canSteer?: boolean;
   contextUsageControl?: React.ReactNode;
   /** When true, hides attachment/skill buttons but keeps the input box visible (disabled) */
@@ -232,7 +269,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       readOnlyContextTrailingText,
       onManageSkills,
       sessionId,
+      goal,
+      onGoalCommand,
       steerPreviewPortalTarget,
+      goalStatusBarPortalTarget,
+      goalStatusBarAttached = true,
       canSteer = false,
       contextUsageControl,
       remoteManaged = false,
@@ -258,6 +299,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [value, setValue] = useState(draftPrompt);
     const [steerValue, setSteerValue] = useState(steerDraft);
     const [steerInputActive, setSteerInputActive] = useState(false);
+    const [goalInputActive, setGoalInputActive] = useState(false);
+    const [goalInputMode, setGoalInputMode] = useState<GoalInputMode>('start');
+    const [showAddMenu, setShowAddMenu] = useState(false);
+    const [showSkillsPopover, setShowSkillsPopover] = useState(false);
     const [isDraggingFiles, setIsDraggingFiles] = useState(false);
     const [isAddingFile, setIsAddingFile] = useState(false);
     const [imageVisionHint, setImageVisionHint] = useState(false);
@@ -268,8 +313,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const addMenuButtonRef = useRef<HTMLButtonElement>(null);
+    const addMenuRef = useRef<HTMLDivElement>(null);
+    const skillMenuItemRef = useRef<HTMLButtonElement>(null);
     const dragDepthRef = useRef(0);
     const modelPatchRequestIdRef = useRef(0);
+    const skillSubmenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const goalInputBaselineRef = useRef<string | null>(null);
+    const goalInputReturnDraftRef = useRef<string | null>(null);
 
   // 暴露方法给父组件
   React.useImperativeHandle(ref, () => ({
@@ -447,6 +498,42 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [dispatch, draftKey]);
 
   useEffect(() => {
+    if (!showAddMenu) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!addMenuButtonRef.current?.contains(target) && !addMenuRef.current?.contains(target)) {
+        setShowAddMenu(false);
+        setShowSkillsPopover(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowAddMenu(false);
+        setShowSkillsPopover(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside, true);
+    document.addEventListener('keydown', handleEscape, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('keydown', handleEscape, true);
+    };
+  }, [showAddMenu]);
+
+  useEffect(() => {
+    if (!showAddMenu) {
+      setShowSkillsPopover(false);
+      if (skillSubmenuCloseTimerRef.current) {
+        clearTimeout(skillSubmenuCloseTimerRef.current);
+        skillSubmenuCloseTimerRef.current = null;
+      }
+    }
+  }, [showAddMenu]);
+
+  useEffect(() => {
     modelPatchRequestIdRef.current += 1;
     setIsPatchingModel(false);
   }, [sessionId]);
@@ -456,6 +543,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setValue(draftPrompt);
     setSteerValue(steerDraft);
     setSteerInputActive(false);
+    setGoalInputActive(false);
+    setGoalInputMode('start');
+    goalInputBaselineRef.current = null;
+    goalInputReturnDraftRef.current = null;
     // Re-derive imageVisionHint from the new session's draft attachments
     const hasImageWithoutVision = !modelSupportsImage && attachments.some(a => a.isImage || isImagePath(a.path));
     setImageVisionHint(hasImageWithoutVision);
@@ -479,9 +570,48 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     return () => clearTimeout(timer);
   }, [dispatch, sessionId, steerDraft, steerValue]);
 
+  const resetGoalInput = useCallback((restoreDraft = false) => {
+    const restoredDraft = restoreDraft ? goalInputReturnDraftRef.current : null;
+    goalInputBaselineRef.current = null;
+    goalInputReturnDraftRef.current = null;
+    setGoalInputActive(false);
+    setGoalInputMode('start');
+    if (restoredDraft !== null) {
+      setValue(restoredDraft);
+      dispatch(setDraftPrompt({ sessionId: draftKey, draft: restoredDraft }));
+    }
+  }, [dispatch, draftKey]);
+
   const handleSubmit = useCallback(async () => {
     const activeValue = steerInputActive ? steerValue : value;
     const trimmedValue = activeValue.trim();
+    if (goalInputActive) {
+      if (!trimmedValue || disabled || isPatchingModel) return;
+      if (goalInputMode === 'set' && goalInputBaselineRef.current !== null && trimmedValue === goalInputBaselineRef.current) {
+        resetGoalInput(true);
+        return;
+      }
+      const goalCommand = `/goal ${goalInputMode} ${trimmedValue}`;
+      if (sessionId && onGoalCommand) {
+        const accepted = await Promise.resolve(onGoalCommand(goalCommand))
+          .then(result => result !== false)
+          .catch((error) => {
+            console.warn('[CoworkGoal] failed to submit goal command from prompt input.', error);
+            return false;
+          });
+        if (!accepted) return;
+        resetGoalInput(false);
+        setValue('');
+        dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
+        return;
+      }
+      const result = await onSubmit(goalCommand);
+      if (result === false) return;
+      resetGoalInput(false);
+      setValue('');
+      dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
+      return;
+    }
     if ((!trimmedValue && (!isStreaming || !steerInputActive) && attachments.length === 0) || disabled || isPatchingModel) return;
     if (isStreaming && !sessionId) {
       window.dispatchEvent(new CustomEvent('app:showToast', {
@@ -643,7 +773,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
     setImageVisionHint(false);
-  }, [value, steerInputActive, steerValue, isStreaming, disabled, isPatchingModel, sessionId, remoteManaged, canSteer, attachments, pendingSteers.length, dispatch, draftKey, onSubmit, activeSkillIds, skills, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
+  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, pendingSteers.length, dispatch, draftKey, onSubmit, activeSkillIds, skills, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     dispatch(toggleActiveSkill(skill.id));
@@ -654,6 +784,50 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       onManageSkills();
     }
   }, [onManageSkills]);
+
+  const handleOpenAddMenu = useCallback(() => {
+    setShowSkillsPopover(false);
+    setShowAddMenu(prev => !prev);
+  }, []);
+
+  const handleOpenSkillsPopover = useCallback(() => {
+    if (skillSubmenuCloseTimerRef.current) {
+      clearTimeout(skillSubmenuCloseTimerRef.current);
+      skillSubmenuCloseTimerRef.current = null;
+    }
+    setShowAddMenu(true);
+    setShowSkillsPopover(true);
+  }, []);
+
+  const cancelCloseSkillsPopover = useCallback(() => {
+    if (skillSubmenuCloseTimerRef.current) {
+      clearTimeout(skillSubmenuCloseTimerRef.current);
+      skillSubmenuCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const handleCloseSkillsPopover = useCallback(() => {
+    if (skillSubmenuCloseTimerRef.current) {
+      clearTimeout(skillSubmenuCloseTimerRef.current);
+      skillSubmenuCloseTimerRef.current = null;
+    }
+    setShowSkillsPopover(false);
+  }, []);
+
+  const scheduleCloseSkillsPopover = useCallback(() => {
+    if (skillSubmenuCloseTimerRef.current) {
+      clearTimeout(skillSubmenuCloseTimerRef.current);
+    }
+    skillSubmenuCloseTimerRef.current = setTimeout(() => {
+      const activeElement = document.activeElement;
+      if (activeElement && addMenuRef.current?.contains(activeElement)) {
+        skillSubmenuCloseTimerRef.current = null;
+        return;
+      }
+      setShowSkillsPopover(false);
+      skillSubmenuCloseTimerRef.current = null;
+    }, 120);
+  }, []);
 
   const loadKnowledgeBases = useCallback(async () => {
     if (isLoadingKnowledgeBases) return;
@@ -715,7 +889,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         break;
     }
 
-    if (isSendCombo && !disabled && !isPatchingModel) {
+    if (isSendCombo && isStreaming && !streamingSubmitCanRun) {
+      event.preventDefault();
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkSessionStillRunning'),
+      }));
+    } else if (isSendCombo && !disabled && !isPatchingModel) {
       event.preventDefault();
       handleSubmit();
     } else {
@@ -736,6 +915,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const handleToggleSteerInput = useCallback(() => {
     if (!sessionId || remoteManaged || disabled || !isStreaming) return;
+    if (goalInputActive) {
+      resetGoalInput(true);
+    }
     const nextActive = !steerInputActive;
     setSteerInputActive(nextActive);
     if (nextActive) {
@@ -748,7 +930,34 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       }
     }
     requestAnimationFrame(() => textareaRef.current?.focus());
-  }, [disabled, dispatch, draftKey, isStreaming, remoteManaged, sessionId, steerDraft, steerInputActive, value]);
+  }, [disabled, dispatch, draftKey, goalInputActive, isStreaming, remoteManaged, resetGoalInput, sessionId, steerDraft, steerInputActive, value]);
+
+  const handleEnableGoalInput = useCallback((mode: GoalInputMode = 'start', initialValue?: string) => {
+    if (disabled || remoteManaged || isPatchingModel) return;
+    if (!onGoalCommand && sessionId) return;
+    setShowAddMenu(false);
+    handleCloseSkillsPopover();
+    if (steerInputActive) {
+      setSteerInputActive(false);
+      if (sessionId) {
+        dispatch(setSteerDraft({ sessionId, draft: steerValue }));
+      }
+    }
+    goalInputReturnDraftRef.current = value;
+    goalInputBaselineRef.current = mode === 'set' && initialValue !== undefined ? initialValue : null;
+    setGoalInputMode(mode);
+    setGoalInputActive(true);
+    setValue(initialValue ?? '');
+    dispatch(setDraftPrompt({ sessionId: draftKey, draft: initialValue ?? '' }));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [disabled, dispatch, draftKey, handleCloseSkillsPopover, isPatchingModel, onGoalCommand, remoteManaged, sessionId, steerInputActive, steerValue, value]);
+
+  const handleGoalCommandClick = useCallback((command: string) => {
+    if (disabled || remoteManaged || isPatchingModel || !onGoalCommand) return;
+    void Promise.resolve(onGoalCommand(command)).catch((error) => {
+      console.warn('[CoworkGoal] failed to submit goal status command from prompt input.', error);
+    });
+  }, [disabled, isPatchingModel, onGoalCommand, remoteManaged]);
 
   const containerClass = isCompact
     ? 'relative rounded-2xl border border-border bg-surface shadow-subtle'
@@ -980,6 +1189,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const handleAddFile = useCallback(async () => {
     if (isAddingFile || disabled || isStreaming) return;
+    setShowAddMenu(false);
+    handleCloseSkillsPopover();
     setIsAddingFile(true);
     try {
       const result = await window.electron.dialog.selectFiles({
@@ -1020,7 +1231,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     } finally {
       setIsAddingFile(false);
     }
-  }, [addAttachment, effectiveSelectedModel, isAddingFile, disabled, isStreaming, modelSupportsImage]);
+  }, [addAttachment, effectiveSelectedModel, handleCloseSkillsPopover, isAddingFile, disabled, isStreaming, modelSupportsImage]);
 
   const handleRemoveAttachment = useCallback((path: string) => {
     dispatch(setDraftAttachments({
@@ -1081,11 +1292,16 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [disabled, handleIncomingFiles, isStreaming]);
 
   const activeTextareaValue = steerInputActive ? steerValue : value;
+  const goalCommandCanRunWhileStreaming = goalInputActive && !!sessionId && !!onGoalCommand;
+  const followUpCanQueueWhileStreaming = !!sessionId && !remoteManaged;
+  const streamingSubmitCanRun = goalCommandCanRunWhileStreaming || followUpCanQueueWhileStreaming;
   const canSubmit = !disabled
     && !isPatchingModel
     && !agentModelIsInvalid
     && (
-      steerInputActive
+      goalInputActive
+        ? !!value.trim()
+        : steerInputActive
         ? !!steerValue.trim()
         : (!!value.trim() || attachments.length > 0)
     );
@@ -1276,35 +1492,112 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     ) : null;
   };
 
-  const largeInputActions = !remoteManaged ? (
-    <div className="flex items-center gap-0.5">
+  const addMenuAction = !remoteManaged ? (
+    <div className="relative">
       <button
+        ref={addMenuButtonRef}
         type="button"
-        onClick={handleAddFile}
-        className="flex h-[34px] w-[34px] items-center justify-center rounded-lg text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
-        title={i18nService.t('coworkAddFile')}
-        aria-label={i18nService.t('coworkAddFile')}
-        disabled={disabled || isStreaming || isAddingFile}
+        onClick={handleOpenAddMenu}
+        className="flex h-[34px] w-[34px] items-center justify-center rounded-lg text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+        title={i18nService.t('add')}
+        aria-label={i18nService.t('add')}
+        aria-haspopup="menu"
+        aria-expanded={showAddMenu || showSkillsPopover}
+        disabled={disabled}
       >
-        <PaperClipIcon className="h-5 w-5" />
+        <PromptAddIcon className="h-5 w-5" />
       </button>
-      <SkillsButton
-        onSelectSkill={handleSelectSkill}
-        onManageSkills={handleManageSkills}
-      />
+
+      {showAddMenu && (
+        <div
+          ref={addMenuRef}
+          className="absolute bottom-full left-0 z-50 mb-2 w-48 rounded-xl border border-border bg-surface py-1 shadow-popover"
+          role="menu"
+          onMouseEnter={cancelCloseSkillsPopover}
+          onMouseLeave={scheduleCloseSkillsPopover}
+        >
+          <button
+            type="button"
+            onClick={handleAddFile}
+            onMouseEnter={handleCloseSkillsPopover}
+            onFocus={handleCloseSkillsPopover}
+            disabled={disabled || isStreaming || isAddingFile}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
+            role="menuitem"
+          >
+            <PaperClipIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <span className="min-w-0 truncate">{i18nService.t('coworkAddFile')}</span>
+          </button>
+          <button
+            ref={skillMenuItemRef}
+            type="button"
+            onClick={handleOpenSkillsPopover}
+            onMouseEnter={handleOpenSkillsPopover}
+            onFocus={handleOpenSkillsPopover}
+            className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground transition-colors ${
+              showSkillsPopover ? 'bg-surface-raised' : 'hover:bg-surface-raised'
+            }`}
+            role="menuitem"
+            aria-haspopup="menu"
+            aria-expanded={showSkillsPopover}
+          >
+            <SkillIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <span className="min-w-0 flex-1 truncate">{i18nService.t('useSkill')}</span>
+            <ChevronRightIcon className="h-4 w-4 shrink-0 text-secondary" />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleEnableGoalInput(goal ? 'set' : 'start', goal?.objective)}
+            onMouseEnter={handleCloseSkillsPopover}
+            onFocus={handleCloseSkillsPopover}
+            disabled={disabled || isPatchingModel || (!!sessionId && !onGoalCommand)}
+            className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              goalInputActive ? 'bg-surface-raised text-foreground' : 'text-foreground hover:bg-surface-raised'
+            }`}
+            role="menuitem"
+          >
+            <GoalIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <span className="shrink-0 text-foreground">{i18nService.t('coworkGoal')}</span>
+            {goal?.objective && (
+              <span className="min-w-0 flex-1 truncate text-secondary">
+                {goal.objective}
+              </span>
+            )}
+          </button>
+
+          <SkillsPopover
+            isOpen={showSkillsPopover}
+            onClose={() => setShowSkillsPopover(false)}
+            onSelectSkill={handleSelectSkill}
+            onManageSkills={handleManageSkills}
+            anchorRef={skillMenuItemRef as React.RefObject<HTMLElement>}
+            asSubmenu
+            autoFocusSearch={false}
+            onMouseEnter={cancelCloseSkillsPopover}
+            onMouseLeave={scheduleCloseSkillsPopover}
+          />
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  const largeInputActions = !remoteManaged ? (
+    <div className="flex items-center gap-2">
+      {addMenuAction}
       {renderKnowledgeBaseSelector()}
     </div>
   ) : null;
   const largeSendButtonSizeClass = useCompactSendButton ? 'h-7 w-7' : 'h-8 w-8';
   const largeSendIconSizeClass = useCompactSendButton ? 'h-4 w-4' : 'h-[18px] w-[18px]';
+  const canUseSubmitButton = canSubmit && (!isStreaming || streamingSubmitCanRun);
 
   const largeSubmitButton = (
     <button
       type="button"
       onClick={handleSubmit}
-      disabled={!canSubmit}
+      disabled={!canUseSubmitButton}
       className={`flex ${largeSendButtonSizeClass} items-center justify-center rounded-full transition-all ${
-        canSubmit
+        canUseSubmitButton
           ? 'bg-neutral-950 text-white shadow-subtle hover:bg-neutral-800 active:scale-95 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200'
           : 'cursor-not-allowed bg-neutral-300 text-white dark:bg-neutral-700 dark:text-neutral-500'
       }`}
@@ -1314,7 +1607,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       <SendButtonIcon className={largeSendIconSizeClass} />
     </button>
   );
-  const largeSendButton = isStreaming ? (
+  const largeSendButton = isStreaming && !streamingSubmitCanRun ? (
     <button
       type="button"
       onClick={handleStopClick}
@@ -1440,6 +1733,85 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       ? createPortal(queuedFollowUpNode, steerPreviewPortalTarget)
       : shouldUseExternalSteerPreview ? null : queuedFollowUpNode
     : null;
+  const goalActionsDisabled = disabled || remoteManaged || isPatchingModel || !onGoalCommand;
+  const shouldUseExternalGoalStatusBar = goalStatusBarPortalTarget !== undefined;
+  const sessionGoalStatusBarNode = goal && !goalInputActive ? (() => {
+    const summary = getGoalSummary(goal);
+    const detail = goal.lastStatusNote
+      ? `${summary}: ${goal.objective} - ${goal.lastStatusNote}`
+      : `${summary}: ${goal.objective}`;
+    const canTogglePause = goal.status !== CoworkGoalStatus.Complete;
+    const pauseCommand = goal.status === CoworkGoalStatus.Active ? '/goal pause' : '/goal resume';
+    const pauseLabel = goal.status === CoworkGoalStatus.Active
+      ? i18nService.t('coworkGoalPause')
+      : i18nService.t('coworkGoalResume');
+
+    return (
+      <div className={shouldUseExternalGoalStatusBar ? '' : `${isCompact ? 'px-3 pt-2' : 'px-4 pt-3'}`}>
+        <div
+          role="status"
+          title={detail}
+          aria-label={detail}
+          className={`flex min-w-0 items-center gap-2 border border-border bg-surface-raised/60 px-2.5 py-1.5 text-xs text-secondary ${
+            shouldUseExternalGoalStatusBar
+              ? `${isCompact ? 'mx-3' : 'mx-5'} ${goalStatusBarAttached ? 'rounded-t-2xl rounded-b-none border-b-0' : 'rounded-xl'}`
+              : 'rounded-xl shadow-subtle'
+          }`}
+        >
+          <GoalIcon className={`h-4 w-4 shrink-0 ${
+            goal.status === CoworkGoalStatus.Active
+              ? 'text-primary'
+              : goal.status === CoworkGoalStatus.Complete
+                ? 'text-green-600 dark:text-green-400'
+                : 'text-warning'
+          }`} />
+          <span className="shrink-0 font-semibold text-foreground">{summary}</span>
+          <span className="min-w-0 flex-1 truncate">{goal.objective}</span>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => handleEnableGoalInput('set', goal.objective)}
+              disabled={goalActionsDisabled}
+              className="rounded-md p-1 text-secondary transition-colors hover:bg-surface hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              title={i18nService.t('coworkGoalEdit')}
+              aria-label={i18nService.t('coworkGoalEdit')}
+            >
+              <EditIcon className="h-3.5 w-3.5" />
+            </button>
+            {canTogglePause && (
+              <button
+                type="button"
+                onClick={() => handleGoalCommandClick(pauseCommand)}
+                disabled={goalActionsDisabled}
+                className="rounded-md p-1 text-secondary transition-colors hover:bg-surface hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                title={pauseLabel}
+                aria-label={pauseLabel}
+              >
+                {goal.status === CoworkGoalStatus.Active
+                  ? <PauseCircleIcon className="h-3.5 w-3.5" />
+                  : <PlayCircleIcon className="h-3.5 w-3.5" />}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleGoalCommandClick('/goal clear')}
+              disabled={goalActionsDisabled}
+              className="rounded-md p-1 text-secondary transition-colors hover:bg-surface hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              title={i18nService.t('coworkGoalClear')}
+              aria-label={i18nService.t('coworkGoalClear')}
+            >
+              <TrashIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  })() : null;
+  const sessionGoalStatusBar = sessionGoalStatusBarNode
+    ? goalStatusBarPortalTarget
+      ? createPortal(sessionGoalStatusBarNode, goalStatusBarPortalTarget)
+      : shouldUseExternalGoalStatusBar ? null : sessionGoalStatusBarNode
+    : null;
 
   const activeKnowledgeBadges = hasSelectedKnowledge ? (
     <div className="flex items-center gap-1.5 flex-wrap">
@@ -1492,7 +1864,20 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       {steerInputActive && <XMarkIcon className="h-3 w-3 shrink-0" />}
     </button>
   ) : null;
-  const activeModeRow = isLarge && steerModeBadge ? (
+  const goalModeBadge = goalInputActive ? (
+    <button
+      type="button"
+      onClick={() => resetGoalInput(true)}
+      className="inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-primary transition-all hover:bg-primary/15 hover:ring-1 hover:ring-primary/30"
+      title={i18nService.t('coworkGoalClearInputMode')}
+      aria-label={i18nService.t('coworkGoalClearInputMode')}
+    >
+      <GoalIcon className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 truncate">{i18nService.t('coworkGoal')}</span>
+      <XMarkIcon className="h-3 w-3 shrink-0" />
+    </button>
+  ) : null;
+  const activeModeRow = isLarge && (steerModeBadge || goalModeBadge) ? (
     <div
       className={`flex cursor-text flex-wrap items-center gap-x-2 gap-y-1 px-4 ${hasContextBadges ? 'pt-2' : 'pt-4'}`}
       onClick={() => {
@@ -1500,9 +1885,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       }}
     >
       {steerModeBadge}
+      {goalModeBadge}
     </div>
   ) : null;
-  const textareaPlaceholder = steerInputActive ? i18nService.t('coworkSteerPlaceholder') : placeholder;
+  const textareaPlaceholder = goalInputActive
+    ? i18nService.t('coworkGoalInputPlaceholder')
+    : steerInputActive ? i18nService.t('coworkSteerPlaceholder') : placeholder;
 
   const readOnlyContextRow = isLarge && showReadOnlyContext && !useHomeContextLayout ? (
     <div className="my-2 grid min-h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4">
@@ -1519,6 +1907,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   return (
     <div className="relative">
       {queuedFollowUpList}
+      {sessionGoalStatusBar}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2 max-h-[136px] overflow-y-auto">
           {attachments.map((attachment) => (
@@ -1651,21 +2040,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
             {!remoteManaged && (
               <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={handleAddFile}
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-secondary hover:bg-surface-raised hover:text-foreground transition-colors"
-                  title={i18nService.t('coworkAddFile')}
-                  aria-label={i18nService.t('coworkAddFile')}
-                  disabled={disabled || isStreaming || isAddingFile}
-                >
-                  <PaperClipIcon className="h-5 w-5" />
-                </button>
-                {renderKnowledgeBaseSelector(true)}
+                {largeInputActions}
               </div>
             )}
 
-            {isStreaming ? (
+            {isStreaming && !streamingSubmitCanRun ? (
               <div className="flex flex-shrink-0 items-center gap-3">
                 {contextUsageControl}
                 <button
@@ -1684,9 +2063,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={!canSubmit}
+                  disabled={!canUseSubmitButton}
                   className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full transition-all ${
-                    canSubmit
+                    canUseSubmitButton
                       ? 'bg-neutral-950 text-white shadow-subtle hover:bg-neutral-800 active:scale-95 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200'
                       : 'cursor-not-allowed bg-neutral-300 text-white dark:bg-neutral-700 dark:text-neutral-500'
                   }`}

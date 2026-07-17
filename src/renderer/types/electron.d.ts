@@ -22,6 +22,7 @@ import type {
   WikiPage,
 } from '../../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
+import type { CoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 interface ApiResponse {
   ok: boolean;
@@ -685,6 +686,10 @@ interface IElectronAPI {
       requestId: string;
       result: CoworkPermissionResult;
     }) => Promise<{ success: boolean; error?: string }>;
+    runGoalCommand: (options: {
+      sessionId: string;
+      command: string;
+    }) => Promise<{ success: boolean; goal?: CoworkGoal | null; error?: string }>;
     getConfig: () => Promise<{ success: boolean; config?: CoworkConfig; error?: string }>;
     setConfig: (config: CoworkConfigUpdate) => Promise<{ success: boolean; error?: string }>;
     listMemoryEntries: (input: {
@@ -719,6 +724,9 @@ interface IElectronAPI {
     ) => () => void;
     onStreamContextUsage?: (
       callback: (data: { sessionId: string; usage: CoworkContextUsage }) => void,
+    ) => () => void;
+    onStreamGoal?: (
+      callback: (data: { sessionId: string; goal: CoworkGoal | null }) => void,
     ) => () => void;
     onStreamContextMaintenance?: (
       callback: (data: { sessionId: string; active: boolean }) => void,

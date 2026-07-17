@@ -14,6 +14,10 @@ import {
   type CoworkSessionSourceKind as CoworkSessionSourceKindType,
 } from '../shared/cowork/constants';
 import {
+  type CoworkGoal,
+  normalizeCoworkGoal,
+} from '../shared/cowork/goal';
+import {
   type CoworkMessageRailIndexItem,
   COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
   getCoworkRailPreview,
@@ -447,6 +451,7 @@ export interface CoworkSession {
   executionMode: CoworkExecutionMode;
   activeSkillIds: string[];
   agentId: string;
+  goal?: CoworkGoal | null;
   messages: CoworkMessage[];
   /** Offset of the first loaded message in the full message history. */
   messagesOffset: number;
@@ -464,6 +469,7 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId: string;
+  goal?: CoworkGoal | null;
   source?: CoworkSessionSource;
   createdAt: number;
   updatedAt: number;
@@ -640,6 +646,7 @@ interface CoworkSessionSummaryRow {
   pinned: number | null;
   pin_order: number | null;
   agent_id: string | null;
+  goal_json?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -680,9 +687,24 @@ export class CoworkStore {
       pinned: Boolean(row.pinned),
       pinOrder: row.pin_order ?? null,
       agentId: row.agent_id || AgentId.Main,
+      goal: this.parseGoalJson(row.goal_json),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  private parseGoalJson(value: string | null | undefined): CoworkGoal | null {
+    if (!value) return null;
+    try {
+      return normalizeCoworkGoal(JSON.parse(value));
+    } catch (error) {
+      console.warn('[CoworkStore] Failed to parse goal_json:', error);
+      return null;
+    }
+  }
+
+  private serializeGoal(goal: CoworkGoal | null | undefined): string | null {
+    return goal ? JSON.stringify(goal) : null;
   }
 
   private updateSessionPreviewFromMessage(
@@ -767,6 +789,7 @@ export class CoworkStore {
       messages: [],
       messagesOffset: 0,
       totalMessages: 0,
+      goal: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -777,7 +800,7 @@ export class CoworkStore {
     const existingRow = this.db
       .prepare(
         `
-        SELECT s.id, s.title, s.last_message_preview, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at
+        SELECT s.id, s.title, s.last_message_preview, s.status, s.pinned, s.pin_order, s.agent_id, s.goal_json, s.created_at, s.updated_at
         FROM cowork_sessions s
         INNER JOIN cowork_session_sources src
           ON src.session_id = s.id AND src.kind = ?
@@ -949,13 +972,14 @@ export class CoworkStore {
       execution_mode?: string | null;
       active_skill_ids?: string | null;
       agent_id?: string | null;
+      goal_json?: string | null;
       created_at: number;
       updated_at: number;
     }
 
     const row = this.getOne<SessionRow>(
       `
-      SELECT id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, model_override, execution_mode, active_skill_ids, agent_id, created_at, updated_at
+      SELECT id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, model_override, execution_mode, active_skill_ids, agent_id, goal_json, created_at, updated_at
       FROM cowork_sessions
       WHERE id = ?
     `,
@@ -996,6 +1020,7 @@ export class CoworkStore {
       executionMode: (row.execution_mode as CoworkExecutionMode) || 'local',
       activeSkillIds,
       agentId: row.agent_id || 'main',
+      goal: this.parseGoalJson(row.goal_json),
       messages,
       messagesOffset: messageOffset,
       totalMessages,
@@ -1010,7 +1035,7 @@ export class CoworkStore {
     updates: Partial<
       Pick<
         CoworkSession,
-        'title' | 'claudeSessionId' | 'status' | 'cwd' | 'systemPrompt' | 'modelOverride' | 'executionMode'
+        'title' | 'claudeSessionId' | 'status' | 'cwd' | 'systemPrompt' | 'modelOverride' | 'executionMode' | 'goal'
       >
     >,
     options: { touchUpdatedAt?: boolean } = {},
@@ -1050,6 +1075,10 @@ export class CoworkStore {
     if (updates.executionMode !== undefined) {
       setClauses.push('execution_mode = ?');
       values.push(updates.executionMode);
+    }
+    if (updates.goal !== undefined) {
+      setClauses.push('goal_json = ?');
+      values.push(this.serializeGoal(updates.goal));
     }
 
     if (setClauses.length === 0) return;
@@ -1162,7 +1191,7 @@ export class CoworkStore {
     if (agentId) {
       rows = this.getAll<CoworkSessionSummaryRow>(
         `
-        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, created_at, updated_at
+        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, goal_json, created_at, updated_at
         FROM cowork_sessions
         WHERE agent_id = ?
         ORDER BY pinned DESC,
@@ -1176,7 +1205,7 @@ export class CoworkStore {
     } else {
       rows = this.getAll<CoworkSessionSummaryRow>(
         `
-        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, created_at, updated_at
+        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, goal_json, created_at, updated_at
         FROM cowork_sessions
         ORDER BY pinned DESC,
           CASE WHEN pinned = 1 THEN COALESCE(pin_order, updated_at, created_at) END ASC,
@@ -1195,7 +1224,7 @@ export class CoworkStore {
     const sourceRows = this.db
       .prepare(
         `
-        SELECT s.id, s.title, s.last_message_preview, s.status, s.pinned, s.pin_order, s.agent_id, s.created_at, s.updated_at,
+        SELECT s.id, s.title, s.last_message_preview, s.status, s.pinned, s.pin_order, s.agent_id, s.goal_json, s.created_at, s.updated_at,
                src.kind, src.label, src.task_id, src.platform, src.conversation_id
         FROM cowork_sessions s
         INNER JOIN cowork_session_sources src ON src.session_id = s.id
