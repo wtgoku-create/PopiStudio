@@ -196,6 +196,60 @@ test('usage metadata falls back to latest assistant when preferred id was replac
   });
 });
 
+test('outbound prompt injects top-k evidence after context compaction', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'src/pages/Bakery.tsx 的测试失败了', timestamp: 1, metadata: {} },
+    {
+      id: 'msg-2',
+      type: 'tool_result',
+      content: 'npm test failed in src/pages/Bakery.tsx: expected ja copy to be visible.',
+      timestamp: 2,
+      metadata: { toolName: 'shell' },
+    },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const internal = adapter as unknown as {
+    bridgedSessions: Set<string>;
+    continuityCapsuleBySession: Map<string, unknown>;
+    buildOutboundPrompt: (sessionId: string, prompt: string) => Promise<string>;
+  };
+
+  internal.bridgedSessions.add(session.id);
+  internal.continuityCapsuleBySession.set(session.id, {
+    version: 1,
+    sessionId: session.id,
+    revision: 1,
+    updatedAt: 100,
+    lastSource: 'post_compaction',
+    lastCompactedAt: 100,
+    currentObjective: 'Fix the failing bakery page test.',
+    recentUserRequests: [],
+    userConstraints: [],
+    decisions: [],
+    completedFacts: [],
+    recentActions: [],
+    touchedFiles: [{ path: 'src/pages/Bakery.tsx' }],
+    keySymbols: [],
+    verification: [],
+    nextSteps: ['Investigate npm test failure.'],
+    recentFailures: [],
+    activeCapabilities: [],
+    openQuestions: [],
+  });
+
+  const prompt = await internal.buildOutboundPrompt(
+    session.id,
+    '继续处理 src/pages/Bakery.tsx 的 npm test failed',
+  );
+
+  expect(prompt).toContain('[Popiai retrieved evidence after context compaction]');
+  expect(prompt).toContain('tool result: shell');
+  expect(prompt).toContain('expected ja copy');
+  expect(prompt.indexOf('[Popiai retrieved evidence after context compaction]')).toBeLessThan(
+    prompt.indexOf('[Current user request]'),
+  );
+});
+
 // ==================== Session patch tests ====================
 
 function createPatchAdapter(options?: {

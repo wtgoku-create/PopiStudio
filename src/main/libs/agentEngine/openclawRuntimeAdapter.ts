@@ -68,7 +68,9 @@ import {
   ContinuityCapsuleSource,
   type CoworkContinuityCapsule,
   formatCoworkContinuityCapsuleBridge,
+  formatCoworkMiniContinuityCapsuleBridge,
 } from './coworkContinuityCapsule';
+import { buildCoworkTopKEvidenceBridgeResult } from './coworkTopKEvidence';
 import { buildCoworkWorkspaceRehydrationBridge } from './coworkWorkspaceRehydration';
 import { extractCronDeliveredTarget } from './cronDeliveryTarget';
 import { OpenClawApprovalController } from './openclawApprovalController';
@@ -1259,6 +1261,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private readonly confirmationModeBySession = new Map<string, 'modal' | 'text'>();
   private readonly continuityCapsuleBySession = new Map<string, CoworkContinuityCapsule>();
   private readonly bridgedSessions = new Set<string>();
+  private readonly continuityFullBridgeCompactedAtBySession = new Map<string, number>();
+  private readonly workspaceRehydrationBridgeCompactedAtBySession = new Map<string, number>();
   private readonly lastSystemPromptBySession = new Map<string, string>();
   private readonly lastPatchedModelBySession = new Map<string, string>();
   private readonly sessionModelPatchQueue = new Map<string, Promise<void>>();
@@ -3082,6 +3086,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
     const continuityCapsuleBridge = this.buildContinuityCapsuleBridge(sessionId);
     const workspaceRehydrationBridge = await this.buildWorkspaceRehydrationBridge(sessionId);
+    const topKEvidenceBridge = this.buildTopKEvidenceBridge(sessionId, prompt);
 
     if (this.bridgedSessions.has(sessionId)) {
       if (continuityCapsuleBridge) {
@@ -3089,6 +3094,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
       if (workspaceRehydrationBridge) {
         sections.push(workspaceRehydrationBridge);
+      }
+      if (topKEvidenceBridge) {
+        sections.push(topKEvidenceBridge);
       }
       if (prompt.trim()) {
         sections.push(`[Current user request]\n${prompt}`);
@@ -3125,6 +3133,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
     if (workspaceRehydrationBridge) {
       sections.push(workspaceRehydrationBridge);
+    }
+    if (topKEvidenceBridge) {
+      sections.push(topKEvidenceBridge);
     }
     if (prompt.trim()) {
       sections.push(`[Current user request]\n${prompt}`);
@@ -3212,24 +3223,91 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   }
 
   private buildContinuityCapsuleBridge(sessionId: string): string {
-    const capsule = this.continuityCapsuleBySession.get(sessionId);
-    if (!capsule?.lastCompactedAt) {
+    try {
+      const capsule = this.continuityCapsuleBySession.get(sessionId);
+      if (!capsule?.lastCompactedAt) {
+        return '';
+      }
+      const shouldInjectFullBridge = this.continuityFullBridgeCompactedAtBySession.get(sessionId) !== capsule.lastCompactedAt;
+      const bridge = shouldInjectFullBridge
+        ? formatCoworkContinuityCapsuleBridge(capsule)
+        : formatCoworkMiniContinuityCapsuleBridge(capsule);
+      if (!bridge.trim()) {
+        return '';
+      }
+      if (shouldInjectFullBridge) {
+        this.continuityFullBridgeCompactedAtBySession.set(sessionId, capsule.lastCompactedAt);
+      }
+      console.debug(
+        `[CoworkContinuityCapsule] injected capsule bridge for session ${sessionId}.`,
+        `Mode ${shouldInjectFullBridge ? 'full' : 'mini'}.`,
+        `Revision ${capsule.revision}.`,
+        `Bridge length ${bridge.length}.`,
+      );
+      return bridge;
+    } catch (error) {
+      console.warn(`[CoworkContinuityCapsule] failed to build capsule bridge for session ${sessionId}; continuing without it.`, error);
       return '';
     }
-    return formatCoworkContinuityCapsuleBridge(capsule);
   }
 
   private async buildWorkspaceRehydrationBridge(sessionId: string): Promise<string> {
-    const capsule = this.continuityCapsuleBySession.get(sessionId);
-    if (!capsule?.lastCompactedAt) {
+    try {
+      const capsule = this.continuityCapsuleBySession.get(sessionId);
+      const compactedAt = capsule?.lastCompactedAt;
+      if (!compactedAt || this.workspaceRehydrationBridgeCompactedAtBySession.get(sessionId) === compactedAt) {
+        return '';
+      }
+      const session = this.store.getSession(sessionId);
+      const bridge = await buildCoworkWorkspaceRehydrationBridge({
+        sessionId,
+        cwd: session?.cwd,
+        capsule,
+      });
+      this.workspaceRehydrationBridgeCompactedAtBySession.set(sessionId, compactedAt);
+      if (!bridge.trim()) {
+        return '';
+      }
+      console.debug(
+        `[CoworkWorkspaceRehydration] injected workspace bridge for session ${sessionId}.`,
+        `Bridge length ${bridge.length}.`,
+      );
+      return bridge;
+    } catch (error) {
+      console.warn(`[CoworkWorkspaceRehydration] failed to build workspace bridge for session ${sessionId}; continuing without it.`, error);
       return '';
     }
-    const session = this.store.getSession(sessionId);
-    return buildCoworkWorkspaceRehydrationBridge({
-      sessionId,
-      cwd: session?.cwd,
-      capsule,
-    });
+  }
+
+  private buildTopKEvidenceBridge(sessionId: string, prompt: string): string {
+    try {
+      const session = this.store.getSession(sessionId);
+      const capsule = this.continuityCapsuleBySession.get(sessionId);
+      if (!session || !capsule?.lastCompactedAt) {
+        return '';
+      }
+      const result = buildCoworkTopKEvidenceBridgeResult({
+        sessionId,
+        messages: session.messages,
+        prompt,
+        capsule,
+      });
+      const bridge = result.bridge;
+      if (!bridge.trim()) {
+        return '';
+      }
+      console.debug(
+        `[CoworkTopKEvidence] injected retrieved evidence bridge for session ${sessionId}.`,
+        `Candidates ${result.diagnostics.candidateCount}.`,
+        `Matched ${result.diagnostics.matchedCount}.`,
+        `Injected ${result.diagnostics.injectedCount}.`,
+        `Bridge length ${result.diagnostics.bridgeLength}.`,
+      );
+      return bridge;
+    } catch (error) {
+      console.warn(`[CoworkTopKEvidence] failed to build evidence bridge for session ${sessionId}; continuing without it.`, error);
+      return '';
+    }
   }
 
   private async ensureGatewayClientReady(): Promise<void> {
@@ -7738,6 +7816,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.gatewayHistoryCountBySession.delete(sessionId);
     this.latestTurnTokenBySession.delete(sessionId);
     this.continuityCapsuleBySession.delete(sessionId);
+    this.continuityFullBridgeCompactedAtBySession.delete(sessionId);
+    this.workspaceRehydrationBridgeCompactedAtBySession.delete(sessionId);
     this.stoppedSessions.delete(sessionId);
 
     // Clean up active turn and related run-id mappings
