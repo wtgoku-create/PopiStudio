@@ -48,7 +48,7 @@ import { PlatformRegistry } from '../shared/platform';
 import { ProviderName } from '../shared/providers';
 import { AgentManager } from './agentManager';
 import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
-import { APP_NAME } from './appConstants';
+import { APP_NAME, APP_USER_MODEL_ID } from './appConstants';
 import { AuthManager } from './authManager';
 import { getAutoLaunchEnabled, isAutoLaunched, setAutoLaunchEnabled } from './autoLaunchManager';
 import { type CoworkSessionSource, type CoworkSessionSummary, CoworkStore } from './coworkStore';
@@ -182,9 +182,12 @@ const gwDiagTs = (): string => {
   return `[GW-RESTART-DIAG] ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`;
 };
 
-// 设置应用程序名称
+// Configure the app identity before any OS-level surfaces are created.
 app.name = APP_NAME;
 app.setName(APP_NAME);
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_USER_MODEL_ID);
+}
 
 const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
 const MIN_MEMORY_USER_MEMORIES_MAX_ITEMS = 1;
@@ -2192,10 +2195,16 @@ const getAppIconPath = (): string | undefined => {
 };
 
 const getNotificationIconPath = (): string => {
-  const platformIcon = getAppIconPath();
-  if (platformIcon && fs.existsSync(platformIcon)) return platformIcon;
-  const fallbackPath = path.join(__dirname, '../build/icons/png/512x512.png');
-  return fs.existsSync(fallbackPath) ? fallbackPath : '';
+  const candidates = app.isPackaged
+    ? [
+        path.join(process.resourcesPath, 'app-icon/512x512.png'),
+        path.join(process.resourcesPath, 'icon.icns'),
+      ]
+    : [
+        path.join(__dirname, 'build/icons/png/512x512.png'),
+        path.join(__dirname, '../build/icons/png/512x512.png'),
+      ];
+  return candidates.find(candidate => fs.existsSync(candidate)) ?? '';
 };
 
 // 保存对主窗口的引用
