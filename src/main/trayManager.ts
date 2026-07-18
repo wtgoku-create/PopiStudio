@@ -20,7 +20,16 @@ function getTrayIconPath(): string {
     return path.join(basePath, 'tray-icon-mac.png');
   }
   if (isWin) {
-    return path.join(basePath, 'tray-icon.ico');
+    const candidates = app.isPackaged
+      ? [
+          path.join(process.resourcesPath, 'app-icon/512x512.png'),
+          path.join(basePath, 'tray-icon.ico'),
+        ]
+      : [
+          path.join(__dirname, '../build/icons/png/32x32.png'),
+          path.join(basePath, 'tray-icon.ico'),
+        ];
+    return candidates.find(candidate => nativeImage.createFromPath(candidate).isEmpty() === false) ?? candidates[0];
   }
   // Linux
   return path.join(basePath, 'tray-icon.png');
