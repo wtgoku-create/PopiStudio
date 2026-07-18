@@ -1,4 +1,5 @@
 import type { OpenClawSessionPatch } from '../../../common/openclawSession';
+import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import type { CoworkSteerResponse } from '../../../shared/cowork/steer';
 import type { CoworkGoal } from '../../../shared/cowork/goal';
 import type { CoworkMessage, CoworkSessionStatus } from '../../coworkStore';
@@ -70,6 +71,7 @@ export type CoworkStartOptions = {
   workspaceRoot?: string;
   confirmationMode?: 'modal' | 'text';
   imageAttachments?: CoworkImageAttachment[];
+  selectedTextSnippets?: CoworkSelectedTextSnippet[];
   agentId?: string;
 };
 
@@ -79,6 +81,7 @@ export type CoworkContinueOptions = {
   skillIds?: string[];
   confirmationMode?: 'modal' | 'text';
   imageAttachments?: CoworkImageAttachment[];
+  selectedTextSnippets?: CoworkSelectedTextSnippet[];
 };
 
 export interface CoworkRuntime {

@@ -9,6 +9,7 @@ import {
   CoworkGoalStatus,
   formatCoworkGoalUsage,
 } from '../../../shared/cowork/goal';
+import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import { CoworkSteerStatus } from '../../../shared/cowork/steer';
 import { KnowledgeSkill, type RemoteKnowledgeBase } from '../../../shared/knowledge/constants';
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
@@ -23,12 +24,15 @@ import {
   addDraftAttachment,
   addPendingSteer,
   clearDraftAttachments,
+  clearDraftSelectedTextSnippets,
   COWORK_STEER_QUEUE_LIMIT,
   type DraftAttachment,
+  removeDraftSelectedTextSnippet,
   removePendingSteer,
   removeRejectedSteer,
   setDraftAttachments,
   setDraftPrompt,
+  setDraftSelectedTextSnippets,
   setSteerDraft,
   updateCurrentSessionModelOverride,
 } from '../../store/slices/coworkSlice';
@@ -53,6 +57,7 @@ import { ActiveSkillBadge, SkillsPopover } from '../skills';
 import { resolveAgentModelSelection, resolveEffectiveModel, useAgentSelectedModel } from './agentModelSelection';
 import AttachmentCard from './AttachmentCard';
 import { getClipboardAttachmentFiles } from './clipboardAttachments';
+import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
 import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
@@ -85,6 +90,7 @@ const getGoalSummary = (goal: CoworkGoal): string => {
 export interface CoworkPromptSubmitOptions {
   knowledgeBases?: Array<{ id: string; name: string }>;
   knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
+  selectedTextSnippets?: CoworkSelectedTextSnippet[];
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.tiff', '.tif', '.ico', '.avif']);
@@ -220,6 +226,8 @@ export interface CoworkPromptInputRef {
   setImageAttachments: (images: CoworkImageAttachment[]) => void;
   /** 插入浏览器注释截图和注释文本 */
   insertBrowserAnnotation: (annotation: BrowserAnnotationPayload) => void;
+  /** 设置已选文本片段 */
+  setSelectedTextSnippets: (snippets: CoworkSelectedTextSnippet[]) => void;
   /** 聚焦输入框 */
   focus: () => void;
 }
@@ -251,6 +259,7 @@ interface CoworkPromptInputProps {
 }
 
 const EMPTY_ATTACHMENTS: CoworkAttachment[] = [];
+const EMPTY_SELECTED_TEXT_SNIPPETS: CoworkSelectedTextSnippet[] = [];
 
 const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInputProps>(
   (props, ref) => {
@@ -285,6 +294,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       sessionId ? state.cowork.steerDrafts[sessionId] || '' : ''
     ));
     const attachments = useSelector((state: RootState) => state.cowork.draftAttachments[draftKey] || EMPTY_ATTACHMENTS) as CoworkAttachment[];
+    const selectedTextSnippets = useSelector((state: RootState) => state.cowork.draftSelectedTextSnippets[draftKey] || EMPTY_SELECTED_TEXT_SNIPPETS);
     const pendingSteers = useSelector((state: RootState) => (
       sessionId ? state.cowork.pendingSteers[sessionId] || [] : []
     ));
@@ -345,6 +355,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         dataUrl: `data:${img.mimeType};base64,${img.base64Data}`,
       }));
       dispatch(setDraftAttachments({ draftKey, attachments: newAttachments }));
+    },
+    setSelectedTextSnippets: (snippets: CoworkSelectedTextSnippet[]) => {
+      dispatch(setDraftSelectedTextSnippets({ draftKey, snippets }));
     },
     insertBrowserAnnotation: (annotation) => {
       const timestamp = Date.now();
@@ -619,7 +632,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
       return;
     }
-    if ((!trimmedValue && (!isStreaming || !steerInputActive) && attachments.length === 0) || disabled || isPatchingModel) return;
+    if (
+      (!trimmedValue && (!isStreaming || !steerInputActive) && attachments.length === 0 && selectedTextSnippets.length === 0)
+      || disabled
+      || isPatchingModel
+    ) return;
     if (isStreaming && !sessionId) {
       window.dispatchEvent(new CustomEvent('app:showToast', {
         detail: i18nService.t('coworkSteerNoActiveTurn'),
@@ -647,7 +664,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       return;
     }
     if (isStreaming && sessionId) {
-      if (!trimmedValue && attachments.length === 0) return;
+      if (!trimmedValue && attachments.length === 0 && selectedTextSnippets.length === 0) return;
       if (pendingSteers.length >= COWORK_STEER_QUEUE_LIMIT) {
         window.dispatchEvent(new CustomEvent('app:showToast', {
           detail: i18nService.t('coworkSteerQueueFull'),
@@ -681,6 +698,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
       }
       dispatch(clearDraftAttachments(draftKey));
+      dispatch(clearDraftSelectedTextSnippets(draftKey));
       setImageVisionHint(false);
       return;
     }
@@ -769,9 +787,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         })),
       });
     }
-    const submitOptions: CoworkPromptSubmitOptions | undefined = hasSelectedKnowledgeBases
+    const submitOptions: CoworkPromptSubmitOptions | undefined = hasSelectedKnowledgeBases || selectedTextSnippets.length > 0
       ? {
-        knowledgeBases,
+        ...(hasSelectedKnowledgeBases ? { knowledgeBases } : {}),
+        ...(selectedTextSnippets.length > 0 ? { selectedTextSnippets } : {}),
       }
       : undefined;
     const result = await onSubmit(finalPrompt, skillPrompt, imageAtts.length > 0 ? imageAtts : undefined, submitOptions);
@@ -779,8 +798,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setValue('');
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
+    dispatch(clearDraftSelectedTextSnippets(draftKey));
     setImageVisionHint(false);
-  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, pendingSteers.length, dispatch, draftKey, onSubmit, activeSkillIds, skills, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
+  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, pendingSteers.length, dispatch, draftKey, onSubmit, activeSkillIds, skills, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     dispatch(toggleActiveSkill(skill.id));
@@ -1912,6 +1932,16 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </div>
   ) : null;
 
+  const selectedTextSnippetPreview = selectedTextSnippets.length > 0 ? (
+    <div className={`${isCompact ? 'px-3 pt-2' : 'px-4 pt-3'}`}>
+      <SelectedTextSnippetBadge
+        snippets={selectedTextSnippets}
+        onClear={() => dispatch(clearDraftSelectedTextSnippets(draftKey))}
+        onRemove={(snippetId) => dispatch(removeDraftSelectedTextSnippet({ draftKey, snippetId }))}
+      />
+    </div>
+  ) : null;
+
   const compactAttachmentPreview = attachmentPreviewContent ? (
     <div className="mb-2 max-h-[136px] overflow-y-auto">
       {attachmentPreviewContent}
@@ -1991,6 +2021,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       {queuedFollowUpList}
       {sessionGoalStatusBar}
       {!isLarge && !isCompact && compactAttachmentPreview}
+      {!isLarge && !isCompact && selectedTextSnippetPreview}
       {imageVisionHint && (
         <div className="mb-2 flex items-start gap-1.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
           <ExclamationTriangleIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
@@ -2023,6 +2054,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             <>
               <div className="relative z-10 rounded-2xl border border-border bg-surface shadow-card">
                 {largeAttachmentPreview}
+                {selectedTextSnippetPreview}
                 {activeContextRow}
                 {activeModeRow}
                 <textarea
@@ -2059,6 +2091,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           ) : (
             <>
               {largeAttachmentPreview}
+              {selectedTextSnippetPreview}
               {activeContextRow}
               {activeModeRow}
               <textarea
@@ -2095,6 +2128,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         ) : (
           <>
             {compactAttachmentPreview}
+            {selectedTextSnippetPreview}
             <textarea
               ref={textareaRef}
               value={activeTextareaValue}

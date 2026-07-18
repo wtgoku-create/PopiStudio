@@ -1,5 +1,6 @@
 import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import type { CoworkGoal } from '../../shared/cowork/goal';
+import type { CoworkSelectedTextSnippet } from '../../shared/cowork/selectedText';
 
 // Cowork image attachment for vision-capable models
 export interface CoworkImageAttachment {
@@ -55,6 +56,7 @@ export interface CoworkMessageMetadata {
   skillIds?: string[];
   knowledgeBases?: Array<{ id: string; name: string }>;
   knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
+  selectedTextSnippets?: CoworkSelectedTextSnippet[];
   usage?: {
     inputTokens?: number;
     outputTokens?: number;
@@ -280,6 +282,7 @@ export interface CoworkStartOptions {
   agentId?: string;
   modelOverride?: string;
   imageAttachments?: CoworkImageAttachment[];
+  selectedTextSnippets?: CoworkSelectedTextSnippet[];
 }
 
 // Continue session options
@@ -291,6 +294,7 @@ export interface CoworkContinueOptions {
   systemPrompt?: string;
   activeSkillIds?: string[];
   imageAttachments?: CoworkImageAttachment[];
+  selectedTextSnippets?: CoworkSelectedTextSnippet[];
 }
 
 // IPC result types

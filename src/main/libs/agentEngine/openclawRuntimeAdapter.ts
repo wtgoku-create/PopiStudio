@@ -24,6 +24,10 @@ import {
   type CoworkSteerResponse,
   CoworkSteerStatus,
 } from '../../../shared/cowork/steer';
+import {
+  buildSelectedTextPromptSection,
+  type CoworkSelectedTextSnippet,
+} from '../../../shared/cowork/selectedText';
 import { stripNullChars } from '../../../shared/cowork/text';
 import type { CoworkExecutionMode, CoworkMessage, CoworkMessageMetadata, CoworkSession, CoworkSessionStatus, CoworkStore } from '../../coworkStore';
 import { t } from '../../i18n';
@@ -2412,6 +2416,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       systemPrompt: options.systemPrompt,
       confirmationMode: options.confirmationMode,
       imageAttachments: options.imageAttachments,
+      selectedTextSnippets: options.selectedTextSnippets,
       agentId: options.agentId,
     });
   }
@@ -2423,6 +2428,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       skillIds: options.skillIds,
       confirmationMode: options.confirmationMode,
       imageAttachments: options.imageAttachments,
+      selectedTextSnippets: options.selectedTextSnippets,
     });
   }
 
@@ -2827,6 +2833,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       skillIds?: string[];
       confirmationMode?: 'modal' | 'text';
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
+      selectedTextSnippets?: CoworkSelectedTextSnippet[];
       agentId?: string;
     },
   ): Promise<void> {
@@ -2948,9 +2955,19 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
     }
 
+    const selectedTextSection = buildSelectedTextPromptSection(options.selectedTextSnippets);
+    const promptWithSelectedText = selectedTextSection
+      ? `${effectivePrompt}\n\n${selectedTextSection}`
+      : effectivePrompt;
+    if (options.selectedTextSnippets?.length && selectedTextSection) {
+      console.debug(
+        `[OpenClawRuntime] appended ${options.selectedTextSnippets.length} selected text excerpts to the prompt for session ${sessionId}.`,
+      );
+    }
+
     const outboundMessage = stripNullChars(await this.buildOutboundPrompt(
       sessionId,
-      effectivePrompt,
+      promptWithSelectedText,
       options.systemPrompt ?? session.systemPrompt,
       agentId,
     ));

@@ -28,6 +28,10 @@ import {
   CoworkSteerRejectReason,
   CoworkSteerStatus,
 } from '../shared/cowork/steer';
+import {
+  type CoworkSelectedTextSnippet,
+  normalizeCoworkSelectedTextSnippets,
+} from '../shared/cowork/selectedText';
 import { stripNullChars } from '../shared/cowork/text';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
@@ -1011,6 +1015,15 @@ const resolveCoworkRuntimePrompt = async (options: {
     return options.prompt;
   }
   return `${selectedKnowledgeContext}\n\n${options.prompt}`;
+};
+
+const normalizeSelectedTextSnippetsForIpc = (value: unknown): CoworkSelectedTextSnippet[] => {
+  const result = normalizeCoworkSelectedTextSnippets(value);
+  if (result.success === false) {
+    console.warn(`[CoworkSelectedText] rejected selected text excerpts because ${result.error}.`);
+    return [];
+  }
+  return result.snippets;
 };
 
 const resolveRuntimeSkillIds = (options: {
@@ -3134,6 +3147,7 @@ if (!gotTheLock) {
     prompt: string;
     knowledgeBases?: Array<{ id: string; name: string }>;
     knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
+    selectedTextSnippets?: CoworkSelectedTextSnippet[];
     cwd?: string;
     systemPrompt?: string;
     title?: string;
@@ -3166,6 +3180,7 @@ if (!gotTheLock) {
       }
 
       const prompt = stripNullChars(options.prompt);
+      const selectedTextSnippets = normalizeSelectedTextSnippetsForIpc(options.selectedTextSnippets);
       const fallbackTitle = buildSessionTitleFromInput(
         prompt,
         t('coworkDefaultSessionTitle')
@@ -3202,6 +3217,9 @@ if (!gotTheLock) {
       if (options.knowledgeFiles?.length) {
         messageMetadata.knowledgeFiles = options.knowledgeFiles;
       }
+      if (selectedTextSnippets.length) {
+        messageMetadata.selectedTextSnippets = selectedTextSnippets;
+      }
       if (options.imageAttachments?.length) {
         console.log('[Cowork:StartSession] imageAttachments received via IPC:', {
           count: options.imageAttachments.length,
@@ -3231,6 +3249,7 @@ if (!gotTheLock) {
           workspaceRoot: taskWorkingDirectory,
           confirmationMode: 'modal',
           imageAttachments: options.imageAttachments,
+          selectedTextSnippets,
           agentId: options.agentId,
         });
       })().catch(error => {
@@ -3270,6 +3289,7 @@ if (!gotTheLock) {
     prompt: string;
     knowledgeBases?: Array<{ id: string; name: string }>;
     knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
+    selectedTextSnippets?: CoworkSelectedTextSnippet[];
     systemPrompt?: string;
     activeSkillIds?: string[];
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
@@ -3297,6 +3317,7 @@ if (!gotTheLock) {
       }
 
       const prompt = stripNullChars(options.prompt);
+      const selectedTextSnippets = normalizeSelectedTextSnippetsForIpc(options.selectedTextSnippets);
       const messageMetadata: Record<string, unknown> = {};
       if (options.activeSkillIds?.length) {
         messageMetadata.skillIds = options.activeSkillIds;
@@ -3306,6 +3327,9 @@ if (!gotTheLock) {
       }
       if (options.knowledgeFiles?.length) {
         messageMetadata.knowledgeFiles = options.knowledgeFiles;
+      }
+      if (selectedTextSnippets.length) {
+        messageMetadata.selectedTextSnippets = selectedTextSnippets;
       }
       if (options.imageAttachments?.length) {
         messageMetadata.imageAttachments = options.imageAttachments;
@@ -3337,6 +3361,7 @@ if (!gotTheLock) {
           ),
           skillIds: runtimeSkillIds,
           imageAttachments: options.imageAttachments,
+          selectedTextSnippets,
         });
       })().catch(error => {
         console.error('[Cowork] continue error:', error);

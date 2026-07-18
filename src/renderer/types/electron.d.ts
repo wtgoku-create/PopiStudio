@@ -204,6 +204,21 @@ interface WindowState {
   isFocused: boolean;
 }
 
+type CoworkSelectedTextSnippetPayload = {
+  id: string;
+  text: string;
+  sourceMessageId?: string;
+  sourceMessageType?: 'assistant' | 'artifact_markdown' | 'artifact_text';
+  sourceId?: string;
+  sourceType?: 'assistant' | 'artifact_markdown' | 'artifact_text';
+  sourceTitle?: string;
+  sourcePath?: string;
+  artifactId?: string;
+  createdAt: number;
+  startOffset?: number;
+  endOffset?: number;
+};
+
 type LocalizedText = { en: string; zh: string };
 
 interface Skill {
@@ -524,6 +539,7 @@ interface IElectronAPI {
       prompt: string;
       knowledgeBases?: Array<{ id: string; name: string }>;
       knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
+      selectedTextSnippets?: CoworkSelectedTextSnippetPayload[];
       cwd?: string;
       systemPrompt?: string;
       title?: string;
@@ -542,6 +558,7 @@ interface IElectronAPI {
       prompt: string;
       knowledgeBases?: Array<{ id: string; name: string }>;
       knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
+      selectedTextSnippets?: CoworkSelectedTextSnippetPayload[];
       systemPrompt?: string;
       activeSkillIds?: string[];
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;

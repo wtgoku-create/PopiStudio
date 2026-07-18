@@ -276,6 +276,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       const sessionSkillIds = [...activeSkillIds];
       const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
       const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
+      const selectedTextSnippets = options?.selectedTextSnippets;
       const existingSessionResult = await coworkService.listSessionsForAgentPreview(currentAgentId, 1, 0);
       const existingSessionSummary = existingSessionResult.success
         ? existingSessionResult.sessions?.[0]
@@ -296,6 +297,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
           prompt,
           knowledgeBases,
           knowledgeFiles,
+          selectedTextSnippets,
           systemPrompt: combinedSystemPrompt,
           activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
           imageAttachments,
@@ -335,11 +337,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({
             type: 'user',
             content: prompt,
             timestamp: now,
-            metadata: (sessionSkillIds.length > 0 || knowledgeBases?.length || knowledgeFiles?.length || (imageAttachments && imageAttachments.length > 0))
+            metadata: (sessionSkillIds.length > 0 || knowledgeBases?.length || knowledgeFiles?.length || selectedTextSnippets?.length || (imageAttachments && imageAttachments.length > 0))
               ? {
                 ...(sessionSkillIds.length > 0 ? { skillIds: sessionSkillIds } : {}),
                 ...(knowledgeBases?.length ? { knowledgeBases } : {}),
                 ...(knowledgeFiles?.length ? { knowledgeFiles } : {}),
+                ...(selectedTextSnippets?.length ? { selectedTextSnippets } : {}),
                 ...(imageAttachments && imageAttachments.length > 0 ? { imageAttachments } : {}),
               }
               : undefined,
@@ -375,6 +378,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         prompt,
         knowledgeBases,
         knowledgeFiles,
+        selectedTextSnippets,
         title: fallbackTitle,
         cwd: currentAgentWorkingDirectory || undefined,
         systemPrompt: combinedSystemPrompt,
@@ -436,6 +440,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       const sessionSkillIds = [...activeSkillIds];
       const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
       const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
+      const selectedTextSnippets = options?.selectedTextSnippets;
 
       // Only send a continuation system prompt when this turn selects new skills.
       // Otherwise the main process falls back to the session prompt created on the first turn.
@@ -453,6 +458,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         prompt,
         knowledgeBases,
         knowledgeFiles,
+        selectedTextSnippets,
         systemPrompt: combinedSystemPrompt,
         activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
         imageAttachments,

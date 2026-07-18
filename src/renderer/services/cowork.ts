@@ -729,6 +729,7 @@ class CoworkService {
       prompt: options.prompt,
       knowledgeBases: options.knowledgeBases,
       knowledgeFiles: options.knowledgeFiles,
+      selectedTextSnippets: options.selectedTextSnippets,
       systemPrompt: options.systemPrompt,
       activeSkillIds: options.activeSkillIds,
       imageAttachments: options.imageAttachments,

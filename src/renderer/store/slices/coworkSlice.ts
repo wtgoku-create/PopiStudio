@@ -10,6 +10,7 @@ import {
   CoworkSteerStatus,
   type CoworkSteerStatus as CoworkSteerStatusType,
 } from '../../../shared/cowork/steer';
+import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import {
   type CoworkConfig,
   type CoworkContextUsage,
@@ -39,6 +40,8 @@ interface CoworkState {
   draftPrompts: Record<string, string>;
   /** Keyed by draftKey (sessionId or '__home__'), stores pending attachments */
   draftAttachments: Record<string, DraftAttachment[]>;
+  /** Keyed by draftKey (sessionId or '__home__'), stores selected text snippets */
+  draftSelectedTextSnippets: Record<string, CoworkSelectedTextSnippet[]>;
   /** Keyed by sessionId, stores steer drafts separately from normal drafts. */
   steerDrafts: Record<string, string>;
   /** Keyed by sessionId, stores follow-up inputs queued while a turn is active. */
@@ -66,6 +69,7 @@ const initialState: CoworkState = {
   currentSession: null,
   draftPrompts: {},
   draftAttachments: {},
+  draftSelectedTextSnippets: {},
   steerDrafts: {},
   pendingSteers: {},
   rejectedSteers: {},
@@ -757,6 +761,36 @@ const coworkSlice = createSlice({
     clearDraftAttachments(state, action: PayloadAction<string>) {
       delete state.draftAttachments[action.payload];
     },
+
+    setDraftSelectedTextSnippets(state, action: PayloadAction<{ draftKey: string; snippets: CoworkSelectedTextSnippet[] }>) {
+      const { draftKey, snippets } = action.payload;
+      if (snippets.length === 0) {
+        delete state.draftSelectedTextSnippets[draftKey];
+      } else {
+        state.draftSelectedTextSnippets[draftKey] = snippets;
+      }
+    },
+
+    addDraftSelectedTextSnippet(state, action: PayloadAction<{ draftKey: string; snippet: CoworkSelectedTextSnippet }>) {
+      const { draftKey, snippet } = action.payload;
+      const existing = state.draftSelectedTextSnippets[draftKey] || [];
+      state.draftSelectedTextSnippets[draftKey] = [...existing, snippet];
+    },
+
+    removeDraftSelectedTextSnippet(state, action: PayloadAction<{ draftKey: string; snippetId: string }>) {
+      const { draftKey, snippetId } = action.payload;
+      const snippets = (state.draftSelectedTextSnippets[draftKey] || [])
+        .filter(snippet => snippet.id !== snippetId);
+      if (snippets.length === 0) {
+        delete state.draftSelectedTextSnippets[draftKey];
+      } else {
+        state.draftSelectedTextSnippets[draftKey] = snippets;
+      }
+    },
+
+    clearDraftSelectedTextSnippets(state, action: PayloadAction<string>) {
+      delete state.draftSelectedTextSnippets[action.payload];
+    },
   },
 });
 
@@ -778,6 +812,10 @@ export const {
   setDraftAttachments,
   addDraftAttachment,
   clearDraftAttachments,
+  setDraftSelectedTextSnippets,
+  addDraftSelectedTextSnippet,
+  removeDraftSelectedTextSnippet,
+  clearDraftSelectedTextSnippets,
   addSession,
   updateSessionStatus,
   deleteSession,
