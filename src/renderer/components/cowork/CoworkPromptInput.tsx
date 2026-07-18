@@ -52,6 +52,7 @@ import ModelSelector from '../ModelSelector';
 import { ActiveSkillBadge, SkillsPopover } from '../skills';
 import { resolveAgentModelSelection, resolveEffectiveModel, useAgentSelectedModel } from './agentModelSelection';
 import AttachmentCard from './AttachmentCard';
+import { getClipboardAttachmentFiles } from './clipboardAttachments';
 import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
@@ -1329,7 +1330,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const handlePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (disabled || isStreaming) return;
-    const files = Array.from(event.clipboardData?.files ?? []);
+    const files = getClipboardAttachmentFiles(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();
     void handleIncomingFiles(files);

@@ -41,6 +41,7 @@ type MarketplaceRefreshMode = 'initial' | 'refresh' | 'loadMore';
 
 const MarketplacePageSize = 24;
 const MarketplacePullRefreshThreshold = 180;
+const skillCardGridClass = 'grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-3';
 
 const importSourceTypes: ImportSourceType[] = ['github', 'clawhub'];
 
@@ -999,9 +1000,9 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
       >
       {activeTab === 'installed' && (
       <>
-      <div className="grid grid-cols-2 gap-3">
+      <div className={skillCardGridClass}>
         {filteredInstalledSkills.length === 0 ? (
-          <div className="col-span-2 text-center py-8 text-sm text-secondary">
+          <div className="col-span-full text-center py-8 text-sm text-secondary">
             {i18nService.t('noSkillsAvailable')}
           </div>
         ) : (
@@ -1102,7 +1103,7 @@ const SkillsManager: React.FC<SkillsManagerProps> = ({ readOnly, onCreateByChat 
                 {i18nService.t('skillMarketplaceEmpty')}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
+              <div className={skillCardGridClass}>
                 {marketplaceSkills.map((skill) => (
               <div
                 key={skill.id}

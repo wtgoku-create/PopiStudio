@@ -1,4 +1,5 @@
 import React from 'react';
+
 import { i18nService } from '../../services/i18n';
 import SkillsManager from './SkillsManager';
 // import SidebarToggleIcon from '../icons/SidebarToggleIcon';
@@ -44,7 +45,7 @@ const SkillsView: React.FC<SkillsViewProps> = ({ onCreateSkillByChat, readOnly }
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden [scrollbar-gutter:stable]">
-        <div className="max-w-3xl mx-auto px-4 py-6 flex-1 min-h-0 flex flex-col w-full">
+        <div className="mx-auto w-full max-w-[1120px] px-6 py-5 flex-1 min-h-0 flex flex-col">
           <SkillsManager readOnly={readOnly} onCreateByChat={onCreateSkillByChat} />
         </div>
       </div>
