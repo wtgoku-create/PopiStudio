@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+import { writeTextToClipboard } from '../../services/clipboard';
 import { i18nService } from '../../services/i18n';
 import MessageCopyIcon from '../icons/MessageCopyIcon';
 
@@ -48,16 +49,20 @@ export const MessageCopyButton: React.FC<{
 
   const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      if (copiedTimerRef.current !== null) {
-        window.clearTimeout(copiedTimerRef.current);
-      }
-      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error('[MessageActionButton] Failed to copy message content:', error);
+    const result = await writeTextToClipboard(content);
+    if (!result.ok) {
+      window.electron?.log?.fromRenderer?.(
+        'warn',
+        'MessageActionButton',
+        `Failed to copy message content to the clipboard. ${result.error ?? ''}`.trim(),
+      );
+      return;
     }
+    setCopied(true);
+    if (copiedTimerRef.current !== null) {
+      window.clearTimeout(copiedTimerRef.current);
+    }
+    copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
   };
 
   return (

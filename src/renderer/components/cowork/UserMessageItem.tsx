@@ -56,7 +56,7 @@ const UserMessageSkillBadges: React.FC<{ skills: Skill[] }> = ({ skills }) => {
       {skills.map(skill => (
         <div
           key={skill.id}
-          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground"
+          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-5 text-foreground"
           title={skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill)}
         >
           <SkillIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -82,7 +82,7 @@ const UserMessageKnowledgeBadges: React.FC<{
       {bases.map(base => (
         <div
           key={`kb:${base.id}`}
-          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground"
+          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-5 text-foreground"
           title={i18nService.t('knowledgeBase')}
         >
           <AcademicCapIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -92,7 +92,7 @@ const UserMessageKnowledgeBadges: React.FC<{
       {files.map(file => (
         <div
           key={`knowledge:${file.id}`}
-          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-none text-foreground"
+          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-5 text-foreground"
           title={file.knowledgeBaseName || i18nService.t('knowledgeRecentFiles')}
         >
           <PaperClipIcon className="h-3.5 w-3.5 shrink-0 text-primary" />

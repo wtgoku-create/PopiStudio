@@ -10,10 +10,10 @@ import { CoworkIpcChannel } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc } from '../shared/folder/constants';
 import {
-  KnowledgeIpc,
   type GetChunkByIdRequest,
   type GetDistillPageRequest,
   type GetWikiPageRequest,
+  KnowledgeIpc,
   type PreviewRagContextRequest,
   type SearchRecentKnowledgeRequest,
   type UploadLocalSessionMarkdownRequest,
@@ -490,6 +490,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(KnowledgeIpc.UploadLocalSessionMarkdown, request),
   },
   clipboard: {
+    writeText: (text: string) =>
+      ipcRenderer.invoke(ClipboardIpc.WriteText, text),
     writeImageFromFile: (filePath: string) =>
       ipcRenderer.invoke(ClipboardIpc.WriteImageFromFile, filePath),
     writeImageFromDataUrl: (dataUrl: string) =>

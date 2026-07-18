@@ -4,6 +4,8 @@ import type {
   BrowserDiagnosticResult,
   BrowserRuntimeProfile,
 } from '../../shared/browserWebAccess/constants';
+import type { CoworkGoal } from '../../shared/cowork/goal';
+import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type {
   DistillPage,
@@ -22,8 +24,6 @@ import type {
   WikiPage,
 } from '../../shared/knowledge/constants';
 import type { ListLocalWebServicesOptions, LocalWebService } from '../../shared/localWebServices/constants';
-import type { CoworkGoal } from '../../shared/cowork/goal';
-import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 interface ApiResponse {
   ok: boolean;
   status: number;
@@ -780,6 +780,7 @@ interface IElectronAPI {
     uploadLocalSessionMarkdown: (request: UploadLocalSessionMarkdownRequest) => Promise<UploadLocalSessionMarkdownResult>;
   };
   clipboard: {
+    writeText: (text: string) => Promise<{ success: boolean; error?: string }>;
     writeImageFromFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
     writeImageFromDataUrl: (dataUrl: string) => Promise<{ success: boolean; error?: string }>;
   };

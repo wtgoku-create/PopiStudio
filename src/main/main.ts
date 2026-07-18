@@ -38,6 +38,7 @@ import {
   KnowledgeSkill,
 } from '../shared/knowledge/constants';
 import { type ListLocalWebServicesOptions, type LocalWebService, LocalWebServicesIpc } from '../shared/localWebServices/constants';
+import { normalizeNotificationSettings, type NotificationSettings } from '../shared/notifications/constants';
 import { PlatformRegistry } from '../shared/platform';
 // PopiArt CLI 登录态同步与 IPC 处理
 import { ProviderName } from '../shared/providers';
@@ -167,7 +168,6 @@ import {
   resolveInitialAppWindowState,
 } from './windowState';
 import { createWindowStatePersistManager } from './windowStatePersist';
-import { normalizeNotificationSettings, type NotificationSettings } from '../shared/notifications/constants';
 
 const gwDiagTs = (): string => {
   const d = new Date();
@@ -6251,6 +6251,15 @@ if (!gotTheLock) {
     try {
       const { openFileWithApp } = await import('./shellApps');
       await openFileWithApp(filePath, appPath);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+
+  ipcMain.handle(ClipboardIpc.WriteText, async (_event, text: string) => {
+    try {
+      clipboard.writeText(text);
       return { success: true };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
