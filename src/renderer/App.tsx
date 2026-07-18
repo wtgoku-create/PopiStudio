@@ -53,7 +53,7 @@ import {
   selectFirstCurrentSessionPendingPermission,
   selectPendingPermissions,
 } from './store/selectors/coworkSelectors';
-import { setDraftPrompt } from './store/slices/coworkSlice';
+import { clearDraftAttachments, setDraftPrompt } from './store/slices/coworkSlice';
 import { setDefaultSelectedModel } from './store/slices/modelSlice';
 import { clearSelection } from './store/slices/quickActionSlice';
 import type { CoworkPermissionResult } from './types/cowork';
@@ -94,6 +94,7 @@ const App: React.FC = () => {
     disableUpdate?: boolean;
   } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const askAiFocusTimerRef = useRef<number | null>(null);
   const hasInitialized = useRef(false);
   const previousUpdateStatusRef = useRef<AppUpdateRuntimeState['status']>(AppUpdateStatus.Idle);
   const shouldInstallReadyUpdateRef = useRef(false);
@@ -653,14 +654,41 @@ const App: React.FC = () => {
     return () => window.removeEventListener('app:showToast', handler);
   }, [showToast]);
 
-  // Listen for ask-ai events: close settings, navigate to cowork, pre-fill input
+  // Listen for ask-ai events: close settings, open a new chat, and pre-fill input.
   useEffect(() => {
     const handler = (e: Event) => {
       const text = (e as CustomEvent<string>).detail;
+      if (typeof text !== 'string' || !text.trim()) {
+        console.warn('[AskAI] ignored navigation request because the prompt was empty.');
+        return;
+      }
+
+      const coworkState = store.getState().cowork;
+      const diagnostic = [
+        'opening new chat with prefilled prompt;',
+        `hadCurrentSession=${Boolean(coworkState.currentSessionId)},`,
+        `remoteManaged=${coworkState.remoteManaged},`,
+        `promptLength=${text.length}`,
+      ].join(' ');
+      console.debug(`[AskAI] ${diagnostic}`);
+      try {
+        window.electron?.log?.fromRenderer?.('debug', 'AskAI', diagnostic);
+      } catch {
+        // Logging must not block navigation.
+      }
+
+      coworkService.clearSession({ restoreAgentSkills: true });
+      dispatch(clearSelection());
+      dispatch(setDraftPrompt({ sessionId: '__home__', draft: text }));
+      dispatch(clearDraftAttachments('__home__'));
       setShowSettings(false);
       setMainView(MainView.Cowork);
       setIsAgentPanelCollapsed(false);
-      window.setTimeout(() => {
+      if (askAiFocusTimerRef.current !== null) {
+        window.clearTimeout(askAiFocusTimerRef.current);
+      }
+      askAiFocusTimerRef.current = window.setTimeout(() => {
+        askAiFocusTimerRef.current = null;
         window.dispatchEvent(
           new CustomEvent('cowork:focus-input', {
             detail: { text },
@@ -669,8 +697,14 @@ const App: React.FC = () => {
       }, 50);
     };
     window.addEventListener('app:ask-ai', handler);
-    return () => window.removeEventListener('app:ask-ai', handler);
-  }, []);
+    return () => {
+      window.removeEventListener('app:ask-ai', handler);
+      if (askAiFocusTimerRef.current !== null) {
+        window.clearTimeout(askAiFocusTimerRef.current);
+        askAiFocusTimerRef.current = null;
+      }
+    };
+  }, [dispatch]);
 
   useEffect(() => {
     const handler = (event: Event) => {
