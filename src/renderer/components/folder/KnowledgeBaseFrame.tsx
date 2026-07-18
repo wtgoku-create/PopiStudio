@@ -18,6 +18,7 @@ type KnowledgeWebviewElement = HTMLElement & {
   addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
   executeJavaScript?: (code: string) => Promise<unknown>;
   loadURL?: (url: string) => Promise<void>;
+  reload?: () => void;
   remove: () => void;
   removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => void;
   setAttribute: (qualifiedName: string, value: string) => void;
@@ -75,6 +76,13 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
   const postKnowledgeThemeRef = useRef<() => void>(() => undefined);
   const postKnowledgeTokenRef = useRef<() => void>(() => undefined);
   const isLoggedIn = useSelector((state: RootState) => state.auth.isLoggedIn);
+  const authRefreshKey = useSelector((state: RootState) => (
+    state.auth.isLoggedIn
+      ? `logged-in:${state.auth.user?.yid ?? state.auth.user?.userId ?? state.auth.user?.id ?? ''}`
+      : 'logged-out'
+  ));
+  const lastAuthRefreshKeyRef = useRef(authRefreshKey);
+  const authRefreshTimerRef = useRef<number | null>(null);
   const [uploadRequest, setUploadRequest] = useState<KnowledgeUploadLocalSessionRequest | null>(
     null,
   );
@@ -193,6 +201,34 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
     void postKnowledgeToken();
     void postKnowledgeTheme();
   }, [postKnowledgeTheme, postKnowledgeToken]);
+
+  useEffect(() => {
+    if (lastAuthRefreshKeyRef.current === authRefreshKey) return;
+    lastAuthRefreshKeyRef.current = authRefreshKey;
+
+    if (authRefreshTimerRef.current !== null) {
+      window.clearTimeout(authRefreshTimerRef.current);
+    }
+
+    authRefreshTimerRef.current = window.setTimeout(() => {
+      authRefreshTimerRef.current = null;
+      const webview = webviewRef.current;
+      if (!webview) return;
+      isWebviewReadyRef.current = false;
+      if (webview.reload) {
+        webview.reload();
+        return;
+      }
+      webview.setAttribute('src', initialKnowledgeUrlRef.current);
+    }, 500);
+  }, [authRefreshKey]);
+
+  useEffect(() => () => {
+    if (authRefreshTimerRef.current !== null) {
+      window.clearTimeout(authRefreshTimerRef.current);
+      authRefreshTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     const handleConfigUpdated = () => {
