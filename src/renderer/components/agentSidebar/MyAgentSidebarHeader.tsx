@@ -172,10 +172,10 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
       <button
         type="button"
         onClick={onSearch}
-        className="flex h-[34px] w-full items-center gap-2 rounded-lg bg-[#f9f9f9] px-3 text-left text-[13px] font-medium text-[#d1d1d1] transition-colors hover:bg-black/[0.04] dark:bg-white/[0.04] dark:text-secondary"
+        className="flex h-[34px] w-full items-center gap-2 rounded-lg border border-transparent bg-surface-raised/70 px-3 text-left text-[13px] font-medium transition-colors hover:border-border hover:bg-surface focus-visible:border-border focus-visible:bg-surface focus-visible:outline-none dark:bg-white/[0.04] dark:hover:bg-white/[0.06] dark:focus-visible:bg-white/[0.06]"
       >
-        <MagnifyingGlassIcon className="h-4 w-4 shrink-0" />
-        <span className="truncate">{i18nService.t('mcpCategorySearch')}</span>
+        <MagnifyingGlassIcon className="h-4 w-4 shrink-0 text-secondary/70" />
+        <span className="truncate text-muted">{i18nService.t('mcpCategorySearch')}</span>
       </button>
       <div className="mt-2 flex items-center rounded-lg bg-black/[0.03] p-0.5 text-[12px] font-medium text-secondary dark:bg-white/[0.04]">
         <button

@@ -16,8 +16,8 @@ import type { RootState } from '../../store';
 import type { AgentSummary } from '../../store/slices/agentSlice';
 import { getAgentDisplayName, isDefaultAgentId } from '../../utils/agentDisplay';
 import { sanitizeExportFileName, sessionToJSON, sessionToMarkdown } from '../../utils/coworkSessionExport';
-import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
+import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
 import { AgentConfirmDialogVariant } from '../agent/constants';
 import Modal from '../common/Modal';
@@ -253,13 +253,13 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
             </div>
 
             <div className="shrink-0 px-3 pb-3">
-              <label className="flex h-[34px] items-center gap-2 rounded-lg bg-[#f9f9f9] px-3 text-[13px] font-medium text-[#d1d1d1] transition-colors focus-within:bg-black/[0.04] dark:bg-white/[0.04] dark:text-secondary dark:focus-within:bg-white/[0.06]">
-                <MagnifyingGlassIcon className="h-4 w-4 shrink-0" />
+              <label className="flex h-[34px] items-center gap-2 rounded-lg border border-transparent bg-surface-raised/70 px-3 text-[13px] font-medium transition-colors hover:border-border hover:bg-surface focus-within:border-border focus-within:bg-surface dark:bg-white/[0.04] dark:hover:bg-white/[0.06] dark:focus-within:bg-white/[0.06]">
+                <MagnifyingGlassIcon className="h-4 w-4 shrink-0 text-secondary/70" />
                 <input
                   type="search"
                   value={query}
                   onChange={event => setQuery(event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[#d1d1d1] dark:placeholder:text-secondary"
+                  className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted"
                   placeholder={i18nService.t('contactsSearchPlaceholder')}
                   aria-label={i18nService.t('contactsSearchPlaceholder')}
                 />

@@ -1,3 +1,4 @@
+import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { AgentId } from '@shared/agent';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
@@ -123,14 +124,17 @@ const CoworkSearchModal: React.FC<CoworkSearchModalProps> = ({
         aria-modal="true"
         aria-label={i18nService.t('search')}
       >
-        <input
-          ref={searchInputRef}
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder={i18nService.t('searchConversations')}
-          aria-label={i18nService.t('search')}
-          className="h-12 w-full bg-transparent px-4 text-[13px] text-foreground placeholder-secondary outline-none"
-        />
+        <div className="flex items-center gap-3 border-b border-border-subtle px-4">
+          <MagnifyingGlassIcon className="h-4 w-4 shrink-0 text-secondary/60" />
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={i18nService.t('searchConversations')}
+            aria-label={i18nService.t('search')}
+            className="h-12 min-w-0 flex-1 bg-transparent text-[13px] text-foreground placeholder:text-secondary/60 outline-none"
+          />
+        </div>
         <div className="px-2 pb-2">
           <div className="px-2 pb-1 text-[12px] text-secondary">
             {i18nService.t('searchRecentTasks')}
