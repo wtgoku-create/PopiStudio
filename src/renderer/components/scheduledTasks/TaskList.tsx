@@ -27,6 +27,7 @@ import {
 } from './taskTemplates';
 import TaskToggle from './TaskToggle';
 import {
+  formatDateTimeMinute,
   formatNextRunRelative,
   formatScheduleLabel,
   getTaskDisplayStatus,
@@ -314,7 +315,14 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onRequestDelete }) => {
             {nextRunLabel && <span className="text-secondary/60"> · {nextRunLabel}</span>}
           </span>
         </div>
-        <TaskStatusChip status={displayStatus} />
+        <TaskStatusChip
+          status={displayStatus}
+          title={
+            task.state.lastRunAtMs
+              ? `${i18nService.t('scheduledTasksLastRun')} · ${formatDateTimeMinute(new Date(task.state.lastRunAtMs))}`
+              : undefined
+          }
+        />
       </div>
     </div>
   );

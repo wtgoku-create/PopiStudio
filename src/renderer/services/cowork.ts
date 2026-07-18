@@ -10,8 +10,8 @@ import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkSessionSource
 import { normalizeCoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import {
-  type CoworkSteerRequest,
   CoworkSteerRejectReason,
+  type CoworkSteerRequest,
   CoworkSteerStatus,
 } from '../../shared/cowork/steer';
 import { store } from '../store';
@@ -42,13 +42,13 @@ import {
   setRemoteManaged,
   setSessions,
   setStreaming,
-  upsertSessionSummary,
   updateMessageContent,
   updateSessionGoal,
   updateSessionPinned,
   updateSessionStatus,
   updateSessionTitle,
   updateSteerStatus,
+  upsertSessionSummary,
 } from '../store/slices/coworkSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../store/slices/skillSlice';
 import type {
@@ -1450,6 +1450,7 @@ class CoworkService {
   }
 
   clearSession(options: { restoreAgentSkills?: boolean } = {}): void {
+    this.latestLoadSessionRequestId += 1;
     store.dispatch(clearCurrentSession());
     if (options.restoreAgentSkills) {
       restoreCurrentAgentDefaultSkills();

@@ -3,15 +3,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux';
 
 import {
-  SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
-} from '../shared/cowork/constants';
-import {
   APP_UPDATE_HEARTBEAT_INTERVAL_MS,
   APP_UPDATE_POLL_INTERVAL_MS,
   type AppUpdateInfo,
   type AppUpdateRuntimeState,
   AppUpdateStatus,
 } from '../shared/appUpdate/constants';
+import {
+  SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
+} from '../shared/cowork/constants';
 import {
   KnowledgeNavigationEvent,
   type OpenKnowledgeGraphEventDetail,
@@ -723,7 +723,7 @@ const App: React.FC = () => {
     // 启动时立即检查
     void maybeCheck('startup');
 
-    // 心跳：每 30 分钟检测是否距上次检查已超过 12 小时
+    // 心跳：每 30 分钟检测是否距上次检查已超过 2 小时
     const timer = window.setInterval(() => {
       void maybeCheck('heartbeat');
     }, APP_UPDATE_HEARTBEAT_INTERVAL_MS);

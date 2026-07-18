@@ -1,3 +1,4 @@
+import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import type { CoworkGoal } from '../../shared/cowork/goal';
 
 // Cowork image attachment for vision-capable models
@@ -46,6 +47,7 @@ export interface CoworkMessageMetadata {
   toolResult?: string;
   toolUseId?: string | null;
   error?: string;
+  errorDetail?: CoworkErrorDetail;
   isError?: boolean;
   isStreaming?: boolean;
   isFinal?: boolean;

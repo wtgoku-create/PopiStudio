@@ -13,13 +13,14 @@ import {
   CoworkSessionSourceKind,
   type CoworkSessionSourceKind as CoworkSessionSourceKindType,
 } from '../shared/cowork/constants';
+import type { CoworkErrorDetail } from '../shared/cowork/errorDetail';
 import {
   type CoworkGoal,
   normalizeCoworkGoal,
 } from '../shared/cowork/goal';
 import {
-  type CoworkMessageRailIndexItem,
   COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
+  type CoworkMessageRailIndexItem,
   getCoworkRailPreview,
 } from '../shared/cowork/rail';
 import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
@@ -407,6 +408,7 @@ export interface CoworkMessageMetadata {
   toolResult?: string;
   toolUseId?: string | null;
   error?: string;
+  errorDetail?: CoworkErrorDetail;
   isError?: boolean;
   isStreaming?: boolean;
   isFinal?: boolean;

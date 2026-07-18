@@ -14,15 +14,16 @@ import {
   type OpenClawSessionPatch,
   OpenClawSessionReasoningLevel,
 } from '../../../common/openclawSession';
+import { buildCoworkErrorDetail } from '../../../shared/cowork/errorDetail';
+import {
+  type CoworkGoal,
+  normalizeCoworkGoal,
+} from '../../../shared/cowork/goal';
 import {
   CoworkSteerRejectReason,
   type CoworkSteerResponse,
   CoworkSteerStatus,
 } from '../../../shared/cowork/steer';
-import {
-  type CoworkGoal,
-  normalizeCoworkGoal,
-} from '../../../shared/cowork/goal';
 import { stripNullChars } from '../../../shared/cowork/text';
 import type { CoworkExecutionMode, CoworkMessage, CoworkMessageMetadata, CoworkSession, CoworkSessionStatus, CoworkStore } from '../../coworkStore';
 import { t } from '../../i18n';
@@ -348,6 +349,14 @@ type ChatEventPayload = {
   message?: unknown;
   errorMessage?: string;
   stopReason?: string;
+  provider?: string;
+  model?: string;
+  failoverReason?: string;
+  providerRuntimeFailureKind?: string;
+  providerErrorType?: string;
+  httpCode?: string;
+  providerErrorMessagePreview?: string;
+  rawErrorPreview?: string;
 };
 
 type AgentEventPayload = {
@@ -4768,10 +4777,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         }
         const erroredSessionKey = turn.sessionKey;
         this.store.updateSession(sessionId, { status: 'error' });
+        const errorDetail = this.buildChatErrorDetail(errorMessage, errorMessage, {
+          runId: errorRunId ?? undefined,
+          sessionKey: erroredSessionKey,
+          state: 'error',
+          errorMessage,
+        });
         const errorMsg = this.store.addMessage(sessionId, {
           type: 'system',
           content: errorMessage,
-          metadata: { error: errorMessage },
+          metadata: { error: errorMessage, ...(errorDetail ? { errorDetail } : {}) },
         });
         this.emit('message', sessionId, errorMsg);
         this.emit('error', sessionId, errorMessage);
@@ -5321,6 +5336,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     if (state === 'error') {
+      if (this.completeDeferredFinalOnStaleChatError(sessionId, turn, chatPayload)) {
+        return;
+      }
       this.handleChatError(sessionId, turn, chatPayload);
     }
   }
@@ -6074,8 +6092,15 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const stoppedByError = stopReason === GatewayStopReason.Error;
     if (stoppedByError) {
       const errorMessage = payload.errorMessage?.trim() || errorMessageFromMessage?.trim() || 'OpenClaw run failed';
+      const errorDetail = this.buildChatErrorDetail(errorMessage, errorMessage, payload);
       const erroredSessionKey = turn.sessionKey;
       this.store.updateSession(sessionId, { status: 'error' });
+      const errorMsg = this.store.addMessage(sessionId, {
+        type: 'system',
+        content: errorMessage,
+        metadata: { error: errorMessage, ...(errorDetail ? { errorDetail } : {}) },
+      });
+      this.emit('message', sessionId, errorMsg);
       this.emit('error', sessionId, errorMessage);
       this.cleanupSessionTurn(sessionId);
       this.rejectTurn(sessionId, new Error(errorMessage));
@@ -6479,9 +6504,71 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
   }
 
+  /**
+   * The gateway can flush a late chat error after a successful final has already
+   * been persisted and only the deferred completion timer is pending. Treating
+   * that stale error as authoritative would flip a successful turn to failed.
+   */
+  private completeDeferredFinalOnStaleChatError(
+    sessionId: string,
+    turn: ActiveTurn,
+    payload: ChatEventPayload,
+  ): boolean {
+    if (!turn.finalCompletionTimer) return false;
+    if (turn.finalCompletionFlushOnLifecycleEnd === false) return false;
+    const errorRunId = typeof payload.runId === 'string' ? payload.runId.trim() : '';
+    if (errorRunId && !turn.knownRunIds.has(errorRunId)) return false;
+    for (const knownRunId of turn.knownRunIds) {
+      if (this.terminatedRunIds.has(knownRunId)) return false;
+    }
+
+    const staleErrorText = payload.errorMessage?.trim()
+      || extractGatewayMessageText(payload.message).trim();
+    console.warn(
+      '[OpenClawRuntime] ignored a stale chat error after a successful final; completing the deferred final instead.',
+      `Session ${sessionId}.`,
+      `Run ${errorRunId || turn.finalCompletionRunId || turn.runId}.`,
+      `Error ${staleErrorText.slice(0, 200) || 'unknown'}.`,
+    );
+    void this.completeDeferredChatFinalNow(
+      sessionId,
+      turn,
+      turn.finalCompletionRunId ?? turn.runId,
+    );
+    return true;
+  }
+
+  private buildChatErrorDetail(
+    rawErrorMessage: string,
+    displayMessage: string,
+    payload: ChatEventPayload,
+  ): CoworkMessageMetadata['errorDetail'] {
+    const metadata: Record<string, string | undefined> = {};
+    for (const key of [
+      'provider',
+      'model',
+      'httpCode',
+      'providerErrorType',
+      'providerErrorMessagePreview',
+      'rawErrorPreview',
+      'failoverReason',
+      'providerRuntimeFailureKind',
+    ] as const) {
+      const value = payload[key];
+      if (typeof value === 'string') metadata[key] = value;
+    }
+
+    return buildCoworkErrorDetail({
+      rawErrorMessage,
+      displayMessage,
+      metadata,
+    });
+  }
+
   private handleChatError(sessionId: string, turn: ActiveTurn, payload: ChatEventPayload): void {
     console.log('[OpenClawRuntime] handleChatError payload:', JSON.stringify(payload).slice(0, 1000));
-    let errorMessage = payload.errorMessage?.trim() || 'OpenClaw run failed';
+    const rawErrorMessage = payload.errorMessage?.trim() || 'OpenClaw run failed';
+    let errorMessage = rawErrorMessage;
 
     // Detect model API errors that are likely caused by unsupported image content
     // in tool results (e.g., Read tool returning image blocks for non-vision models).
@@ -6490,6 +6577,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (/^400\b/.test(errorMessage)) {
       errorMessage += '\n\n[Hint: If the model attempted to read an image file, this may be because the model does not support image input. Consider using a vision-capable model or avoid sending image files.]';
     }
+    const errorDetail = this.buildChatErrorDetail(rawErrorMessage, errorMessage, payload);
 
     const erroredSessionKey = turn.sessionKey;
     this.store.updateSession(sessionId, { status: 'error' });
@@ -6497,7 +6585,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const errorMsg = this.store.addMessage(sessionId, {
       type: 'system',
       content: errorMessage,
-      metadata: { error: errorMessage },
+      metadata: { error: errorMessage, ...(errorDetail ? { errorDetail } : {}) },
     });
     this.emit('message', sessionId, errorMsg);
     this.emit('error', sessionId, errorMessage);
@@ -7483,6 +7571,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
       if (turn.hasContextMaintenanceTool || turn.hasContextCompactionEvent || turn.pendingRecoverableFollowup || turn.pendingOpenClawRetry) {
         this.emitContextMaintenance(sessionId, false);
+      }
+      const compactionMessage = this.getSessionMessage(sessionId, turn.contextCompactionMessageId);
+      if (compactionMessage?.metadata?.status === ContextCompactionStatus.Running) {
+        this.updateContextCompactionMessage(sessionId, turn, ContextCompactionStatus.Failed, Date.now());
+        console.warn(
+          `[OpenClawRuntime] finalized a running context compaction message as failed during turn cleanup for session ${sessionId}.`,
+        );
       }
       // Cancel any pending throttled messageUpdate timer for this turn
       if (turn.assistantMessageId) {

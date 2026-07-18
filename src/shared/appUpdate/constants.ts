@@ -62,7 +62,7 @@ export interface AppUpdateCheckResult {
   error?: string;
 }
 
-export const APP_UPDATE_POLL_INTERVAL_MS = 12 * 60 * 60 * 1000;
+export const APP_UPDATE_POLL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 export const APP_UPDATE_HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000;
 
 export const AppUpdateAction = {

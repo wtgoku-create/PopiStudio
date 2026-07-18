@@ -3,6 +3,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { ContextCompactionStatus } from '../../../common/coworkSystemMessages';
 import { getScheduledReminderDisplayText } from '../../../scheduledTask/reminderText';
+import {
+  type CoworkErrorDetail,
+  formatCoworkErrorDetailText,
+  parseCoworkErrorDetail,
+} from '../../../shared/cowork/errorDetail';
 import { dedupeArtifactsForDisplay } from '../../services/artifactParser';
 import { i18nService } from '../../services/i18n';
 import type { Artifact } from '../../types/artifact';
@@ -11,6 +16,7 @@ import { ArtifactPreviewCard } from '../artifacts';
 import ExclamationTriangleIcon from '../icons/ExclamationTriangleIcon';
 import InformationCircleIcon from '../icons/InformationCircleIcon';
 import AssistantMessageItem from './AssistantMessageItem';
+import { MessageCopyButton } from './MessageActionButton';
 import {
   type ConversationTurn,
   COWORK_DETAIL_CONTENT_CLASS,
@@ -90,6 +96,51 @@ const TypingDots: React.FC = () => (
   </div>
 );
 
+const buildErrorModelLine = (detail: CoworkErrorDetail): string | null => {
+  if (!detail.provider && !detail.model) return null;
+  const parts: string[] = [];
+  if (detail.model) {
+    parts.push(`${i18nService.t('coworkErrorModelLabel')}: ${detail.model}`);
+  }
+  if (detail.provider) {
+    parts.push(`${i18nService.t('coworkErrorProviderLabel')}: ${detail.provider}`);
+  }
+  return parts.join(' · ');
+};
+
+const SystemErrorTechnicalDetail: React.FC<{ detail: CoworkErrorDetail }> = ({ detail }) => {
+  const [expanded, setExpanded] = useState(false);
+  const detailText = useMemo(() => formatCoworkErrorDetailText(detail), [detail]);
+  if (!detailText) return null;
+
+  return (
+    <div className="mt-1.5 pl-6">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex items-center gap-1 rounded text-xs text-muted transition-colors hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        aria-expanded={expanded}
+      >
+        {expanded
+          ? <ChevronUpIcon className="h-3 w-3 flex-shrink-0" />
+          : <ChevronDownIcon className="h-3 w-3 flex-shrink-0" />
+        }
+        <span>{i18nService.t('coworkErrorTechnicalDetails')}</span>
+      </button>
+      {expanded && (
+        <div className="relative mt-1.5 rounded-md bg-surface-raised px-3 py-2">
+          <div className="absolute right-1 top-1">
+            <MessageCopyButton content={detailText} />
+          </div>
+          <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words pr-8 font-mono text-code text-secondary">
+            {detailText}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── AssistantTurnBlock ───────────────────────────────────────────────────────
 
 const AssistantTurnBlock: React.FC<{
@@ -143,6 +194,8 @@ const AssistantTurnBlock: React.FC<{
     const normalizedContent = getScheduledReminderDisplayText(rawContent) ?? rawContent;
     const content = mapDisplayText ? mapDisplayText(normalizedContent) : normalizedContent;
     if (!content.trim() && !isContextCompactionMessage(message)) return null;
+    const errorDetail = parseCoworkErrorDetail(message.metadata?.errorDetail);
+    const errorModelLine = errorDetail ? buildErrorModelLine(errorDetail) : null;
 
     if (isContextCompactionMessage(message)) {
       const status = message.metadata?.status;
@@ -165,6 +218,10 @@ const AssistantTurnBlock: React.FC<{
             {content}
           </div>
         </div>
+        {isError && errorModelLine && (
+          <div className="mt-1 pl-6 text-xs text-muted">{errorModelLine}</div>
+        )}
+        {isError && errorDetail && <SystemErrorTechnicalDetail detail={errorDetail} />}
       </div>
     );
   };
