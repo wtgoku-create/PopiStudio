@@ -90,6 +90,9 @@ import {
   shouldReplaceLocalConversationWithCronHistory,
 } from './openclawCronRunHistorySync';
 import { OpenClawTurnHistorySync } from './openclawTurnHistorySync';
+import { buildSubagentChildHistorySyncPlan } from './subagent/childHistorySync';
+import { SubagentSessionMaterializer } from './subagent/sessionMaterializer';
+import { isSubagentSessionKey } from './subagent/sessionKeys';
 import { SubagentTracker } from './subagentTracker';
 import { buildAnchoredThinkingKey } from './thinking/blocks';
 import {
@@ -1364,6 +1367,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
   // ── Subagent tracking (delegated) ───────────────────────────────────────
   private readonly subagentTracker: SubagentTracker;
+  private readonly subagentSessionMaterializer: SubagentSessionMaterializer;
 
   /**
    * Server-side agent timeout in seconds (mirrors agents.defaults.timeoutSeconds in openclaw config).
@@ -1900,8 +1904,34 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       },
       emitError: (sessionId, error) => this.emit('error', sessionId, error),
     });
+    this.subagentSessionMaterializer = new SubagentSessionMaterializer({
+      store: this.store,
+      rememberSessionKey: (sessionId, sessionKey) => this.rememberSessionKey(sessionId, sessionKey),
+      markSessionHistoryUnsynced: (sessionId) => {
+        this.gatewayHistoryCountBySession.delete(sessionId);
+        this.channelSyncCursor.delete(sessionId);
+      },
+      notifySessionsChanged: () => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('cowork:sessions:changed', {});
+          }
+        }
+      },
+      emitSessionStatus: (sessionId, status) => this.emitSessionStatus(sessionId, status),
+      emitComplete: (sessionId, runId) => this.emit('complete', sessionId, runId),
+      emitError: (sessionId, error) => this.emit('error', sessionId, error),
+      resolveSessionIdBySessionKey: (sessionKey) => this.resolveSessionIdBySessionKey(sessionKey),
+      syncSessionHistory: (sessionId, sessionKey) => this.syncSessionHistoryFromGateway(sessionId, sessionKey),
+    });
     if (subagentRunStore) {
-      this.subagentTracker = new SubagentTracker(subagentRunStore, subagentMessageStore ?? null, () => this.gatewayClient);
+      this.subagentTracker = new SubagentTracker(
+        subagentRunStore,
+        subagentMessageStore ?? null,
+        () => this.gatewayClient,
+        (params) => this.subagentSessionMaterializer.materialize(params),
+        (params) => this.subagentSessionMaterializer.shouldMaterialize(params),
+      );
     } else {
       // Fallback: create a no-op tracker (should not happen in production)
       this.subagentTracker = new SubagentTracker(null as unknown as SubagentRunStore, null, () => this.gatewayClient);
@@ -2693,11 +2723,11 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
   stopSession(sessionId: string): void {
     const turn = this.activeTurns.get(sessionId);
+    const client = this.gatewayClient;
     if (turn) {
       turn.stopRequested = true;
       this.manuallyStoppedSessions.add(sessionId);
       this.finalizeStoppedStreamingMessages(sessionId, turn);
-      const client = this.gatewayClient;
       if (client) {
         console.log(`[OpenClawRuntime] user requested stop, aborting gateway run ${turn.runId}.`);
         void client.request('chat.abort', {
@@ -2705,6 +2735,21 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           runId: turn.runId,
         }).catch((error) => {
           console.warn('[OpenClawRuntime] Failed to abort chat run:', error);
+        });
+      }
+    }
+
+    if (client) {
+      for (const childSessionKey of this.subagentTracker.listRunningChildSessionKeys(sessionId)) {
+        console.log(
+          '[OpenClawRuntime] user requested stop, aborting subagent session.',
+          `Parent session ${sessionId}.`,
+          `Child key ${childSessionKey}.`,
+        );
+        void client.request('chat.abort', {
+          sessionKey: childSessionKey,
+        }).catch((error) => {
+          console.warn('[OpenClawRuntime] failed to abort subagent session:', error);
         });
       }
     }
@@ -4423,6 +4468,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         sessionKey,
         lifecyclePhase === AgentLifecyclePhase.Error ? 'error' : 'done',
       )) {
+      this.subagentSessionMaterializer.finalizePassive(
+        sessionKey,
+        lifecyclePhase === AgentLifecyclePhase.Error ? 'error' : 'done',
+      );
       return;
     }
 
@@ -5366,6 +5415,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           sessionKey,
           state === 'final' ? 'done' : 'error',
         )) {
+        this.subagentSessionMaterializer.finalizePassive(
+          sessionKey,
+          state === 'final' ? 'done' : 'error',
+        );
         return;
       }
       console.debug('[OpenClawRuntime] handleChatEvent — no sessionId resolved, dropping event');
@@ -5374,6 +5427,19 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     const turn = this.activeTurns.get(sessionId);
     if (!turn) {
+      const sessionKey = typeof chatPayload.sessionKey === 'string' ? chatPayload.sessionKey.trim() : '';
+      if ((state === 'final' || state === 'aborted' || state === 'error')
+        && sessionKey
+        && this.subagentTracker.tryMarkTerminalFromSessionKey(
+          sessionKey,
+          state === 'final' ? 'done' : 'error',
+        )) {
+        this.subagentSessionMaterializer.finalizePassive(
+          sessionKey,
+          state === 'final' ? 'done' : 'error',
+        );
+        return;
+      }
       console.debug('[OpenClawRuntime] handleChatEvent — no active turn for sessionId:', sessionId);
       return;
     }
@@ -6819,12 +6885,77 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     sessionKey: string,
     options?: { isFullSync?: boolean },
   ): Promise<void> {
+    if (isSubagentSessionKey(sessionKey)) {
+      await this.syncSubagentChildHistory(sessionId, sessionKey, options);
+      return;
+    }
+
     if (isCronSessionKey(sessionKey)) {
       await this.syncCronRunHistory(sessionId, sessionKey, options);
       return;
     }
 
     await this.reconcileWithHistory(sessionId, sessionKey, options);
+  }
+
+  private async syncSubagentChildHistory(
+    sessionId: string,
+    sessionKey: string,
+    options?: { isFullSync?: boolean },
+  ): Promise<void> {
+    const client = this.gatewayClient;
+    if (!client) {
+      console.log('[SubagentHistorySync] no gateway client, skipping.');
+      return;
+    }
+
+    const limit = options?.isFullSync
+      ? OpenClawRuntimeAdapter.FULL_HISTORY_SYNC_LIMIT
+      : FINAL_HISTORY_SYNC_LIMIT;
+
+    try {
+      const history = await client.request<{ messages?: unknown[] }>('chat.history', {
+        sessionKey,
+        limit,
+      }, { timeoutMs: 10_000 });
+      if (!Array.isArray(history?.messages) || history.messages.length === 0) {
+        this.channelSyncCursor.set(sessionId, 0);
+        return;
+      }
+
+      const previousHistoryCountKnown = this.gatewayHistoryCountBySession.has(sessionId);
+      const previousHistoryCount = this.gatewayHistoryCountBySession.get(sessionId) ?? 0;
+      this.gatewayHistoryCountBySession.set(sessionId, history.messages.length);
+      this.syncSystemMessagesFromHistory(sessionId, history.messages, {
+        previousCountKnown: previousHistoryCountKnown,
+        previousCount: previousHistoryCount,
+      });
+
+      const session = this.store.getSession(sessionId);
+      if (!session) return;
+
+      const plan = buildSubagentChildHistorySyncPlan(session.messages, history.messages);
+      if (plan.entriesToStore.length === 0) {
+        this.channelSyncCursor.set(sessionId, 0);
+        return;
+      }
+
+      if (!plan.changed) {
+        this.channelSyncCursor.set(sessionId, plan.cursor);
+        return;
+      }
+
+      this.store.replaceSessionMessages(sessionId, plan.entriesToStore);
+      this.channelSyncCursor.set(sessionId, plan.cursor);
+
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('cowork:sessions:changed', { sessionId });
+        }
+      }
+    } catch (error) {
+      console.warn('[SubagentHistorySync] failed:', error);
+    }
   }
 
   /**

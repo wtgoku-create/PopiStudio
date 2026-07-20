@@ -1,11 +1,11 @@
 import crypto from 'node:crypto';
 
 import type { SubagentMessageStore } from '../../subagentMessageStore';
-import type { SubagentRunStore } from '../../subagentRunStore';
+import type { SubagentRunStore, SubagentRunWithParent } from '../../subagentRunStore';
 import {
-  extractGatewayMessageText,
-  shouldSuppressHeartbeatText,
-} from '../openclawHistory';
+  parseSubagentGatewayHistoryMessages,
+  type SubagentCoworkMessage,
+} from './subagent/historyParser';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -38,22 +38,6 @@ const resolveToolInput = (block: Record<string, unknown>): Record<string, unknow
   return {};
 };
 
-/** Message format compatible with renderer CoworkMessage interface */
-export interface SubagentCoworkMessage {
-  id: string;
-  type: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'system';
-  content: string;
-  timestamp: number;
-  metadata?: {
-    toolName?: string;
-    toolInput?: Record<string, unknown>;
-    toolResult?: string;
-    toolUseId?: string | null;
-    isError?: boolean;
-    [key: string]: unknown;
-  };
-}
-
 export type GatewayClientLike = {
   request: <T = Record<string, unknown>>(
     method: string,
@@ -66,6 +50,23 @@ interface GatewaySessionDeleteTask {
   sessionKey: string;
   attempt: number;
 }
+
+export interface SubagentChildSessionMaterializeParams {
+  runId: string;
+  childCoworkSessionId: string;
+  parentSessionId: string;
+  childSessionKey: string;
+  agentId: string;
+  task: string | null;
+  label: string | null;
+  status: 'running' | 'done' | 'error';
+  createdAt: number;
+}
+
+export type SubagentChildSessionCandidateParams = Omit<
+  SubagentChildSessionMaterializeParams,
+  'childCoworkSessionId'
+>;
 
 const GATEWAY_SESSION_DELETE_CONCURRENCY = 2;
 const GATEWAY_SESSION_DELETE_MAX_ATTEMPTS = 3;
@@ -108,6 +109,8 @@ export class SubagentTracker {
     private readonly store: SubagentRunStore,
     private readonly messageStore: SubagentMessageStore | null,
     private readonly getGatewayClient: () => GatewayClientLike | null,
+    private readonly onChildSessionMaterialized?: (params: SubagentChildSessionMaterializeParams) => void,
+    private readonly shouldMaterializeChildSession?: (params: SubagentChildSessionCandidateParams) => boolean,
   ) {}
 
   // ── Event hooks (called by adapter at key points) ──────────────────────
@@ -313,8 +316,10 @@ export class SubagentTracker {
     task: string | null;
     label: string | null;
     sessionKey: string | null;
+    childCoworkSessionId: string | null;
     status: 'running' | 'done' | 'error';
     createdAt: number;
+    endedAt: number | null;
   }> {
     const runs = this.store.listSubagentRuns(parentSessionId);
     return runs.map((run) => {
@@ -331,8 +336,10 @@ export class SubagentTracker {
           task: run.task,
           label: run.label,
           sessionKey: memorySessionKey ?? run.sessionKey,
+          childCoworkSessionId: run.childCoworkSessionId,
           status: 'error' as const,
           createdAt: run.createdAt,
+          endedAt: Date.now(),
         };
       }
 
@@ -342,10 +349,58 @@ export class SubagentTracker {
         task: run.task,
         label: run.label,
         sessionKey: memorySessionKey ?? run.sessionKey,
+        childCoworkSessionId: run.childCoworkSessionId,
         status: memoryStatus ?? run.status,
         createdAt: run.createdAt,
+        endedAt: run.endedAt,
       };
     });
+  }
+
+  listRunningChildSessionKeys(parentSessionId: string): string[] {
+    const keys = new Set<string>();
+    for (const run of this.store.listSubagentRuns(parentSessionId)) {
+      const status = this.subagentStatus.get(run.id) ?? run.status;
+      const sessionKey = this.subagentSessionKeys.get(run.id) ?? run.sessionKey;
+      if (status === 'running' && sessionKey) {
+        keys.add(sessionKey);
+      }
+    }
+    return Array.from(keys);
+  }
+
+  listSubagentRunsByAgent(
+    agentId: string,
+    limit: number,
+    offset: number,
+  ): { runs: SubagentRunWithParent[]; hasMore: boolean } {
+    const normalizedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+    const normalizedOffset = Math.max(0, Math.floor(offset));
+    const runs = this.store.listSubagentRunsByAgent(agentId, normalizedLimit, normalizedOffset)
+      .map((run) => {
+        const memoryStatus = this.subagentStatus.get(run.id);
+        const memorySessionKey = this.subagentSessionKeys.get(run.id);
+        if (run.status === 'running' && !memoryStatus && !this.pendingSpawnInfo.has(run.id)) {
+          const endedAt = Date.now();
+          this.store.updateSubagentRunStatus(run.id, 'error', endedAt);
+          return {
+            ...run,
+            status: 'error' as const,
+            sessionKey: memorySessionKey ?? run.sessionKey,
+            endedAt,
+          };
+        }
+        return {
+          ...run,
+          status: memoryStatus ?? run.status,
+          sessionKey: memorySessionKey ?? run.sessionKey,
+        };
+      });
+    const total = this.store.countSubagentRunsByAgent(agentId);
+    return {
+      runs,
+      hasMore: normalizedOffset + runs.length < total,
+    };
   }
 
   /**
@@ -418,10 +473,12 @@ export class SubagentTracker {
   private commitSpawnResult(toolCallId: string, parsed: Record<string, unknown>): void {
     if (this.deletedSubagentRunIds.has(toolCallId)) return;
     const childSessionKey = typeof parsed?.childSessionKey === 'string' ? parsed.childSessionKey : '';
-    const isError = parsed?.status === 'error';
-    const status = isError ? 'error' : 'running';
+    const isAccepted = parsed?.status === 'accepted' && Boolean(childSessionKey);
+    const isError = !isAccepted;
+    const status: SubagentChildSessionCandidateParams['status'] = isError ? 'error' : 'running';
 
     // Store session key in memory
+    const hadSessionKey = this.subagentSessionKeys.has(toolCallId);
     if (childSessionKey) {
       this.subagentSessionKeys.set(toolCallId, childSessionKey);
     }
@@ -429,8 +486,50 @@ export class SubagentTracker {
     // If already committed (e.g., onSpawnResult fired then backfill also fires), just update
     if (this.subagentStatus.has(toolCallId)) {
       // Update session key in DB if newly discovered
-      if (childSessionKey && !this.subagentSessionKeys.has(toolCallId)) {
+      if (childSessionKey && !hadSessionKey) {
         this.store.updateSubagentRunSessionKey(toolCallId, childSessionKey);
+      }
+      if (isError && this.subagentStatus.get(toolCallId) !== 'error') {
+        this.subagentStatus.set(toolCallId, 'error');
+        this.store.updateSubagentRunStatus(toolCallId, 'error', Date.now());
+      }
+      return;
+    }
+
+    const existingRun = typeof this.store.getSubagentRun === 'function'
+      ? this.store.getSubagentRun(toolCallId)
+      : null;
+    if (existingRun) {
+      const nextStatus = isError && existingRun.status !== 'done' ? 'error' : existingRun.status;
+      this.subagentStatus.set(toolCallId, nextStatus);
+      if (nextStatus !== existingRun.status) {
+        this.store.updateSubagentRunStatus(toolCallId, nextStatus, Date.now());
+      }
+      if (childSessionKey && existingRun.sessionKey !== childSessionKey) {
+        this.store.updateSubagentRunSessionKey(toolCallId, childSessionKey);
+      }
+      const candidate = {
+        runId: toolCallId,
+        parentSessionId: existingRun.parentSessionId,
+        childSessionKey,
+        agentId: existingRun.agentId || this.resolveSpawnAgentId({}, childSessionKey, toolCallId),
+        task: existingRun.task,
+        label: existingRun.label,
+        status: nextStatus,
+        createdAt: existingRun.createdAt,
+      };
+      const shouldMaterialize = !isError
+        && Boolean(childSessionKey)
+        && (this.shouldMaterializeChildSession?.(candidate) ?? true);
+      if (shouldMaterialize) {
+        const childCoworkSessionId = existingRun.childCoworkSessionId || crypto.randomUUID();
+        if (!existingRun.childCoworkSessionId && typeof this.store.updateSubagentRunChildSession === 'function') {
+          this.store.updateSubagentRunChildSession(toolCallId, childCoworkSessionId);
+        }
+        this.materializeChildSession({
+          ...candidate,
+          childCoworkSessionId,
+        });
       }
       return;
     }
@@ -439,20 +538,79 @@ export class SubagentTracker {
     this.subagentStatus.set(toolCallId, status);
     const pending = this.pendingSpawnInfo.get(toolCallId);
     if (pending) {
-      this.store.insertSubagentRun({
-        id: toolCallId,
+      const candidate = {
+        runId: toolCallId,
         parentSessionId: pending.parentSessionId,
-        sessionKey: childSessionKey || null,
+        childSessionKey,
         agentId: pending.agentId,
         task: pending.task,
         label: pending.label,
         status,
         createdAt: pending.createdAt,
+      };
+      const shouldMaterialize = !isError
+        && Boolean(childSessionKey)
+        && (this.shouldMaterializeChildSession?.(candidate) ?? true);
+      const childCoworkSessionId = shouldMaterialize ? crypto.randomUUID() : null;
+      this.store.insertSubagentRun({
+        id: toolCallId,
+        parentSessionId: pending.parentSessionId,
+        sessionKey: childSessionKey || null,
+        childCoworkSessionId,
+        agentId: pending.agentId,
+        task: pending.task,
+        label: pending.label,
+        status,
+        createdAt: pending.createdAt,
+        endedAt: isError ? Date.now() : null,
       });
+      if (shouldMaterialize && childCoworkSessionId) {
+        this.materializeChildSession({
+          ...candidate,
+          childCoworkSessionId,
+        });
+      }
       this.pendingSpawnInfo.delete(toolCallId);
       console.log('[SubagentTracker] committed spawn result:', toolCallId, status,
         isError ? parsed.error : '');
     }
+  }
+
+  private materializeChildSession(params: SubagentChildSessionMaterializeParams): void {
+    try {
+      console.log(
+        '[SubagentTracker] materialize child session:',
+        `runId=${params.runId}`,
+        `agentId=${params.agentId}`,
+        `childCoworkSessionId=${params.childCoworkSessionId}`,
+        `childSessionKey=${params.childSessionKey}`,
+        `status=${params.status}`,
+      );
+      this.onChildSessionMaterialized?.(params);
+    } catch (error) {
+      console.warn('[SubagentTracker] failed to materialize child session:', error);
+    }
+  }
+
+  private resolveSpawnAgentId(
+    args: Record<string, unknown>,
+    childSessionKey: string,
+    fallback: string,
+  ): string {
+    if (typeof args?.agentId === 'string' && args.agentId.trim()) {
+      return args.agentId.trim();
+    }
+    const match = childSessionKey.match(/^agent:([^:]+):subagent:/);
+    if (match?.[1]) {
+      return match[1];
+    }
+    if (typeof args?.taskName === 'string' && args.taskName.trim()) {
+      return args.taskName.trim();
+    }
+    if (typeof args?.label === 'string' && args.label.trim()) {
+      return args.label.trim();
+    }
+    return fallback;
   }
 
   private clearSubagentMemory(runId: string): void {
@@ -591,148 +749,7 @@ export class SubagentTracker {
 
       console.log('[SubagentTracker] fetchSubagentHistory: got', history.messages.length, 'raw messages for key:', sessionKey);
 
-      const messages: SubagentCoworkMessage[] = [];
-      let ts = Date.now() - history.messages.length * 1000; // synthetic timestamps
-
-      for (const raw of history.messages) {
-        if (!isRecord(raw)) continue;
-        const role = typeof raw.role === 'string' ? raw.role.trim().toLowerCase() : '';
-
-        // Handle standard user/assistant/system messages
-        if (role === 'user' || role === 'assistant' || role === 'system') {
-          const text = extractGatewayMessageText(raw).trim();
-
-          // For assistant messages with content array containing tool_use blocks
-          if (role === 'assistant' && Array.isArray(raw.content)) {
-            // Extract text parts first
-            if (text && !shouldSuppressHeartbeatText(role, text)) {
-              messages.push({
-                id: crypto.randomUUID(),
-                type: 'assistant',
-                content: text,
-                timestamp: ts++,
-              });
-            }
-            // Extract tool_use blocks
-            for (const block of raw.content as unknown[]) {
-              if (!isRecord(block)) continue;
-              const blockType = typeof block.type === 'string' ? block.type : '';
-              if (blockType === 'tool_use' || blockType === 'tool_call' || blockType === 'toolCall') {
-                const toolName = typeof block.name === 'string' ? block.name : 'tool';
-                const toolInput = resolveToolInput(block);
-                const toolUseId = typeof block.id === 'string' ? block.id : null;
-                messages.push({
-                  id: crypto.randomUUID(),
-                  type: 'tool_use',
-                  content: '',
-                  timestamp: ts++,
-                  metadata: { toolName, toolInput, toolUseId },
-                });
-              }
-            }
-          } else if (role === 'user' && Array.isArray(raw.content)) {
-            // User messages may contain tool_result blocks (Anthropic API format)
-            let hasToolResult = false;
-            for (const block of raw.content as unknown[]) {
-              if (!isRecord(block)) continue;
-              const blockType = typeof block.type === 'string' ? block.type : '';
-              if (blockType === 'tool_result') {
-                hasToolResult = true;
-                const resultText = typeof block.content === 'string'
-                  ? block.content
-                  : extractGatewayMessageText(block).trim();
-                const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : null;
-                const isError = block.is_error === true;
-                if (resultText) {
-                  messages.push({
-                    id: crypto.randomUUID(),
-                    type: 'tool_result',
-                    content: resultText,
-                    timestamp: ts++,
-                    metadata: { toolResult: resultText, toolUseId, isError: isError || undefined },
-                  });
-                }
-              }
-            }
-            // If there was also text content alongside tool results, emit it
-            if (text && !shouldSuppressHeartbeatText('user', text)) {
-              messages.push({
-                id: crypto.randomUUID(),
-                type: 'user',
-                content: text,
-                timestamp: ts++,
-              });
-            }
-            if (!hasToolResult && !text) {
-              console.log('[SubagentTracker] dropped user message with empty text, keys:', Object.keys(raw).join(','));
-            }
-          } else if (text && !shouldSuppressHeartbeatText(role as 'user' | 'assistant' | 'system', text)) {
-            const type = role === 'system' ? 'system' : role as 'user' | 'assistant';
-            messages.push({
-              id: crypto.randomUUID(),
-              type,
-              content: text,
-              timestamp: ts++,
-            });
-          } else if (!text) {
-            console.log('[SubagentTracker] dropped message with empty text, role:', role, 'keys:', Object.keys(raw).join(','));
-          }
-          continue;
-        }
-
-        // Handle tool result messages
-        if (role === 'tool_result' || role === 'toolresult' || role === 'tool' || role === 'function') {
-          const text = extractGatewayMessageText(raw).trim();
-          const toolName = typeof raw.toolName === 'string' ? raw.toolName
-            : typeof raw.tool_name === 'string' ? raw.tool_name
-              : typeof raw.name === 'string' ? raw.name : '';
-          const toolUseId = typeof raw.tool_use_id === 'string' ? raw.tool_use_id
-            : typeof raw.toolCallId === 'string' ? raw.toolCallId : null;
-          if (text) {
-            messages.push({
-              id: crypto.randomUUID(),
-              type: 'tool_result',
-              content: text,
-              timestamp: ts++,
-              metadata: { toolName: toolName || undefined, toolResult: text, toolUseId },
-            });
-          } else {
-            console.log('[SubagentTracker] dropped tool result with empty text, role:', role);
-          }
-          continue;
-        }
-
-        // Handle messages with content arrays that contain tool_use blocks (no role field)
-        if (!role && Array.isArray(raw.content)) {
-          for (const block of raw.content as unknown[]) {
-            if (!isRecord(block)) continue;
-            const blockType = typeof block.type === 'string' ? block.type : '';
-            if (blockType === 'tool_use' || blockType === 'tool_call' || blockType === 'toolCall') {
-              const toolName = typeof block.name === 'string' ? block.name : 'tool';
-              const toolInput = resolveToolInput(block);
-              const toolUseId = typeof block.id === 'string' ? block.id : null;
-              messages.push({
-                id: crypto.randomUUID(),
-                type: 'tool_use',
-                content: '',
-                timestamp: ts++,
-                metadata: { toolName, toolInput, toolUseId },
-              });
-            } else if (blockType === 'text' && typeof block.text === 'string' && block.text.trim()) {
-              messages.push({
-                id: crypto.randomUUID(),
-                type: 'assistant',
-                content: block.text.trim(),
-                timestamp: ts++,
-              });
-            }
-          }
-          continue;
-        }
-
-        // Log completely unhandled messages
-        console.log('[SubagentTracker] unhandled message, role:', role || '(empty)', 'keys:', Object.keys(raw).join(','));
-      }
+      const messages = parseSubagentGatewayHistoryMessages(history.messages);
 
       // Cache locally
       this.subagentMessages.set(runId, messages);

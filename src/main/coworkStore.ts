@@ -440,6 +440,13 @@ export interface CoworkConversationReplacementEntry {
   timestamp?: number;
 }
 
+export interface CoworkSessionMessageReplacementEntry {
+  type: CoworkMessageType;
+  content: string;
+  metadata?: Record<string, unknown>;
+  timestamp?: number;
+}
+
 export interface CoworkSession {
   id: string;
   title: string;
@@ -453,6 +460,7 @@ export interface CoworkSession {
   executionMode: CoworkExecutionMode;
   activeSkillIds: string[];
   agentId: string;
+  parentSessionId?: string | null;
   goal?: CoworkGoal | null;
   messages: CoworkMessage[];
   /** Offset of the first loaded message in the full message history. */
@@ -463,6 +471,17 @@ export interface CoworkSession {
   updatedAt: number;
 }
 
+export interface UpsertSubagentChildSessionOptions {
+  id: string;
+  parentSessionId: string;
+  childSessionKey: string;
+  agentId: string;
+  title: string;
+  task?: string | null;
+  status?: CoworkSessionStatus;
+  createdAt?: number;
+}
+
 export interface CoworkSessionSummary {
   id: string;
   title: string;
@@ -471,6 +490,7 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId: string;
+  parentSessionId?: string | null;
   goal?: CoworkGoal | null;
   source?: CoworkSessionSource;
   createdAt: number;
@@ -648,6 +668,7 @@ interface CoworkSessionSummaryRow {
   pinned: number | null;
   pin_order: number | null;
   agent_id: string | null;
+  parent_session_id?: string | null;
   goal_json?: string | null;
   created_at: number;
   updated_at: number;
@@ -689,6 +710,7 @@ export class CoworkStore {
       pinned: Boolean(row.pinned),
       pinOrder: row.pin_order ?? null,
       agentId: row.agent_id || AgentId.Main,
+      parentSessionId: row.parent_session_id ?? null,
       goal: this.parseGoalJson(row.goal_json),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -974,6 +996,7 @@ export class CoworkStore {
       execution_mode?: string | null;
       active_skill_ids?: string | null;
       agent_id?: string | null;
+      parent_session_id?: string | null;
       goal_json?: string | null;
       created_at: number;
       updated_at: number;
@@ -981,7 +1004,7 @@ export class CoworkStore {
 
     const row = this.getOne<SessionRow>(
       `
-      SELECT id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, model_override, execution_mode, active_skill_ids, agent_id, goal_json, created_at, updated_at
+      SELECT id, title, claude_session_id, status, pinned, pin_order, cwd, system_prompt, model_override, execution_mode, active_skill_ids, agent_id, parent_session_id, goal_json, created_at, updated_at
       FROM cowork_sessions
       WHERE id = ?
     `,
@@ -1022,6 +1045,7 @@ export class CoworkStore {
       executionMode: (row.execution_mode as CoworkExecutionMode) || 'local',
       activeSkillIds,
       agentId: row.agent_id || 'main',
+      parentSessionId: row.parent_session_id ?? null,
       goal: this.parseGoalJson(row.goal_json),
       messages,
       messagesOffset: messageOffset,
@@ -1095,6 +1119,89 @@ export class CoworkStore {
     `,
       )
       .run(...values);
+  }
+
+  upsertSubagentChildSession(options: UpsertSubagentChildSessionOptions): CoworkSession {
+    const existing = this.getSession(options.id, 0);
+    const parent = this.getSession(options.parentSessionId, 0);
+    const agent = this.getAgent(options.agentId);
+    const now = Date.now();
+    const createdAt = options.createdAt ?? existing?.createdAt ?? now;
+    const title = options.title.trim() || agent?.name || options.agentId;
+    const cwd = parent?.cwd || agent?.workingDirectory || '';
+    const systemPrompt = agent?.systemPrompt || '';
+    const modelOverride = existing?.modelOverride || '';
+    const executionMode = parent?.executionMode || 'local';
+    const activeSkillIds = agent?.skillIds ?? [];
+    const status = options.status ?? 'running';
+
+    if (existing) {
+      this.db
+        .prepare(
+          `
+          UPDATE cowork_sessions
+          SET title = ?,
+              claude_session_id = ?,
+              status = ?,
+              cwd = ?,
+              system_prompt = ?,
+              model_override = ?,
+              execution_mode = ?,
+              active_skill_ids = ?,
+              agent_id = ?,
+              parent_session_id = ?,
+              updated_at = ?
+          WHERE id = ?
+        `,
+        )
+        .run(
+          title,
+          options.childSessionKey,
+          status,
+          cwd,
+          systemPrompt,
+          modelOverride,
+          executionMode,
+          JSON.stringify(activeSkillIds),
+          options.agentId,
+          options.parentSessionId,
+          now,
+          options.id,
+        );
+    } else {
+      this.db
+        .prepare(
+          `
+          INSERT INTO cowork_sessions (
+            id, title, claude_session_id, status, cwd, system_prompt, model_override,
+            execution_mode, active_skill_ids, agent_id, pinned, pin_order,
+            parent_session_id, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)
+        `,
+        )
+        .run(
+          options.id,
+          title,
+          options.childSessionKey,
+          status,
+          cwd,
+          systemPrompt,
+          modelOverride,
+          executionMode,
+          JSON.stringify(activeSkillIds),
+          options.agentId,
+          options.parentSessionId,
+          createdAt,
+          now,
+        );
+    }
+
+    const session = this.getSession(options.id, 0);
+    if (!session) {
+      throw new Error(`Subagent child session ${options.id} could not be loaded`);
+    }
+    return session;
   }
 
   listSessionIdsByAgent(agentId: string): string[] {
@@ -1193,7 +1300,7 @@ export class CoworkStore {
     if (agentId) {
       rows = this.getAll<CoworkSessionSummaryRow>(
         `
-        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, goal_json, created_at, updated_at
+        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, parent_session_id, goal_json, created_at, updated_at
         FROM cowork_sessions
         WHERE agent_id = ?
         ORDER BY pinned DESC,
@@ -1207,7 +1314,7 @@ export class CoworkStore {
     } else {
       rows = this.getAll<CoworkSessionSummaryRow>(
         `
-        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, goal_json, created_at, updated_at
+        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, parent_session_id, goal_json, created_at, updated_at
         FROM cowork_sessions
         ORDER BY pinned DESC,
           CASE WHEN pinned = 1 THEN COALESCE(pin_order, updated_at, created_at) END ASC,
@@ -1226,7 +1333,7 @@ export class CoworkStore {
     const sourceRows = this.db
       .prepare(
         `
-        SELECT s.id, s.title, s.last_message_preview, s.status, s.pinned, s.pin_order, s.agent_id, s.goal_json, s.created_at, s.updated_at,
+        SELECT s.id, s.title, s.last_message_preview, s.status, s.pinned, s.pin_order, s.agent_id, s.parent_session_id, s.goal_json, s.created_at, s.updated_at,
                src.kind, src.label, src.task_id, src.platform, src.conversation_id
         FROM cowork_sessions s
         INNER JOIN cowork_session_sources src ON src.session_id = s.id
@@ -1650,6 +1757,49 @@ export class CoworkStore {
         this.db
           .prepare('UPDATE cowork_sessions SET updated_at = MAX(updated_at, ?) WHERE id = ?')
           .run(lastUserMessageAt, sessionId);
+      }
+      this.refreshSessionPreviewFromMessages(sessionId);
+    })();
+  }
+
+  replaceSessionMessages(
+    sessionId: string,
+    entries: CoworkSessionMessageReplacementEntry[],
+  ): void {
+    const now = Date.now();
+
+    this.db.transaction(() => {
+      this.db
+        .prepare('DELETE FROM cowork_messages WHERE session_id = ?')
+        .run(sessionId);
+
+      let nextSeq = 1;
+      let latestTimestamp: number | null = null;
+      for (const entry of entries) {
+        const messageTimestamp = normalizeMessageTimestamp(entry.timestamp) ?? now;
+        latestTimestamp = Math.max(latestTimestamp ?? 0, messageTimestamp);
+        this.db
+          .prepare(
+            `
+          INSERT INTO cowork_messages (id, session_id, type, content, metadata, created_at, sequence)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
+          )
+          .run(
+            uuidv4(),
+            sessionId,
+            entry.type,
+            entry.content,
+            entry.metadata ? JSON.stringify(entry.metadata) : null,
+            messageTimestamp,
+            nextSeq++,
+          );
+      }
+
+      if (latestTimestamp != null) {
+        this.db
+          .prepare('UPDATE cowork_sessions SET updated_at = MAX(updated_at, ?) WHERE id = ?')
+          .run(latestTimestamp, sessionId);
       }
       this.refreshSessionPreviewFromMessages(sessionId);
     })();

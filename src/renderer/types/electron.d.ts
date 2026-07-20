@@ -692,6 +692,7 @@ interface IElectronAPI {
         task: string | null;
         label: string | null;
         sessionKey: string | null;
+        childCoworkSessionId?: string | null;
         status: 'running' | 'done' | 'error';
         createdAt: number;
         endedAt?: number | null;

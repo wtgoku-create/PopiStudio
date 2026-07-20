@@ -87,6 +87,7 @@ export class SqliteStore {
         system_prompt TEXT NOT NULL DEFAULT '',
         model_override TEXT NOT NULL DEFAULT '',
         execution_mode TEXT,
+        parent_session_id TEXT,
         goal_json TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
@@ -238,6 +239,7 @@ export class SqliteStore {
         id TEXT PRIMARY KEY,
         parent_session_id TEXT NOT NULL,
         session_key TEXT,
+        child_cowork_session_id TEXT,
         agent_id TEXT,
         task TEXT,
         label TEXT,
@@ -275,6 +277,19 @@ export class SqliteStore {
         this.db.exec('ALTER TABLE subagent_runs ADD COLUMN messages_persisted INTEGER NOT NULL DEFAULT 0;');
         this.didRunMigration = true;
       }
+      if (!subagentCols.some(c => c.name === 'child_cowork_session_id')) {
+        this.db.exec('ALTER TABLE subagent_runs ADD COLUMN child_cowork_session_id TEXT;');
+        this.didRunMigration = true;
+      }
+    } catch {
+      // Migration not needed
+    }
+
+    try {
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_subagent_runs_child_cowork_session_id
+        ON subagent_runs(child_cowork_session_id);
+      `);
     } catch {
       // Migration not needed
     }
@@ -318,6 +333,11 @@ export class SqliteStore {
 
       if (!colNames.includes('model_override')) {
         this.db.exec("ALTER TABLE cowork_sessions ADD COLUMN model_override TEXT NOT NULL DEFAULT '';");
+        this.didRunMigration = true;
+      }
+
+      if (!colNames.includes('parent_session_id')) {
+        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN parent_session_id TEXT;');
         this.didRunMigration = true;
       }
 
