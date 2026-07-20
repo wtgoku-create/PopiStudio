@@ -42,11 +42,16 @@ import {
   setRemoteManaged,
   setSessions,
   setStreaming,
+  setSubagentMessages,
+  setSubagentMessagesLoading,
+  setSubagentRuns,
+  setSubagentRunsLoading,
   updateMessageContent,
   updateSessionGoal,
   updateSessionPinned,
   updateSessionStatus,
   updateSessionTitle,
+  updateSubagentRunStatus,
   updateSteerStatus,
   upsertSessionSummary,
 } from '../store/slices/coworkSlice';
@@ -57,6 +62,7 @@ import type {
   CoworkContextUsage,
   CoworkContinueOptions,
   CoworkMemoryStats,
+  CoworkMessage,
   CoworkPermissionResult,
   CoworkSession,
   CoworkSessionListResult,
@@ -65,6 +71,7 @@ import type {
   CoworkUserMemoryEntry,
   OpenClawEngineStatus,
   OpenClawSessionPolicyConfig,
+  SubagentSessionSummary,
 } from '../types/cowork';
 import { CoworkSessionStatusValue } from '../types/cowork';
 import { CoworkQueuedFollowUpCoordinator } from './coworkQueuedFollowUpCoordinator';
@@ -105,6 +112,8 @@ class CoworkService {
   private contextUsageRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private sessionEntryContextUsageRefreshAt = new Map<string, number>();
   private contextCompactionWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
+  private subagentListRequests = new Map<string, Promise<SubagentSessionSummary[]>>();
+  private subagentHistoryRequests = new Map<string, Promise<CoworkMessage[]>>();
   private readonly queuedFollowUpCoordinator = new CoworkQueuedFollowUpCoordinator({
     getState: store.getState,
     dispatch: store.dispatch,
@@ -234,6 +243,36 @@ class CoworkService {
     });
     if (contextMaintenanceCleanup) {
       this.streamListenerCleanups.push(contextMaintenanceCleanup);
+    }
+
+    const subagentMessagesChangedCleanup = cowork.onSubagentMessagesChanged?.((event) => {
+      if (!event.parentSessionId || !event.runId) return;
+
+      if (Array.isArray(event.messages)) {
+        store.dispatch(setSubagentMessages({
+          runId: event.runId,
+          messages: event.messages,
+        }));
+      }
+
+      if (event.status) {
+        store.dispatch(updateSubagentRunStatus({
+          parentSessionId: event.parentSessionId,
+          runId: event.runId,
+          sessionKey: event.sessionKey,
+          status: event.status,
+          endedAt: event.status === 'running' ? null : Date.now(),
+        }));
+      }
+
+      const runs = store.getState().cowork.subagentRunsByParentSessionId[event.parentSessionId] ?? [];
+      const hasRun = runs.some(run => run.id === event.runId || (!!event.sessionKey && run.sessionKey === event.sessionKey));
+      if (!hasRun || event.status === 'done' || event.status === 'error') {
+        void this.loadSubagents(event.parentSessionId, { showLoading: false, force: true });
+      }
+    });
+    if (subagentMessagesChangedCleanup) {
+      this.streamListenerCleanups.push(subagentMessagesChangedCleanup);
     }
 
     // Permission request listener
@@ -1314,6 +1353,114 @@ class CoworkService {
 
     console.error('Failed to delete subagent session:', result.error);
     return false;
+  }
+
+  async loadSubagents(
+    parentSessionId: string,
+    options: { showLoading?: boolean; force?: boolean } = {},
+  ): Promise<SubagentSessionSummary[]> {
+    const cowork = window.electron?.cowork;
+    if (!parentSessionId || !cowork?.listSubagentSessions) return [];
+
+    const state = store.getState().cowork;
+    const existing = state.subagentRunsByParentSessionId[parentSessionId] ?? [];
+    if (!options.force && existing.length > 0) {
+      return existing;
+    }
+    const existingRequest = this.subagentListRequests.get(parentSessionId);
+    if (existingRequest) {
+      return existingRequest;
+    }
+
+    if (options.showLoading) {
+      store.dispatch(setSubagentRunsLoading({ parentSessionId, loading: true }));
+    }
+
+    const request = (async () => {
+      const result = await cowork.listSubagentSessions(parentSessionId);
+      if (!result?.success || !Array.isArray(result.runs)) {
+        store.dispatch(setSubagentRuns({ parentSessionId, runs: [] }));
+        return [];
+      }
+
+      const runs = result.runs.map((run) => ({
+        id: run.id,
+        agentId: run.agentId,
+        task: run.task,
+        label: run.label,
+        sessionKey: run.sessionKey,
+        childCoworkSessionId: run.childCoworkSessionId,
+        parentSessionId,
+        status: run.status,
+        createdAt: run.createdAt,
+        endedAt: run.endedAt ?? null,
+      }));
+      store.dispatch(setSubagentRuns({ parentSessionId, runs }));
+      return runs;
+    })();
+    this.subagentListRequests.set(parentSessionId, request);
+
+    try {
+      return await request;
+    } catch (error) {
+      console.warn('[CoworkService] subagent list refresh failed:', error);
+      store.dispatch(setSubagentRunsLoading({ parentSessionId, loading: false }));
+      return existing;
+    } finally {
+      if (this.subagentListRequests.get(parentSessionId) === request) {
+        this.subagentListRequests.delete(parentSessionId);
+      }
+    }
+  }
+
+  async loadSubagentHistory(
+    parentSessionId: string,
+    runId: string,
+    sessionKey?: string,
+    options: { showLoading?: boolean; force?: boolean } = {},
+  ): Promise<CoworkMessage[]> {
+    const cowork = window.electron?.cowork;
+    if (!parentSessionId || !runId || !cowork?.getSubTaskHistory) return [];
+
+    const state = store.getState().cowork;
+    const existing = state.subagentMessagesByRunId[runId] ?? [];
+    if (!options.force && existing.length > 0) {
+      return existing;
+    }
+    const existingRequest = this.subagentHistoryRequests.get(runId);
+    if (existingRequest) {
+      return existingRequest;
+    }
+
+    if (options.showLoading) {
+      store.dispatch(setSubagentMessagesLoading({ runId, loading: true }));
+    }
+
+    const request = (async () => {
+      const result = await cowork.getSubTaskHistory({
+        parentSessionId,
+        agentId: runId,
+        sessionKey,
+      });
+      const messages = result?.success && Array.isArray(result.messages)
+        ? result.messages as CoworkMessage[]
+        : [];
+      store.dispatch(setSubagentMessages({ runId, messages }));
+      return messages;
+    })();
+    this.subagentHistoryRequests.set(runId, request);
+
+    try {
+      return await request;
+    } catch (error) {
+      console.warn('[CoworkService] subagent history refresh failed:', error);
+      store.dispatch(setSubagentMessagesLoading({ runId, loading: false }));
+      return existing;
+    } finally {
+      if (this.subagentHistoryRequests.get(runId) === request) {
+        this.subagentHistoryRequests.delete(runId);
+      }
+    }
   }
 
   async listMemoryEntries(input: {

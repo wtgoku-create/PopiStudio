@@ -3,6 +3,9 @@ import crypto from 'node:crypto';
 import type { SubagentMessageStore } from '../../subagentMessageStore';
 import type { SubagentRunStore, SubagentRunWithParent } from '../../subagentRunStore';
 import {
+  shouldSuppressHeartbeatText,
+} from '../openclawHistory';
+import {
   parseSubagentGatewayHistoryMessages,
   type SubagentCoworkMessage,
 } from './subagent/historyParser';
@@ -46,6 +49,48 @@ const resolveToolInput = (block: Record<string, unknown>): Record<string, unknow
     } catch { /* ignore parse errors */ }
   }
   return {};
+};
+
+const extractToolText = (payload: unknown): string => {
+  if (typeof payload === 'string') return payload;
+  if (Array.isArray(payload)) {
+    const lines = payload.map((item) => extractToolText(item).trim()).filter(Boolean);
+    return lines.join('\n');
+  }
+  if (!isRecord(payload)) {
+    if (payload === undefined || payload === null) return '';
+    try {
+      return JSON.stringify(payload, null, 2);
+    } catch {
+      return String(payload);
+    }
+  }
+  if (typeof payload.text === 'string' && payload.text.trim()) return payload.text;
+  if (typeof payload.output === 'string' && payload.output.trim()) return payload.output;
+  if (typeof payload.stdout === 'string' || typeof payload.stderr === 'string') {
+    return [
+      typeof payload.stdout === 'string' ? payload.stdout : '',
+      typeof payload.stderr === 'string' ? payload.stderr : '',
+    ].filter(Boolean).join('\n');
+  }
+  if (typeof payload.content === 'string' && payload.content.trim()) return payload.content;
+  if (Array.isArray(payload.content)) {
+    const lines = payload.content.map((item) => extractToolText(item).trim()).filter(Boolean);
+    if (lines.length > 0) return lines.join('\n');
+  }
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+};
+
+const mergeToolText = (previous: string, incoming: string): string => {
+  if (!previous) return incoming;
+  if (!incoming) return previous;
+  if (incoming.startsWith(previous)) return incoming;
+  if (previous.includes(incoming)) return previous;
+  return `${previous}${incoming}`;
 };
 
 export type GatewayClientLike = {
@@ -99,6 +144,9 @@ export class SubagentTracker {
   private readonly subagentToolCallIdToAgentId = new Map<string, string>();
   /** Maps toolCallId → lifecycle status */
   private readonly subagentStatus = new Map<string, 'running' | 'done' | 'error'>();
+  /** Reverse map: child session key → toolCallId/runId */
+  private readonly subagentRunIdBySessionKey = new Map<string, string>();
+  private readonly subscribedChildSessionKeys = new Set<string>();
   /** Reverse map: agentId → Set of toolCallIds (for lookups from sessions_resume args) */
   private readonly agentIdToToolCallIds = new Map<string, Set<string>>();
   /** Run ids explicitly deleted by the user. Suppresses late spawn/backfill re-inserts. */
@@ -121,6 +169,14 @@ export class SubagentTracker {
     private readonly getGatewayClient: () => GatewayClientLike | null,
     private readonly onChildSessionMaterialized?: (params: SubagentChildSessionMaterializeParams) => void,
     private readonly shouldMaterializeChildSession?: (params: SubagentChildSessionCandidateParams) => boolean,
+    private readonly subscribeChildSessionMessages?: (params: SubagentChildSessionCandidateParams) => void,
+    private readonly notifySubagentMessagesChanged?: (event: {
+      parentSessionId: string;
+      runId: string;
+      sessionKey?: string;
+      status?: 'running' | 'done' | 'error';
+      messages?: SubagentCoworkMessage[];
+    }) => void,
   ) {}
 
   // ── Event hooks (called by adapter at key points) ──────────────────────
@@ -267,9 +323,197 @@ export class SubagentTracker {
         console.log('[SubagentTracker] marked subagent as terminal via session key:', toolCallId, status);
         this.tryPersistCachedMessages(toolCallId);
       }
+      const parentSessionId = this.resolveParentSessionId(toolCallId);
+      if (parentSessionId) {
+        this.notifySubagentMessagesChanged?.({
+          parentSessionId,
+          runId: toolCallId,
+          sessionKey,
+          status,
+        });
+      }
       return true;
     }
     return false;
+  }
+
+  appendAssistantStreamFromSessionKey(sessionKey: string, text: string): boolean {
+    const runId = this.resolveRunIdBySessionKey(sessionKey);
+    if (!runId) return false;
+    const trimmed = text.trim();
+    if (!trimmed || shouldSuppressHeartbeatText('assistant', trimmed)) return true;
+
+    const messages = this.subagentMessages.get(runId) ?? [];
+    const lastMessage = messages[messages.length - 1];
+    const timestamp = Date.now();
+    if (lastMessage?.type === 'assistant') {
+      lastMessage.content = trimmed;
+      lastMessage.timestamp = timestamp;
+    } else {
+      messages.push({
+        id: crypto.randomUUID(),
+        type: 'assistant',
+        content: trimmed,
+        timestamp,
+        metadata: { isStreaming: true, isFinal: false },
+      });
+    }
+    this.subagentMessages.set(runId, messages);
+
+    const parentSessionId = this.resolveParentSessionId(runId);
+    if (parentSessionId) {
+      this.notifySubagentMessagesChanged?.({
+        parentSessionId,
+        runId,
+        sessionKey,
+        status: this.subagentStatus.get(runId) ?? 'running',
+        messages,
+      });
+    }
+    return true;
+  }
+
+  appendToolEventFromSessionKey(sessionKey: string, event: Record<string, unknown>): boolean {
+    const runId = this.resolveRunIdBySessionKey(sessionKey);
+    if (!runId) return false;
+
+    const toolCallId = typeof event.toolCallId === 'string' ? event.toolCallId.trim() : '';
+    if (!toolCallId) return true;
+    const phase = typeof event.phase === 'string' ? event.phase.trim() : '';
+    if (phase !== 'start' && phase !== 'update' && phase !== 'result') return true;
+
+    const toolName = typeof event.name === 'string' && event.name.trim()
+      ? event.name.trim()
+      : 'Tool';
+    const messages = this.subagentMessages.get(runId) ?? [];
+    const timestamp = Date.now();
+    const findToolUse = () => messages.find((message) =>
+      message.type === 'tool_use' && message.metadata?.toolUseId === toolCallId,
+    );
+    const findToolResult = () => messages.find((message) =>
+      message.type === 'tool_result' && message.metadata?.toolUseId === toolCallId,
+    );
+
+    if (!findToolUse()) {
+      messages.push({
+        id: crypto.randomUUID(),
+        type: 'tool_use',
+        content: `Using tool: ${toolName}`,
+        timestamp,
+        metadata: {
+          toolName,
+          toolInput: resolveToolInput({ args: event.args }),
+          toolUseId: toolCallId,
+        },
+      });
+    }
+
+    if (phase === 'update') {
+      const incoming = extractToolText(event.partialResult);
+      if (incoming.trim()) {
+        const result = findToolResult();
+        const previous = result?.content ?? '';
+        const merged = mergeToolText(previous, incoming);
+        if (result) {
+          result.content = merged;
+          result.timestamp = timestamp;
+          result.metadata = {
+            ...result.metadata,
+            toolResult: merged,
+            toolUseId: toolCallId,
+            isError: false,
+            isStreaming: true,
+            isFinal: false,
+          };
+        } else {
+          messages.push({
+            id: crypto.randomUUID(),
+            type: 'tool_result',
+            content: merged,
+            timestamp,
+            metadata: {
+              toolResult: merged,
+              toolUseId: toolCallId,
+              isError: false,
+              isStreaming: true,
+              isFinal: false,
+            },
+          });
+        }
+      }
+    }
+
+    if (phase === 'result') {
+      const incoming = extractToolText(event.result);
+      const result = findToolResult();
+      const previous = result?.content ?? '';
+      const finalContent = incoming.trim() ? incoming : previous;
+      const isError = Boolean(event.isError);
+      const finalError = isError ? (finalContent || 'Tool execution failed') : undefined;
+      if (result) {
+        result.content = finalContent;
+        result.timestamp = timestamp;
+        result.metadata = {
+          ...result.metadata,
+          toolResult: finalContent,
+          toolUseId: toolCallId,
+          error: finalError,
+          isError,
+          isStreaming: false,
+          isFinal: true,
+        };
+      } else {
+        messages.push({
+          id: crypto.randomUUID(),
+          type: 'tool_result',
+          content: finalContent,
+          timestamp,
+          metadata: {
+            toolResult: finalContent,
+            toolUseId: toolCallId,
+            error: finalError,
+            isError,
+            isStreaming: false,
+            isFinal: true,
+          },
+        });
+      }
+    }
+
+    this.subagentMessages.set(runId, messages);
+    const parentSessionId = this.resolveParentSessionId(runId);
+    if (parentSessionId) {
+      this.notifySubagentMessagesChanged?.({
+        parentSessionId,
+        runId,
+        sessionKey,
+        status: this.subagentStatus.get(runId) ?? 'running',
+        messages,
+      });
+    }
+    return true;
+  }
+
+  resolveRunIdBySessionKey(sessionKey: string): string | null {
+    if (!sessionKey) return null;
+    const cached = this.subagentRunIdBySessionKey.get(sessionKey);
+    if (cached) return cached;
+    for (const [runId, childSessionKey] of this.subagentSessionKeys) {
+      if (childSessionKey === sessionKey) {
+        this.subagentRunIdBySessionKey.set(sessionKey, runId);
+        return runId;
+      }
+    }
+    const run = this.store.findSubagentRunBySessionKey?.(sessionKey);
+    if (run?.id) {
+      this.subagentRunIdBySessionKey.set(sessionKey, run.id);
+      this.subagentSessionKeys.set(run.id, sessionKey);
+      if (run.agentId) {
+        this.subagentToolCallIdToAgentId.set(run.id, run.agentId);
+      }
+      return run.id;
+    }
+    return null;
   }
 
   /**
@@ -280,6 +524,8 @@ export class SubagentTracker {
       this.subagentSessionKeys.clear();
       this.subagentMessages.clear();
       this.subagentStatus.clear();
+      this.subagentRunIdBySessionKey.clear();
+      this.subscribedChildSessionKeys.clear();
       this.subagentToolCallIdToAgentId.clear();
       this.agentIdToToolCallIds.clear();
       this.pendingSpawnInfo.clear();
@@ -437,10 +683,9 @@ export class SubagentTracker {
     runId: string,
     sessionKey?: string,
   ): Promise<SubagentCoworkMessage[]> {
-    // 1. Try locally collected messages (only serve cache if subagent is done/error)
-    const status = this.subagentStatus.get(runId);
+    // 1. Try locally collected messages from the live subagent stream.
     const local = this.subagentMessages.get(runId);
-    if (local && local.length > 0 && (status === 'done' || status === 'error')) {
+    if (local && local.length > 0) {
       return local;
     }
 
@@ -454,6 +699,7 @@ export class SubagentTracker {
     // Cache externally-provided session key in memory for later lookups
     if (sessionKey && !this.subagentSessionKeys.has(runId)) {
       this.subagentSessionKeys.set(runId, sessionKey);
+      this.subagentRunIdBySessionKey.set(sessionKey, runId);
     }
 
     // 3b. Try reading from persistent store if not in memory
@@ -463,6 +709,7 @@ export class SubagentTracker {
       if (matchingRun?.sessionKey) {
         key = matchingRun.sessionKey;
         this.subagentSessionKeys.set(runId, key);
+        this.subagentRunIdBySessionKey.set(key, runId);
       }
       // 3c. If runId didn't match directly, check if it's a UUID that appears in any session key
       if (!key) {
@@ -472,6 +719,7 @@ export class SubagentTracker {
         if (runWithKeyMatch?.sessionKey) {
           key = runWithKeyMatch.sessionKey;
           this.subagentSessionKeys.set(runId, key);
+          this.subagentRunIdBySessionKey.set(key, runId);
         }
       }
     }
@@ -505,6 +753,7 @@ export class SubagentTracker {
     const hadSessionKey = this.subagentSessionKeys.has(toolCallId);
     if (childSessionKey) {
       this.subagentSessionKeys.set(toolCallId, childSessionKey);
+      this.subagentRunIdBySessionKey.set(childSessionKey, toolCallId);
     }
 
     // If already committed (e.g., onSpawnResult fired then backfill also fires), just update
@@ -536,7 +785,7 @@ export class SubagentTracker {
         runId: toolCallId,
         parentSessionId: existingRun.parentSessionId,
         childSessionKey,
-        agentId: existingRun.agentId || this.resolveSpawnAgentId({}, childSessionKey, toolCallId),
+        agentId: this.resolveSpawnAgentId({}, childSessionKey, existingRun.agentId || toolCallId),
         task: existingRun.task,
         label: existingRun.label,
         status: nextStatus,
@@ -555,6 +804,7 @@ export class SubagentTracker {
           childCoworkSessionId,
         });
       }
+      this.subscribeChildSession(candidate);
       return;
     }
 
@@ -563,11 +813,12 @@ export class SubagentTracker {
     const pending = this.pendingSpawnInfo.get(toolCallId);
     if (pending) {
       const displayLabel = pending.label ?? resolveSpawnDisplayLabel(parsed);
+      const childAgentId = this.resolveSpawnAgentId({}, childSessionKey, pending.agentId);
       const candidate = {
         runId: toolCallId,
         parentSessionId: pending.parentSessionId,
         childSessionKey,
-        agentId: pending.agentId,
+        agentId: childAgentId,
         task: pending.task,
         label: displayLabel,
         status,
@@ -582,7 +833,7 @@ export class SubagentTracker {
         parentSessionId: pending.parentSessionId,
         sessionKey: childSessionKey || null,
         childCoworkSessionId,
-        agentId: pending.agentId,
+        agentId: childAgentId,
         task: pending.task,
         label: displayLabel,
         status,
@@ -595,6 +846,7 @@ export class SubagentTracker {
           childCoworkSessionId,
         });
       }
+      this.subscribeChildSession(candidate);
       this.pendingSpawnInfo.delete(toolCallId);
       console.log('[SubagentTracker] committed spawn result:', toolCallId, status,
         isError ? parsed.error : '');
@@ -615,6 +867,30 @@ export class SubagentTracker {
     } catch (error) {
       console.warn('[SubagentTracker] failed to materialize child session:', error);
     }
+  }
+
+  private subscribeChildSession(params: SubagentChildSessionCandidateParams): void {
+    if (!params.childSessionKey || params.status === 'error') return;
+    if (this.subscribedChildSessionKeys.has(params.childSessionKey)) return;
+    this.subscribedChildSessionKeys.add(params.childSessionKey);
+    try {
+      this.subscribeChildSessionMessages?.(params);
+    } catch (error) {
+      this.subscribedChildSessionKeys.delete(params.childSessionKey);
+      console.warn('[SubagentTracker] failed to subscribe to child session messages:', error);
+    }
+  }
+
+  releaseChildSessionSubscription(sessionKey: string): void {
+    if (!sessionKey) return;
+    this.subscribedChildSessionKeys.delete(sessionKey);
+  }
+
+  private resolveParentSessionId(runId: string): string | null {
+    const pending = this.pendingSpawnInfo.get(runId);
+    if (pending?.parentSessionId) return pending.parentSessionId;
+    const run = this.store.getSubagentRun?.(runId);
+    return run?.parentSessionId ?? null;
   }
 
   private resolveSpawnAgentId(
@@ -670,7 +946,12 @@ export class SubagentTracker {
 
   private clearSubagentMemory(runId: string): void {
     const agentId = this.subagentToolCallIdToAgentId.get(runId);
+    const sessionKey = this.subagentSessionKeys.get(runId);
     this.subagentSessionKeys.delete(runId);
+    if (sessionKey) {
+      this.subagentRunIdBySessionKey.delete(sessionKey);
+      this.subscribedChildSessionKeys.delete(sessionKey);
+    }
     this.subagentMessages.delete(runId);
     this.subagentStatus.delete(runId);
     this.subagentToolCallIdToAgentId.delete(runId);

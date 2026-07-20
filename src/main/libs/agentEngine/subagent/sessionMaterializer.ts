@@ -21,6 +21,7 @@ export interface SubagentSessionMaterializerDeps {
   emitError: (sessionId: string, error: string) => void;
   resolveSessionIdBySessionKey: (sessionKey: string) => string | null;
   syncSessionHistory: (sessionId: string, sessionKey: string) => Promise<void>;
+  subscribeSessionMessages?: (sessionId: string, sessionKey: string, agentId: string) => void;
 }
 
 export class SubagentSessionMaterializer {
@@ -56,6 +57,7 @@ export class SubagentSessionMaterializer {
       );
       this.deps.rememberSessionKey(session.id, params.childSessionKey);
       this.deps.markSessionHistoryUnsynced(session.id);
+      this.deps.subscribeSessionMessages?.(session.id, params.childSessionKey, params.agentId);
       this.deps.notifySessionsChanged();
       void this.deps.syncSessionHistory(session.id, params.childSessionKey)
         .catch((error) => {

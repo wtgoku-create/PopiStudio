@@ -1,7 +1,10 @@
 import { ArrowLeftIcon } from '@heroicons/react/20/solid';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { useSelector } from 'react-redux';
 
+import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
+import type { RootState } from '../../store';
 import type { CoworkMessage, SubagentSessionSummary } from '../../types/cowork';
 import ComposeIcon from '../icons/ComposeIcon';
 import SidebarToggleIcon from '../icons/SidebarToggleIcon';
@@ -18,9 +21,12 @@ interface SubagentSessionDetailProps {
 
 const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent, onBack, isSidebarCollapsed, onToggleSidebar, onNewChat, updateBadge }) => {
   const isMac = window.electron.platform === 'darwin';
-  const [messages, setMessages] = useState<CoworkMessage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<'running' | 'done' | 'error'>(subagent.status);
+  const storeSubagent = useSelector((state: RootState) => (
+    state.cowork.subagentRunsByParentSessionId[subagent.parentSessionId]?.find(run => run.id === subagent.id) ?? subagent
+  ));
+  const messages = useSelector((state: RootState) => state.cowork.subagentMessagesByRunId[subagent.id] ?? []);
+  const loading = useSelector((state: RootState) => state.cowork.subagentMessagesLoadingByRunId[subagent.id] === true);
+  const status = storeSubagent.status;
   const contentRef = useRef<HTMLDivElement>(null);
   const prevMessageCountRef = useRef(0);
 
@@ -32,47 +38,17 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
     prevMessageCountRef.current = messages.length;
   }, [messages]);
 
-  const fetchHistory = useCallback(async () => {
-    if (!subagent.parentSessionId) return;
-    try {
-      const result = await window.electron?.cowork?.getSubTaskHistory({
-        parentSessionId: subagent.parentSessionId,
-        agentId: subagent.id,
-        sessionKey: subagent.sessionKey ?? undefined,
-      });
-      if (result?.success && result.messages) {
-        setMessages(result.messages as CoworkMessage[]);
-      }
-    } catch { /* ignore */ }
-    finally {
-      setLoading(false);
-    }
-  }, [subagent]);
-
-  const fetchStatus = useCallback(async () => {
-    if (!subagent.parentSessionId) return;
-    try {
-      const result = await window.electron?.cowork?.listSubagentSessions(subagent.parentSessionId);
-      if (result?.success && result.runs) {
-        const run = result.runs.find((r) => r.id === subagent.id);
-        if (run?.status) setStatus(run.status);
-      }
-    } catch { /* ignore */ }
-  }, [subagent]);
-
   useEffect(() => {
-    void fetchHistory();
-    void fetchStatus();
-
-    // Only poll while subagent is still running
-    if (status === 'running') {
-      const timer = setInterval(() => {
-        void fetchHistory();
-        void fetchStatus();
-      }, 5000);
-      return () => clearInterval(timer);
-    }
-  }, [fetchHistory, fetchStatus, status]);
+    if (!subagent.parentSessionId) return;
+    void coworkService.loadSubagents(subagent.parentSessionId);
+    if (messages.length > 0) return;
+    void coworkService.loadSubagentHistory(
+      subagent.parentSessionId,
+      subagent.id,
+      subagent.sessionKey ?? undefined,
+      { showLoading: true },
+    );
+  }, [messages.length, subagent.id, subagent.parentSessionId, subagent.sessionKey]);
 
   // Use agent name as title to avoid duplicating the task content shown in conversation
   const displayTitle = subagent.agentId ?? subagent.label ?? 'Subagent';

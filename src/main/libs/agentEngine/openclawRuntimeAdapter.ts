@@ -15,6 +15,7 @@ import {
   OpenClawSessionReasoningLevel,
 } from '../../../common/openclawSession';
 import { buildCoworkErrorDetail } from '../../../shared/cowork/errorDetail';
+import { CoworkIpcChannel } from '../../../shared/cowork/constants';
 import {
   type CoworkGoal,
   normalizeCoworkGoal,
@@ -124,6 +125,7 @@ const OpenClawGatewayEvent = {
 } as const;
 const OpenClawGatewayMethod = {
   SessionsSubscribe: 'sessions.subscribe',
+  SessionsMessagesSubscribe: 'sessions.messages.subscribe',
 } as const;
 const BRIDGE_MAX_MESSAGES = 20;
 const BRIDGE_MAX_MESSAGE_CHARS = 1200;
@@ -1413,6 +1415,19 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private pendingStoreUpdateTimer: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private static readonly STORE_UPDATE_THROTTLE_MS = 250;
 
+  /** Throttle state for subagent message snapshots sent to the renderer. */
+  private readonly pendingSubagentMessageEvents = new Map<string, {
+    event: {
+      parentSessionId: string;
+      runId: string;
+      sessionKey?: string;
+      status?: 'running' | 'done' | 'error';
+      messages?: CoworkMessage[];
+    };
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+  private static readonly SUBAGENT_MESSAGE_EVENT_THROTTLE_MS = 200;
+
   /** Debounced chat.history sync for thinking placement and tool result backfill. */
   private readonly turnHistorySync: OpenClawTurnHistorySync;
 
@@ -1962,18 +1977,14 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         this.gatewayHistoryCountBySession.delete(sessionId);
         this.channelSyncCursor.delete(sessionId);
       },
-      notifySessionsChanged: () => {
-        for (const win of BrowserWindow.getAllWindows()) {
-          if (!win.isDestroyed()) {
-            win.webContents.send('cowork:sessions:changed', {});
-          }
-        }
-      },
+      notifySessionsChanged: () => this.notifySessionsChanged(),
       emitSessionStatus: (sessionId, status) => this.emitSessionStatus(sessionId, status),
       emitComplete: (sessionId, runId) => this.emit('complete', sessionId, runId),
       emitError: (sessionId, error) => this.emit('error', sessionId, error),
       resolveSessionIdBySessionKey: (sessionKey) => this.resolveSessionIdBySessionKey(sessionKey),
       syncSessionHistory: (sessionId, sessionKey) => this.syncSessionHistoryFromGateway(sessionId, sessionKey),
+      subscribeSessionMessages: (sessionId, sessionKey, agentId) =>
+        this.subscribeToGatewaySessionMessages(sessionId, sessionKey, agentId, { rememberLocalSessionKey: true }),
     });
     if (subagentRunStore) {
       this.subagentTracker = new SubagentTracker(
@@ -1982,6 +1993,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         () => this.gatewayClient,
         (params) => this.subagentSessionMaterializer.materialize(params),
         (params) => this.subagentSessionMaterializer.shouldMaterialize(params),
+        (params) => this.subscribeToGatewaySessionMessages(
+          params.parentSessionId,
+          params.childSessionKey,
+          params.agentId,
+          {
+            rememberLocalSessionKey: false,
+            onSubscribeFailed: () => this.subagentTracker?.releaseChildSessionSubscription(params.childSessionKey),
+          },
+        ),
+        (event) => this.notifySubagentMessagesChanged(event),
       );
     } else {
       // Fallback: create a no-op tracker (should not happen in production)
@@ -2382,15 +2403,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         }
       }
       if (hasNew) {
-        let notified = 0;
-        for (const win of BrowserWindow.getAllWindows()) {
-          if (!win.isDestroyed()) {
-            for (const { sessionId } of newSessionsToSync) {
-              win.webContents.send('cowork:sessions:changed', { sessionId });
-              notified++;
-            }
-          }
+        for (const { sessionId } of newSessionsToSync) {
+          this.notifySessionsChanged(sessionId);
         }
+        const notified = newSessionsToSync.length * BrowserWindow.getAllWindows().filter(win => !win.isDestroyed()).length;
         console.log('[ChannelSync] discovered', channelCount, 'channel sessions, notified', notified, 'windows');
       }
       // Sync full history for newly discovered sessions
@@ -3606,6 +3622,51 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     });
   }
 
+  private subscribeToGatewaySessionMessages(
+    sessionId: string,
+    sessionKey: string,
+    agentId: string,
+    options: {
+      rememberLocalSessionKey?: boolean;
+      onSubscribeFailed?: () => void;
+    } = {},
+  ): void {
+    const client = this.gatewayClient;
+    if (!client || !sessionKey.trim()) return;
+
+    const params: Record<string, unknown> = { key: sessionKey };
+    const normalizedAgentId = agentId.trim();
+    if (normalizedAgentId) {
+      params.agentId = normalizedAgentId;
+    }
+
+    void client.request<{ key?: string; subscribed?: boolean }>(
+      OpenClawGatewayMethod.SessionsMessagesSubscribe,
+      params,
+      { timeoutMs: OpenClawRuntimeAdapter.GATEWAY_SESSION_SUBSCRIBE_TIMEOUT_MS },
+    ).then((result) => {
+      const subscribedKey = typeof result?.key === 'string' && result.key.trim()
+        ? result.key.trim()
+        : sessionKey;
+      if (options.rememberLocalSessionKey !== false) {
+        this.rememberSessionKey(sessionId, subscribedKey);
+      }
+      if (result?.subscribed !== true) {
+        console.warn('[OpenClawRuntime] gateway child session message subscription was not confirmed.');
+        options.onSubscribeFailed?.();
+        return;
+      }
+      console.log(
+        '[OpenClawRuntime] subscribed to child session message events.',
+        `Session ${sessionId}.`,
+        `Session key ${subscribedKey}.`,
+      );
+    }).catch((error) => {
+      options.onSubscribeFailed?.();
+      console.warn('[OpenClawRuntime] failed to subscribe to child session message events:', error);
+    });
+  }
+
   private stopGatewayClient(): void {
     this.gatewayStoppingIntentionally = true;
     this.stopChannelPolling();
@@ -3637,6 +3698,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
     this.pendingMessageUpdateTimer.clear();
     this.lastMessageUpdateEmitTime.clear();
+    for (const pending of this.pendingSubagentMessageEvents.values()) {
+      clearTimeout(pending.timer);
+    }
+    this.pendingSubagentMessageEvents.clear();
     this.turnHistorySync.dispose();
     this.gatewayStoppingIntentionally = false;
   }
@@ -4550,11 +4615,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       );
     }
     if (isNewlyKnownSession) {
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) {
-          win.webContents.send('cowork:sessions:changed', { sessionId });
-        }
-      }
+      this.notifySessionsChanged(sessionId);
     }
   }
 
@@ -4578,21 +4639,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         .then(() => {
           this.store.updateSession(conversation.sessionId, { status: 'completed' }, { touchUpdatedAt: true });
           this.emitSessionStatus(conversation.sessionId, 'completed');
-          for (const win of BrowserWindow.getAllWindows()) {
-            if (!win.isDestroyed()) {
-              win.webContents.send('cowork:sessions:changed', { sessionId: conversation.sessionId });
-            }
-          }
+          this.notifySessionsChanged(conversation.sessionId);
           console.log('[ChannelSync] synced IM conversation after cron delivery');
         })
         .catch((error) => {
           this.store.updateSession(conversation.sessionId, { status: 'error' }, { touchUpdatedAt: true });
           this.emitSessionStatus(conversation.sessionId, 'error');
-          for (const win of BrowserWindow.getAllWindows()) {
-            if (!win.isDestroyed()) {
-              win.webContents.send('cowork:sessions:changed', { sessionId: conversation.sessionId });
-            }
-          }
+          this.notifySessionsChanged(conversation.sessionId);
           console.warn('[ChannelSync] failed to sync IM conversation after cron delivery:', error);
         });
     }, OpenClawRuntimeAdapter.CRON_DELIVERY_SYNC_DELAY_MS);
@@ -4780,6 +4833,60 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     });
   }
 
+  private notifySessionsChanged(sessionId?: string): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(CoworkIpcChannel.SessionsChanged, sessionId ? { sessionId } : {});
+      }
+    }
+  }
+
+  private notifySubagentMessagesChanged(event: {
+    parentSessionId: string;
+    runId: string;
+    sessionKey?: string;
+    status?: 'running' | 'done' | 'error';
+    messages?: CoworkMessage[];
+  }): void {
+    const eventKey = `${event.parentSessionId}:${event.runId}`;
+    const existing = this.pendingSubagentMessageEvents.get(eventKey);
+    const isTerminal = event.status === 'done' || event.status === 'error';
+    if (existing) {
+      existing.event = event;
+      if (!isTerminal) return;
+      clearTimeout(existing.timer);
+      this.pendingSubagentMessageEvents.delete(eventKey);
+    } else if (!isTerminal) {
+      const timer = setTimeout(() => {
+        const pending = this.pendingSubagentMessageEvents.get(eventKey);
+        if (!pending) return;
+        this.pendingSubagentMessageEvents.delete(eventKey);
+        this.emitSubagentMessagesChanged(pending.event);
+      }, OpenClawRuntimeAdapter.SUBAGENT_MESSAGE_EVENT_THROTTLE_MS);
+      this.pendingSubagentMessageEvents.set(eventKey, { event, timer });
+      return;
+    }
+
+    this.emitSubagentMessagesChanged(event);
+  }
+
+  private emitSubagentMessagesChanged(event: {
+    parentSessionId: string;
+    runId: string;
+    sessionKey?: string;
+    status?: 'running' | 'done' | 'error';
+    messages?: CoworkMessage[];
+  }): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(CoworkIpcChannel.SubagentMessagesChanged, event);
+        if (event.status === 'done' || event.status === 'error') {
+          win.webContents.send(CoworkIpcChannel.SessionsChanged, { sessionId: event.parentSessionId });
+        }
+      }
+    }
+  }
+
   private dispatchAgentEvent(sessionId: string, turn: ActiveTurn, agentPayload: AgentEventPayload): void {
     const stream = typeof agentPayload.stream === 'string' ? agentPayload.stream.trim() : '';
     const hasToolShape = isRecord(agentPayload.data) && typeof agentPayload.data.toolCallId === 'string';
@@ -4829,7 +4936,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const sessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey.trim() : '';
     const sessionId = (runId ? this.sessionIdByRunId.get(runId) : undefined)
       ?? (sessionKey ? this.resolveSessionIdBySessionKey(sessionKey) ?? undefined : undefined);
+    const toolEvent = this.normalizeSessionToolPayload(payload);
     if (!sessionId) {
+      if (sessionKey && isSubagentSessionKey(sessionKey)) {
+        if (!toolEvent) {
+          console.debug('[OpenClawRuntime] ignored a subagent session tool event with missing tool identity.');
+          return;
+        }
+        this.subagentTracker.appendToolEventFromSessionKey(sessionKey, toolEvent);
+        return;
+      }
       console.debug('[OpenClawRuntime] ignored a session tool event without a known session.');
       return;
     }
@@ -4871,7 +4987,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
     this.cancelChatFinalCompletion(sessionId, turn, 'session tool event');
 
-    const toolEvent = this.normalizeSessionToolPayload(payload);
     if (!toolEvent) {
       console.debug('[OpenClawRuntime] ignored a session tool event with missing tool identity.');
       return;
@@ -5902,11 +6017,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.clearPendingStoreUpdate(messageId);
     this.clearPendingMessageUpdate(messageId);
     this.store.deleteMessage(sessionId, messageId);
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('cowork:sessions:changed', { sessionId });
-      }
-    }
+    this.notifySessionsChanged(sessionId);
   }
 
   private deleteSilentAssistantMessages(sessionId: string): void {
@@ -5942,6 +6053,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     const runId = typeof p.runId === 'string' ? p.runId.trim() : '';
     const sessionKey = typeof p.sessionKey === 'string' ? p.sessionKey.trim() : '';
+    if (sessionKey && isSubagentSessionKey(sessionKey)) {
+      if (text) {
+        this.subagentTracker.appendAssistantStreamFromSessionKey(sessionKey, text);
+      }
+      return;
+    }
     if (runId && this.isRecentlyClosedRunId(runId)) {
       console.debug('[OpenClawRuntime] dropped late assistant text for a closed run.');
       return;
@@ -7226,11 +7343,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       this.store.replaceSessionMessages(sessionId, plan.entriesToStore);
       this.channelSyncCursor.set(sessionId, plan.cursor);
 
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) {
-          win.webContents.send('cowork:sessions:changed', { sessionId });
-        }
-      }
+      this.notifySessionsChanged(sessionId);
     } catch (error) {
       console.warn('[SubagentHistorySync] failed:', error);
     }
@@ -7535,12 +7648,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       this.store.replaceConversationMessages(sessionId, applyLocalTimestampsToEntries(entriesToStore, localEntries));
       this.channelSyncCursor.set(sessionId, authoritativeEntries.length);
 
-      // Notify renderer to refresh
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) {
-          win.webContents.send('cowork:sessions:changed', { sessionId });
-        }
-      }
+      this.notifySessionsChanged(sessionId);
     } catch (error) {
       console.warn('[Reconcile] failed — sessionId:', sessionId, 'error:', error);
     }

@@ -3999,7 +3999,7 @@ test('stopSession aborts running subagent sessions tracked under the parent', as
   adapter.stopSession(session.id);
   await Promise.resolve();
 
-  expect(requests).toEqual([
+  expect(requests.filter(request => request.method === 'chat.abort')).toEqual([
     {
       method: 'chat.abort',
       params: {
@@ -4015,6 +4015,282 @@ test('stopSession aborts running subagent sessions tracked under the parent', as
     },
   ]);
   expect(session.status).toBe('idle');
+});
+
+test('subagent child sessions subscribe to gateway message events even when not materialized', async () => {
+  const parentSession = {
+    id: 'parent-session',
+    agentId: 'child-agent',
+    messages: [],
+  };
+  const childSessions = new Map<string, Record<string, unknown>>();
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const runs = new Map<string, Record<string, unknown>>();
+  const store = {
+    getSession: vi.fn((sessionId: string) => (
+      sessionId === parentSession.id
+        ? parentSession
+        : childSessions.get(sessionId) ?? null
+    )),
+    getAgent: vi.fn(() => ({ name: 'Child Agent' })),
+    upsertSubagentChildSession: vi.fn((params: Record<string, unknown>) => {
+      const session = {
+        id: params.id,
+        parentSessionId: params.parentSessionId,
+        status: params.status,
+        messages: [],
+      };
+      childSessions.set(String(params.id), session);
+      return session;
+    }),
+    updateSession: vi.fn(),
+  };
+  const subagentRunStore = {
+    insertSubagentRun: vi.fn((run: Record<string, unknown>) => {
+      runs.set(run.id as string, { ...run });
+    }),
+    updateSubagentRunStatus: vi.fn(),
+    updateSubagentRunSessionKey: vi.fn(),
+    updateSubagentRunChildSession: vi.fn(),
+    getSubagentRun: vi.fn((id: string) => runs.get(id) ?? null),
+    listSubagentRuns: vi.fn(() => Array.from(runs.values())),
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    store as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const childSessionKey = 'agent:child-agent:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31';
+
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async (method: string, params?: unknown) => {
+      requests.push({ method, params: params as Record<string, unknown> });
+      if (method === 'sessions.messages.subscribe') {
+        return { subscribed: true, key: childSessionKey };
+      }
+      if (method === 'chat.history') {
+        return { messages: [] };
+      }
+      return {};
+    },
+  };
+
+  adapter.subagentTracker.onToolStart(
+    'call-worker',
+    { agentId: 'child-task-name', task: 'do child work' },
+    parentSession.id,
+  );
+  adapter.subagentTracker.onSpawnResult(
+    'call-worker',
+    JSON.stringify({
+      status: 'accepted',
+      childSessionKey,
+    }),
+    {},
+  );
+  await Promise.resolve();
+
+  expect(store.upsertSubagentChildSession).not.toHaveBeenCalled();
+  expect(requests).toContainEqual({
+    method: 'sessions.messages.subscribe',
+    params: {
+      key: childSessionKey,
+      agentId: 'child-agent',
+    },
+  });
+});
+
+test('unmapped subagent assistant stream is cached for subtask history', async () => {
+  const parentSession = {
+    id: 'parent-session',
+    agentId: 'child-agent',
+    messages: [],
+  };
+  const runs = new Map<string, Record<string, unknown>>();
+  const store = {
+    getSession: vi.fn((sessionId: string) => (
+      sessionId === parentSession.id ? parentSession : null
+    )),
+    getAgent: vi.fn(() => ({ name: 'Child Agent' })),
+    updateSession: vi.fn(),
+  };
+  const subagentRunStore = {
+    insertSubagentRun: vi.fn((run: Record<string, unknown>) => {
+      runs.set(run.id as string, { ...run });
+    }),
+    updateSubagentRunStatus: vi.fn(),
+    updateSubagentRunSessionKey: vi.fn(),
+    updateSubagentRunChildSession: vi.fn(),
+    getSubagentRun: vi.fn((id: string) => runs.get(id) ?? null),
+    findSubagentRunBySessionKey: vi.fn((sessionKey: string) =>
+      Array.from(runs.values()).find(run => run.sessionKey === sessionKey) ?? null,
+    ),
+    listSubagentRuns: vi.fn(() => Array.from(runs.values())),
+    isMessagesPersisted: vi.fn(() => false),
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    store as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const childSessionKey = 'agent:child-agent:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31';
+
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async (method: string) => (
+      method === 'sessions.messages.subscribe'
+        ? { subscribed: true, key: childSessionKey }
+        : { messages: [] }
+    ),
+  };
+
+  adapter.subagentTracker.onToolStart(
+    'call-worker',
+    { agentId: 'child-agent', task: 'do child work' },
+    parentSession.id,
+  );
+  adapter.subagentTracker.onSpawnResult(
+    'call-worker',
+    JSON.stringify({
+      status: 'accepted',
+      childSessionKey,
+    }),
+    {},
+  );
+  (adapter as unknown as {
+    processAgentAssistantText: (payload: unknown) => void;
+  }).processAgentAssistantText({
+    event: 'agent',
+    stream: 'assistant',
+    sessionKey: childSessionKey,
+    runId: 'child-run',
+    data: { text: 'child streamed answer' },
+  });
+
+  const messages = await adapter.getSubTaskHistory(parentSession.id, 'call-worker', childSessionKey);
+  expect(messages).toHaveLength(1);
+  expect(messages[0]).toMatchObject({
+    type: 'assistant',
+    content: 'child streamed answer',
+  });
+});
+
+test('unmapped subagent session.tool events are cached for subtask history', async () => {
+  const parentSession = {
+    id: 'parent-session',
+    agentId: 'child-agent',
+    messages: [],
+  };
+  const runs = new Map<string, Record<string, unknown>>();
+  const store = {
+    getSession: vi.fn((sessionId: string) => (
+      sessionId === parentSession.id ? parentSession : null
+    )),
+    getAgent: vi.fn(() => ({ name: 'Child Agent' })),
+    updateSession: vi.fn(),
+  };
+  const subagentRunStore = {
+    insertSubagentRun: vi.fn((run: Record<string, unknown>) => {
+      runs.set(run.id as string, { ...run });
+    }),
+    updateSubagentRunStatus: vi.fn(),
+    updateSubagentRunSessionKey: vi.fn(),
+    updateSubagentRunChildSession: vi.fn(),
+    getSubagentRun: vi.fn((id: string) => runs.get(id) ?? null),
+    findSubagentRunBySessionKey: vi.fn((sessionKey: string) =>
+      Array.from(runs.values()).find(run => run.sessionKey === sessionKey) ?? null,
+    ),
+    listSubagentRuns: vi.fn(() => Array.from(runs.values())),
+    isMessagesPersisted: vi.fn(() => false),
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    store as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const childSessionKey = 'agent:child-agent:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31';
+
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async (method: string) => (
+      method === 'sessions.messages.subscribe'
+        ? { subscribed: true, key: childSessionKey }
+        : { messages: [] }
+    ),
+  };
+
+  adapter.subagentTracker.onToolStart(
+    'call-worker',
+    { agentId: 'child-agent', task: 'do child work' },
+    parentSession.id,
+  );
+  adapter.subagentTracker.onSpawnResult(
+    'call-worker',
+    JSON.stringify({
+      status: 'accepted',
+      childSessionKey,
+    }),
+    {},
+  );
+
+  (adapter as unknown as {
+    handleGatewayEvent: (event: unknown) => void;
+  }).handleGatewayEvent({
+    event: 'session.tool',
+    payload: {
+      runId: 'child-run',
+      sessionKey: childSessionKey,
+      data: {
+        tag: 'tool_call_created',
+        title: 'exec',
+        toolCallId: 'exec_1',
+        rawInput: { command: 'pwd' },
+      },
+    },
+  });
+  (adapter as unknown as {
+    handleGatewayEvent: (event: unknown) => void;
+  }).handleGatewayEvent({
+    event: 'session.tool',
+    payload: {
+      runId: 'child-run',
+      sessionKey: childSessionKey,
+      data: {
+        tag: 'tool_call_done',
+        title: 'exec',
+        toolCallId: 'exec_1',
+        rawOutput: '/tmp\n',
+      },
+    },
+  });
+
+  const messages = await adapter.getSubTaskHistory(parentSession.id, 'call-worker', childSessionKey);
+  expect(messages).toHaveLength(2);
+  expect(messages[0]).toMatchObject({
+    type: 'tool_use',
+    metadata: {
+      toolName: 'exec',
+      toolInput: { command: 'pwd' },
+      toolUseId: 'exec_1',
+    },
+  });
+  expect(messages[1]).toMatchObject({
+    type: 'tool_result',
+    content: '/tmp\n',
+    metadata: {
+      toolResult: '/tmp\n',
+      toolUseId: 'exec_1',
+      isError: false,
+      isFinal: true,
+    },
+  });
 });
 
 test('collectChannelHistoryEntries skips heartbeat prompt and ack messages', () => {

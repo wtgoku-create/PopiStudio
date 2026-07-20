@@ -6,7 +6,10 @@ import { AppUpdateIpc } from '../shared/appUpdate/constants';
 import { ArtifactPreviewIpc } from '../shared/artifactPreview/constants';
 import { BrowserIpc, type BrowserRuntimeProfile } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
-import { CoworkIpcChannel } from '../shared/cowork/constants';
+import {
+  CoworkIpcChannel,
+  type CoworkSubagentMessagesChangedEvent,
+} from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc } from '../shared/folder/constants';
 import {
@@ -425,8 +428,13 @@ contextBridge.exposeInMainWorld('electron', {
     },
     onSessionsChanged: (callback: (data?: { sessionId?: string }) => void) => {
       const handler = (_event: any, data?: { sessionId?: string }) => callback(data);
-      ipcRenderer.on('cowork:sessions:changed', handler);
-      return () => ipcRenderer.removeListener('cowork:sessions:changed', handler);
+      ipcRenderer.on(CoworkIpcChannel.SessionsChanged, handler);
+      return () => ipcRenderer.removeListener(CoworkIpcChannel.SessionsChanged, handler);
+    },
+    onSubagentMessagesChanged: (callback: (data: CoworkSubagentMessagesChangedEvent) => void) => {
+      const handler = (_event: any, data: CoworkSubagentMessagesChangedEvent) => callback(data);
+      ipcRenderer.on(CoworkIpcChannel.SubagentMessagesChanged, handler);
+      return () => ipcRenderer.removeListener(CoworkIpcChannel.SubagentMessagesChanged, handler);
     },
     onOpenSessionFromNotification: (callback: (data: { sessionId: string }) => void) => {
       const handler = (_event: any, data: { sessionId: string }) => callback(data);

@@ -22,6 +22,7 @@ export type CoworkSessionSourceKind =
   typeof CoworkSessionSourceKind[keyof typeof CoworkSessionSourceKind];
 
 export const CoworkIpcChannel = {
+  SessionsChanged: 'cowork:sessions:changed',
   ListAgentSidebarSessions: 'cowork:session:listAgentSidebar',
   GetMessageRailIndex: 'cowork:session:getMessageRailIndex',
   GetMessages: 'cowork:session:getMessages',
@@ -31,9 +32,26 @@ export const CoworkIpcChannel = {
   GoalCommand: 'cowork:session:goalCommand',
   SubmitSteer: 'cowork:session:submitSteer',
   StreamGoal: 'cowork:stream:goal',
+  SubagentMessagesChanged: 'cowork:subagent:messagesChanged',
   MarkSessionViewed: 'cowork:session:markViewed',
   OpenSessionFromNotification: 'cowork:session:openFromNotification',
 } as const;
 
 export type CoworkIpcChannel =
   typeof CoworkIpcChannel[keyof typeof CoworkIpcChannel];
+
+export interface CoworkSubagentMessageChangedMessage {
+  id: string;
+  type: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'system';
+  content: string;
+  timestamp: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CoworkSubagentMessagesChangedEvent {
+  parentSessionId: string;
+  runId: string;
+  sessionKey?: string;
+  status?: 'running' | 'done' | 'error';
+  messages?: CoworkSubagentMessageChangedMessage[];
+}

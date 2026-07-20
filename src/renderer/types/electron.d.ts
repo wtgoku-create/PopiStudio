@@ -6,6 +6,7 @@ import type {
 } from '../../shared/browserWebAccess/constants';
 import type { CoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
+import type { CoworkSubagentMessagesChangedEvent } from '../../shared/cowork/constants';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type {
   DistillPage,
@@ -761,6 +762,7 @@ interface IElectronAPI {
     ) => () => void;
     onStreamError: (callback: (data: { sessionId: string; error: string }) => void) => () => void;
     onSessionsChanged: (callback: (data?: { sessionId?: string }) => void) => () => void;
+    onSubagentMessagesChanged?: (callback: (data: CoworkSubagentMessagesChangedEvent) => void) => () => void;
     onOpenSessionFromNotification?: (
       callback: (data: { sessionId: string }) => void,
     ) => () => void;

@@ -20,6 +20,7 @@ import {
   type CoworkSessionStatus,
   CoworkSessionStatusValue,
   type CoworkSessionSummary,
+  type SubagentSessionSummary,
 } from '../../types/cowork';
 import { removeSessionFromState, removeSessionsFromState } from './coworkDeleteState';
 
@@ -57,6 +58,10 @@ interface CoworkState {
   notifiedCompactionBySessionId: Record<string, number>;
   messageRailIndexBySessionId: Record<string, CoworkMessageRailIndexItem[]>;
   messageRailIndexLoadingBySessionId: Record<string, boolean>;
+  subagentRunsByParentSessionId: Record<string, SubagentSessionSummary[]>;
+  subagentRunsLoadingByParentSessionId: Record<string, boolean>;
+  subagentMessagesByRunId: Record<string, CoworkMessage[]>;
+  subagentMessagesLoadingByRunId: Record<string, boolean>;
   remoteManaged: boolean;
   pendingPermissions: CoworkPermissionRequest[];
   config: CoworkConfig;
@@ -82,6 +87,10 @@ const initialState: CoworkState = {
   notifiedCompactionBySessionId: {},
   messageRailIndexBySessionId: {},
   messageRailIndexLoadingBySessionId: {},
+  subagentRunsByParentSessionId: {},
+  subagentRunsLoadingByParentSessionId: {},
+  subagentMessagesByRunId: {},
+  subagentMessagesLoadingByRunId: {},
   remoteManaged: false,
   pendingPermissions: [],
   config: {
@@ -477,6 +486,12 @@ const coworkSlice = createSlice({
       delete state.rejectedSteers[action.payload];
       delete state.messageRailIndexBySessionId[action.payload];
       delete state.messageRailIndexLoadingBySessionId[action.payload];
+      for (const run of state.subagentRunsByParentSessionId[action.payload] ?? []) {
+        delete state.subagentMessagesByRunId[run.id];
+        delete state.subagentMessagesLoadingByRunId[run.id];
+      }
+      delete state.subagentRunsByParentSessionId[action.payload];
+      delete state.subagentRunsLoadingByParentSessionId[action.payload];
     },
 
     deleteSessions(state, action: PayloadAction<string[]>) {
@@ -487,7 +502,65 @@ const coworkSlice = createSlice({
         delete state.rejectedSteers[sessionId];
         delete state.messageRailIndexBySessionId[sessionId];
         delete state.messageRailIndexLoadingBySessionId[sessionId];
+        for (const run of state.subagentRunsByParentSessionId[sessionId] ?? []) {
+          delete state.subagentMessagesByRunId[run.id];
+          delete state.subagentMessagesLoadingByRunId[run.id];
+        }
+        delete state.subagentRunsByParentSessionId[sessionId];
+        delete state.subagentRunsLoadingByParentSessionId[sessionId];
       }
+    },
+
+    setSubagentRunsLoading(state, action: PayloadAction<{ parentSessionId: string; loading: boolean }>) {
+      const { parentSessionId, loading } = action.payload;
+      if (loading) {
+        state.subagentRunsLoadingByParentSessionId[parentSessionId] = true;
+      } else {
+        delete state.subagentRunsLoadingByParentSessionId[parentSessionId];
+      }
+    },
+
+    setSubagentRuns(state, action: PayloadAction<{ parentSessionId: string; runs: SubagentSessionSummary[] }>) {
+      const { parentSessionId, runs } = action.payload;
+      state.subagentRunsByParentSessionId[parentSessionId] = runs;
+      delete state.subagentRunsLoadingByParentSessionId[parentSessionId];
+    },
+
+    updateSubagentRunStatus(
+      state,
+      action: PayloadAction<{
+        parentSessionId: string;
+        runId: string;
+        sessionKey?: string;
+        status: SubagentSessionSummary['status'];
+        endedAt?: number | null;
+      }>,
+    ) {
+      const { parentSessionId, runId, sessionKey, status, endedAt } = action.payload;
+      const runs = state.subagentRunsByParentSessionId[parentSessionId];
+      if (!runs) return;
+      const index = runs.findIndex(item => item.id === runId || (!!sessionKey && item.sessionKey === sessionKey));
+      if (index < 0) return;
+      runs[index] = {
+        ...runs[index],
+        status,
+        endedAt: status === 'running' ? runs[index].endedAt : endedAt ?? runs[index].endedAt ?? Date.now(),
+      };
+    },
+
+    setSubagentMessagesLoading(state, action: PayloadAction<{ runId: string; loading: boolean }>) {
+      const { runId, loading } = action.payload;
+      if (loading) {
+        state.subagentMessagesLoadingByRunId[runId] = true;
+      } else {
+        delete state.subagentMessagesLoadingByRunId[runId];
+      }
+    },
+
+    setSubagentMessages(state, action: PayloadAction<{ runId: string; messages: CoworkMessage[] }>) {
+      const { runId, messages } = action.payload;
+      state.subagentMessagesByRunId[runId] = messages;
+      delete state.subagentMessagesLoadingByRunId[runId];
     },
 
     setMessageRailIndexLoading(state, action: PayloadAction<{ sessionId: string; loading: boolean }>) {
@@ -823,6 +896,11 @@ export const {
   setMessageRailIndexLoading,
   setMessageRailIndex,
   setMessageWindow,
+  setSubagentRunsLoading,
+  setSubagentRuns,
+  updateSubagentRunStatus,
+  setSubagentMessagesLoading,
+  setSubagentMessages,
   addMessage,
   appendMessages,
   prependMessages,

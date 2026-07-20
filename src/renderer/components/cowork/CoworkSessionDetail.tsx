@@ -130,7 +130,6 @@ const ARTIFACT_PANEL_TRANSITION_MS = 200;
 const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
 const COWORK_DETAIL_MIN_WIDTH = 480;
 const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
-const SUBAGENT_PANEL_POLL_INTERVAL_MS = 3000;
 const AUTO_PREVIEW_ARTIFACT_SETTLE_MS = 600;
 const EXPANDED_CONVERSATION_PREVIEW_ITEM_LIMIT = 6;
 const EXPANDED_CONVERSATION_PREVIEW_ITEM_MAX_LENGTH = 140;
@@ -1606,8 +1605,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [activeSpecialPreviewTab, setActiveSpecialPreviewTab] = useState<ArtifactSpecialTab>(ArtifactSpecialTab.FileList);
   const [browserPreviewAddress, setBrowserPreviewAddress] = useState('');
   const [browserPreviewUrl, setBrowserPreviewUrl] = useState('');
-  const [subagents, setSubagents] = useState<SubagentSessionSummary[]>([]);
-  const [subagentsLoading, setSubagentsLoading] = useState(false);
   const [selectedSubagent, setSelectedSubagent] = useState<SubagentSessionSummary | null>(null);
   const [showArtifactAddMenu, setShowArtifactAddMenu] = useState(false);
   const [artifactAddMenuPosition, setArtifactAddMenuPosition] = useState<{ left: number; top: number } | null>(null);
@@ -1658,67 +1655,17 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       .filter((item): item is { tab: typeof artifactPreviewTabs[number]; artifact: Artifact } => Boolean(item.artifact));
   }, [artifactPreviewTabs, sessionArtifacts]);
   const shouldPinArtifactAddTab = artifactTabsIsOverflowing || artifactTabsCanScrollLeft || artifactTabsCanScrollRight;
-  const fetchSubagents = useCallback(async (targetSessionId: string, options: { showLoading?: boolean } = {}) => {
-    if (!targetSessionId) return;
-    if (options.showLoading) {
-      setSubagentsLoading(true);
-    }
-
-    try {
-      const result = await window.electron?.cowork?.listSubagentSessions(targetSessionId);
-      if (targetSessionId !== currentSession?.id) return;
-      if (!result?.success || !Array.isArray(result.runs)) {
-        setSubagents([]);
-        return;
-      }
-
-      setSubagents(result.runs.map((run) => ({
-        id: run.id,
-        agentId: run.agentId,
-        task: run.task,
-        label: run.label,
-        sessionKey: run.sessionKey,
-        childCoworkSessionId: run.childCoworkSessionId,
-        parentSessionId: targetSessionId,
-        status: run.status,
-        createdAt: run.createdAt,
-        endedAt: run.endedAt ?? null,
-      })));
-    } catch {
-      if (targetSessionId === currentSession?.id) {
-        setSubagents([]);
-      }
-    } finally {
-      if (targetSessionId === currentSession?.id) {
-        setSubagentsLoading(false);
-      }
-    }
-  }, [currentSession?.id]);
+  const subagents = useSelector((state: RootState) => (
+    sessionId ? state.cowork.subagentRunsByParentSessionId[sessionId] ?? [] : []
+  ));
+  const subagentsLoading = useSelector((state: RootState) => (
+    sessionId ? state.cowork.subagentRunsLoadingByParentSessionId[sessionId] === true : false
+  ));
 
   useEffect(() => {
     if (!sessionId) return;
-    void fetchSubagents(sessionId, { showLoading: subagents.length === 0 });
-  }, [fetchSubagents, messagesLength, sessionId, subagents.length]);
-
-  useEffect(() => {
-    if (!sessionId) return undefined;
-    const hasRunningSubagents = subagents.some(subagent => subagent.status === 'running');
-    const shouldPoll = isSubagentPreviewTabOpen
-      || hasRunningSubagents
-      || currentSession?.status === CoworkSessionStatusValue.Running;
-    if (!shouldPoll) return undefined;
-
-    const timer = window.setInterval(() => {
-      void fetchSubagents(sessionId);
-    }, SUBAGENT_PANEL_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [
-    currentSession?.status,
-    fetchSubagents,
-    isSubagentPreviewTabOpen,
-    sessionId,
-    subagents,
-  ]);
+    void coworkService.loadSubagents(sessionId, { showLoading: subagents.length === 0 });
+  }, [sessionId]);
 
   const subagentsByRunId = useMemo(() => new Map(
     subagents.map(subagent => [subagent.id, subagent]),
@@ -1940,10 +1887,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setSessionSubagentPreviewTabOpen(true);
     setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.Subagents);
     dispatch(activateArtifactSubagentTab({ sessionId }));
-    void fetchSubagents(sessionId, { showLoading: subagents.length === 0 });
+    void coworkService.loadSubagents(sessionId, { showLoading: subagents.length === 0 });
   }, [
     dispatch,
-    fetchSubagents,
     sessionId,
     setSessionActiveSpecialPreviewTab,
     setSessionSubagentPreviewTabOpen,
@@ -1955,10 +1901,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setSessionSubagentPreviewTabOpen(true);
     setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.Subagents);
     dispatch(activateArtifactSubagentTab({ sessionId }));
-    void fetchSubagents(sessionId, { showLoading: subagents.length === 0 });
+    void coworkService.loadSubagents(sessionId, { showLoading: subagents.length === 0 });
   }, [
     dispatch,
-    fetchSubagents,
     sessionId,
     setSessionActiveSpecialPreviewTab,
     setSessionSubagentPreviewTabOpen,
@@ -1971,10 +1916,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setSessionSubagentPreviewTabOpen(true);
     setSessionActiveSpecialPreviewTab(ArtifactSpecialTab.Subagents);
     dispatch(activateArtifactSubagentTab({ sessionId }));
-    void fetchSubagents(sessionId, { showLoading: subagents.length === 0 });
+    void coworkService.loadSubagents(sessionId, { showLoading: subagents.length === 0 });
   }, [
     dispatch,
-    fetchSubagents,
     sessionId,
     setSessionActiveSpecialPreviewTab,
     setSessionSubagentPreviewTabOpen,

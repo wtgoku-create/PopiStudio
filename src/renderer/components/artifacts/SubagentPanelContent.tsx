@@ -1,7 +1,10 @@
 import { ArrowLeftIcon } from '@heroicons/react/20/solid';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { useSelector } from 'react-redux';
 
+import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
+import type { RootState } from '../../store';
 import type { CoworkMessage, SubagentSessionSummary } from '../../types/cowork';
 import ConversationTurnsView from '../cowork/ConversationTurnsView';
 
@@ -12,8 +15,6 @@ interface SubagentPanelContentProps {
   onBackToList?: () => void;
   onSelectSubagent: (subagent: SubagentSessionSummary) => void;
 }
-
-const SUBAGENT_DETAIL_POLL_INTERVAL_MS = 5_000;
 
 const formatDuration = (createdAt: number, endedAt: number | null): string => {
   const elapsed = Math.max(0, (endedAt ?? Date.now()) - createdAt);
@@ -97,60 +98,21 @@ const SubagentDetailContent: React.FC<{
   subagent: SubagentSessionSummary;
   onBack: () => void;
 }> = ({ subagent, onBack }) => {
-  const [messages, setMessages] = useState<CoworkMessage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<SubagentSessionSummary['status']>(subagent.status);
+  const messages = useSelector((state: RootState) => state.cowork.subagentMessagesByRunId[subagent.id] ?? []);
+  const loading = useSelector((state: RootState) => state.cowork.subagentMessagesLoadingByRunId[subagent.id] === true);
   const contentRef = useRef<HTMLDivElement>(null);
   const previousMessageCountRef = useRef(0);
 
-  const fetchHistory = useCallback(async (showLoading = false) => {
-    if (!subagent.parentSessionId) return;
-    if (showLoading) {
-      setLoading(true);
-    }
-    try {
-      const result = await window.electron?.cowork?.getSubTaskHistory({
-        parentSessionId: subagent.parentSessionId,
-        agentId: subagent.id,
-        sessionKey: subagent.sessionKey ?? undefined,
-      });
-      if (result?.success && result.messages) {
-        setMessages(result.messages as CoworkMessage[]);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [subagent.id, subagent.parentSessionId, subagent.sessionKey]);
-
-  const fetchStatus = useCallback(async () => {
-    if (!subagent.parentSessionId) return;
-    try {
-      const result = await window.electron?.cowork?.listSubagentSessions(subagent.parentSessionId);
-      const run = result?.success ? result.runs?.find(item => item.id === subagent.id) : undefined;
-      if (run?.status) {
-        setStatus(run.status);
-      }
-    } catch {
-      // Keep the last known status; detail history may still be readable.
-    }
-  }, [subagent.id, subagent.parentSessionId]);
-
   useEffect(() => {
-    setMessages([]);
-    setStatus(subagent.status);
     previousMessageCountRef.current = 0;
-    void fetchHistory(true);
-    void fetchStatus();
-  }, [fetchHistory, fetchStatus, subagent.id, subagent.status]);
-
-  useEffect(() => {
-    if (status !== 'running') return undefined;
-    const timer = window.setInterval(() => {
-      void fetchHistory();
-      void fetchStatus();
-    }, SUBAGENT_DETAIL_POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [fetchHistory, fetchStatus, status]);
+    if (!subagent.parentSessionId || messages.length > 0) return;
+    void coworkService.loadSubagentHistory(
+      subagent.parentSessionId,
+      subagent.id,
+      subagent.sessionKey ?? undefined,
+      { showLoading: true },
+    );
+  }, [messages.length, subagent.id, subagent.parentSessionId, subagent.sessionKey]);
 
   useEffect(() => {
     if (messages.length <= previousMessageCountRef.current || !contentRef.current) {
@@ -194,8 +156,8 @@ const SubagentDetailContent: React.FC<{
           )}
         </div>
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-surface px-2 py-1 text-xs text-secondary">
-          <SubagentStatusDot status={status} />
-          <span>{getSubagentStatusLabel(status)}</span>
+          <SubagentStatusDot status={subagent.status} />
+          <span>{getSubagentStatusLabel(subagent.status)}</span>
         </span>
       </div>
       <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto">
@@ -206,7 +168,7 @@ const SubagentDetailContent: React.FC<{
         ) : (
           <ConversationTurnsView
             messages={effectiveMessages}
-            isStreaming={status === 'running'}
+            isStreaming={subagent.status === 'running'}
             readOnly
             className="py-2"
           />
