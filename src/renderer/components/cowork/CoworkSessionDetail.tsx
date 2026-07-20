@@ -118,6 +118,7 @@ const NAV_SCROLL_LOCK_DURATION = 800;
 const NAV_BOTTOM_SNAP_THRESHOLD = 20;
 const SCROLL_TO_BOTTOM_SETTLE_THRESHOLD = 24;
 const SCROLL_TO_BOTTOM_SETTLE_DELAYS_MS = [600, 1200, 1800] as const;
+const USER_SCROLL_AWAY_SUPPRESS_MS = 1200;
 const WHEEL_DELTA_LINE_HEIGHT = 16;
 const RAIL_LONG_JUMP_VIEWPORT_MULTIPLIER = 2.5;
 const RAIL_LINE_DEFAULT_WIDTH = 8;
@@ -1187,6 +1188,21 @@ const getWikiFoundKnowledgeBaseIds = (payload: Record<string, unknown>, slug: st
 
 const EMPTY_ARTIFACTS: Artifact[] = [];
 const EMPTY_ARTIFACT_PREVIEW_TABS: ArtifactPreviewTab[] = [];
+const EMPTY_SELECTED_SNIPPETS: CoworkSelectedTextSnippet[] = [];
+const EMPTY_SUBAGENT_RUNS: SubagentSessionSummary[] = [];
+
+// Defer low-priority work (e.g. secondary-panel IPC) until the browser is idle,
+// so it does not compete with the paint of a freshly switched session. Falls
+// back to a macrotask where requestIdleCallback is unavailable.
+const requestIdle = (cb: () => void): number => (
+  typeof requestIdleCallback === 'function'
+    ? requestIdleCallback(cb, { timeout: 200 })
+    : (setTimeout(cb, 0) as unknown as number)
+);
+const cancelIdle = (handle: number): void => {
+  if (typeof cancelIdleCallback === 'function') cancelIdleCallback(handle);
+  else clearTimeout(handle);
+};
 
 const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   onManageSkills,
@@ -1219,7 +1235,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     currentSession?.id ? state.cowork.contextUsageBySessionId[currentSession.id] : undefined
   );
   const selectedDraftSnippets = useSelector((state: RootState) =>
-    currentSession?.id ? state.cowork.draftSelectedTextSnippets[currentSession.id] ?? [] : []
+    currentSession?.id ? state.cowork.draftSelectedTextSnippets[currentSession.id] ?? EMPTY_SELECTED_SNIPPETS : EMPTY_SELECTED_SNIPPETS
   );
   const messageRailIndex = useSelector((state: RootState) =>
     currentSession?.id ? state.cowork.messageRailIndexBySessionId[currentSession.id] : undefined
@@ -1262,6 +1278,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   // and async content growing over several frames must NOT be treated as the user
   // scrolling up to read history.
   const initialPinningRef = useRef(false);
+  // Whether the aggressive first-entry bottom-pin has already run for the current
+  // session entry. It must run once on entry, but NOT restart on every streamed
+  // message — during streaming the well-behaved follow layout effect keeps up and
+  // respects an in-progress upward scroll, whereas restarting the pin loop would
+  // ignore it and yank the viewport back to the bottom. Reset on session change.
+  const entryPinCompletedRef = useRef(false);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
   const [showCompactConfirm, setShowCompactConfirm] = useState(false);
   const [selectedTextAction, setSelectedTextAction] = useState<{
@@ -1274,6 +1296,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const prevScrollHeightRef = useRef<number | null>(null);
   const userInitiatedHistoryScrollRef = useRef(false);
   const scrollToBottomIntentRef = useRef(false);
+  const lastUserScrollAwayAtRef = useRef(0);
   const scrollToBottomSettleTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const suppressSelectedTextActionUntilRef = useRef(0);
   const lastScrollHeightRef = useRef<number>(0);
@@ -1292,6 +1315,22 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     shouldAutoScrollRef.current = enabled;
     setShouldAutoScroll((current) => (current === enabled ? current : enabled));
   }, []);
+  // Pin the viewport to the true bottom. Targets scrollHeight - clientHeight (the
+  // real maximum scrollTop) rather than scrollHeight: writing scrollHeight is an
+  // over-scroll the browser must clamp back, and that clamp — paired with the next
+  // writer re-pinning — is what surfaces as scroll jitter. Skipping the write when
+  // already at the bottom avoids redundant programmatic writes when content height
+  // oscillates a few pixels around the same bottom. Always syncs lastScrollHeightRef.
+  const pinContainerToBottom = useCallback((container: HTMLDivElement) => {
+    const target = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (Math.abs(container.scrollTop - target) >= 1) {
+      container.scrollTop = target;
+    }
+    lastScrollHeightRef.current = container.scrollHeight;
+  }, []);
+  const isSuppressingUserScrollAway = useCallback(() => (
+    Date.now() - lastUserScrollAwayAtRef.current < USER_SCROLL_AWAY_SUPPRESS_MS
+  ), []);
   const settleScrollToBottom = useCallback((options: {
     markIntent?: boolean;
     reducedMotion?: boolean;
@@ -1347,6 +1386,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     userInitiatedHistoryScrollRef.current = true;
     scrollToBottomIntentRef.current = false;
     initialPinningRef.current = false;
+    lastUserScrollAwayAtRef.current = Date.now();
     clearScrollToBottomSettleTimers();
     updateShouldAutoScroll(false);
 
@@ -1656,7 +1696,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   }, [artifactPreviewTabs, sessionArtifacts]);
   const shouldPinArtifactAddTab = artifactTabsIsOverflowing || artifactTabsCanScrollLeft || artifactTabsCanScrollRight;
   const subagents = useSelector((state: RootState) => (
-    sessionId ? state.cowork.subagentRunsByParentSessionId[sessionId] ?? [] : []
+    sessionId ? state.cowork.subagentRunsByParentSessionId[sessionId] ?? EMPTY_SUBAGENT_RUNS : EMPTY_SUBAGENT_RUNS
   ));
   const subagentsLoading = useSelector((state: RootState) => (
     sessionId ? state.cowork.subagentRunsLoadingByParentSessionId[sessionId] === true : false
@@ -1664,7 +1704,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
   useEffect(() => {
     if (!sessionId) return;
-    void coworkService.loadSubagents(sessionId, { showLoading: subagents.length === 0 });
+    // Defer until idle so the switched session paints before the
+    // getSubagentList IPC (and its loading-state dispatch) run.
+    const handle = requestIdle(() => {
+      void coworkService.loadSubagents(sessionId, { showLoading: subagents.length === 0 });
+    });
+    return () => cancelIdle(handle);
   }, [sessionId]);
 
   const subagentsByRunId = useMemo(() => new Map(
@@ -2770,6 +2815,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     userInitiatedHistoryScrollRef.current = false;
     scrollToBottomIntentRef.current = false;
     userDetachedFromBottomRef.current = false;
+    entryPinCompletedRef.current = false;
     updateShouldAutoScroll(true);
     lastScrollHeightRef.current = 0;
     turnElsCacheRef.current = [];
@@ -3299,10 +3345,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         lastScrollHeightRef.current = newHeight;
         return;
       }
-      if (shouldAutoScrollRef.current && !userDetachedFromBottomRef.current) {
+      if (shouldAutoScrollRef.current && !userDetachedFromBottomRef.current && !isSuppressingUserScrollAway()) {
         // Following the bottom: re-pin every time content grows, so an initially
         // under-estimated scrollHeight settles onto the real bottom without flicker.
-        container.scrollTop = newHeight;
+        pinContainerToBottom(container);
       } else {
         // Reading history: keep visible content stable when content above the
         // viewport grows, by shifting scrollTop by the height delta.
@@ -3310,12 +3356,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         if (prevHeight > 0 && prevHeight !== newHeight) {
           container.scrollTop += newHeight - prevHeight;
         }
+        lastScrollHeightRef.current = newHeight;
       }
-      lastScrollHeightRef.current = newHeight;
     });
     ro.observe(content);
     return () => ro.disconnect();
-  }, []);
+  }, [isSuppressingUserScrollAway, pinContainerToBottom]);
 
   // First-entry bottom lock.
   //
@@ -3328,7 +3374,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   // detaches auto-scroll), so it never fights a deliberate upward scroll.
   useEffect(() => {
     if (!currentSession?.id) return undefined;
+    // Run the entry pin at most once per session entry. Subsequent message growth
+    // during streaming is followed by the auto-scroll layout effect, which honors
+    // an in-progress upward scroll; restarting the pin loop here would not.
+    if (entryPinCompletedRef.current) return undefined;
     if (!shouldAutoScrollRef.current || userDetachedFromBottomRef.current) return undefined;
+    // Nothing to pin to yet; wait for messages to load (re-runs on messagesLength).
+    if (messagesLength === 0) return undefined;
+    entryPinCompletedRef.current = true;
 
     let rafId = 0;
     let frames = 0;
@@ -3338,13 +3391,18 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
     const step = () => {
       const container = scrollContainerRef.current;
-      if (!container || !shouldAutoScrollRef.current || userDetachedFromBottomRef.current || isNavigatingRef.current) {
+      if (
+        !container
+        || !shouldAutoScrollRef.current
+        || userDetachedFromBottomRef.current
+        || isNavigatingRef.current
+        || isSuppressingUserScrollAway()
+      ) {
         initialPinningRef.current = false;
         return;
       }
       const height = container.scrollHeight;
-      container.scrollTop = height;
-      lastScrollHeightRef.current = height;
+      pinContainerToBottom(container);
 
       if (height === lastHeight) {
         stableFrames += 1;
@@ -3354,8 +3412,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       }
       frames += 1;
       // Release once height has been steady for several frames, or after a hard
-      // frame cap (~5s at 60fps) so the loop can never run away.
-      if (stableFrames >= 8 || frames >= 300) {
+      // frame cap (~1.5s at 60fps) so the loop can never run away — e.g. when
+      // streaming begins mid-entry and height never holds for 8 straight frames.
+      if (stableFrames >= 8 || frames >= 90) {
         initialPinningRef.current = false;
         return;
       }
@@ -3366,7 +3425,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       cancelAnimationFrame(rafId);
       initialPinningRef.current = false;
     };
-  }, [currentSession?.id, messagesLength]);
+  }, [currentSession?.id, isSuppressingUserScrollAway, messagesLength, pinContainerToBottom]);
 
   const handleScrollToBottomWheel = useCallback((event: React.WheelEvent<HTMLButtonElement>) => {
     const container = scrollContainerRef.current;
@@ -3822,14 +3881,17 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     if (!shouldAutoScrollRef.current) {
       return;
     }
+    if (isSuppressingUserScrollAway()) {
+      return;
+    }
     const container = scrollContainerRef.current;
     if (container) {
       clearScrollToBottomSettleTimers();
-      container.scrollTop = container.scrollHeight;
-      // Keep the height baseline in sync so the content ResizeObserver's history-mode
-      // delta adjustment measures from the real bottom, not a stale value. Any further
-      // growth (placeholder → real content, or late async content) is re-pinned there.
-      lastScrollHeightRef.current = container.scrollHeight;
+      // Pin to the true bottom and sync the height baseline so the content
+      // ResizeObserver's history-mode delta adjustment measures from the real
+      // bottom, not a stale value. Any further growth (placeholder → real content,
+      // or late async content) is re-pinned there.
+      pinContainerToBottom(container);
       setIsScrollable(container.scrollHeight > container.clientHeight);
     }
     // Sync rail index to last when auto-scrolled to bottom
@@ -3840,7 +3902,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       currentRailIndexRef.current = lastRail;
       setCurrentRailIndex(lastRail);
     }
-  }, [clearScrollToBottomSettleTimers, messagesLength, lastMessageContent, isContextCompacting, isStreaming, turns.length]);
+  }, [
+    clearScrollToBottomSettleTimers,
+    isContextCompacting,
+    isStreaming,
+    isSuppressingUserScrollAway,
+    lastMessageContent,
+    messagesLength,
+    pinContainerToBottom,
+    turns.length,
+  ]);
 
 
   if (!currentSession) {
@@ -4506,7 +4577,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                     }`}
                   >
                     <span
-                      className={`block shrink-0 border-solid transition-[width,border-color,opacity] ${
+                      className={`block shrink-0 border-solid transition-[border-color,opacity] ${
                         isLoadingTarget
                           ? 'animate-pulse border-neutral-700 dark:border-neutral-200'
                           : isHighlighted

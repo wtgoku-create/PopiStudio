@@ -35,6 +35,7 @@ import {
   setContextMaintenance,
   setContextUsage,
   setCurrentSession,
+  setCurrentSessionId,
   setHasMoreSessions,
   setMessageRailIndex,
   setMessageRailIndexLoading,
@@ -99,6 +100,22 @@ const restoreCurrentAgentDefaultSkills = (): void => {
 
 const resolveCurrentAgentId = (): string => {
   return store.getState().agent.currentAgentId?.trim() || AgentId.Main;
+};
+
+// Whether a freshly-loaded session is materially identical to the one already
+// shown (e.g. the instant cache), so re-dispatching it would only cause a
+// wasted re-render and pin-loop restart. Compares identity plus the cheap
+// signals that change when messages are appended or edited.
+const isSameLoadedSession = (
+  shown: CoworkSession | null,
+  loaded: CoworkSession,
+): boolean => {
+  if (!shown || shown.id !== loaded.id) return false;
+  if (shown.status !== loaded.status || shown.updatedAt !== loaded.updatedAt) return false;
+  if (shown.totalMessages !== loaded.totalMessages) return false;
+  if (shown.messages.length !== loaded.messages.length) return false;
+  return shown.messages[shown.messages.length - 1]?.id
+    === loaded.messages[loaded.messages.length - 1]?.id;
 };
 
 class CoworkService {
@@ -1104,13 +1121,36 @@ class CoworkService {
     if (!cowork) return null;
     const requestId = ++this.latestLoadSessionRequestId;
 
+    // Instant switch: on revisit render the cached full session immediately; for
+    // a first visit at least switch the selection so the sidebar highlights the
+    // clicked session. Either way the fresh session from getSession is applied
+    // below once the IPC resolves.
+    const coworkState = store.getState().cowork;
+    if (coworkState.currentSessionId !== sessionId) {
+      const cached = coworkState.sessionCacheById[sessionId];
+      if (cached) {
+        store.dispatch(setCurrentSession(cached));
+        store.dispatch(setStreaming(cached.status === 'running'));
+      } else {
+        store.dispatch(setCurrentSessionId(sessionId));
+      }
+    }
+
     const result = await cowork.getSession(sessionId);
     if (result.success && result.session) {
       // Keep only the latest session load result to avoid stale async overwrites.
       if (requestId !== this.latestLoadSessionRequestId) {
         return result.session;
       }
-      store.dispatch(setCurrentSession(result.session));
+      // When the instant cache already rendered this exact session, skip the
+      // refresh dispatch if nothing changed. A redundant setCurrentSession would
+      // re-render the detail view and re-trigger its initial bottom-pin loop,
+      // causing visible jitter and yanking the viewport back to the bottom even
+      // after the user started scrolling.
+      const shown = store.getState().cowork.currentSession;
+      if (!isSameLoadedSession(shown, result.session)) {
+        store.dispatch(setCurrentSession(result.session));
+      }
       store.dispatch(setStreaming(result.session.status === 'running'));
       this.refreshContextUsageForSessionEntry(sessionId);
       void this.loadSessionMessageRailIndex(sessionId);
@@ -1125,6 +1165,12 @@ class CoworkService {
     }
 
     console.error('Failed to load session:', result.error);
+    // The optimistic switch moved currentSessionId ahead of currentSession; the
+    // load failed, so reconcile it back to the still-shown session to avoid the
+    // switching placeholder getting stuck. Only act if this is the latest load.
+    if (requestId === this.latestLoadSessionRequestId) {
+      store.dispatch(setCurrentSessionId(store.getState().cowork.currentSession?.id ?? null));
+    }
     return null;
   }
 

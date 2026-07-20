@@ -94,11 +94,13 @@ const SubagentPanelRow: React.FC<{
   );
 };
 
+const EMPTY_SUBAGENT_MESSAGES: CoworkMessage[] = [];
+
 const SubagentDetailContent: React.FC<{
   subagent: SubagentSessionSummary;
   onBack: () => void;
 }> = ({ subagent, onBack }) => {
-  const messages = useSelector((state: RootState) => state.cowork.subagentMessagesByRunId[subagent.id] ?? []);
+  const messages = useSelector((state: RootState) => state.cowork.subagentMessagesByRunId[subagent.id] ?? EMPTY_SUBAGENT_MESSAGES);
   const loading = useSelector((state: RootState) => state.cowork.subagentMessagesLoadingByRunId[subagent.id] === true);
   const contentRef = useRef<HTMLDivElement>(null);
   const previousMessageCountRef = useRef(0);

@@ -3,9 +3,10 @@ import React, { useEffect, useRef, useState } from 'react';
 /**
  * LazyRenderTurn — Viewport-based lazy rendering wrapper for conversation turns.
  *
- * Renders a lightweight placeholder when the turn is far from the viewport,
- * and renders the actual content when it enters (or is near) the viewport.
- * Once rendered, keeps a cached height so the placeholder matches the real size.
+ * Renders a lightweight placeholder until the turn enters (or is near) the
+ * viewport. Once a turn has rendered, it stays mounted: replacing a long turn
+ * with an estimated-height placeholder while the user scrolls changes the
+ * document height and can make the browser clamp the scroll position.
  *
  * This dramatically reduces DOM node count and React reconciliation work
  * for long conversations (200+ turns).
@@ -63,9 +64,12 @@ const LazyRenderTurn: React.FC<LazyRenderTurnProps> = ({
     return () => observer.disconnect();
   }, [alwaysRender, rootMargin]);
 
-  // Cache height when visible content is rendered
+  const shouldRender = isVisible || alwaysRender || hasRenderedRef.current;
+  const cachedHeight = heightCache.get(turnId);
+
+  // Cache height when content is rendered
   useEffect(() => {
-    if (!isVisible) return;
+    if (!shouldRender) return;
     const el = containerRef.current;
     if (!el) return;
 
@@ -77,10 +81,7 @@ const LazyRenderTurn: React.FC<LazyRenderTurnProps> = ({
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [isVisible, turnId]);
-
-  const shouldRender = isVisible || alwaysRender;
-  const cachedHeight = heightCache.get(turnId);
+  }, [shouldRender, turnId]);
 
   return (
     <div

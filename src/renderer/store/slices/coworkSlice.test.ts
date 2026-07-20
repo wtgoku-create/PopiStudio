@@ -2,7 +2,9 @@ import { expect, test } from 'vitest';
 
 import { CoworkSessionStatusValue } from '../../types/cowork';
 import coworkReducer, {
+  addMessage,
   addSession,
+  deleteSession,
   setConfig,
   setCurrentSession,
   setCurrentSessionId,
@@ -238,3 +240,62 @@ test('updateSessionStatus does not mark the active completed session unread', ()
 
   expect(completedState.unreadSessionIds).toEqual([]);
 });
+
+test('switching away caches the outgoing session and delete purges it', () => {
+  const a = makeSession({ id: 'session-a', title: 'A' });
+  const b = makeSession({ id: 'session-b', title: 'B' });
+
+  // A becomes current but is not cached until it is left.
+  let state = coworkReducer(undefined, setCurrentSession(a));
+  expect(state.sessionCacheById['session-a']).toBeUndefined();
+
+  // Switching to B snapshots the outgoing A into the revisit cache.
+  state = coworkReducer(state, setCurrentSession(b));
+  expect(state.currentSession?.id).toBe('session-b');
+  expect(state.sessionCacheById['session-a']?.title).toBe('A');
+  expect(state.sessionCacheOrder).toContain('session-a');
+
+  // Deleting A removes both the cached snapshot and its LRU bookkeeping.
+  state = coworkReducer(state, deleteSession('session-a'));
+  expect(state.sessionCacheById['session-a']).toBeUndefined();
+  expect(state.sessionCacheOrder).not.toContain('session-a');
+});
+
+test('cached snapshot captures streamed messages and is not mutated by later streaming', () => {
+  const a = makeSession({ id: 'session-a', status: CoworkSessionStatusValue.Running });
+  const b = makeSession({ id: 'session-b' });
+
+  let state = coworkReducer(undefined, setCurrentSession(a));
+  state = coworkReducer(state, addMessage({
+    sessionId: 'session-a',
+    message: { id: 'm1', type: 'assistant', content: 'streamed', timestamp: 5 },
+  }));
+
+  // Leaving A captures the freshest in-memory state, including the streamed msg.
+  state = coworkReducer(state, setCurrentSession(b));
+  expect(state.sessionCacheById['session-a']?.messages.map((m) => m.id)).toEqual(['m1']);
+
+  // Streaming into B must not leak into A's frozen snapshot (Immer aliasing guard).
+  state = coworkReducer(state, addMessage({
+    sessionId: 'session-b',
+    message: { id: 'm2', type: 'assistant', content: 'b msg', timestamp: 6 },
+  }));
+  expect(state.sessionCacheById['session-a']?.messages.map((m) => m.id)).toEqual(['m1']);
+  expect(state.currentSession?.messages.map((m) => m.id)).toContain('m2');
+});
+
+test('revisit cache evicts the least-recently-left session beyond the limit', () => {
+  let state = coworkReducer(undefined, { type: 'init' });
+  const total = 27; // exceeds SESSION_CACHE_LIMIT (25)
+  for (let i = 0; i < total; i += 1) {
+    state = coworkReducer(state, setCurrentSession(makeSession({ id: `session-${i}`, title: `S${i}` })));
+  }
+
+  // 26 sessions were left (session-0..session-25); the current one (session-26)
+  // is not cached yet, so the cache holds the last 25 left sessions.
+  expect(state.sessionCacheOrder.length).toBe(25);
+  expect(state.sessionCacheById['session-0']).toBeUndefined(); // oldest evicted
+  expect(state.sessionCacheById['session-25']?.title).toBe('S25'); // most recently left
+  expect(state.currentSession?.id).toBe('session-26');
+});
+

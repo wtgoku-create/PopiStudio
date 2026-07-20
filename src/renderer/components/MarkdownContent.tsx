@@ -464,6 +464,7 @@ const createMarkdownComponents = (
         className={`max-w-full max-h-96 object-contain rounded-xl ${spacing === 'compact' ? 'my-2' : 'my-4'}${onImageClick ? ' cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
         src={resolvedSrc}
         alt={altText ?? undefined}
+        decoding="async"
         onClick={onImageClick && resolvedSrc ? () => onImageClick({ src: resolvedSrc, alt: altText }) : undefined}
         {...props}
       />

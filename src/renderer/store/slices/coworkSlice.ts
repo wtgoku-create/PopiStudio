@@ -38,6 +38,10 @@ interface CoworkState {
   hasMoreSessions: boolean;
   currentSessionId: string | null;
   currentSession: CoworkSession | null;
+  /** LRU cache of recently-viewed full sessions, keyed by id, for instant revisit. */
+  sessionCacheById: Record<string, CoworkSession>;
+  /** Session ids in least-recently-left → most-recently-left order (LRU bookkeeping). */
+  sessionCacheOrder: string[];
   draftPrompts: Record<string, string>;
   /** Keyed by draftKey (sessionId or '__home__'), stores pending attachments */
   draftAttachments: Record<string, DraftAttachment[]>;
@@ -72,6 +76,8 @@ const initialState: CoworkState = {
   hasMoreSessions: false,
   currentSessionId: null,
   currentSession: null,
+  sessionCacheById: {},
+  sessionCacheOrder: [],
   draftPrompts: {},
   draftAttachments: {},
   draftSelectedTextSnippets: {},
@@ -123,6 +129,32 @@ const initialState: CoworkState = {
 
 export const COWORK_STEER_QUEUE_LIMIT = 20;
 const COWORK_STEER_REJECTED_PREVIEW_LIMIT = 20;
+
+/** Max number of full sessions retained in the revisit cache. */
+const SESSION_CACHE_LIMIT = 25;
+
+// Snapshot the session currently being left into the LRU revisit cache, so that
+// returning to it can render instantly without waiting for the getSession IPC.
+// Called right before currentSession is replaced or cleared, which captures the
+// freshest in-memory state (including messages streamed in while it was open).
+const cacheOutgoingSession = (state: CoworkState) => {
+  const outgoing = state.currentSession;
+  if (!outgoing || outgoing.id.startsWith('temp-')) return;
+  const existingIdx = state.sessionCacheOrder.indexOf(outgoing.id);
+  if (existingIdx !== -1) state.sessionCacheOrder.splice(existingIdx, 1);
+  state.sessionCacheOrder.push(outgoing.id);
+  state.sessionCacheById[outgoing.id] = outgoing;
+  while (state.sessionCacheOrder.length > SESSION_CACHE_LIMIT) {
+    const evicted = state.sessionCacheOrder.shift();
+    if (evicted && evicted !== outgoing.id) delete state.sessionCacheById[evicted];
+  }
+};
+
+const removeSessionFromCache = (state: CoworkState, sessionId: string) => {
+  delete state.sessionCacheById[sessionId];
+  const idx = state.sessionCacheOrder.indexOf(sessionId);
+  if (idx !== -1) state.sessionCacheOrder.splice(idx, 1);
+};
 
 const markSessionRead = (state: CoworkState, sessionId: string | null) => {
   if (!sessionId) return;
@@ -293,6 +325,7 @@ const coworkSlice = createSlice({
     },
 
     setCurrentSession(state, action: PayloadAction<CoworkSession | null>) {
+      cacheOutgoingSession(state);
       if (action.payload) {
         const session = action.payload;
         // Ensure pagination fields are always present (guard against stale IPC data).
@@ -445,6 +478,7 @@ const coworkSlice = createSlice({
     },
 
     addSession(state, action: PayloadAction<CoworkSession>) {
+      cacheOutgoingSession(state);
       const summary = toSessionSummary(action.payload);
       state.sessions.unshift(summary);
       state.currentSession = {
@@ -481,6 +515,7 @@ const coworkSlice = createSlice({
 
     deleteSession(state, action: PayloadAction<string>) {
       removeSessionFromState(state, action.payload);
+      removeSessionFromCache(state, action.payload);
       delete state.steerDrafts[action.payload];
       delete state.pendingSteers[action.payload];
       delete state.rejectedSteers[action.payload];
@@ -497,6 +532,7 @@ const coworkSlice = createSlice({
     deleteSessions(state, action: PayloadAction<string[]>) {
       removeSessionsFromState(state, action.payload);
       for (const sessionId of action.payload) {
+        removeSessionFromCache(state, sessionId);
         delete state.steerDrafts[sessionId];
         delete state.pendingSteers[sessionId];
         delete state.rejectedSteers[sessionId];
@@ -809,6 +845,7 @@ const coworkSlice = createSlice({
     },
 
     clearCurrentSession(state) {
+      cacheOutgoingSession(state);
       state.currentSessionId = null;
       state.currentSession = null;
       state.isStreaming = false;

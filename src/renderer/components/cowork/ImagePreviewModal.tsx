@@ -55,11 +55,11 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ image, onClose })
       role="dialog"
       aria-modal="true"
       aria-label={label}
-      className="fixed inset-0 z-[10000] flex flex-col bg-neutral-950/70 backdrop-blur-sm"
+      className="non-draggable fixed inset-0 z-[10000] flex flex-col bg-neutral-950/70 backdrop-blur-sm"
       onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-end p-4">
+      <div className="non-draggable pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-end p-4">
         <button
           type="button"
           onClick={(event) => {
