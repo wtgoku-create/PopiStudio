@@ -305,6 +305,19 @@ const MANAGED_REPLY_MEDIA_PATH_PROMPT = [
   '- Prefer the message tool when available instead of inline `MEDIA:` text.',
 ].join('\n');
 
+const MANAGED_SUBAGENT_COORDINATION_PROMPT = [
+  '## Subagent Coordination Policy',
+  '',
+  '`sessions_spawn` is non-blocking. A successful `sessions_spawn` result only means the child run was accepted; it does not mean the child finished.',
+  '',
+  '- Do not claim a subagent is complete based on `sessions_spawn` returning `status: "accepted"`.',
+  '- If any later step depends on the child output, call `sessions_yield` immediately after spawning the required child work and wait for the completion/announce message before continuing.',
+  '- Do not write files, upload knowledge, update external systems, or send a final success summary from guessed or partial child output.',
+  '- Do not use partial `sessions_list`, `sessions_history`, or streamed child assistant text as the final child result while that child session is still running.',
+  '- Before starting any dependent follow-up step, confirm the child session reached a terminal state (`done`/`error`) or wait for the subagent completion/announce result.',
+  '- If a child is still running, tell the user it is still running instead of continuing with dependent work.',
+].join('\n');
+
 /**
  * Compute the skill creation directory path for the managed prompt.
  * Returns a forward-slash-normalized, ~-compacted path suitable for
@@ -3007,6 +3020,7 @@ export class OpenClawConfigSync {
       sections.push(MANAGED_BROWSER_POLICY_PROMPT);
       sections.push(MANAGED_EXEC_SAFETY_PROMPT);
       sections.push(MANAGED_REPLY_MEDIA_PATH_PROMPT);
+      sections.push(MANAGED_SUBAGENT_COORDINATION_PROMPT);
       sections.push(MANAGED_MEMORY_POLICY_PROMPT);
       sections.push(buildManagedSkillCreationPrompt(resolveSkillCreationPath()));
 

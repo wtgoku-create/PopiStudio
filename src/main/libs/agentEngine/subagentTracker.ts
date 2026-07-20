@@ -11,6 +11,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 };
 
+const resolveSpawnDisplayLabel = (...sources: Array<Record<string, unknown> | null | undefined>): string | null => {
+  for (const source of sources) {
+    const explicitLabel = typeof source?.label === 'string' ? source.label.trim() : '';
+    if (explicitLabel) return explicitLabel;
+    const taskName = typeof source?.taskName === 'string' ? source.taskName.trim() : '';
+    if (taskName) return taskName;
+  }
+  return null;
+};
+
 /**
  * Resolve tool input from a tool_use block, handling multiple field names and formats.
  * The gateway can return tool arguments as:
@@ -133,28 +143,8 @@ export class SubagentTracker {
         : typeof args?.label === 'string' && args.label
           ? args.label
           : toolCallId;
-    const task = typeof args?.task === 'string' ? args.task : '';
-    const label = typeof args?.label === 'string' ? args.label : undefined;
     if (agentId) {
-      if (!this.subagentMessages.has(toolCallId)) {
-        this.subagentMessages.set(toolCallId, []);
-      }
-      this.subagentToolCallIdToAgentId.set(toolCallId, agentId);
-      // Maintain reverse mapping for onResumeOrReadResult lookups
-      let toolCallIds = this.agentIdToToolCallIds.get(agentId);
-      if (!toolCallIds) {
-        toolCallIds = new Set();
-        this.agentIdToToolCallIds.set(agentId, toolCallIds);
-      }
-      toolCallIds.add(toolCallId);
-      // Store info for deferred DB insertion
-      this.pendingSpawnInfo.set(toolCallId, {
-        agentId,
-        task: task || null,
-        label: label ?? null,
-        parentSessionId: sessionId,
-        createdAt: Date.now(),
-      });
+      this.registerPendingSpawn(toolCallId, args, sessionId, agentId, Date.now());
     }
   }
 
@@ -183,6 +173,32 @@ export class SubagentTracker {
       const parsed = JSON.parse(text);
       this.commitSpawnResult(toolCallId, parsed);
     } catch { /* not JSON */ }
+  }
+
+  /**
+   * Reconstructs a sessions_spawn run from authoritative chat.history when the
+   * realtime tool event was missed after sessions_yield.
+   */
+  onHistorySpawnResult(params: {
+    toolCallId: string;
+    args: Record<string, unknown>;
+    resultText: string;
+    parentSessionId: string;
+    createdAt?: number;
+  }): void {
+    const { toolCallId, args, resultText, parentSessionId } = params;
+    if (!resultText) return;
+    if (this.deletedSubagentRunIds.has(toolCallId)) return;
+
+    try {
+      const parsed = JSON.parse(resultText);
+      const childSessionKey = typeof parsed?.childSessionKey === 'string' ? parsed.childSessionKey : '';
+      const agentId = this.resolveSpawnAgentId(args, childSessionKey, toolCallId);
+      if (!agentId) return;
+
+      this.registerPendingSpawn(toolCallId, args, parentSessionId, agentId, params.createdAt ?? Date.now());
+      this.commitSpawnResult(toolCallId, parsed);
+    } catch { /* result may not be JSON */ }
   }
 
   /**
@@ -260,24 +276,32 @@ export class SubagentTracker {
    * Clears all in-memory subagent tracking state and removes persisted messages.
    */
   onSessionDeleted(parentSessionId?: string): void {
-    if (parentSessionId) {
-      for (const run of this.store.listSubagentRuns(parentSessionId)) {
-        this.deletedSubagentRunIds.add(run.id);
-      }
+    if (!parentSessionId) {
+      this.subagentSessionKeys.clear();
+      this.subagentMessages.clear();
+      this.subagentStatus.clear();
+      this.subagentToolCallIdToAgentId.clear();
+      this.agentIdToToolCallIds.clear();
+      this.pendingSpawnInfo.clear();
+      return;
     }
-    // Clean up persisted messages for this parent session
-    if (parentSessionId && this.messageStore) {
+
+    if (typeof this.store.clearChildSessionReference === 'function') {
+      this.store.clearChildSessionReference(parentSessionId);
+    }
+    const runs = this.store.listSubagentRuns(parentSessionId);
+    if (runs.length === 0) {
+      return;
+    }
+
+    for (const run of runs) {
+      this.deletedSubagentRunIds.add(run.id);
+      this.clearSubagentMemory(run.id);
+    }
+    if (this.messageStore) {
       this.messageStore.deleteByParentSession(parentSessionId);
     }
-    if (parentSessionId) {
-      this.store.deleteSubagentRunsByParent(parentSessionId);
-    }
-    this.subagentSessionKeys.clear();
-    this.subagentMessages.clear();
-    this.subagentStatus.clear();
-    this.subagentToolCallIdToAgentId.clear();
-    this.agentIdToToolCallIds.clear();
-    this.pendingSpawnInfo.clear();
+    this.store.deleteSubagentRunsByParent(parentSessionId);
   }
 
   async deleteSubagentRun(parentSessionId: string, runId: string): Promise<boolean> {
@@ -538,13 +562,14 @@ export class SubagentTracker {
     this.subagentStatus.set(toolCallId, status);
     const pending = this.pendingSpawnInfo.get(toolCallId);
     if (pending) {
+      const displayLabel = pending.label ?? resolveSpawnDisplayLabel(parsed);
       const candidate = {
         runId: toolCallId,
         parentSessionId: pending.parentSessionId,
         childSessionKey,
         agentId: pending.agentId,
         task: pending.task,
-        label: pending.label,
+        label: displayLabel,
         status,
         createdAt: pending.createdAt,
       };
@@ -559,7 +584,7 @@ export class SubagentTracker {
         childCoworkSessionId,
         agentId: pending.agentId,
         task: pending.task,
-        label: pending.label,
+        label: displayLabel,
         status,
         createdAt: pending.createdAt,
         endedAt: isError ? Date.now() : null,
@@ -611,6 +636,36 @@ export class SubagentTracker {
       return args.label.trim();
     }
     return fallback;
+  }
+
+  private registerPendingSpawn(
+    toolCallId: string,
+    args: Record<string, unknown>,
+    parentSessionId: string,
+    agentId: string,
+    createdAt: number,
+  ): void {
+    if (!this.subagentMessages.has(toolCallId)) {
+      this.subagentMessages.set(toolCallId, []);
+    }
+    this.subagentToolCallIdToAgentId.set(toolCallId, agentId);
+
+    let toolCallIds = this.agentIdToToolCallIds.get(agentId);
+    if (!toolCallIds) {
+      toolCallIds = new Set();
+      this.agentIdToToolCallIds.set(agentId, toolCallIds);
+    }
+    toolCallIds.add(toolCallId);
+
+    const task = typeof args?.task === 'string' ? args.task : '';
+    const label = resolveSpawnDisplayLabel(args);
+    this.pendingSpawnInfo.set(toolCallId, {
+      agentId,
+      task: task || null,
+      label,
+      parentSessionId,
+      createdAt,
+    });
   }
 
   private clearSubagentMemory(runId: string): void {

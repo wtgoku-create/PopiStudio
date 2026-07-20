@@ -31,6 +31,7 @@ const createStores = () => {
     }),
     isMessagesPersisted: vi.fn((id: string) => runs.get(id)?.messagesPersisted === true),
     getRunStatus: vi.fn((id: string) => runs.get(id)?.status ?? null),
+    clearChildSessionReference: vi.fn(),
     deleteSubagentRunsByParent: vi.fn((parentSessionId: string) => {
       for (const run of Array.from(runs.values())) {
         if (run.parentSessionId === parentSessionId) runs.delete(run.id);
@@ -219,6 +220,54 @@ test('onSessionDeleted removes subagent runs and messages for the parent session
   expect(runStore.getSubagentRun('run-1')).toBeNull();
   expect(messageStore.hasMessages('run-1')).toBe(false);
   expect(runStore.getSubagentRun('run-2')).not.toBeNull();
+});
+
+test('onSessionDeleted keeps in-memory tracking for other parent sessions', () => {
+  const { runStore, messageStore } = createStores();
+  const tracker = new SubagentTracker(runStore as never, messageStore as never, () => null);
+
+  tracker.onToolStart('run-1', {
+    agentId: 'worker-a',
+    task: 'inspect first session',
+    label: 'Worker A',
+  }, 'parent-1');
+  tracker.onSpawnResult('run-1', JSON.stringify({
+    status: 'accepted',
+    childSessionKey: 'agent:main:subagent:run-1',
+  }), {});
+
+  tracker.onToolStart('run-2', {
+    agentId: 'worker-b',
+    task: 'inspect second session',
+    label: 'Worker B',
+  }, 'parent-2');
+  tracker.onSpawnResult('run-2', JSON.stringify({
+    status: 'accepted',
+    childSessionKey: 'agent:main:subagent:run-2',
+  }), {});
+
+  tracker.onSessionDeleted('parent-1');
+
+  expect(tracker.listRunningChildSessionKeys('parent-1')).toEqual([]);
+  expect(tracker.listRunningChildSessionKeys('parent-2')).toEqual(['agent:main:subagent:run-2']);
+  expect(runStore.clearChildSessionReference).toHaveBeenCalledWith('parent-1');
+});
+
+test('spawn result stores display label from taskName when label is missing', () => {
+  const { runStore, messageStore } = createStores();
+  const tracker = new SubagentTracker(runStore as never, messageStore as never, () => null);
+
+  tracker.onToolStart('run-1', {
+    agentId: 'worker',
+    taskName: 'Image Style Analyzer',
+    task: 'inspect image style',
+  }, 'parent-1');
+  tracker.onSpawnResult('run-1', JSON.stringify({
+    status: 'accepted',
+    childSessionKey: 'agent:main:subagent:run-1',
+  }), {});
+
+  expect(runStore.getSubagentRun('run-1')?.label).toBe('Image Style Analyzer');
 });
 
 test('deleted subagent run is not reinserted by late spawn results', async () => {

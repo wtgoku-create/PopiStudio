@@ -91,6 +91,12 @@ import {
 } from './openclawCronRunHistorySync';
 import { OpenClawTurnHistorySync } from './openclawTurnHistorySync';
 import { buildSubagentChildHistorySyncPlan } from './subagent/childHistorySync';
+import {
+  collectBackfillableHistoryToolEntries,
+  getHistoryToolCallId,
+  getHistoryToolName,
+  isHistoryToolResultRole,
+} from './subagent/historyBackfill';
 import { SubagentSessionMaterializer } from './subagent/sessionMaterializer';
 import { isSubagentSessionKey } from './subagent/sessionKeys';
 import { SubagentTracker } from './subagentTracker';
@@ -114,6 +120,7 @@ import type {
 const OPENCLAW_GATEWAY_TOOL_EVENTS_CAP = 'tool-events';
 const OpenClawGatewayEvent = {
   SessionsChanged: 'sessions.changed',
+  SessionTool: 'session.tool',
 } as const;
 const OpenClawGatewayMethod = {
   SessionsSubscribe: 'sessions.subscribe',
@@ -1119,6 +1126,50 @@ const extractToolText = (payload: unknown): string => {
   } catch {
     return String(payload);
   }
+};
+
+const firstTrimmedString = (value: Record<string, unknown>, keys: string[]): string => {
+  for (const key of keys) {
+    const item = value[key];
+    if (typeof item === 'string' && item.trim()) {
+      return item.trim();
+    }
+  }
+  return '';
+};
+
+const normalizeSessionToolPhase = (phase: string): 'start' | 'update' | 'result' => {
+  const normalized = phase.trim().toLowerCase();
+  if (
+    normalized === 'start'
+    || normalized === 'started'
+    || normalized === 'begin'
+    || normalized === 'running'
+    || normalized === 'tool_call'
+    || normalized === 'in_progress'
+  ) {
+    return 'start';
+  }
+  if (
+    normalized === 'update'
+    || normalized === 'delta'
+    || normalized === 'progress'
+    || normalized === 'partial'
+  ) {
+    return 'update';
+  }
+  return 'result';
+};
+
+const normalizeSessionToolName = (source: Record<string, unknown>, payload: Record<string, unknown>): string => {
+  const explicit = firstTrimmedString(source, ['name', 'toolName', 'tool_name', 'toolId', 'tool_id'])
+    || firstTrimmedString(payload, ['toolName', 'tool']);
+  if (explicit) return explicit;
+
+  const title = firstTrimmedString(source, ['title']);
+  if (!title) return '';
+  const separatorIndex = title.indexOf(':');
+  return (separatorIndex >= 0 ? title.slice(0, separatorIndex) : title).trim();
 };
 
 const isContextMaintenanceToolEvent = (data: Record<string, unknown>): boolean => {
@@ -3871,17 +3922,17 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     turn: ActiveTurn,
     historyMessages: unknown[],
   ): void {
+    this.syncBackfillableToolsFromHistory(sessionId, turn, historyMessages);
+
     for (const msg of historyMessages) {
       if (!isRecord(msg)) continue;
 
       const msgRole = typeof msg.role === 'string' ? msg.role.trim() : '';
-      if (msgRole !== OpenClawHistoryRole.ToolResult && msgRole !== OpenClawHistoryRole.Tool) {
+      if (!isHistoryToolResultRole(msgRole)) {
         continue;
       }
 
-      const msgToolCallId = typeof msg.toolCallId === 'string' ? msg.toolCallId.trim()
-        : typeof msg.tool_call_id === 'string' ? (msg.tool_call_id as string).trim()
-          : '';
+      const msgToolCallId = getHistoryToolCallId(msg);
       if (!msgToolCallId) continue;
 
       const text = extractMessageText(msg);
@@ -3891,9 +3942,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       const hasKnownToolUse = turn.toolUseMessageIdByToolCallId.has(msgToolCallId);
       if (!hasKnownToolUse && !existingResultMsgId) {
         console.debug(
-          '[OpenClawRuntime] skipped a tool result from chat history because it is not part of the current turn.',
+          '[OpenClawRuntime] skipped a tool result from chat history because it is not part of the current turn and was not backfillable.',
           `sessionId=${sessionId}`,
           `toolCallId=${msgToolCallId}`,
+          `toolName=${getHistoryToolName(msg) || 'unknown'}`,
+          `role=${msgRole}`,
+          `len=${text.length}`,
         );
         continue;
       }
@@ -3934,6 +3988,115 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         `toolCallId=${msgToolCallId}`,
         `len=${text.length}`,
         `prevLen=${existingText.length}`,
+      );
+    }
+  }
+
+  private syncBackfillableToolsFromHistory(
+    sessionId: string,
+    turn: ActiveTurn,
+    historyMessages: unknown[],
+  ): void {
+    const entries = collectBackfillableHistoryToolEntries(historyMessages);
+    if (entries.length === 0) return;
+
+    const session = this.store.getSession(sessionId);
+    const existingToolUseIds = new Map<string, string>();
+    const existingToolResultIds = new Map<string, { messageId: string; text: string }>();
+    for (const message of session?.messages ?? []) {
+      if (!isRecord(message)) continue;
+      const metadata = isRecord(message.metadata) ? message.metadata : {};
+      const toolUseId = typeof metadata.toolUseId === 'string' ? metadata.toolUseId.trim() : '';
+      if (!toolUseId) continue;
+      if (message.type === 'tool_use') {
+        existingToolUseIds.set(toolUseId, message.id);
+      } else if (message.type === 'tool_result') {
+        existingToolResultIds.set(toolUseId, {
+          messageId: message.id,
+          text: typeof message.content === 'string' ? message.content : '',
+        });
+      }
+    }
+
+    let materializedToolUses = 0;
+    let materializedToolResults = 0;
+    let trackerUpdates = 0;
+
+    for (const entry of entries) {
+      const existingToolUseMessageId = existingToolUseIds.get(entry.toolCallId);
+      if (!turn.toolUseMessageIdByToolCallId.has(entry.toolCallId) && existingToolUseMessageId) {
+        turn.toolUseMessageIdByToolCallId.set(entry.toolCallId, existingToolUseMessageId);
+      }
+
+      if (!turn.toolUseMessageIdByToolCallId.has(entry.toolCallId) && !existingToolUseMessageId) {
+        const toolUseMessage = this.store.addMessage(sessionId, {
+          type: 'tool_use',
+          content: `Using tool: ${entry.toolName}`,
+          metadata: {
+            toolName: entry.toolName,
+            toolInput: entry.args,
+            toolUseId: entry.toolCallId,
+            isStreaming: false,
+            isFinal: true,
+          },
+        });
+        turn.toolUseMessageIdByToolCallId.set(entry.toolCallId, toolUseMessage.id);
+        existingToolUseIds.set(entry.toolCallId, toolUseMessage.id);
+        materializedToolUses++;
+        this.emit('message', sessionId, toolUseMessage);
+      }
+
+      const existingToolResult = existingToolResultIds.get(entry.toolCallId);
+      if (!turn.toolResultMessageIdByToolCallId.has(entry.toolCallId) && existingToolResult) {
+        turn.toolResultMessageIdByToolCallId.set(entry.toolCallId, existingToolResult.messageId);
+        turn.toolResultTextByToolCallId.set(entry.toolCallId, existingToolResult.text);
+      }
+
+      if (!turn.toolResultMessageIdByToolCallId.has(entry.toolCallId) && !existingToolResult) {
+        const resultMessage = this.store.addMessage(sessionId, {
+          type: 'tool_result',
+          content: entry.resultText,
+          metadata: {
+            toolResult: entry.resultText,
+            toolUseId: entry.toolCallId,
+            isError: entry.resultIsError,
+            isStreaming: false,
+            isFinal: true,
+          },
+        });
+        turn.toolResultMessageIdByToolCallId.set(entry.toolCallId, resultMessage.id);
+        turn.toolResultTextByToolCallId.set(entry.toolCallId, entry.resultText);
+        existingToolResultIds.set(entry.toolCallId, {
+          messageId: resultMessage.id,
+          text: entry.resultText,
+        });
+        materializedToolResults++;
+        this.emit('message', sessionId, resultMessage);
+      }
+
+      if (entry.toolName === 'sessions_spawn') {
+        this.subagentTracker.onHistorySpawnResult({
+          toolCallId: entry.toolCallId,
+          args: entry.args,
+          resultText: entry.resultText,
+          parentSessionId: sessionId,
+          createdAt: entry.resultTimestamp,
+        });
+        trackerUpdates++;
+      } else if (entry.toolName === 'sessions_resume' || entry.toolName === 'sessions_read') {
+        this.subagentTracker.onResumeOrReadResult(entry.args);
+        trackerUpdates++;
+      }
+    }
+
+    if (materializedToolUses > 0 || materializedToolResults > 0 || trackerUpdates > 0) {
+      console.log(
+        '[OpenClawRuntime] synced backfillable tools from chat.history.',
+        `Session ${sessionId}.`,
+        `Entries ${entries.length}.`,
+        `Tool uses ${materializedToolUses}.`,
+        `Tool results ${materializedToolResults}.`,
+        `Tracker updates ${trackerUpdates}.`,
       );
     }
   }
@@ -4266,6 +4429,11 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       return;
     }
 
+    if (event.event === OpenClawGatewayEvent.SessionTool) {
+      this.handleSessionToolEvent(event.payload);
+      return;
+    }
+
     if (event.event === 'exec.approval.requested') {
       this.approvalController.handleExecApprovalRequested(event.payload);
       return;
@@ -4490,10 +4658,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // arrive after the user clicked Stop).  Only channel/cron sessions are
       // allowed to re-create turns after the stop cooldown expires.
       if (this.manuallyStoppedSessions.has(sessionId) && isManagedSessionKey(sessionKey)) {
-        console.log('[Debug:handleAgentEvent] suppressed — desktop session was manually stopped, sessionId:', sessionId);
+        console.debug('[OpenClawRuntime] suppressed agent event for a manually stopped desktop session.');
         return;
       }
-      console.log('[Debug:handleAgentEvent] re-creating ActiveTurn for follow-up turn, sessionId:', sessionId);
+      console.debug('[OpenClawRuntime] recreating active turn for follow-up agent event.');
       this.ensureActiveTurn(sessionId, sessionKey, runId);
     }
 
@@ -4503,14 +4671,17 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         || (!this.heartbeatSessionKeys.has(sessionKey) && this.channelSessionSync.resolveOrCreateMainAgentSession(sessionKey))
         || this.channelSessionSync.resolveOrCreateCronSession(sessionKey)
         || null;
-      console.log('[Debug:handleAgentEvent] channel resolve — channelSessionId:', channelSessionId);
+      console.debug(
+        '[OpenClawRuntime] resolved channel session for agent event.',
+        `Session ${channelSessionId || 'none'}.`,
+      );
       if (channelSessionId) {
         // If this key was previously deleted, allow re-creation but skip history sync
         if (this.deletedChannelKeys.has(sessionKey)) {
           this.deletedChannelKeys.delete(sessionKey);
           this.fullySyncedSessions.add(channelSessionId);
           this.reCreatedChannelSessionIds.add(channelSessionId);
-          console.log('[Debug:handleAgentEvent] re-created after delete, skipping history sync for:', sessionKey);
+          console.debug('[OpenClawRuntime] recreated a deleted channel session and skipped initial history sync.');
         }
         this.rememberSessionKey(channelSessionId, sessionKey);
         sessionId = channelSessionId;
@@ -4519,32 +4690,43 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     if (!sessionId) {
-      console.log('[Debug:handleAgentEvent] no sessionId, dropping event. runId:', runId, 'sessionKey:', sessionKey);
+      if (isSubagentSessionKey(sessionKey)) {
+        if (stream === 'lifecycle'
+          && (lifecyclePhase === AgentLifecyclePhase.End || lifecyclePhase === AgentLifecyclePhase.Error)) {
+          this.subagentTracker.tryMarkTerminalFromSessionKey(
+            sessionKey,
+            lifecyclePhase === AgentLifecyclePhase.Error ? 'error' : 'done',
+          );
+        }
+        console.debug('[OpenClawRuntime] dropped an unmapped subagent event.');
+        return;
+      }
+      console.debug('[OpenClawRuntime] dropped an agent event because no local session was resolved.');
       if (runId) {
         this.enqueuePendingAgentEvent(runId, agentPayload, seq);
       }
       return;
     }
     if (sessionIdByRunId && sessionIdBySessionKey && sessionIdByRunId !== sessionIdBySessionKey) {
-      console.log('[Debug:handleAgentEvent] sessionId mismatch, dropping. byRunId:', sessionIdByRunId, 'bySessionKey:', sessionIdBySessionKey);
+      console.debug('[OpenClawRuntime] dropped an agent event because run and session key mappings disagreed.');
       return;
     }
 
     const turn = this.activeTurns.get(sessionId);
     if (!turn) {
-      console.log('[Debug:handleAgentEvent] no active turn for sessionId:', sessionId);
+      console.debug('[OpenClawRuntime] dropped an agent event because the session has no active turn.');
       return;
     }
 
     if (sessionKey && !runId && turn.sessionKey !== sessionKey) {
-      console.log('[Debug:handleAgentEvent] sessionKey mismatch, dropping. event:', sessionKey, 'turn:', turn.sessionKey);
+      console.debug('[OpenClawRuntime] dropped an agent event because the session key did not match the active turn.');
       return;
     }
 
     if (runId) {
       const mappedSessionId = this.sessionIdByRunId.get(runId);
       if (mappedSessionId && mappedSessionId !== sessionId) {
-        console.log('[Debug:handleAgentEvent] runId mapped to different session, dropping. mapped:', mappedSessionId, 'current:', sessionId);
+        console.debug('[OpenClawRuntime] dropped an agent event because the run mapped to a different session.');
         return;
       }
       this.bindRunIdToTurn(sessionId, runId);
@@ -4553,7 +4735,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // Buffer agent events while user messages are being prefetched for channel sessions.
     // Must be checked BEFORE seq dedup so that replayed events are not dropped.
     if (turn.pendingUserSync) {
-      console.log('[Debug:handleAgentEvent] buffering agent event (pendingUserSync), sessionId:', sessionId, 'buffered:', turn.bufferedAgentPayloads.length + 1);
+      console.debug('[OpenClawRuntime] buffered an agent event while channel user messages are syncing.');
       turn.bufferedAgentPayloads.push({ payload: agentPayload, seq, bufferedAt: Date.now() });
       return;
     }
@@ -4638,6 +4820,93 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       this.handleAgentThinkingEvent(sessionId, turn, agentPayload.data);
       return;
     }
+  }
+
+  private handleSessionToolEvent(payload: unknown): void {
+    if (!isRecord(payload)) return;
+
+    const runId = typeof payload.runId === 'string' ? payload.runId.trim() : '';
+    const sessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey.trim() : '';
+    const sessionId = (runId ? this.sessionIdByRunId.get(runId) : undefined)
+      ?? (sessionKey ? this.resolveSessionIdBySessionKey(sessionKey) ?? undefined : undefined);
+    if (!sessionId) {
+      console.debug('[OpenClawRuntime] ignored a session tool event without a known session.');
+      return;
+    }
+
+    if (runId) {
+      const mappedSessionId = this.sessionIdByRunId.get(runId);
+      if (mappedSessionId && mappedSessionId !== sessionId) {
+        console.debug('[OpenClawRuntime] ignored a session tool event for a different session.');
+        return;
+      }
+    }
+
+    let turn = this.activeTurns.get(sessionId);
+    if (turn && runId && !turn.knownRunIds.has(runId)) {
+      console.debug('[OpenClawRuntime] ignored a session tool event for a stale run.');
+      return;
+    }
+    if (!turn) {
+      if (!sessionKey || this.terminatedRunIds.has(runId)) {
+        console.debug('[OpenClawRuntime] ignored a session tool event without an active turn.');
+        return;
+      }
+      if (this.manuallyStoppedSessions.has(sessionId) && isManagedSessionKey(sessionKey)) {
+        console.debug('[OpenClawRuntime] ignored a session tool event for a manually stopped session.');
+        return;
+      }
+      this.ensureActiveTurn(sessionId, sessionKey, runId);
+      turn = this.activeTurns.get(sessionId);
+    }
+    if (!turn) return;
+
+    if (sessionKey && turn.sessionKey !== sessionKey) {
+      console.debug('[OpenClawRuntime] ignored a session tool event with a mismatched session key.');
+      return;
+    }
+
+    if (runId) {
+      this.bindRunIdToTurn(sessionId, runId);
+    }
+    this.cancelChatFinalCompletion(sessionId, turn, 'session tool event');
+
+    const toolEvent = this.normalizeSessionToolPayload(payload);
+    if (!toolEvent) {
+      console.debug('[OpenClawRuntime] ignored a session tool event with missing tool identity.');
+      return;
+    }
+    this.handleAgentToolEvent(sessionId, turn, toolEvent);
+  }
+
+  private normalizeSessionToolPayload(payload: Record<string, unknown>): Record<string, unknown> | null {
+    const nested = isRecord(payload.tool) ? payload.tool : {};
+    const data = isRecord(payload.data) ? payload.data : {};
+    const source = { ...nested, ...data, ...payload };
+    const toolCallId = firstTrimmedString(source, ['toolCallId', 'tool_call_id', 'callId', 'call_id', 'id']);
+    if (!toolCallId) return null;
+
+    const name = normalizeSessionToolName(source, payload);
+    const tag = firstTrimmedString(source, ['tag', 'sessionUpdate', 'session_update']);
+    const rawPhase = firstTrimmedString(source, ['phase', 'status', 'state']);
+    const phase = tag === 'tool_call_update' && (!rawPhase || rawPhase === 'in_progress')
+      ? 'update'
+      : normalizeSessionToolPhase(rawPhase || tag);
+    const args = source.args ?? source.arguments ?? source.input ?? source.toolInput ?? source.rawInput;
+    const result = source.result ?? source.output ?? source.toolResult ?? source.content ?? source.rawOutput;
+    const partialResult = source.partialResult ?? source.partial ?? source.delta ?? (phase === 'update' ? source.rawOutput : undefined);
+    const isError = Boolean(source.isError ?? source.error ?? rawPhase === 'failed');
+
+    return {
+      ...source,
+      toolCallId,
+      name,
+      phase,
+      args,
+      result,
+      partialResult,
+      isError,
+    };
   }
 
   private enqueuePendingAgentEvent(runId: string, payload: AgentEventPayload, seq?: number): void {
@@ -6815,7 +7084,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
     }
 
-    console.warn('[resolveSessionId] failed — runId:', runId, 'sessionKey:', sessionKey);
+    if (isSubagentSessionKey(sessionKey)) {
+      console.debug('[OpenClawRuntime] skipped local session resolution for an unmapped subagent session.');
+      return null;
+    }
+
+    console.warn(
+      '[OpenClawRuntime] failed to resolve a local session for a chat event.',
+      `Run ${runId || 'unknown'}.`,
+      `Session key ${sessionKey || 'unknown'}.`,
+    );
     return null;
   }
 
@@ -8036,7 +8314,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // the stop cooldown window.  This prevents late-arriving OpenClaw events
     // (e.g. from POPO/Telegram) from restarting a stopped session.
     if (this.isSessionInStopCooldown(sessionId)) {
-      console.log('[Debug:ensureActiveTurn] suppressed — session in stop cooldown, sessionId:', sessionId);
+      console.debug('[OpenClawRuntime] suppressed active turn creation during stop cooldown.');
       return;
     }
     // Once the cooldown has expired, clear the manual-stop marker so that
@@ -8052,10 +8330,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         && !isManagedSessionKey(sessionKey)
         && this.channelSessionSync.isChannelSessionKey(sessionKey);
       if (isChannel) {
-        console.log('[Debug:ensureActiveTurn] cooldown expired, clearing manuallyStoppedSessions for channel re-activation, sessionId:', sessionId);
+        console.debug('[OpenClawRuntime] cleared manual stop marker for channel reactivation.');
         this.manuallyStoppedSessions.delete(sessionId);
       } else {
-        console.log('[Debug:ensureActiveTurn] suppressed — desktop session was manually stopped, sessionId:', sessionId);
+        console.debug('[OpenClawRuntime] suppressed active turn creation for a manually stopped desktop session.');
         return;
       }
     }
@@ -8064,7 +8342,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const isChannel = this.channelSessionSync
       && !isManagedSessionKey(sessionKey)
       && this.channelSessionSync.isChannelSessionKey(sessionKey);
-    console.log('[Debug:ensureActiveTurn] creating turn — sessionId:', sessionId, 'sessionKey:', sessionKey, 'runId:', turnRunId, 'isChannel:', !!isChannel, 'pendingUserSync:', !!isChannel);
+    console.debug(
+      '[OpenClawRuntime] created active turn.',
+      `Session ${sessionId}.`,
+      `Run ${turnRunId}.`,
+      `Channel ${isChannel ? 'yes' : 'no'}.`,
+    );
     const turnStartedAtMs = Date.now();
     this.activeTurns.set(sessionId, {
       sessionId,

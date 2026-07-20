@@ -1791,6 +1791,290 @@ test('tool-use chat final inserts later tools after the preceding assistant segm
   }
 });
 
+test('session.tool gateway events persist tool use and result messages', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'run the workflow', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:popiai:${session.id}`;
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.rememberSessionKey(session.id, sessionKey);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'announce-run'));
+    adapter.sessionIdByRunId.set('announce-run', session.id);
+
+    adapter.handleGatewayEvent({
+      event: 'session.tool',
+      seq: 2,
+      payload: {
+        runId: 'announce-run',
+        sessionKey,
+        phase: 'start',
+        toolName: 'write',
+        toolCallId: 'call-write',
+        args: { path: '/tmp/report.md' },
+      },
+    });
+
+    adapter.handleGatewayEvent({
+      event: 'session.tool',
+      seq: 3,
+      payload: {
+        runId: 'announce-run',
+        sessionKey,
+        phase: 'end',
+        toolName: 'write',
+        toolCallId: 'call-write',
+        result: [
+          { type: 'text', text: 'Successfully wrote 8177 bytes to /tmp/report.md' },
+        ],
+        isError: false,
+      },
+    });
+
+    expect(session.messages.map((message) => message.type)).toEqual([
+      'user',
+      'tool_use',
+      'tool_result',
+    ]);
+    expect(session.messages[1]).toMatchObject({
+      type: 'tool_use',
+      content: 'Using tool: write',
+      metadata: {
+        toolName: 'write',
+        toolInput: { path: '/tmp/report.md' },
+        toolUseId: 'call-write',
+      },
+    });
+    expect(session.messages[2]).toMatchObject({
+      type: 'tool_result',
+      content: 'Successfully wrote 8177 bytes to /tmp/report.md',
+      metadata: {
+        toolResult: 'Successfully wrote 8177 bytes to /tmp/report.md',
+        toolUseId: 'call-write',
+        isError: false,
+        isStreaming: false,
+        isFinal: true,
+      },
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('session.tool gateway events persist tool messages from session update payloads', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'run the workflow', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:popiai:${session.id}`;
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.rememberSessionKey(session.id, sessionKey);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'announce-run'));
+    adapter.sessionIdByRunId.set('announce-run', session.id);
+
+    adapter.handleGatewayEvent({
+      event: 'session.tool',
+      seq: 2,
+      payload: {
+        runId: 'announce-run',
+        sessionKey,
+        stream: 'item',
+        data: {
+          type: 'tool_call',
+          tag: 'tool_call',
+          title: 'write: path: /tmp/report.md',
+          status: 'in_progress',
+          toolCallId: 'call-write',
+          rawInput: { path: '/tmp/report.md' },
+        },
+      },
+    });
+
+    adapter.handleGatewayEvent({
+      event: 'session.tool',
+      seq: 3,
+      payload: {
+        runId: 'announce-run',
+        sessionKey,
+        stream: 'item',
+        data: {
+          type: 'tool_call',
+          tag: 'tool_call_update',
+          title: 'write',
+          status: 'completed',
+          toolCallId: 'call-write',
+          rawOutput: 'Successfully wrote 8177 bytes to /tmp/report.md',
+        },
+      },
+    });
+
+    expect(session.messages.map((message) => message.type)).toEqual([
+      'user',
+      'tool_use',
+      'tool_result',
+    ]);
+    expect(session.messages[1]).toMatchObject({
+      type: 'tool_use',
+      content: 'Using tool: write',
+      metadata: {
+        toolName: 'write',
+        toolInput: { path: '/tmp/report.md' },
+        toolUseId: 'call-write',
+      },
+    });
+    expect(session.messages[2]).toMatchObject({
+      type: 'tool_result',
+      content: 'Successfully wrote 8177 bytes to /tmp/report.md',
+      metadata: {
+        toolResult: 'Successfully wrote 8177 bytes to /tmp/report.md',
+        toolUseId: 'call-write',
+        isError: false,
+        isStreaming: false,
+        isFinal: true,
+      },
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('session.tool duplicate agent tool events update existing messages', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'write a file', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:popiai:${session.id}`;
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.rememberSessionKey(session.id, sessionKey);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-dup'));
+    adapter.sessionIdByRunId.set('run-dup', session.id);
+
+    adapter.handleGatewayEvent({
+      event: 'agent',
+      seq: 2,
+      payload: {
+        runId: 'run-dup',
+        sessionKey,
+        stream: 'tool',
+        data: {
+          phase: 'start',
+          name: 'write',
+          toolCallId: 'call-write',
+          args: { path: '/tmp/report.md' },
+        },
+      },
+    });
+    adapter.handleGatewayEvent({
+      event: 'session.tool',
+      seq: 3,
+      payload: {
+        runId: 'run-dup',
+        sessionKey,
+        phase: 'start',
+        toolName: 'write',
+        toolCallId: 'call-write',
+        args: { path: '/tmp/report.md' },
+      },
+    });
+    adapter.handleGatewayEvent({
+      event: 'agent',
+      seq: 4,
+      payload: {
+        runId: 'run-dup',
+        sessionKey,
+        stream: 'tool',
+        data: {
+          phase: 'result',
+          name: 'write',
+          toolCallId: 'call-write',
+          result: 'first result',
+          isError: false,
+        },
+      },
+    });
+    adapter.handleGatewayEvent({
+      event: 'session.tool',
+      seq: 5,
+      payload: {
+        runId: 'run-dup',
+        sessionKey,
+        phase: 'end',
+        toolName: 'write',
+        toolCallId: 'call-write',
+        result: 'final result',
+        isError: false,
+      },
+    });
+
+    expect(session.messages.map((message) => message.type)).toEqual([
+      'user',
+      'tool_use',
+      'tool_result',
+    ]);
+    expect(session.messages[2]).toMatchObject({
+      type: 'tool_result',
+      content: 'final result',
+      metadata: {
+        toolResult: 'final result',
+        toolUseId: 'call-write',
+        isError: false,
+        isStreaming: false,
+        isFinal: true,
+      },
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('session.tool gateway events from stale runs do not attach to the active turn', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'new work', timestamp: 1, metadata: {} },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:popiai:${session.id}`;
+
+    session.status = 'running';
+    adapter.reconcileWithHistory = async () => {};
+    adapter.rememberSessionKey(session.id, sessionKey);
+    adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'new-run'));
+    adapter.sessionIdByRunId.set('old-run', session.id);
+    adapter.sessionIdByRunId.set('new-run', session.id);
+
+    adapter.handleGatewayEvent({
+      event: 'session.tool',
+      seq: 2,
+      payload: {
+        runId: 'old-run',
+        sessionKey,
+        phase: 'start',
+        toolName: 'write',
+        toolCallId: 'call-old',
+        args: { path: '/tmp/old.md' },
+      },
+    });
+
+    expect(session.messages.map((message) => message.type)).toEqual(['user']);
+    expect(adapter.activeTurns.get(session.id)?.runId).toBe('new-run');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test('tool-use lifecycle end waits for OpenClaw compaction retry', async () => {
   vi.useFakeTimers();
   try {
@@ -3655,6 +3939,82 @@ test('child chat final marks matching subagent done before local session resolut
     expect.any(Number),
   );
   expect(runs.get('call-fibonacci')?.status).toBe('done');
+});
+
+test('stopSession aborts running subagent sessions tracked under the parent', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'spawn worker', timestamp: 1, metadata: {} },
+  ]);
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const runs = new Map<string, Record<string, unknown>>();
+  const subagentRunStore = {
+    insertSubagentRun: vi.fn((run: Record<string, unknown>) => {
+      runs.set(run.id as string, { ...run });
+    }),
+    updateSubagentRunStatus: vi.fn((id: string, status: string, endedAt?: number) => {
+      const run = runs.get(id);
+      if (run) {
+        run.status = status;
+        run.endedAt = endedAt;
+      }
+    }),
+    updateSubagentRunSessionKey: vi.fn((id: string, sessionKey: string) => {
+      const run = runs.get(id);
+      if (run) run.sessionKey = sessionKey;
+    }),
+    listSubagentRuns: vi.fn((parentSessionId: string) =>
+      Array.from(runs.values()).filter(run => run.parentSessionId === parentSessionId),
+    ),
+    getSubagentRun: vi.fn((id: string) => runs.get(id) ?? null),
+  };
+  const adapter = new OpenClawRuntimeAdapter(store, {}, {}, subagentRunStore as never);
+  const parentSessionKey = `agent:main:popiai:${session.id}`;
+  const childSessionKey = 'agent:main:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31';
+
+  session.status = 'running';
+  adapter.activeTurns.set(session.id, createActiveTurn(session.id, parentSessionKey, 'parent-run'));
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async (method: string, params?: unknown) => {
+      requests.push({ method, params: params as Record<string, unknown> });
+      return {};
+    },
+  };
+
+  adapter.subagentTracker.onToolStart(
+    'call-worker',
+    { agentId: 'main', task: 'do child work' },
+    session.id,
+  );
+  adapter.subagentTracker.onSpawnResult(
+    'call-worker',
+    JSON.stringify({
+      status: 'accepted',
+      childSessionKey,
+    }),
+    {},
+  );
+
+  adapter.stopSession(session.id);
+  await Promise.resolve();
+
+  expect(requests).toEqual([
+    {
+      method: 'chat.abort',
+      params: {
+        sessionKey: parentSessionKey,
+        runId: 'parent-run',
+      },
+    },
+    {
+      method: 'chat.abort',
+      params: {
+        sessionKey: childSessionKey,
+      },
+    },
+  ]);
+  expect(session.status).toBe('idle');
 });
 
 test('collectChannelHistoryEntries skips heartbeat prompt and ack messages', () => {
