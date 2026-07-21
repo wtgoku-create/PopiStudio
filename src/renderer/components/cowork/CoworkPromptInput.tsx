@@ -5,6 +5,11 @@ import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
 import {
+  type CoworkBrowserAnnotationBatch,
+  type CoworkBrowserAnnotationMessageBatch,
+  normalizeBrowserAnnotationBatches,
+} from '../../../shared/cowork/browserAnnotations';
+import {
   type CoworkGoal,
   CoworkGoalStatus,
   formatCoworkGoalUsage,
@@ -24,6 +29,7 @@ import {
   addDraftAttachment,
   addPendingSteer,
   clearDraftAttachments,
+  clearDraftBrowserAnnotationBatches,
   clearDraftSelectedTextSnippets,
   COWORK_STEER_QUEUE_LIMIT,
   type DraftAttachment,
@@ -31,6 +37,7 @@ import {
   removePendingSteer,
   removeRejectedSteer,
   setDraftAttachments,
+  setDraftBrowserAnnotationBatches,
   setDraftPrompt,
   setDraftSelectedTextSnippets,
   setSteerDraft,
@@ -42,7 +49,6 @@ import { CoworkImageAttachment } from '../../types/cowork';
 import { Skill } from '../../types/skill';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
-import type { BrowserAnnotationPayload } from '../artifacts';
 import AcademicCapIcon from '../icons/AcademicCapIcon';
 import ChevronRightIcon from '../icons/ChevronRightIcon';
 import EditIcon from '../icons/EditIcon';
@@ -56,6 +62,7 @@ import ModelSelector from '../ModelSelector';
 import { ActiveSkillBadge, SkillsPopover } from '../skills';
 import { resolveAgentModelSelection, resolveEffectiveModel, useAgentSelectedModel } from './agentModelSelection';
 import AttachmentCard from './AttachmentCard';
+import BrowserAnnotationAttachmentBadge from './BrowserAnnotationAttachmentBadge';
 import { getClipboardAttachmentFiles } from './clipboardAttachments';
 import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
 import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
@@ -91,6 +98,7 @@ export interface CoworkPromptSubmitOptions {
   knowledgeBases?: Array<{ id: string; name: string }>;
   knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
+  browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.tiff', '.tif', '.ico', '.avif']);
@@ -224,10 +232,10 @@ export interface CoworkPromptInputRef {
   setValue: (value: string) => void;
   /** 设置图片附件（用于重新编辑消息时还原图片） */
   setImageAttachments: (images: CoworkImageAttachment[]) => void;
-  /** 插入浏览器注释截图和注释文本 */
-  insertBrowserAnnotation: (annotation: BrowserAnnotationPayload) => void;
   /** 设置已选文本片段 */
   setSelectedTextSnippets: (snippets: CoworkSelectedTextSnippet[]) => void;
+  /** 设置浏览器注释附件 */
+  setBrowserAnnotationBatches: (batches: CoworkBrowserAnnotationBatch[]) => void;
   /** 聚焦输入框 */
   focus: () => void;
 }
@@ -260,6 +268,7 @@ interface CoworkPromptInputProps {
 
 const EMPTY_ATTACHMENTS: CoworkAttachment[] = [];
 const EMPTY_SELECTED_TEXT_SNIPPETS: CoworkSelectedTextSnippet[] = [];
+const EMPTY_BROWSER_ANNOTATION_BATCHES: CoworkBrowserAnnotationBatch[] = [];
 
 const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInputProps>(
   (props, ref) => {
@@ -295,6 +304,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     ));
     const attachments = useSelector((state: RootState) => state.cowork.draftAttachments[draftKey] || EMPTY_ATTACHMENTS) as CoworkAttachment[];
     const selectedTextSnippets = useSelector((state: RootState) => state.cowork.draftSelectedTextSnippets[draftKey] || EMPTY_SELECTED_TEXT_SNIPPETS);
+    const browserAnnotationBatches = useSelector(
+      (state: RootState) => (
+        state.cowork.draftBrowserAnnotationBatches[draftKey]
+        || EMPTY_BROWSER_ANNOTATION_BATCHES
+      ),
+    );
     const pendingSteers = useSelector((state: RootState) => (
       sessionId ? state.cowork.pendingSteers[sessionId] || [] : []
     ));
@@ -359,52 +374,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setSelectedTextSnippets: (snippets: CoworkSelectedTextSnippet[]) => {
       dispatch(setDraftSelectedTextSnippets({ draftKey, snippets }));
     },
-    insertBrowserAnnotation: (annotation) => {
-      const timestamp = Date.now();
-      const imageName = `${i18nService.t('artifactBrowserAnnotationImageName')}-${timestamp}.png`;
-      const annotationArea = [
-        `shape=${annotation.annotation.shape}`,
-        `color=${annotation.annotation.color}`,
-        `x=${annotation.annotation.x}`,
-        `y=${annotation.annotation.y}`,
-        `width=${annotation.annotation.width}`,
-        `height=${annotation.annotation.height}`,
-      ].join(', ');
-      const pageLabel = i18nService.t('artifactBrowserAnnotationPromptPage');
-      const elementLabel = i18nService.t('artifactBrowserAnnotationPromptElement');
-      const elementSummary = [
-        annotation.element.tagName,
-        annotation.element.text ? `"${annotation.element.text}"` : '',
-        `${annotation.element.width}x${annotation.element.height}`,
-      ].filter(Boolean).join(', ');
-      const annotationPrompt = [
-        i18nService.t('artifactBrowserAnnotationPromptTitle'),
-        i18nService.t('artifactBrowserAnnotationPromptTarget'),
-        '',
-        `${i18nService.t('artifactBrowserAnnotationPromptScreenshot')}: ${annotation.screenshot.width} x ${annotation.screenshot.height}`,
-        `${i18nService.t('artifactBrowserAnnotationPromptArea')}: ${annotationArea}`,
-        annotation.pageTitle || annotation.pageUrl ? `${pageLabel}: ${[annotation.pageTitle, annotation.pageUrl].filter(Boolean).join(' - ')}` : '',
-        elementSummary ? `${elementLabel}: ${elementSummary}` : '',
-        '',
-        `${i18nService.t('artifactBrowserAnnotationPromptComment')}:`,
-        annotation.comment.trim(),
-      ].filter(line => line !== '').join('\n');
-      const nextValue = value.trim() ? `${value.trim()}\n\n${annotationPrompt}` : annotationPrompt;
-      setValue(nextValue);
-      dispatch(setDraftPrompt({ sessionId: draftKey, draft: nextValue }));
-      dispatch(addDraftAttachment({
-        draftKey,
-        attachment: {
-          path: `inline:${imageName}:${timestamp}`,
-          name: imageName,
-          isImage: true,
-          dataUrl: annotation.imageDataUrl,
-        },
-      }));
-      setImageVisionHint(!modelSupportsImage);
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-      });
+    setBrowserAnnotationBatches: (batches: CoworkBrowserAnnotationBatch[]) => {
+      dispatch(setDraftBrowserAnnotationBatches({ draftKey, batches }));
     },
     focus: () => {
       textareaRef.current?.focus();
@@ -633,7 +604,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       return;
     }
     if (
-      (!trimmedValue && (!isStreaming || !steerInputActive) && attachments.length === 0 && selectedTextSnippets.length === 0)
+      (
+        !trimmedValue
+        && (!isStreaming || !steerInputActive)
+        && attachments.length === 0
+        && selectedTextSnippets.length === 0
+        && browserAnnotationBatches.length === 0
+      )
       || disabled
       || isPatchingModel
     ) return;
@@ -664,7 +641,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       return;
     }
     if (isStreaming && sessionId) {
-      if (!trimmedValue && attachments.length === 0 && selectedTextSnippets.length === 0) return;
+      if (
+        !trimmedValue
+        && attachments.length === 0
+        && selectedTextSnippets.length === 0
+        && browserAnnotationBatches.length === 0
+      ) return;
       if (pendingSteers.length >= COWORK_STEER_QUEUE_LIMIT) {
         window.dispatchEvent(new CustomEvent('app:showToast', {
           detail: i18nService.t('coworkSteerQueueFull'),
@@ -685,6 +667,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             ...(attachment.path.startsWith('inline:') && attachment.dataUrl ? { dataUrl: attachment.dataUrl } : {}),
           }))
           : undefined,
+        browserAnnotations: normalizeBrowserAnnotationBatches(browserAnnotationBatches),
         status: CoworkSteerStatus.Pending,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -699,6 +682,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       }
       dispatch(clearDraftAttachments(draftKey));
       dispatch(clearDraftSelectedTextSnippets(draftKey));
+      dispatch(clearDraftBrowserAnnotationBatches(draftKey));
       setImageVisionHint(false);
       return;
     }
@@ -787,10 +771,15 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         })),
       });
     }
-    const submitOptions: CoworkPromptSubmitOptions | undefined = hasSelectedKnowledgeBases || selectedTextSnippets.length > 0
+    const normalizedBrowserAnnotations = normalizeBrowserAnnotationBatches(browserAnnotationBatches);
+    const submitOptions: CoworkPromptSubmitOptions | undefined =
+      hasSelectedKnowledgeBases
+      || selectedTextSnippets.length > 0
+      || normalizedBrowserAnnotations.length > 0
       ? {
         ...(hasSelectedKnowledgeBases ? { knowledgeBases } : {}),
         ...(selectedTextSnippets.length > 0 ? { selectedTextSnippets } : {}),
+        ...(normalizedBrowserAnnotations.length > 0 ? { browserAnnotations: normalizedBrowserAnnotations } : {}),
       }
       : undefined;
     const result = await onSubmit(finalPrompt, skillPrompt, imageAtts.length > 0 ? imageAtts : undefined, submitOptions);
@@ -799,8 +788,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
     dispatch(clearDraftSelectedTextSnippets(draftKey));
+    dispatch(clearDraftBrowserAnnotationBatches(draftKey));
     setImageVisionHint(false);
-  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, pendingSteers.length, dispatch, draftKey, onSubmit, activeSkillIds, skills, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
+  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, browserAnnotationBatches, pendingSteers.length, dispatch, draftKey, onSubmit, activeSkillIds, skills, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseIds, selectedKnowledgeBases]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     dispatch(toggleActiveSkill(skill.id));
@@ -1305,6 +1295,16 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }));
   }, [attachments, dispatch, draftKey]);
 
+  const handleClearBrowserAnnotations = useCallback(() => {
+    for (const batch of browserAnnotationBatches) {
+      void window.electron?.artifact?.deleteBrowserAnnotationBatchAssets?.({
+        draftKey,
+        batchId: batch.id,
+      });
+    }
+    dispatch(clearDraftBrowserAnnotationBatches(draftKey));
+  }, [browserAnnotationBatches, dispatch, draftKey]);
+
   const hasFileTransfer = (dataTransfer: DataTransfer | null): boolean => {
     if (!dataTransfer) return false;
     if (dataTransfer.files.length > 0) return true;
@@ -1368,7 +1368,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         ? !!value.trim()
         : steerInputActive
         ? !!steerValue.trim()
-        : (!!value.trim() || attachments.length > 0)
+        : (!!value.trim() || attachments.length > 0 || browserAnnotationBatches.length > 0)
     );
   const enhancedContainerClass = isDraggingFiles
     ? `${containerClass} ring-2 ring-primary/50 border-primary/60`
@@ -1717,6 +1717,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: text }));
     const steer = [...pendingSteers, ...rejectedSteers].find(item => item.id === steerId);
     dispatch(setDraftAttachments({ draftKey, attachments: steer?.attachments ?? [] }));
+    dispatch(setDraftBrowserAnnotationBatches({ draftKey, batches: steer?.browserAnnotations ?? [] }));
     setSteerInputActive(false);
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, [dispatch, draftKey, pendingSteers, rejectedSteers, sessionId]);
@@ -1942,6 +1943,16 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </div>
   ) : null;
 
+  const browserAnnotationPreview = browserAnnotationBatches.length > 0 ? (
+    <div className={`${isCompact ? 'px-3 pt-2' : 'px-4 pt-3'}`}>
+      <BrowserAnnotationAttachmentBadge
+        draftKey={draftKey}
+        batches={browserAnnotationBatches}
+        onClear={handleClearBrowserAnnotations}
+      />
+    </div>
+  ) : null;
+
   const compactAttachmentPreview = attachmentPreviewContent ? (
     <div className="mb-2 max-h-[136px] overflow-y-auto">
       {attachmentPreviewContent}
@@ -2022,6 +2033,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       {sessionGoalStatusBar}
       {!isLarge && !isCompact && compactAttachmentPreview}
       {!isLarge && !isCompact && selectedTextSnippetPreview}
+      {!isLarge && !isCompact && browserAnnotationPreview}
       {imageVisionHint && (
         <div className="mb-2 flex items-start gap-1.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
           <ExclamationTriangleIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
@@ -2055,6 +2067,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
               <div className="relative z-10 rounded-2xl border border-border bg-surface shadow-card">
                 {largeAttachmentPreview}
                 {selectedTextSnippetPreview}
+                {browserAnnotationPreview}
                 {activeContextRow}
                 {activeModeRow}
                 <textarea
@@ -2092,6 +2105,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             <>
               {largeAttachmentPreview}
               {selectedTextSnippetPreview}
+              {browserAnnotationPreview}
               {activeContextRow}
               {activeModeRow}
               <textarea
@@ -2129,6 +2143,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           <>
             {compactAttachmentPreview}
             {selectedTextSnippetPreview}
+            {browserAnnotationPreview}
             <textarea
               ref={textareaRef}
               value={activeTextareaValue}

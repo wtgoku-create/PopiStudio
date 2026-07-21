@@ -4,6 +4,8 @@ import type {
   BrowserDiagnosticResult,
   BrowserRuntimeProfile,
 } from '../../shared/browserWebAccess/constants';
+import type { CoworkBrowserAnnotationMessageBatch } from '../../shared/cowork/browserAnnotations';
+import type { BrowserAnnotationScreenshotRef } from '../../shared/cowork/browserAnnotations';
 import type { CoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import type {
@@ -544,6 +546,7 @@ interface IElectronAPI {
       knowledgeBases?: Array<{ id: string; name: string }>;
       knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
       selectedTextSnippets?: CoworkSelectedTextSnippetPayload[];
+      browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
       cwd?: string;
       systemPrompt?: string;
       title?: string;
@@ -563,6 +566,7 @@ interface IElectronAPI {
       knowledgeBases?: Array<{ id: string; name: string }>;
       knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
       selectedTextSnippets?: CoworkSelectedTextSnippetPayload[];
+      browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
       systemPrompt?: string;
       activeSkillIds?: string[];
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
@@ -819,6 +823,20 @@ interface IElectronAPI {
     destroyPreviewSession: (sessionId: string) => Promise<{ success: boolean }>;
     clearBrowserCookies: () => Promise<{ success: boolean; error?: string }>;
     clearBrowserCache: () => Promise<{ success: boolean; error?: string }>;
+    saveBrowserAnnotationAsset?: (input: unknown) => Promise<{
+      success: boolean;
+      asset?: BrowserAnnotationScreenshotRef;
+      error?: string;
+    }>;
+    readBrowserAnnotationAsset?: (input: unknown) => Promise<{
+      success: boolean;
+      dataUrl?: string;
+      mimeType?: string;
+      byteSize?: number;
+      error?: string;
+    }>;
+    deleteBrowserAnnotationAsset?: (input: unknown) => Promise<{ success: boolean; error?: string }>;
+    deleteBrowserAnnotationBatchAssets?: (input: unknown) => Promise<{ success: boolean; error?: string }>;
     listLocalWebServices: (options?: ListLocalWebServicesOptions) => Promise<LocalWebService[]>;
   };
   autoLaunch: {

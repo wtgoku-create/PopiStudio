@@ -14,6 +14,10 @@ import {
   type CoworkMessageRailIndexItem,
 } from '@shared/cowork/rail';
 import {
+  type CoworkBrowserAnnotationMessageBatch,
+  normalizeBrowserAnnotationBatches,
+} from '@shared/cowork/browserAnnotations';
+import {
   type CoworkSelectedTextSnippet,
   CoworkSelectedTextSource,
   type CoworkSelectedTextValidationError,
@@ -67,7 +71,7 @@ import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agen
 import { mergeCoworkTextExportMessages, sanitizeExportFileName, sessionToJSON, sessionToMarkdown } from '../../utils/coworkSessionExport';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
-import { ArtifactPanel, type BrowserAnnotationPayload, SubagentPanelContent } from '../artifacts';
+import { ArtifactPanel, SubagentPanelContent } from '../artifacts';
 import {
   ArtifactAutoPreviewOpenTarget,
   getAutoPreviewOpenTarget,
@@ -3628,25 +3632,28 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const handleReEdit = useCallback((message: CoworkMessage) => {
     const ref = promptInputRef.current;
     if (!ref) return;
+    const metadata = message.metadata as CoworkMessageMetadata | undefined;
     // Set text content
     if (message.content?.trim()) {
       ref.setValue(message.content);
     }
     // Restore image attachments (always call to clear previous attachments)
-    const imageAttachments = ((message.metadata as CoworkMessageMetadata)?.imageAttachments ?? []) as CoworkImageAttachment[];
+    const imageAttachments = (metadata?.imageAttachments ?? []) as CoworkImageAttachment[];
     ref.setImageAttachments(imageAttachments);
+    ref.setSelectedTextSnippets((metadata?.selectedTextSnippets ?? []) as CoworkSelectedTextSnippet[]);
+    ref.setBrowserAnnotationBatches(
+      normalizeBrowserAnnotationBatches(
+        (metadata?.browserAnnotations ?? []) as CoworkBrowserAnnotationMessageBatch[],
+      ),
+    );
     // Restore active skills
-    const skillIds = (message.metadata as CoworkMessageMetadata)?.skillIds;
+    const skillIds = metadata?.skillIds;
     if (skillIds && skillIds.length > 0) {
       dispatch(setActiveSkillIds(skillIds));
     }
     // Focus the input
     ref.focus();
   }, [dispatch]);
-
-  const handleBrowserAnnotationCaptured = useCallback((payload: BrowserAnnotationPayload) => {
-    promptInputRef.current?.insertBrowserAnnotation(payload);
-  }, []);
 
   const messages = currentSession?.messages;
   const displayItems = useMemo(() => messages ? buildDisplayItems(messages) : [], [messages]);
@@ -4019,7 +4026,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               className={isLastTurn ? 'animate-message-in' : undefined}
               {...(turnRailIdx >= 0 ? { 'data-rail-index': turnRailIdx } : undefined)}
             >
-              <UserMessageItem message={turn.userMessage} skills={skills} onReEdit={remoteManaged ? undefined : handleReEdit} />
+              <UserMessageItem
+                message={turn.userMessage}
+                skills={skills}
+                sessionId={currentSession.id}
+                onReEdit={remoteManaged ? undefined : handleReEdit}
+              />
             </div>
           )}
           {showAssistantBlock && (
@@ -4979,7 +4991,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               onBrowserUrlChange={handleBrowserPreviewUrlChange}
               onOpenFileListTab={handleOpenArtifactFileListTab}
               onOpenBrowserTab={handleOpenArtifactBrowserTab}
-              onBrowserAnnotationCaptured={handleBrowserAnnotationCaptured}
               subagentPanel={subagentPanel}
             />
           </ArtifactPanelErrorBoundary>

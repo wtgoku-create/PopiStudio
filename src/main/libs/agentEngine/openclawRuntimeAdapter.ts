@@ -14,6 +14,10 @@ import {
   type OpenClawSessionPatch,
   OpenClawSessionReasoningLevel,
 } from '../../../common/openclawSession';
+import {
+  buildBrowserAnnotationPromptSection,
+  type CoworkBrowserAnnotationMessageBatch,
+} from '../../../shared/cowork/browserAnnotations';
 import { buildCoworkErrorDetail } from '../../../shared/cowork/errorDetail';
 import { CoworkIpcChannel } from '../../../shared/cowork/constants';
 import {
@@ -2557,6 +2561,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       confirmationMode: options.confirmationMode,
       imageAttachments: options.imageAttachments,
       selectedTextSnippets: options.selectedTextSnippets,
+      browserAnnotations: options.browserAnnotations,
       agentId: options.agentId,
     });
   }
@@ -2569,6 +2574,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       confirmationMode: options.confirmationMode,
       imageAttachments: options.imageAttachments,
       selectedTextSnippets: options.selectedTextSnippets,
+      browserAnnotations: options.browserAnnotations,
     });
   }
 
@@ -2989,10 +2995,15 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       confirmationMode?: 'modal' | 'text';
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
       selectedTextSnippets?: CoworkSelectedTextSnippet[];
+      browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
       agentId?: string;
     },
   ): Promise<void> {
-    if (!prompt.trim() && (!options.imageAttachments || options.imageAttachments.length === 0)) {
+    if (
+      !prompt.trim()
+      && (!options.imageAttachments || options.imageAttachments.length === 0)
+      && !options.browserAnnotations?.length
+    ) {
       throw new Error('Prompt is required.');
     }
     // Clear stop cooldown when user explicitly starts/continues a session
@@ -3015,11 +3026,17 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const goalBootstrapCommand = parseOpenClawGoalCommand(prompt);
     if (!options.skipInitialUserMessage) {
       const goalMetadata = buildGoalSettingMessageMetadata(prompt);
-      const metadata = (options.skillIds?.length || options.imageAttachments?.length || goalMetadata)
+      const metadata = (
+        options.skillIds?.length
+        || options.imageAttachments?.length
+        || options.browserAnnotations?.length
+        || goalMetadata
+      )
         ? {
           ...(goalMetadata ?? {}),
           ...(options.skillIds?.length ? { skillIds: options.skillIds } : {}),
           ...(options.imageAttachments?.length ? { imageAttachments: options.imageAttachments } : {}),
+          ...(options.browserAnnotations?.length ? { browserAnnotations: options.browserAnnotations } : {}),
         }
         : undefined;
       const userMessage = this.store.addMessage(sessionId, {
@@ -3119,10 +3136,19 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         `[OpenClawRuntime] appended ${options.selectedTextSnippets.length} selected text excerpts to the prompt for session ${sessionId}.`,
       );
     }
+    const browserAnnotationSection = buildBrowserAnnotationPromptSection(options.browserAnnotations);
+    const promptWithBrowserAnnotations = browserAnnotationSection
+      ? `${promptWithSelectedText}\n\n${browserAnnotationSection}`
+      : promptWithSelectedText;
+    if (options.browserAnnotations?.length && browserAnnotationSection) {
+      console.debug(
+        `[OpenClawRuntime] appended ${options.browserAnnotations.length} browser annotation batches to the prompt for session ${sessionId}.`,
+      );
+    }
 
     const outboundMessage = stripNullChars(await this.buildOutboundPrompt(
       sessionId,
-      promptWithSelectedText,
+      promptWithBrowserAnnotations,
       options.systemPrompt ?? session.systemPrompt,
       agentId,
     ));

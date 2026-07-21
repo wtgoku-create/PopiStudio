@@ -1,4 +1,5 @@
 import type { OpenClawSessionPatch } from '../../../common/openclawSession';
+import type { CoworkBrowserAnnotationMessageBatch } from '../../../shared/cowork/browserAnnotations';
 import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import type { CoworkSteerResponse } from '../../../shared/cowork/steer';
 import type { CoworkGoal } from '../../../shared/cowork/goal';
@@ -72,6 +73,7 @@ export type CoworkStartOptions = {
   confirmationMode?: 'modal' | 'text';
   imageAttachments?: CoworkImageAttachment[];
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
+  browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
   agentId?: string;
 };
 
@@ -82,6 +84,7 @@ export type CoworkContinueOptions = {
   confirmationMode?: 'modal' | 'text';
   imageAttachments?: CoworkImageAttachment[];
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
+  browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
 };
 
 export interface CoworkRuntime {

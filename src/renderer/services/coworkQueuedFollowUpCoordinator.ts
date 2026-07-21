@@ -147,6 +147,7 @@ export class CoworkQueuedFollowUpCoordinator {
       const sent = await this.dependencies.continueSession({
         sessionId,
         prompt: this.buildPrompt(queuedSteer),
+        browserAnnotations: queuedSteer.browserAnnotations,
       });
       if (operation.cancelled) {
         this.startingQueuedTurnSessionIds.delete(sessionId);

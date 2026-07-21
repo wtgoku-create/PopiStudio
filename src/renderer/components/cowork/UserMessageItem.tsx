@@ -1,4 +1,5 @@
 import { PhotoIcon } from '@heroicons/react/24/outline';
+import type { CoworkBrowserAnnotationMessageBatch } from '@shared/cowork/browserAnnotations';
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { hasGoalSettingMessageMetadata } from '../../../common/goalCommandDisplay';
@@ -21,6 +22,7 @@ import {
   getMessageModelLabel,
   messageMetaClassName,
 } from './messageDisplayUtils';
+import BrowserAnnotationAttachmentBadge from './BrowserAnnotationAttachmentBadge';
 import UserMessageContent from './UserMessageContent';
 
 // ── ReEditButton ─────────────────────────────────────────────────────────────
@@ -106,8 +108,9 @@ const UserMessageKnowledgeBadges: React.FC<{
 const UserMessageItem: React.FC<{
   message: CoworkMessage;
   skills: Skill[];
+  sessionId?: string;
   onReEdit?: (message: CoworkMessage) => void;
-}> = React.memo(({ message, skills, onReEdit }) => {
+}> = React.memo(({ message, skills, sessionId = '', onReEdit }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
   const modelLabel = getMessageModelLabel(message.metadata);
@@ -144,6 +147,11 @@ const UserMessageItem: React.FC<{
     .filter((file): file is { id: string; title: string; knowledgeBaseName?: string; fileType?: string } => Boolean(file?.id));
   const hasContextBadges = messageSkills.length > 0 || messageKnowledgeBases.length > 0 || messageKnowledgeFiles.length > 0;
 
+  const browserAnnotations = (metadata?.browserAnnotations ?? []) as CoworkBrowserAnnotationMessageBatch[];
+  const browserAnnotationCount = browserAnnotations.reduce(
+    (total, batch) => total + batch.annotations.length,
+    0,
+  );
   const imageAttachments = (metadata?.imageAttachments ?? []) as CoworkImageAttachment[];
 
   return (
@@ -160,6 +168,15 @@ const UserMessageItem: React.FC<{
           <div className="flex items-start gap-3 flex-row-reverse">
             <div className="w-full min-w-0 flex flex-col items-end">
               <div className="w-fit max-w-full rounded-2xl px-4 py-2.5 bg-surface text-foreground shadow-subtle">
+                {browserAnnotationCount > 0 && (
+                  <div className={(hasContextBadges || displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
+                    <BrowserAnnotationAttachmentBadge
+                      draftKey={sessionId}
+                      batches={browserAnnotations}
+                      readOnly
+                    />
+                  </div>
+                )}
                 {hasContextBadges && (
                   <div className={(displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
                     <div className="flex flex-wrap items-center gap-1.5">

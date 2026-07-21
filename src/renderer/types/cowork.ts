@@ -1,4 +1,5 @@
 import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
+import type { CoworkBrowserAnnotationMessageBatch } from '../../shared/cowork/browserAnnotations';
 import type { CoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkSelectedTextSnippet } from '../../shared/cowork/selectedText';
 
@@ -284,6 +285,7 @@ export interface CoworkStartOptions {
   modelOverride?: string;
   imageAttachments?: CoworkImageAttachment[];
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
+  browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
 }
 
 // Continue session options
@@ -296,6 +298,7 @@ export interface CoworkContinueOptions {
   activeSkillIds?: string[];
   imageAttachments?: CoworkImageAttachment[];
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
+  browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
 }
 
 // IPC result types

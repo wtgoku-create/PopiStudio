@@ -534,6 +534,14 @@ contextBridge.exposeInMainWorld('electron', {
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     },
+    saveBrowserAnnotationAsset: (input: unknown) =>
+      ipcRenderer.invoke(ArtifactPreviewIpc.SaveBrowserAnnotationAsset, input),
+    readBrowserAnnotationAsset: (input: unknown) =>
+      ipcRenderer.invoke(ArtifactPreviewIpc.ReadBrowserAnnotationAsset, input),
+    deleteBrowserAnnotationAsset: (input: unknown) =>
+      ipcRenderer.invoke(ArtifactPreviewIpc.DeleteBrowserAnnotationAsset, input),
+    deleteBrowserAnnotationBatchAssets: (input: unknown) =>
+      ipcRenderer.invoke(ArtifactPreviewIpc.DeleteBrowserAnnotationBatchAssets, input),
     listLocalWebServices: (options?: ListLocalWebServicesOptions) =>
       ipcRenderer.invoke(LocalWebServicesIpc.List, options) as Promise<LocalWebService[]>,
   },

@@ -22,6 +22,11 @@ import {
   normalizeBrowserWebAccessConfig,
 } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
+import {
+  type CoworkBrowserAnnotationMessageBatch,
+  BrowserAnnotationScreenshotStatus,
+  normalizeBrowserAnnotationBatches,
+} from '../shared/cowork/browserAnnotations';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import {
@@ -79,7 +84,15 @@ import {
   OpenClawRuntimeAdapter,
   type PermissionResult,
 } from './libs/agentEngine';
+
+type CoworkImageAttachmentInput = {
+  name: string;
+  mimeType: string;
+  base64Data: string;
+};
 import { AppUpdateCoordinator, INSTALLATION_UUID_KEY } from './libs/appUpdateCoordinator';
+import type { BrowserAnnotationAssetIdentity, SaveBrowserAnnotationAssetInput } from './libs/browserAnnotationAssetStore';
+import { BrowserAnnotationAssetStore } from './libs/browserAnnotationAssetStore';
 import { clearServerModelMetadata, getAllServerModelMetadata, getCurrentApiConfig, resolveAllEnabledProviderConfigs, resolveCurrentApiConfig, resolveRawApiConfig, setAuthTokensGetter, setServerBaseUrlGetter, setStoreGetter, updateServerModelMetadata } from './libs/claudeSettings';
 import {
   clearCopilotTokenState,
@@ -2185,6 +2198,10 @@ const KNOWLEDGE_WEBVIEW_PRELOAD_PATH = app.isPackaged
   ? path.join(__dirname, 'knowledgeWebviewPreload.js')
   : path.join(__dirname, '../dist-electron/knowledgeWebviewPreload.js');
 
+const BROWSER_ANNOTATION_PRELOAD_PATH = app.isPackaged
+  ? path.join(__dirname, 'browserAnnotationPreload.js')
+  : path.join(__dirname, '../dist-electron/browserAnnotationPreload.js');
+
 const prepareKnowledgeBrowserSession = (): void => {
   const knowledgeSession = session.fromPartition(KnowledgeBrowserPartition.Default);
   knowledgeSession.setPreloads([
@@ -3169,12 +3186,79 @@ if (!gotTheLock) {
 
   getRemoteKnowledgeService().registerIpc(ipcMain);
 
+  const browserAnnotationAssetStore = new BrowserAnnotationAssetStore(
+    path.join(app.getPath('userData'), 'browser-annotation-assets'),
+  );
+
+  const mergeBrowserAnnotationImageAttachments = (
+    input: {
+      imageAttachments?: CoworkImageAttachmentInput[];
+      browserAnnotations: CoworkBrowserAnnotationMessageBatch[];
+      fallbackDraftKeys: string[];
+    },
+  ): {
+    imageAttachments?: CoworkImageAttachmentInput[];
+    browserAnnotations: CoworkBrowserAnnotationMessageBatch[];
+  } => {
+    const imageAttachments = input.imageAttachments ? [...input.imageAttachments] : [];
+    const browserAnnotations = input.browserAnnotations.map(batch => ({
+      ...batch,
+      annotations: batch.annotations.map(annotation => ({ ...annotation })),
+    }));
+    for (const batch of browserAnnotations) {
+      const draftKeys = Array.from(new Set([
+        batch.assetDraftKey,
+        ...input.fallbackDraftKeys,
+      ].filter((value): value is string => Boolean(value))));
+      for (const annotation of batch.annotations) {
+        if (annotation.screenshot.status !== BrowserAnnotationScreenshotStatus.Ready) continue;
+        const asset = annotation.screenshot.asset;
+        let dataUrl = '';
+        for (const draftKey of draftKeys) {
+          try {
+            dataUrl = browserAnnotationAssetStore.read({
+              draftKey,
+              batchId: batch.id,
+              annotationId: annotation.id,
+              assetId: asset.assetId,
+            }).dataUrl;
+            break;
+          } catch {
+            // Try the next possible storage scope for older annotation batches.
+          }
+        }
+        if (!dataUrl) continue;
+        const base64Data = dataUrl.split(',')[1] || '';
+        if (!base64Data) continue;
+        const transportImageIndex = imageAttachments.length + 1;
+        annotation.screenshot = {
+          ...annotation.screenshot,
+          asset: {
+            ...asset,
+            previewDataUrl: dataUrl,
+            transportImageIndex,
+          },
+        };
+        imageAttachments.push({
+          name: `Browser annotation ${transportImageIndex}.png`,
+          mimeType: asset.mimeType || 'image/png',
+          base64Data,
+        });
+      }
+    }
+    return {
+      browserAnnotations,
+      imageAttachments: imageAttachments.length ? imageAttachments : undefined,
+    };
+  };
+
   // Cowork IPC handlers
   ipcMain.handle('cowork:session:start', async (_event, options: {
     prompt: string;
     knowledgeBases?: Array<{ id: string; name: string }>;
     knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
     selectedTextSnippets?: CoworkSelectedTextSnippet[];
+    browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
     cwd?: string;
     systemPrompt?: string;
     title?: string;
@@ -3208,6 +3292,13 @@ if (!gotTheLock) {
 
       const prompt = stripNullChars(options.prompt);
       const selectedTextSnippets = normalizeSelectedTextSnippetsForIpc(options.selectedTextSnippets);
+      const normalizedBrowserAnnotations = normalizeBrowserAnnotationBatches(options.browserAnnotations);
+      const browserAnnotationPayload = mergeBrowserAnnotationImageAttachments({
+        imageAttachments: options.imageAttachments,
+        browserAnnotations: normalizedBrowserAnnotations,
+        fallbackDraftKeys: ['__home__'],
+      });
+      const { browserAnnotations } = browserAnnotationPayload;
       const fallbackTitle = buildSessionTitleFromInput(
         prompt,
         t('coworkDefaultSessionTitle')
@@ -3247,16 +3338,21 @@ if (!gotTheLock) {
       if (selectedTextSnippets.length) {
         messageMetadata.selectedTextSnippets = selectedTextSnippets;
       }
-      if (options.imageAttachments?.length) {
+      if (browserAnnotations.length) {
+        messageMetadata.browserAnnotations = browserAnnotations;
+      }
+      if (browserAnnotationPayload.imageAttachments?.length) {
         console.log('[Cowork:StartSession] imageAttachments received via IPC:', {
-          count: options.imageAttachments.length,
-          details: options.imageAttachments.map(img => ({
+          count: browserAnnotationPayload.imageAttachments.length,
+          details: browserAnnotationPayload.imageAttachments.map(img => ({
             name: img.name,
             mimeType: img.mimeType,
             base64Length: img.base64Data?.length ?? 0,
           })),
         });
-        messageMetadata.imageAttachments = options.imageAttachments;
+        if (options.imageAttachments?.length) {
+          messageMetadata.imageAttachments = options.imageAttachments;
+        }
       }
       coworkStoreInstance.addMessage(session.id, {
         type: 'user',
@@ -3268,15 +3364,16 @@ if (!gotTheLock) {
       const runtime = getCoworkEngineRouter();
       const runtimeSkillIds = resolveRuntimeSkillIds(options);
       (async () => {
-        const runtimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
-        await runtime.startSession(session.id, runtimePrompt, {
+        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
+        await runtime.startSession(session.id, baseRuntimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt,
           skillIds: runtimeSkillIds,
           workspaceRoot: taskWorkingDirectory,
           confirmationMode: 'modal',
-          imageAttachments: options.imageAttachments,
+          imageAttachments: browserAnnotationPayload.imageAttachments,
           selectedTextSnippets,
+          browserAnnotations,
           agentId: options.agentId,
         });
       })().catch(error => {
@@ -3317,6 +3414,7 @@ if (!gotTheLock) {
     knowledgeBases?: Array<{ id: string; name: string }>;
     knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
     selectedTextSnippets?: CoworkSelectedTextSnippet[];
+    browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
     systemPrompt?: string;
     activeSkillIds?: string[];
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
@@ -3345,6 +3443,13 @@ if (!gotTheLock) {
 
       const prompt = stripNullChars(options.prompt);
       const selectedTextSnippets = normalizeSelectedTextSnippetsForIpc(options.selectedTextSnippets);
+      const normalizedBrowserAnnotations = normalizeBrowserAnnotationBatches(options.browserAnnotations);
+      const browserAnnotationPayload = mergeBrowserAnnotationImageAttachments({
+        imageAttachments: options.imageAttachments,
+        browserAnnotations: normalizedBrowserAnnotations,
+        fallbackDraftKeys: [options.sessionId, '__home__'],
+      });
+      const { browserAnnotations } = browserAnnotationPayload;
       const messageMetadata: Record<string, unknown> = {};
       if (options.activeSkillIds?.length) {
         messageMetadata.skillIds = options.activeSkillIds;
@@ -3358,6 +3463,9 @@ if (!gotTheLock) {
       if (selectedTextSnippets.length) {
         messageMetadata.selectedTextSnippets = selectedTextSnippets;
       }
+      if (browserAnnotations.length) {
+        messageMetadata.browserAnnotations = browserAnnotations;
+      }
       if (options.imageAttachments?.length) {
         messageMetadata.imageAttachments = options.imageAttachments;
       }
@@ -3367,11 +3475,11 @@ if (!gotTheLock) {
         metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
       });
       forwardCoworkMessage(options.sessionId, userMessage);
-      if (options.imageAttachments?.length) {
+      if (browserAnnotationPayload.imageAttachments?.length) {
         console.log('[Cowork:ContinueSession] imageAttachments received via IPC:', {
           sessionId: options.sessionId,
-          count: options.imageAttachments.length,
-          details: options.imageAttachments.map(img => ({
+          count: browserAnnotationPayload.imageAttachments.length,
+          details: browserAnnotationPayload.imageAttachments.map(img => ({
             name: img.name,
             mimeType: img.mimeType,
             base64Length: img.base64Data?.length ?? 0,
@@ -3380,15 +3488,16 @@ if (!gotTheLock) {
       }
       (async () => {
         const runtimeSkillIds = resolveRuntimeSkillIds(options);
-        const runtimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
-        await runtime.continueSession(options.sessionId, runtimePrompt, {
+        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
+        await runtime.continueSession(options.sessionId, baseRuntimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt: mergeCoworkSystemPrompt(
             options.systemPrompt ?? existingSession?.systemPrompt,
           ),
           skillIds: runtimeSkillIds,
-          imageAttachments: options.imageAttachments,
+          imageAttachments: browserAnnotationPayload.imageAttachments,
           selectedTextSnippets,
+          browserAnnotations,
         });
       })().catch(error => {
         console.error('[Cowork] continue error:', error);
@@ -6519,6 +6628,50 @@ end tell'`, { timeout: 5000 });
     }
   });
 
+  ipcMain.handle(
+    ArtifactPreviewIpc.SaveBrowserAnnotationAsset,
+    (_event, input: SaveBrowserAnnotationAssetInput) => {
+      try {
+        return { success: true, asset: browserAnnotationAssetStore.save(input) };
+      } catch (error) {
+        console.error('[BrowserAnnotation] failed to save screenshot asset:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    },
+  );
+  ipcMain.handle(
+    ArtifactPreviewIpc.ReadBrowserAnnotationAsset,
+    (_event, input: BrowserAnnotationAssetIdentity) => {
+      try {
+        return { success: true, ...browserAnnotationAssetStore.read(input) };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    },
+  );
+  ipcMain.handle(
+    ArtifactPreviewIpc.DeleteBrowserAnnotationAsset,
+    (_event, input: BrowserAnnotationAssetIdentity) => {
+      try {
+        browserAnnotationAssetStore.delete(input);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    },
+  );
+  ipcMain.handle(
+    ArtifactPreviewIpc.DeleteBrowserAnnotationBatchAssets,
+    (_event, input: Pick<BrowserAnnotationAssetIdentity, 'draftKey' | 'batchId'>) => {
+      try {
+        browserAnnotationAssetStore.deleteBatch(input);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    },
+  );
+
   ipcMain.handle(LocalWebServicesIpc.List, async (_event, options?: ListLocalWebServicesOptions) => {
     const preferredPorts = sanitizeLocalWebServicePorts(options?.preferredPorts);
     const ports = Array.from(new Set([...preferredPorts, ...LOCAL_WEB_SERVICE_PORTS])).sort((a, b) => a - b);
@@ -6951,7 +7104,7 @@ end tell'`, { timeout: 5000 });
       if (partition === KnowledgeBrowserPartition.Default) {
         webPreferences.preload = KNOWLEDGE_WEBVIEW_PRELOAD_PATH;
       } else {
-        delete webPreferences.preload;
+        webPreferences.preload = BROWSER_ANNOTATION_PRELOAD_PATH;
       }
 
       params.partition = partition;

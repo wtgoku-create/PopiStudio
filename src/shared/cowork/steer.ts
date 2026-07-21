@@ -1,3 +1,5 @@
+import type { CoworkBrowserAnnotationMessageBatch } from './browserAnnotations';
+
 export const CoworkSteerStatus = {
   Pending: 'pending',
   Accepted: 'accepted',
@@ -36,6 +38,7 @@ export interface CoworkPendingSteer {
   sessionId: string;
   text: string;
   attachments?: CoworkSteerAttachment[];
+  browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
   status: CoworkSteerStatus;
   createdAt: number;
   updatedAt: number;
