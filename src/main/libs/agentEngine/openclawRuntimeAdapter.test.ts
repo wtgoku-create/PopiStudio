@@ -586,6 +586,17 @@ function createReconcileStore(messages: Array<Record<string, unknown>>) {
     getLastReplaceArgs: () => lastReplaceArgs,
     store: {
       getSession: (sessionId: string) => (sessionId === session.id ? session : null),
+      getRecentConversationMessages: (sessionId: string, limit: number) => {
+        expect(sessionId).toBe(session.id);
+        return session.messages
+          .filter((message) => message.type === 'user' || message.type === 'assistant')
+          .slice(-Math.max(0, Math.floor(limit)));
+      },
+      getAllConversationMessages: (sessionId: string) => {
+        expect(sessionId).toBe(session.id);
+        return session.messages
+          .filter((message) => message.type === 'user' || message.type === 'assistant');
+      },
       addMessage: (sessionId: string, message: Record<string, unknown>) => {
         expect(sessionId).toBe(session.id);
         const created = {
@@ -3723,6 +3734,17 @@ function createHistoryStore(messages: Array<Record<string, unknown>>) {
     session,
     store: {
       getSession: (sessionId: string) => (sessionId === session.id ? session : null),
+      getRecentConversationMessages: (sessionId: string, limit: number) => {
+        expect(sessionId).toBe(session.id);
+        return session.messages
+          .filter((message) => message.type === 'user' || message.type === 'assistant')
+          .slice(-Math.max(0, Math.floor(limit)));
+      },
+      getAllConversationMessages: (sessionId: string) => {
+        expect(sessionId).toBe(session.id);
+        return session.messages
+          .filter((message) => message.type === 'user' || message.type === 'assistant');
+      },
       addMessage: (sessionId: string, message: Record<string, unknown>) => {
         expect(sessionId).toBe(session.id);
         const created = {

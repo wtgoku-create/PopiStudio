@@ -8,6 +8,7 @@ import { BrowserIpc, type BrowserRuntimeProfile } from '../shared/browserWebAcce
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import {
   CoworkIpcChannel,
+  type CoworkSessionsChangedPayload,
   type CoworkSubagentMessagesChangedEvent,
 } from '../shared/cowork/constants';
 import { DialogIpc } from '../shared/dialog/constants';
@@ -426,8 +427,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('cowork:stream:error', handler);
       return () => ipcRenderer.removeListener('cowork:stream:error', handler);
     },
-    onSessionsChanged: (callback: (data?: { sessionId?: string }) => void) => {
-      const handler = (_event: any, data?: { sessionId?: string }) => callback(data);
+    onSessionsChanged: (callback: (data?: CoworkSessionsChangedPayload) => void) => {
+      const handler = (_event: any, data?: CoworkSessionsChangedPayload) => callback(data);
       ipcRenderer.on(CoworkIpcChannel.SessionsChanged, handler);
       return () => ipcRenderer.removeListener(CoworkIpcChannel.SessionsChanged, handler);
     },

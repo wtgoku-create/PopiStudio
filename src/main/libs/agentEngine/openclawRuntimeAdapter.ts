@@ -81,6 +81,7 @@ import { extractCronDeliveredTarget } from './cronDeliveryTarget';
 import { OpenClawApprovalController } from './openclawApprovalController';
 import {
   buildGatewayMediaMetadata,
+  getLocalMediaAttachmentsKey,
   isSameReconciledEntry,
 } from './openclawConversationReconciliation';
 import {
@@ -684,6 +685,26 @@ const normalizeEntryText = (
   return result;
 };
 
+const buildLocalReconciledEntries = (
+  messages: ReadonlyArray<CoworkMessage>,
+  platformFlags: PlatformFlags,
+): ReconciledConversationEntry[] => {
+  const entries: ReconciledConversationEntry[] = [];
+  for (const message of messages) {
+    if (message.type !== 'user' && message.type !== 'assistant') continue;
+    const text = normalizeEntryText(message.type, message.content, platformFlags);
+    const mediaKey = getLocalMediaAttachmentsKey(message.metadata);
+    if ((!text && !mediaKey) || shouldSuppressHeartbeatText(message.type, text)) continue;
+    entries.push({
+      role: message.type,
+      text,
+      timestamp: message.timestamp,
+      metadata: message.metadata,
+    });
+  }
+  return entries;
+};
+
 const isSameHistoryEntry = (
   left: { role: 'user' | 'assistant'; text: string },
   right: { role: 'user' | 'assistant'; text: string },
@@ -718,6 +739,28 @@ const applyLocalTimestampsToEntries = (
     const timestamp = timestamps?.shift();
     return timestamp != null ? { ...entry, timestamp } : entry;
   });
+};
+
+const getReconciliationTailState = (
+  localEntries: ReadonlyArray<ReconciledConversationEntry>,
+  authoritativeEntries: ReadonlyArray<ReconciledConversationEntry>,
+  alignment: { localIdx: number; authIdx: number } | null,
+): {
+  authoritativeTail: ReconciledConversationEntry[];
+  localTail: ReconciledConversationEntry[];
+  isInSync: boolean;
+} | null => {
+  if (!alignment || (alignment.localIdx === 0 && alignment.authIdx === 0)) return null;
+  const authoritativeTail = authoritativeEntries.slice(alignment.authIdx);
+  const localTail = localEntries.slice(alignment.localIdx);
+  return {
+    authoritativeTail,
+    localTail,
+    isInSync: localTail.length === authoritativeTail.length
+      && localTail.every((entry, index) =>
+        isSameReconciledEntry(entry, authoritativeTail[index]),
+      ),
+  };
 };
 
 /**
@@ -4836,7 +4879,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private notifySessionsChanged(sessionId?: string): void {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
-        win.webContents.send(CoworkIpcChannel.SessionsChanged, sessionId ? { sessionId } : {});
+        win.webContents.send(CoworkIpcChannel.SessionsChanged, sessionId ? { sessionIds: [sessionId] } : { sessionIds: [] });
       }
     }
   }
@@ -4881,7 +4924,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       if (!win.isDestroyed()) {
         win.webContents.send(CoworkIpcChannel.SubagentMessagesChanged, event);
         if (event.status === 'done' || event.status === 'error') {
-          win.webContents.send(CoworkIpcChannel.SessionsChanged, { sessionId: event.parentSessionId });
+          win.webContents.send(CoworkIpcChannel.SessionsChanged, { sessionIds: [event.parentSessionId] });
         }
       }
     }
@@ -7576,21 +7619,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // Collect local user/assistant messages for comparison
       // Apply the same normalization as authoritativeEntries so alignment
       // works even when local messages still carry raw platform prefixes.
-      const session = this.store.getSession(sessionId);
-      const localEntries: Array<{ role: 'user' | 'assistant'; text: string; metadata?: Record<string, unknown>; timestamp?: number }> = [];
-      if (session) {
-        for (const msg of session.messages) {
-          if (msg.type !== 'user' && msg.type !== 'assistant') continue;
-          const text = normalizeEntryText(msg.type, msg.content, platformFlags);
-          if (!text || shouldSuppressHeartbeatText(msg.type, text)) continue;
-          localEntries.push({
-            role: msg.type,
-            text,
-            metadata: msg.metadata,
-            timestamp: msg.timestamp,
-          });
-        }
-      }
+      let localMessages = this.store.getRecentConversationMessages(sessionId, limit);
+      let localEntries = buildLocalReconciledEntries(localMessages, platformFlags);
 
       // Fast path: if already in sync, skip
       const isInSync = localEntries.length === authoritativeEntries.length
@@ -7605,32 +7635,45 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
 
       // Tail-alignment: find where the gateway window overlaps local history.
-      const alignment = findTailAlignment(localEntries, authoritativeEntries);
+      let alignment = findTailAlignment(localEntries, authoritativeEntries);
+      let tailState = getReconciliationTailState(localEntries, authoritativeEntries, alignment);
+
+      if (!tailState?.isInSync && localMessages.length === limit) {
+        const allLocalMessages = this.store.getAllConversationMessages(sessionId);
+        if (allLocalMessages.length > localMessages.length) {
+          console.debug(
+            '[Reconcile] expanding local history before replacement — sessionId:', sessionId,
+            'recent:', localMessages.length, 'all:', allLocalMessages.length,
+          );
+          localMessages = allLocalMessages;
+          localEntries = buildLocalReconciledEntries(localMessages, platformFlags);
+          alignment = findTailAlignment(localEntries, authoritativeEntries);
+          tailState = getReconciliationTailState(localEntries, authoritativeEntries, alignment);
+        }
+      }
 
       let entriesToStore: ReconciledConversationEntry[];
 
-      if (alignment && (alignment.localIdx > 0 || alignment.authIdx > 0)) {
+      if (tailState?.isInSync && alignment) {
+        console.log(
+          '[Reconcile] tail in sync — sessionId:', sessionId,
+          'preserved:', alignment.localIdx, 'tail:', tailState.localTail.length,
+          'authSkipped:', alignment.authIdx,
+        );
+        this.channelSyncCursor.set(sessionId, authoritativeEntries.length);
+        return;
+      }
+
+      if (tailState && alignment) {
         // Gateway covers only the tail — preserve older local messages
-        const authoritativeTail = authoritativeEntries.slice(alignment.authIdx);
-        const tail = localEntries.slice(alignment.localIdx);
-        const tailInSync = tail.length === authoritativeTail.length
-          && tail.every((entry, idx) =>
-            isSameReconciledEntry(entry, authoritativeTail[idx]),
-          );
-        if (tailInSync) {
-          console.log(
-            '[Reconcile] tail in sync — sessionId:', sessionId,
-            'preserved:', alignment.localIdx, 'tail:', tail.length,
-            'authSkipped:', alignment.authIdx,
-          );
-          this.channelSyncCursor.set(sessionId, authoritativeEntries.length);
-          return;
-        }
         // Concat preserved prefix with authoritative tail
-        entriesToStore = [...localEntries.slice(0, alignment.localIdx), ...authoritativeTail];
+        entriesToStore = [
+          ...localEntries.slice(0, alignment.localIdx),
+          ...tailState.authoritativeTail,
+        ];
         console.log(
           '[Reconcile] tail replace — sessionId:', sessionId,
-          'preserved:', alignment.localIdx, 'auth:', authoritativeTail.length,
+          'preserved:', alignment.localIdx, 'auth:', tailState.authoritativeTail.length,
           'authSkipped:', alignment.authIdx,
           'total:', entriesToStore.length,
         );

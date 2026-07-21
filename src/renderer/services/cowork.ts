@@ -6,7 +6,12 @@ import {
 } from '../../common/coworkSystemMessages';
 import type { OpenClawSessionPatch } from '../../common/openclawSession';
 import { AgentId } from '../../shared/agent';
-import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkSessionSourceKind } from '../../shared/cowork/constants';
+import {
+  COWORK_MESSAGE_PAGE_SIZE,
+  COWORK_SESSION_PAGE_SIZE,
+  CoworkSessionSourceKind,
+  type CoworkSessionsChangedPayload,
+} from '../../shared/cowork/constants';
 import { normalizeCoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import {
@@ -76,6 +81,10 @@ import type {
 } from '../types/cowork';
 import { CoworkSessionStatusValue } from '../types/cowork';
 import { CoworkQueuedFollowUpCoordinator } from './coworkQueuedFollowUpCoordinator';
+import {
+  getPreservedMessageWindow,
+  shouldReloadCurrentSessionForChange,
+} from './coworkSessionRefreshPolicy';
 import { i18nService } from './i18n';
 
 const classifyError = (error: string): string => {
@@ -358,17 +367,18 @@ class CoworkService {
     // or reconcileWithHistory replaced messages for a channel session)
     const sessionsChangedCleanup = cowork.onSessionsChanged((event) => {
       const beforeState = store.getState().cowork;
-      console.log('[CoworkService] onSessionsChanged: received IPC event, before sessions:', beforeState.sessions.length, 'sessionIds:', beforeState.sessions.map(s => s.id).slice(0, 5));
-      void this.handleSessionsChanged(event?.sessionId).catch((err) => {
+      console.log('[CoworkService] onSessionsChanged: received IPC event, before sessions:', beforeState.sessions.length, 'changedSessionIds:', event?.sessionIds?.slice(0, 5) ?? []);
+      void this.handleSessionsChanged(event).catch((err) => {
         console.error('[CoworkService] onSessionsChanged: refresh failed:', err);
       });
     });
     this.streamListenerCleanups.push(sessionsChangedCleanup);
   }
 
-  private async handleSessionsChanged(sessionId?: string): Promise<void> {
-    if (sessionId) {
-      await this.loadSessionSummaryForChangedSession(sessionId);
+  private async handleSessionsChanged(payload?: CoworkSessionsChangedPayload): Promise<void> {
+    const sessionIds = Array.isArray(payload?.sessionIds) ? payload.sessionIds : [];
+    if (sessionIds.length > 0) {
+      await Promise.all(sessionIds.map((sessionId) => this.loadSessionSummaryForChangedSession(sessionId)));
     } else {
       await this.loadSessions();
     }
@@ -382,8 +392,8 @@ class CoworkService {
     // user messages synced from gateway history would only appear after
     // the user manually re-enters the conversation.
     const currentId = state.currentSessionId;
-    if (currentId) {
-      void this.loadSession(currentId);
+    if (currentId && shouldReloadCurrentSessionForChange(currentId, payload)) {
+      void this.loadSession(currentId, { preserveLoadedRange: true });
       void this.loadSessionMessageRailIndex(currentId);
     }
   }
@@ -1116,10 +1126,14 @@ class CoworkService {
     }
   }
 
-  async loadSession(sessionId: string): Promise<CoworkSession | null> {
+  async loadSession(
+    sessionId: string,
+    options: { preserveLoadedRange?: boolean } = {},
+  ): Promise<CoworkSession | null> {
     const cowork = window.electron?.cowork;
     if (!cowork) return null;
     const requestId = ++this.latestLoadSessionRequestId;
+    const previouslyLoadedSession = store.getState().cowork.currentSession;
 
     // Instant switch: on revisit render the cached full session immediately; for
     // a first visit at least switch the selection so the sidebar highlights the
@@ -1142,16 +1156,69 @@ class CoworkService {
       if (requestId !== this.latestLoadSessionRequestId) {
         return result.session;
       }
+      let session = result.session;
+      if (
+        options.preserveLoadedRange
+        && previouslyLoadedSession?.id === sessionId
+        && cowork.getSessionMessages
+      ) {
+        const preservedWindow = getPreservedMessageWindow(
+          previouslyLoadedSession.messagesOffset,
+          session.messagesOffset,
+          session.totalMessages,
+        );
+        if (preservedWindow) {
+          let pageResult;
+          try {
+            pageResult = await cowork.getSessionMessages({
+              sessionId,
+              ...preservedWindow,
+            });
+          } catch (error) {
+            console.warn(`[CoworkService] failed to preserve loaded history for session ${sessionId}:`, error);
+            return previouslyLoadedSession;
+          }
+          if (requestId !== this.latestLoadSessionRequestId) {
+            return session;
+          }
+          if (pageResult.success && pageResult.messages && pageResult.messages.length > 0) {
+            const returnedOffset = pageResult.offset ?? preservedWindow.offset;
+            const returnedEnd = returnedOffset + pageResult.messages.length;
+            const latestLoadedSession = store.getState().cowork.currentSession;
+            const latestLoadedEnd = latestLoadedSession
+              ? latestLoadedSession.messagesOffset + latestLoadedSession.messages.length
+              : 0;
+            if (
+              latestLoadedSession?.id === sessionId
+              && (
+                latestLoadedSession.messagesOffset < returnedOffset
+                || latestLoadedEnd > returnedEnd
+              )
+            ) {
+              return latestLoadedSession;
+            }
+            session = {
+              ...session,
+              messages: pageResult.messages,
+              messagesOffset: returnedOffset,
+              totalMessages: pageResult.total ?? session.totalMessages,
+            };
+          } else {
+            console.warn(`[CoworkService] failed to preserve loaded history for session ${sessionId}: ${pageResult.error ?? 'empty result'}`);
+            return previouslyLoadedSession;
+          }
+        }
+      }
       // When the instant cache already rendered this exact session, skip the
       // refresh dispatch if nothing changed. A redundant setCurrentSession would
       // re-render the detail view and re-trigger its initial bottom-pin loop,
       // causing visible jitter and yanking the viewport back to the bottom even
       // after the user started scrolling.
       const shown = store.getState().cowork.currentSession;
-      if (!isSameLoadedSession(shown, result.session)) {
-        store.dispatch(setCurrentSession(result.session));
+      if (!isSameLoadedSession(shown, session)) {
+        store.dispatch(setCurrentSession(session));
       }
-      store.dispatch(setStreaming(result.session.status === 'running'));
+      store.dispatch(setStreaming(session.status === 'running'));
       this.refreshContextUsageForSessionEntry(sessionId);
       void this.loadSessionMessageRailIndex(sessionId);
 
@@ -1161,7 +1228,7 @@ class CoworkService {
         }
       });
 
-      return result.session;
+      return session;
     }
 
     console.error('Failed to load session:', result.error);

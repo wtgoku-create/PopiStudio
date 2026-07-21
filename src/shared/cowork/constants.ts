@@ -40,6 +40,10 @@ export const CoworkIpcChannel = {
 export type CoworkIpcChannel =
   typeof CoworkIpcChannel[keyof typeof CoworkIpcChannel];
 
+export interface CoworkSessionsChangedPayload {
+  sessionIds: string[];
+}
+
 export interface CoworkSubagentMessageChangedMessage {
   id: string;
   type: 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'system';
