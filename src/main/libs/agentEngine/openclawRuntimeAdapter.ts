@@ -8654,6 +8654,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     return this.gatewayClient;
   }
 
+  async ensureGatewayRpcClient(): Promise<GatewayClientLike | null> {
+    try {
+      await this.ensureGatewayClientReady();
+    } catch (error) {
+      console.warn('[OpenClawRuntime] gateway RPC client could not be prepared:', error);
+      return null;
+    }
+    return this.gatewayClient;
+  }
+
   getSessionKeysForSession(sessionId: string): string[] {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId) {

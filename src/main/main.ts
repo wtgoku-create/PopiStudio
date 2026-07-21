@@ -117,6 +117,7 @@ import {
   OpenClawPluginChangeAction,
   removeImpactDecisionReasons,
 } from './libs/openclawConfigImpact';
+import { deliverOpenClawConfigToGateway } from './libs/openclawConfigDelivery';
 import { buildProviderSelection, OpenClawConfigSync } from './libs/openclawConfigSync';
 import { OpenClawEngineManager, type OpenClawEngineStatus } from './libs/openclawEngineManager';
 import {
@@ -1669,10 +1670,27 @@ const syncOpenClawConfig = async (
   console.log(`${D()} needsHardRestart=${needsHardRestart} (envChanged=${secretEnvVarsChanged} bindingsChanged=${!!syncResult.bindingsChanged} configChanged=${syncResult.changed} restartFlag=${!!options.restartGatewayIfRunning})`);
 
   if (!needsHardRestart) {
-    console.log(`${D()} ──── NO RESTART, hot-reload only. reason=${options.reason}`);
+    if (!syncResult.changed) {
+      console.log(`${D()} ──── NO RESTART, config unchanged. reason=${options.reason}`);
+      return {
+        success: true,
+        changed: false,
+      };
+    }
+    const deliveryManager = getOpenClawEngineManager();
+    const delivery = await deliverOpenClawConfigToGateway({
+      reason: options.reason,
+      gatewayPhase: deliveryManager.getStatus().phase,
+      readConfigFile: () => fs.readFileSync(deliveryManager.getConfigPath(), 'utf8'),
+      ensureRpcClient: async () => (
+        openClawRuntimeAdapter ? openClawRuntimeAdapter.ensureGatewayRpcClient() : null
+      ),
+      scheduleDeferredRestart: scheduleDeferredGatewayRestart,
+    });
+    console.log(`${D()} ──── NO RESTART, hot delivery mode=${delivery.mode} restartScheduled=${delivery.restartScheduled}. reason=${options.reason}`);
     return {
       success: true,
-      changed: syncResult.changed,
+      changed: true,
     };
   }
 
