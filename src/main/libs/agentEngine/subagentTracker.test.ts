@@ -25,9 +25,16 @@ const createStores = () => {
       Array.from(runs.values()).filter((run) => run.parentSessionId === parentSessionId),
     ),
     getSubagentRun: vi.fn((id: string) => runs.get(id) ?? null),
+    findSubagentRunBySessionKey: vi.fn((sessionKey: string) =>
+      Array.from(runs.values()).find((run) => run.sessionKey === sessionKey) ?? null,
+    ),
     markMessagesPersisted: vi.fn((id: string) => {
       const run = runs.get(id);
       if (run) run.messagesPersisted = true;
+    }),
+    clearMessagesPersisted: vi.fn((id: string) => {
+      const run = runs.get(id);
+      if (run) run.messagesPersisted = false;
     }),
     isMessagesPersisted: vi.fn((id: string) => runs.get(id)?.messagesPersisted === true),
     getRunStatus: vi.fn((id: string) => runs.get(id)?.status ?? null),
@@ -268,6 +275,223 @@ test('spawn result stores display label from taskName when label is missing', ()
   }), {});
 
   expect(runStore.getSubagentRun('run-1')?.label).toBe('Image Style Analyzer');
+});
+
+test('spawn result seeds subagent history with the initial task as a user message', async () => {
+  const { runStore, messageStore } = createStores();
+  const tracker = new SubagentTracker(runStore as never, messageStore as never, () => null);
+
+  tracker.onToolStart('run-1', {
+    agentId: 'worker',
+    taskName: 'Image Style Analyzer',
+    task: 'inspect image style',
+  }, 'parent-1');
+  tracker.onSpawnResult('run-1', JSON.stringify({
+    status: 'accepted',
+    childSessionKey: 'agent:main:subagent:run-1',
+  }), {});
+  tracker.appendAssistantStreamFromSessionKey('agent:main:subagent:run-1', 'analysis done');
+
+  const history = await tracker.getSubTaskHistory('parent-1', 'run-1');
+  expect(history.map((message) => [message.type, message.content])).toEqual([
+    ['user', 'inspect image style'],
+    ['assistant', 'analysis done'],
+  ]);
+});
+
+test('gateway history is prefixed with spawn task when it omits the user message', async () => {
+  const { runStore, messageStore } = createStores();
+  const gatewayClient: GatewayClientLike = {
+    request: vi.fn().mockResolvedValue({
+      messages: [{
+        role: 'assistant',
+        content: 'analysis done',
+      }],
+    }),
+  };
+  const tracker = new SubagentTracker(runStore as never, messageStore as never, () => gatewayClient);
+
+  tracker.onToolStart('run-1', {
+    agentId: 'worker',
+    task: 'inspect image style',
+  }, 'parent-1');
+  tracker.onSpawnResult('run-1', JSON.stringify({
+    status: 'accepted',
+    childSessionKey: 'agent:main:subagent:run-1',
+  }), {});
+  tracker.tryMarkTerminalFromSessionKey('agent:main:subagent:run-1', 'done');
+
+  const history = await tracker.getSubTaskHistory('parent-1', 'run-1');
+  expect(history.map((message) => [message.type, message.content])).toEqual([
+    ['user', 'inspect image style'],
+    ['assistant', 'analysis done'],
+  ]);
+});
+
+test('gateway subagent wrapper prompt is normalized after restart', async () => {
+  const { runs, runStore, messageStore } = createStores();
+  const gatewayClient: GatewayClientLike = {
+    request: vi.fn().mockResolvedValue({
+      messages: [{
+        role: 'user',
+        content: '[Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status.\n\n[Subagent Task]\n\ninspect image style\n\nBegin. Execute the assigned task to completion.',
+      }, {
+        role: 'assistant',
+        content: 'analysis done',
+      }],
+    }),
+  };
+  const tracker = new SubagentTracker(runStore as never, messageStore as never, () => gatewayClient);
+  runs.set('run-1', {
+    id: 'run-1',
+    parentSessionId: 'parent-1',
+    sessionKey: 'agent:main:subagent:run-1',
+    childCoworkSessionId: null,
+    agentId: 'worker',
+    task: 'inspect image style',
+    label: 'worker',
+    status: 'done',
+    createdAt: 1000,
+    endedAt: 2000,
+  });
+
+  const history = await tracker.getSubTaskHistory(
+    'parent-1',
+    'run-1',
+    'agent:main:subagent:run-1',
+  );
+
+  expect(history.map((message) => [message.type, message.content])).toEqual([
+    ['user', 'inspect image style'],
+    ['assistant', 'analysis done'],
+  ]);
+});
+
+test('sessions_send reopens an existing subagent run and keeps previous messages', async () => {
+  const { runs, messages, runStore, messageStore } = createStores();
+  const changed = vi.fn();
+  const tracker = new SubagentTracker(
+    runStore as never,
+    messageStore as never,
+    () => null,
+    undefined,
+    undefined,
+    undefined,
+    changed,
+  );
+  runs.set('run-1', {
+    id: 'run-1',
+    parentSessionId: 'parent-1',
+    sessionKey: 'agent:main:subagent:run-1',
+    childCoworkSessionId: null,
+    agentId: 'worker',
+    task: 'inspect files',
+    label: 'worker',
+    status: 'done',
+    createdAt: 1000,
+    endedAt: 2000,
+    messagesPersisted: true,
+  });
+  messages.set('run-1', [{
+    id: 'message-1',
+    type: 'assistant',
+    content: 'old answer',
+    metadata: JSON.stringify({ isFinal: true }),
+    createdAt: 1500,
+    sequence: 1,
+  }]);
+
+  const handled = tracker.onSendStart({
+    sessionKey: 'agent:main:subagent:run-1',
+    message: '你好呀',
+  });
+  tracker.appendAssistantStreamFromSessionKey('agent:main:subagent:run-1', 'new answer');
+
+  const history = await tracker.getSubTaskHistory('parent-1', 'run-1');
+  expect(handled).toBe(true);
+  expect(history.map((message) => [message.type, message.content])).toEqual([
+    ['assistant', 'old answer'],
+    ['user', '你好呀'],
+    ['assistant', 'new answer'],
+  ]);
+  expect(runStore.updateSubagentRunStatus).toHaveBeenCalledWith('run-1', 'running');
+  expect(runStore.clearMessagesPersisted).toHaveBeenCalledWith('run-1');
+  expect(changed).toHaveBeenCalledWith(expect.objectContaining({
+    parentSessionId: 'parent-1',
+    runId: 'run-1',
+    sessionKey: 'agent:main:subagent:run-1',
+    status: 'running',
+  }));
+});
+
+test('terminal subagent status persists cached messages for later sessions_send', async () => {
+  const { runStore, messageStore } = createStores();
+  const tracker = new SubagentTracker(runStore as never, messageStore as never, () => null);
+
+  tracker.onToolStart('run-1', {
+    agentId: 'worker',
+    task: 'initial task',
+  }, 'parent-1');
+  tracker.onSpawnResult('run-1', JSON.stringify({
+    status: 'accepted',
+    childSessionKey: 'agent:main:subagent:run-1',
+  }), {});
+  tracker.appendAssistantStreamFromSessionKey('agent:main:subagent:run-1', 'initial answer');
+  tracker.tryMarkTerminalFromSessionKey('agent:main:subagent:run-1', 'done');
+  tracker.onSendStart({
+    sessionKey: 'agent:main:subagent:run-1',
+    message: 'follow up',
+  });
+  tracker.appendAssistantStreamFromSessionKey('agent:main:subagent:run-1', 'follow up answer');
+
+  const history = await tracker.getSubTaskHistory('parent-1', 'run-1');
+  expect(history.map((message) => [message.type, message.content])).toEqual([
+    ['user', 'initial task'],
+    ['assistant', 'initial answer'],
+    ['user', 'follow up'],
+    ['assistant', 'follow up answer'],
+  ]);
+  expect(messageStore.insertMessages).toHaveBeenCalledWith('run-1', expect.arrayContaining([
+    expect.objectContaining({ type: 'user', content: 'initial task' }),
+    expect.objectContaining({ type: 'assistant', content: 'initial answer' }),
+  ]));
+});
+
+test('subtask history falls back to local rows after persisted flag is cleared', async () => {
+  const { runs, messages, runStore, messageStore } = createStores();
+  const gatewayClient: GatewayClientLike = {
+    request: vi.fn().mockResolvedValue({ messages: [] }),
+  };
+  const tracker = new SubagentTracker(runStore as never, messageStore as never, () => gatewayClient);
+  runs.set('run-1', {
+    id: 'run-1',
+    parentSessionId: 'parent-1',
+    sessionKey: 'agent:main:subagent:run-1',
+    childCoworkSessionId: null,
+    agentId: 'worker',
+    task: 'inspect files',
+    label: 'worker',
+    status: 'done',
+    createdAt: 1000,
+    endedAt: 2000,
+    messagesPersisted: false,
+  });
+  messages.set('run-1', [{
+    id: 'message-1',
+    type: 'assistant',
+    content: 'old answer',
+    metadata: null,
+    createdAt: 1500,
+    sequence: 1,
+  }]);
+
+  const history = await tracker.getSubTaskHistory(
+    'parent-1',
+    'run-1',
+    'agent:main:subagent:run-1',
+  );
+
+  expect(history.map((message) => message.content)).toEqual(['old answer']);
 });
 
 test('deleted subagent run is not reinserted by late spawn results', async () => {

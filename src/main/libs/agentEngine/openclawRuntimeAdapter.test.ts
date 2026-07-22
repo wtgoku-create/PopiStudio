@@ -4195,11 +4195,65 @@ test('unmapped subagent assistant stream is cached for subtask history', async (
   });
 
   const messages = await adapter.getSubTaskHistory(parentSession.id, 'call-worker', childSessionKey);
-  expect(messages).toHaveLength(1);
+  expect(messages).toHaveLength(2);
   expect(messages[0]).toMatchObject({
+    type: 'user',
+    content: 'do child work',
+  });
+  expect(messages[1]).toMatchObject({
     type: 'assistant',
     content: 'child streamed answer',
   });
+});
+
+test('terminal subagent status preserves pending streamed message snapshot', async () => {
+  vi.useFakeTimers();
+  try {
+    const adapter = new OpenClawRuntimeAdapter({} as never, {} as never);
+    const emitSpy = vi.spyOn(adapter as unknown as {
+      emitSubagentMessagesChanged: (event: Record<string, unknown>) => void;
+    }, 'emitSubagentMessagesChanged').mockImplementation(() => {});
+    const streamedMessages = [{
+      id: 'subagent-message-1',
+      type: 'assistant' as const,
+      content: '你好！我是 Popi 派出的第三位子代理，目前处于待命状态。',
+      timestamp: 1,
+      metadata: { isStreaming: true, isFinal: false },
+    }];
+    const notify = (adapter as unknown as {
+      notifySubagentMessagesChanged: (event: Record<string, unknown>) => void;
+    }).notifySubagentMessagesChanged.bind(adapter);
+
+    notify({
+      parentSessionId: 'parent-session',
+      runId: 'call-worker',
+      sessionKey: 'agent:child-agent:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31',
+      status: 'running',
+      messages: streamedMessages,
+    });
+    expect(emitSpy).not.toHaveBeenCalled();
+
+    notify({
+      parentSessionId: 'parent-session',
+      runId: 'call-worker',
+      sessionKey: 'agent:child-agent:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31',
+      status: 'done',
+    });
+
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+    expect(emitSpy).toHaveBeenCalledWith({
+      parentSessionId: 'parent-session',
+      runId: 'call-worker',
+      sessionKey: 'agent:child-agent:subagent:e0fbd45e-25ef-4765-b1b1-a82035637f31',
+      status: 'done',
+      messages: streamedMessages,
+    });
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('unmapped subagent session.tool events are cached for subtask history', async () => {

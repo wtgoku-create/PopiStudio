@@ -245,6 +245,11 @@ export class SubagentRunStore {
       .run(id);
   }
 
+  clearMessagesPersisted(id: string): void {
+    this.db.prepare('UPDATE subagent_runs SET messages_persisted = 0 WHERE id = ?')
+      .run(id);
+  }
+
   isMessagesPersisted(id: string): boolean {
     const row = this.db
       .prepare('SELECT messages_persisted FROM subagent_runs WHERE id = ?')

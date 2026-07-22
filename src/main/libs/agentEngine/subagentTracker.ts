@@ -5,6 +5,7 @@ import type { SubagentRunStore, SubagentRunWithParent } from '../../subagentRunS
 import {
   shouldSuppressHeartbeatText,
 } from '../openclawHistory';
+import { normalizeSubagentVisibleUserText } from './subagent/childHistorySync';
 import {
   parseSubagentGatewayHistoryMessages,
   type SubagentCoworkMessage,
@@ -274,6 +275,58 @@ export class SubagentTracker {
         this.tryPersistCachedMessages(tcId);
       }
     }
+  }
+
+  /**
+   * Called when a parent turn sends a message into an existing subagent session.
+   * Reopens the matching run and appends the sent user text so the subtask panel
+   * continues from the previous transcript instead of showing a stale snapshot.
+   */
+  onSendStart(args: Record<string, unknown>): boolean {
+    const sessionKey = typeof args?.sessionKey === 'string' ? args.sessionKey.trim() : '';
+    const message = typeof args?.message === 'string' ? args.message.trim() : '';
+    if (!sessionKey || !message) return false;
+
+    const runId = this.resolveRunIdBySessionKey(sessionKey);
+    if (!runId) return false;
+    const run = this.store.getSubagentRun?.(runId);
+    if (!run) return false;
+
+    const messages = this.ensureMutableMessages(runId);
+    const lastMessage = messages[messages.length - 1];
+    if (!(lastMessage?.type === 'user' && lastMessage.content === message)) {
+      messages.push({
+        id: crypto.randomUUID(),
+        type: 'user',
+        content: message,
+        timestamp: Date.now(),
+      });
+    }
+
+    this.subagentMessages.set(runId, messages);
+    this.subagentStatus.set(runId, 'running');
+    this.store.updateSubagentRunStatus(runId, 'running');
+    this.clearPersistedMessageFlag(runId);
+
+    const agentId = run.agentId?.trim();
+    if (agentId) {
+      this.subagentToolCallIdToAgentId.set(runId, agentId);
+      let toolCallIds = this.agentIdToToolCallIds.get(agentId);
+      if (!toolCallIds) {
+        toolCallIds = new Set();
+        this.agentIdToToolCallIds.set(agentId, toolCallIds);
+      }
+      toolCallIds.add(runId);
+    }
+
+    this.notifySubagentMessagesChanged?.({
+      parentSessionId: run.parentSessionId,
+      runId,
+      sessionKey,
+      status: 'running',
+      messages,
+    });
+    return true;
   }
 
   /**
@@ -686,12 +739,14 @@ export class SubagentTracker {
     // 1. Try locally collected messages from the live subagent stream.
     const local = this.subagentMessages.get(runId);
     if (local && local.length > 0) {
-      return local;
+      if (!this.shouldRefreshTerminalSnapshot(runId, local)) {
+        return local;
+      }
     }
 
     // 2. Try persisted messages from local database
     const persisted = this.loadPersistedMessages(runId);
-    if (persisted) return persisted;
+    if (persisted && !this.shouldRefreshTerminalSnapshot(runId, persisted)) return persisted;
 
     // 3. Resolve session key from multiple sources
     let key = sessionKey || this.subagentSessionKeys.get(runId);
@@ -733,7 +788,9 @@ export class SubagentTracker {
     }
 
     console.log('[SubagentTracker] getSubTaskHistory: fetching history for runId:', runId, 'key:', key);
-    return this.fetchSubagentHistory(key, runId);
+    const fetched = await this.fetchSubagentHistory(key, runId);
+    if (fetched.length > 0) return fetched;
+    return local ?? this.loadPersistedMessages(runId, { requirePersistedFlag: false }) ?? [];
   }
 
   // ── Private helpers ────────────────────────────────────────────────────
@@ -804,6 +861,7 @@ export class SubagentTracker {
           childCoworkSessionId,
         });
       }
+      this.appendInitialTaskMessage(toolCallId, existingRun.task, existingRun.createdAt);
       this.subscribeChildSession(candidate);
       return;
     }
@@ -840,6 +898,7 @@ export class SubagentTracker {
         createdAt: pending.createdAt,
         endedAt: isError ? Date.now() : null,
       });
+      this.appendInitialTaskMessage(toolCallId, pending.task, pending.createdAt);
       if (shouldMaterialize && childCoworkSessionId) {
         this.materializeChildSession({
           ...candidate,
@@ -1085,7 +1144,11 @@ export class SubagentTracker {
 
       console.log('[SubagentTracker] fetchSubagentHistory: got', history.messages.length, 'raw messages for key:', sessionKey);
 
-      const messages = parseSubagentGatewayHistoryMessages(history.messages);
+      const parsedMessages = this.normalizeGatewayVisibleMessages(
+        parseSubagentGatewayHistoryMessages(history.messages),
+      );
+      const run = this.store.getSubagentRun?.(runId);
+      const messages = this.withInitialTaskMessage(parsedMessages, run?.task, run?.createdAt);
 
       // Cache locally
       this.subagentMessages.set(runId, messages);
@@ -1111,9 +1174,12 @@ export class SubagentTracker {
    * Load messages from the persisted subagent_messages table.
    * Returns null if no persisted messages are found.
    */
-  private loadPersistedMessages(runId: string): SubagentCoworkMessage[] | null {
+  private loadPersistedMessages(
+    runId: string,
+    options: { requirePersistedFlag?: boolean } = {},
+  ): SubagentCoworkMessage[] | null {
     if (!this.messageStore) return null;
-    if (!this.store.isMessagesPersisted(runId)) return null;
+    if ((options.requirePersistedFlag ?? true) && !this.store.isMessagesPersisted(runId)) return null;
 
     const rows = this.messageStore.getMessages(runId);
     if (rows.length === 0) return null;
@@ -1129,6 +1195,62 @@ export class SubagentTracker {
     // Populate in-memory cache so subsequent reads skip the DB
     this.subagentMessages.set(runId, messages);
     return messages;
+  }
+
+  private ensureMutableMessages(runId: string): SubagentCoworkMessage[] {
+    const local = this.subagentMessages.get(runId);
+    if (local) return local;
+    return this.loadPersistedMessages(runId, { requirePersistedFlag: false }) ?? [];
+  }
+
+  private appendInitialTaskMessage(
+    runId: string,
+    task: string | null | undefined,
+    createdAt: number | null | undefined,
+  ): void {
+    const messages = this.ensureMutableMessages(runId);
+    const withInitialTask = this.withInitialTaskMessage(messages, task, createdAt);
+    if (withInitialTask !== messages) {
+      this.subagentMessages.set(runId, withInitialTask);
+    }
+  }
+
+  private withInitialTaskMessage(
+    messages: SubagentCoworkMessage[],
+    task: string | null | undefined,
+    createdAt: number | null | undefined,
+  ): SubagentCoworkMessage[] {
+    const content = typeof task === 'string' ? task.trim() : '';
+    if (!content) return messages;
+    const first = messages[0];
+    if (first?.type === 'user' && first.content.trim() === content) return messages;
+    return [{
+      id: crypto.randomUUID(),
+      type: 'user',
+      content,
+      timestamp: createdAt ?? Date.now(),
+    }, ...messages];
+  }
+
+  private normalizeGatewayVisibleMessages(
+    messages: SubagentCoworkMessage[],
+  ): SubagentCoworkMessage[] {
+    return messages.map((message) => {
+      if (message.type !== 'user') return message;
+      const content = normalizeSubagentVisibleUserText(message.content).trim();
+      if (!content || content === message.content) return message;
+      return {
+        ...message,
+        content,
+      };
+    });
+  }
+
+  private clearPersistedMessageFlag(runId: string): void {
+    const store = this.store as SubagentRunStore & {
+      clearMessagesPersisted?: (id: string) => void;
+    };
+    store.clearMessagesPersisted?.(runId);
   }
 
   /**
@@ -1155,15 +1277,23 @@ export class SubagentTracker {
     }
   }
 
-  /**
-   * When a subagent is confirmed done, clear stale in-memory cache so that the
-   * next getSubTaskHistory call fetches fresh complete data from the gateway.
-   * We do NOT persist the cached messages here because they may have been fetched
-   * while the subagent was still running (incomplete). Persistence will happen
-   * on the next getSubTaskHistory call which will see status=done and persist.
-   */
   private tryPersistCachedMessages(runId: string): void {
-    // Clear potentially stale/incomplete cached messages
-    this.subagentMessages.delete(runId);
+    const messages = this.subagentMessages.get(runId);
+    if (!messages || messages.length === 0) return;
+    if (this.isOnlyInitialTaskSnapshot(messages)) return;
+    this.persistMessages(runId, messages);
+  }
+
+  private shouldRefreshTerminalSnapshot(
+    runId: string,
+    messages: SubagentCoworkMessage[],
+  ): boolean {
+    const status = this.subagentStatus.get(runId) || this.store.getRunStatus(runId);
+    if (status !== 'done' && status !== 'error') return false;
+    return this.isOnlyInitialTaskSnapshot(messages);
+  }
+
+  private isOnlyInitialTaskSnapshot(messages: SubagentCoworkMessage[]): boolean {
+    return messages.length === 1 && messages[0]?.type === 'user';
   }
 }

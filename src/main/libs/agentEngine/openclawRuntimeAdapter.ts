@@ -18,21 +18,21 @@ import {
   buildBrowserAnnotationPromptSection,
   type CoworkBrowserAnnotationMessageBatch,
 } from '../../../shared/cowork/browserAnnotations';
-import { buildCoworkErrorDetail } from '../../../shared/cowork/errorDetail';
 import { CoworkIpcChannel } from '../../../shared/cowork/constants';
+import { buildCoworkErrorDetail } from '../../../shared/cowork/errorDetail';
 import {
   type CoworkGoal,
   normalizeCoworkGoal,
 } from '../../../shared/cowork/goal';
 import {
+  buildSelectedTextPromptSection,
+  type CoworkSelectedTextSnippet,
+} from '../../../shared/cowork/selectedText';
+import {
   CoworkSteerRejectReason,
   type CoworkSteerResponse,
   CoworkSteerStatus,
 } from '../../../shared/cowork/steer';
-import {
-  buildSelectedTextPromptSection,
-  type CoworkSelectedTextSnippet,
-} from '../../../shared/cowork/selectedText';
 import { stripNullChars } from '../../../shared/cowork/text';
 import type { CoworkExecutionMode, CoworkMessage, CoworkMessageMetadata, CoworkSession, CoworkSessionStatus, CoworkStore } from '../../coworkStore';
 import { t } from '../../i18n';
@@ -103,8 +103,8 @@ import {
   getHistoryToolName,
   isHistoryToolResultRole,
 } from './subagent/historyBackfill';
-import { SubagentSessionMaterializer } from './subagent/sessionMaterializer';
 import { isSubagentSessionKey } from './subagent/sessionKeys';
+import { SubagentSessionMaterializer } from './subagent/sessionMaterializer';
 import { SubagentTracker } from './subagentTracker';
 import { buildAnchoredThinkingKey } from './thinking/blocks';
 import {
@@ -4921,10 +4921,15 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const existing = this.pendingSubagentMessageEvents.get(eventKey);
     const isTerminal = event.status === 'done' || event.status === 'error';
     if (existing) {
-      existing.event = event;
       if (!isTerminal) return;
       clearTimeout(existing.timer);
       this.pendingSubagentMessageEvents.delete(eventKey);
+      this.emitSubagentMessagesChanged({
+        ...existing.event,
+        ...event,
+        messages: event.messages ?? existing.event.messages,
+      });
+      return;
     } else if (!isTerminal) {
       const timer = setTimeout(() => {
         const pending = this.pendingSubagentMessageEvents.get(eventKey);
@@ -5738,6 +5743,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       if (toolNameRaw.toLowerCase() === 'sessions_spawn') {
         this.subagentTracker.onToolStart(toolCallId, toToolInputRecord(data.args), sessionId);
       }
+      if (toolNameRaw.toLowerCase() === 'sessions_send') {
+        this.subagentTracker.onSendStart(toToolInputRecord(data.args));
+      }
     }
 
     if (phase === 'update') {
@@ -5825,6 +5833,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       // Track subagent session keys from sessions_spawn results
       if (toolNameRaw.toLowerCase() === 'sessions_spawn' && finalContent) {
         this.subagentTracker.onSpawnResult(toolCallId, finalContent, toToolInputRecord(data.args));
+      }
+
+      if (toolNameRaw.toLowerCase() === 'sessions_send') {
+        this.subagentTracker.onSendStart(toToolInputRecord(data.args));
       }
 
       // Mark subagent as done when parent retrieves result via sessions_resume/sessions_read
