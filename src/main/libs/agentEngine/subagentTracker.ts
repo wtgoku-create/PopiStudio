@@ -163,6 +163,13 @@ export class SubagentTracker {
     parentSessionId: string;
     createdAt: number;
   }>();
+  private readonly pendingSendInfo = new Map<string, {
+    runId: string;
+    sessionKey: string;
+    previousStatus: 'running' | 'done' | 'error';
+    appendedMessageId: string | null;
+    wasMessagesPersisted: boolean;
+  }>();
 
   constructor(
     private readonly store: SubagentRunStore,
@@ -282,10 +289,10 @@ export class SubagentTracker {
    * Reopens the matching run and appends the sent user text so the subtask panel
    * continues from the previous transcript instead of showing a stale snapshot.
    */
-  onSendStart(args: Record<string, unknown>): boolean {
+  onSendStart(toolCallId: string, args: Record<string, unknown>): boolean {
     const sessionKey = typeof args?.sessionKey === 'string' ? args.sessionKey.trim() : '';
     const message = typeof args?.message === 'string' ? args.message.trim() : '';
-    if (!sessionKey || !message) return false;
+    if (!toolCallId || !sessionKey || !message) return false;
 
     const runId = this.resolveRunIdBySessionKey(sessionKey);
     if (!runId) return false;
@@ -294,14 +301,27 @@ export class SubagentTracker {
 
     const messages = this.ensureMutableMessages(runId);
     const lastMessage = messages[messages.length - 1];
+    let appendedMessageId: string | null = null;
     if (!(lastMessage?.type === 'user' && lastMessage.content === message)) {
+      appendedMessageId = crypto.randomUUID();
       messages.push({
-        id: crypto.randomUUID(),
+        id: appendedMessageId,
         type: 'user',
         content: message,
         timestamp: Date.now(),
       });
+    } else {
+      appendedMessageId = lastMessage.id;
     }
+
+    const previousStatus = this.subagentStatus.get(runId) ?? run.status;
+    this.pendingSendInfo.set(toolCallId, {
+      runId,
+      sessionKey,
+      previousStatus,
+      appendedMessageId,
+      wasMessagesPersisted: this.store.isMessagesPersisted(runId),
+    });
 
     this.subagentMessages.set(runId, messages);
     this.subagentStatus.set(runId, 'running');
@@ -327,6 +347,56 @@ export class SubagentTracker {
       messages,
     });
     return true;
+  }
+
+  onSendResult(toolCallId: string, args: Record<string, unknown>, resultText: string, isError: boolean): boolean {
+    if (!toolCallId) return false;
+    const pending = this.pendingSendInfo.get(toolCallId);
+    this.pendingSendInfo.delete(toolCallId);
+    if (!pending) return false;
+
+    const parsed = this.parseToolResultRecord(resultText);
+    const status = typeof parsed?.status === 'string' ? parsed.status.trim().toLowerCase() : '';
+    if (!isError && status !== 'forbidden' && status !== 'error' && status !== 'failed') {
+      return true;
+    }
+
+    const run = this.store.getSubagentRun?.(pending.runId);
+    if (!run) return false;
+    const message = typeof args?.message === 'string' ? args.message.trim() : '';
+    const messages = (this.subagentMessages.get(pending.runId) ?? []).filter((item) => {
+      if (!pending.appendedMessageId) return true;
+      return !(item.id === pending.appendedMessageId && item.type === 'user' && item.content.trim() === message);
+    });
+    this.subagentMessages.set(pending.runId, messages);
+    this.subagentStatus.set(pending.runId, pending.previousStatus);
+    this.store.updateSubagentRunStatus(
+      pending.runId,
+      pending.previousStatus,
+      pending.previousStatus === 'running' ? undefined : Date.now(),
+    );
+    if (pending.wasMessagesPersisted) {
+      this.store.markMessagesPersisted(pending.runId);
+    }
+
+    this.notifySubagentMessagesChanged?.({
+      parentSessionId: run.parentSessionId,
+      runId: pending.runId,
+      sessionKey: pending.sessionKey,
+      status: pending.previousStatus,
+      messages,
+    });
+    return true;
+  }
+
+  private parseToolResultRecord(resultText: string): Record<string, unknown> | null {
+    if (!resultText.trim()) return null;
+    try {
+      const parsed = JSON.parse(resultText);
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -396,6 +466,7 @@ export class SubagentTracker {
     const trimmed = text.trim();
     if (!trimmed || shouldSuppressHeartbeatText('assistant', trimmed)) return true;
 
+    this.markRunActiveFromChildEvent(runId);
     const messages = this.subagentMessages.get(runId) ?? [];
     const lastMessage = messages[messages.length - 1];
     const timestamp = Date.now();
@@ -435,6 +506,7 @@ export class SubagentTracker {
     const phase = typeof event.phase === 'string' ? event.phase.trim() : '';
     if (phase !== 'start' && phase !== 'update' && phase !== 'result') return true;
 
+    this.markRunActiveFromChildEvent(runId);
     const toolName = typeof event.name === 'string' && event.name.trim()
       ? event.name.trim()
       : 'Tool';
@@ -739,8 +811,9 @@ export class SubagentTracker {
     // 1. Try locally collected messages from the live subagent stream.
     const local = this.subagentMessages.get(runId);
     if (local && local.length > 0) {
+      const normalizedLocal = this.normalizeVisibleMessages(local);
       if (!this.shouldRefreshTerminalSnapshot(runId, local)) {
-        return local;
+        return normalizedLocal;
       }
     }
 
@@ -790,7 +863,9 @@ export class SubagentTracker {
     console.log('[SubagentTracker] getSubTaskHistory: fetching history for runId:', runId, 'key:', key);
     const fetched = await this.fetchSubagentHistory(key, runId);
     if (fetched.length > 0) return fetched;
-    return local ?? this.loadPersistedMessages(runId, { requirePersistedFlag: false }) ?? [];
+    return local
+      ? this.normalizeVisibleMessages(local)
+      : this.loadPersistedMessages(runId, { requirePersistedFlag: false }) ?? [];
   }
 
   // ── Private helpers ────────────────────────────────────────────────────
@@ -1144,7 +1219,7 @@ export class SubagentTracker {
 
       console.log('[SubagentTracker] fetchSubagentHistory: got', history.messages.length, 'raw messages for key:', sessionKey);
 
-      const parsedMessages = this.normalizeGatewayVisibleMessages(
+      const parsedMessages = this.normalizeVisibleMessages(
         parseSubagentGatewayHistoryMessages(history.messages),
       );
       const run = this.store.getSubagentRun?.(runId);
@@ -1184,13 +1259,13 @@ export class SubagentTracker {
     const rows = this.messageStore.getMessages(runId);
     if (rows.length === 0) return null;
 
-    const messages: SubagentCoworkMessage[] = rows.map((row) => ({
+    const messages = this.normalizeVisibleMessages(rows.map((row) => ({
       id: row.id,
       type: row.type as SubagentCoworkMessage['type'],
       content: row.content,
       timestamp: row.createdAt,
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
-    }));
+    })));
 
     // Populate in-memory cache so subsequent reads skip the DB
     this.subagentMessages.set(runId, messages);
@@ -1211,7 +1286,7 @@ export class SubagentTracker {
     const messages = this.ensureMutableMessages(runId);
     const withInitialTask = this.withInitialTaskMessage(messages, task, createdAt);
     if (withInitialTask !== messages) {
-      this.subagentMessages.set(runId, withInitialTask);
+      this.subagentMessages.set(runId, this.normalizeVisibleMessages(withInitialTask));
     }
   }
 
@@ -1222,28 +1297,37 @@ export class SubagentTracker {
   ): SubagentCoworkMessage[] {
     const content = typeof task === 'string' ? task.trim() : '';
     if (!content) return messages;
-    const first = messages[0];
-    if (first?.type === 'user' && first.content.trim() === content) return messages;
+    const normalizedMessages = this.normalizeVisibleMessages(messages);
+    const first = normalizedMessages[0];
+    if (first?.type === 'user' && first.content.trim() === content) return normalizedMessages;
     return [{
       id: crypto.randomUUID(),
       type: 'user',
       content,
       timestamp: createdAt ?? Date.now(),
-    }, ...messages];
+    }, ...normalizedMessages];
   }
 
-  private normalizeGatewayVisibleMessages(
+  private normalizeVisibleMessages(
     messages: SubagentCoworkMessage[],
   ): SubagentCoworkMessage[] {
-    return messages.map((message) => {
-      if (message.type !== 'user') return message;
-      const content = normalizeSubagentVisibleUserText(message.content).trim();
-      if (!content || content === message.content) return message;
-      return {
-        ...message,
-        content,
-      };
-    });
+    const seen = new Set<string>();
+    const normalized: SubagentCoworkMessage[] = [];
+    for (const message of messages) {
+      let next = message;
+      if (message.type === 'user') {
+        const content = normalizeSubagentVisibleUserText(message.content).trim();
+        if (!content) continue;
+        next = content === message.content ? message : { ...message, content };
+      } else if (!message.content.trim() && message.type !== 'tool_use') {
+        continue;
+      }
+      const key = `${next.type}:${next.content.trim()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      normalized.push(next);
+    }
+    return normalized;
   }
 
   private clearPersistedMessageFlag(runId: string): void {
@@ -1251,6 +1335,17 @@ export class SubagentTracker {
       clearMessagesPersisted?: (id: string) => void;
     };
     store.clearMessagesPersisted?.(runId);
+  }
+
+  private markRunActiveFromChildEvent(runId: string): void {
+    if (this.subagentStatus.get(runId) === 'running') return;
+    const run = this.store.getSubagentRun?.(runId);
+    if (!run || run.status === 'running') {
+      this.subagentStatus.set(runId, 'running');
+      return;
+    }
+    this.subagentStatus.set(runId, 'running');
+    this.store.updateSubagentRunStatus(runId, 'running');
   }
 
   /**
@@ -1262,7 +1357,8 @@ export class SubagentTracker {
     if (this.store.isMessagesPersisted(runId)) return;
 
     try {
-      this.messageStore.insertMessages(runId, messages.map((msg, idx) => ({
+      const normalizedMessages = this.normalizeVisibleMessages(messages);
+      this.messageStore.insertMessages(runId, normalizedMessages.map((msg, idx) => ({
         id: msg.id,
         type: msg.type,
         content: msg.content,

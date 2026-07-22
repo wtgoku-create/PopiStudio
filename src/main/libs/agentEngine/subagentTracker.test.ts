@@ -336,6 +336,12 @@ test('gateway subagent wrapper prompt is normalized after restart', async () => 
         role: 'user',
         content: '[Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status.\n\n[Subagent Task]\n\ninspect image style\n\nBegin. Execute the assigned task to completion.',
       }, {
+        role: 'user',
+        content: 'inspect image style',
+      }, {
+        role: 'assistant',
+        content: 'analysis done',
+      }, {
         role: 'assistant',
         content: 'analysis done',
       }],
@@ -401,7 +407,7 @@ test('sessions_send reopens an existing subagent run and keeps previous messages
     sequence: 1,
   }]);
 
-  const handled = tracker.onSendStart({
+  const handled = tracker.onSendStart('send-1', {
     sessionKey: 'agent:main:subagent:run-1',
     message: '你好呀',
   });
@@ -438,7 +444,7 @@ test('terminal subagent status persists cached messages for later sessions_send'
   }), {});
   tracker.appendAssistantStreamFromSessionKey('agent:main:subagent:run-1', 'initial answer');
   tracker.tryMarkTerminalFromSessionKey('agent:main:subagent:run-1', 'done');
-  tracker.onSendStart({
+  tracker.onSendStart('send-1', {
     sessionKey: 'agent:main:subagent:run-1',
     message: 'follow up',
   });
@@ -455,6 +461,65 @@ test('terminal subagent status persists cached messages for later sessions_send'
     expect.objectContaining({ type: 'user', content: 'initial task' }),
     expect.objectContaining({ type: 'assistant', content: 'initial answer' }),
   ]));
+});
+
+test('sessions_send forbidden result restores previous status and removes optimistic user message', async () => {
+  const { runs, messages, runStore, messageStore } = createStores();
+  const changed = vi.fn();
+  const tracker = new SubagentTracker(
+    runStore as never,
+    messageStore as never,
+    () => null,
+    undefined,
+    undefined,
+    undefined,
+    changed,
+  );
+  runs.set('run-1', {
+    id: 'run-1',
+    parentSessionId: 'parent-1',
+    sessionKey: 'agent:main:subagent:run-1',
+    childCoworkSessionId: null,
+    agentId: 'worker',
+    task: 'inspect files',
+    label: 'worker',
+    status: 'done',
+    createdAt: 1000,
+    endedAt: 2000,
+    messagesPersisted: true,
+  });
+  messages.set('run-1', [{
+    id: 'message-1',
+    type: 'assistant',
+    content: 'old answer',
+    metadata: null,
+    createdAt: 1500,
+    sequence: 1,
+  }]);
+
+  tracker.onSendStart('send-1', {
+    sessionKey: 'agent:main:subagent:run-1',
+    message: 'forbidden follow up',
+  });
+  tracker.onSendResult('send-1', {
+    sessionKey: 'agent:main:subagent:run-1',
+    message: 'forbidden follow up',
+  }, JSON.stringify({
+    status: 'forbidden',
+    sessionKey: 'agent:main:subagent:run-1',
+  }), false);
+
+  const history = await tracker.getSubTaskHistory('parent-1', 'run-1');
+  expect(history.map((message) => [message.type, message.content])).toEqual([
+    ['assistant', 'old answer'],
+  ]);
+  expect(runStore.updateSubagentRunStatus).toHaveBeenCalledWith('run-1', 'running');
+  expect(runStore.updateSubagentRunStatus).toHaveBeenCalledWith('run-1', 'done', expect.any(Number));
+  expect(runStore.markMessagesPersisted).toHaveBeenCalledWith('run-1');
+  expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({
+    runId: 'run-1',
+    status: 'done',
+  }));
 });
 
 test('subtask history falls back to local rows after persisted flag is cleared', async () => {

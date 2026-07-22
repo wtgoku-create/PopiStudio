@@ -5744,7 +5744,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         this.subagentTracker.onToolStart(toolCallId, toToolInputRecord(data.args), sessionId);
       }
       if (toolNameRaw.toLowerCase() === 'sessions_send') {
-        this.subagentTracker.onSendStart(toToolInputRecord(data.args));
+        this.subagentTracker.onSendStart(toolCallId, toToolInputRecord(data.args));
       }
     }
 
@@ -5836,7 +5836,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
 
       if (toolNameRaw.toLowerCase() === 'sessions_send') {
-        this.subagentTracker.onSendStart(toToolInputRecord(data.args));
+        this.subagentTracker.onSendResult(toolCallId, toToolInputRecord(data.args), finalContent, isError);
       }
 
       // Mark subagent as done when parent retrieves result via sessions_resume/sessions_read
