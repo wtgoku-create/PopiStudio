@@ -1,5 +1,6 @@
-import http from 'http';
 import { net } from 'electron';
+import http from 'http';
+
 import { getKnowledgeDefaultBaseUrl } from './endpoints';
 
 const PROXY_BIND_HOST = '127.0.0.1';
@@ -222,8 +223,25 @@ type UpstreamDiagnostics = {
   headersAt: number;
 };
 
+type ParsedProxySSEPacket = {
+  event: string;
+  payload: string;
+};
+
+type ProxySSEStreamScanState = {
+  sawTerminalPacket: boolean;
+};
+
+function createProxySSEStreamScanState(): ProxySSEStreamScanState {
+  return { sawTerminalPacket: false };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function toArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function tryParseJson(value: string): unknown {
@@ -232,6 +250,84 @@ function tryParseJson(value: string): unknown {
   } catch {
     return null;
   }
+}
+
+function parseProxySSEPacket(packet: string): ParsedProxySSEPacket {
+  const lines = packet.split(/\r?\n/);
+  const dataLines: string[] = [];
+  let event = '';
+
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trimStart();
+      continue;
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+
+  return {
+    event,
+    payload: dataLines.join('\n'),
+  };
+}
+
+function isTerminalProxySSEPacket(packet: ParsedProxySSEPacket): boolean {
+  const { event, payload } = packet;
+  if (!payload) return false;
+  if (payload === '[DONE]') return true;
+  if (event === 'error' || event === 'message_stop') return true;
+
+  const parsed = tryParseJson(payload);
+  if (!isRecord(parsed)) return false;
+  if (parsed.type === 'error' || parsed.error != null || parsed.type === 'message_stop') {
+    return true;
+  }
+  for (const choice of toArray(parsed.choices)) {
+    if (isRecord(choice) && choice.finish_reason != null && choice.finish_reason !== '') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findSSEPacketBoundary(buffer: string): { index: number; separatorLength: number } | null {
+  const match = /\r?\n\r?\n/.exec(buffer);
+  if (!match || typeof match.index !== 'number') return null;
+  return {
+    index: match.index,
+    separatorLength: match[0].length,
+  };
+}
+
+function inspectProxySSEPacket(packet: string, scanState?: ProxySSEStreamScanState): void {
+  if (scanState && !scanState.sawTerminalPacket && isTerminalProxySSEPacket(parseProxySSEPacket(packet))) {
+    scanState.sawTerminalPacket = true;
+  }
+}
+
+function scanProxySSEBuffer(
+  buffer: string,
+  scanState?: ProxySSEStreamScanState,
+): string {
+  let remaining = buffer;
+  let boundary = findSSEPacketBoundary(remaining);
+
+  while (boundary) {
+    const packet = remaining.slice(0, boundary.index);
+    remaining = remaining.slice(boundary.index + boundary.separatorLength);
+    inspectProxySSEPacket(packet, scanState);
+    boundary = findSSEPacketBoundary(remaining);
+  }
+
+  return remaining;
+}
+
+function flushProxySSEBuffer(buffer: string, scanState?: ProxySSEStreamScanState): void {
+  const remaining = scanProxySSEBuffer(buffer, scanState);
+  if (!remaining.trim()) return;
+  inspectProxySSEPacket(remaining, scanState);
 }
 
 function normalizeLlmChatBusinessError(responseText: string): UpstreamResult | null {
@@ -498,9 +594,10 @@ function buildResponseHeaders(result: UpstreamResult): Record<string, string> {
 
 function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {
   res.writeHead(result.status, buildResponseHeaders(result));
+  const scanState = result.isStream ? createProxySSEStreamScanState() : undefined;
 
   if (result.isStream && 'pipe' in result.body && typeof (result.body as NodeJS.ReadableStream).pipe === 'function') {
-    pipeNodeReadableResponse(result.body as NodeJS.ReadableStream, res, result.diagnostics);
+    pipeNodeReadableResponse(result.body as NodeJS.ReadableStream, res, result.diagnostics, scanState);
   } else if (Buffer.isBuffer(result.body)) {
     console.debug(
       `[OpenClawTokenProxy] completed non-stream response in ${Date.now() - result.diagnostics.startedAt}ms `
@@ -509,22 +606,50 @@ function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {
     res.end(result.body);
   } else {
     // Web ReadableStream from net.fetch — need to consume manually
-    pipeWebReadableResponse(result.body as unknown as ReadableStream<Uint8Array>, res, result.diagnostics);
+    pipeWebReadableResponse(result.body as unknown as ReadableStream<Uint8Array>, res, result.diagnostics, scanState);
   }
+}
+
+function abortProxyResponse(res: http.ServerResponse): void {
+  if (!res.destroyed) {
+    res.destroy();
+  }
+}
+
+function endProxyResponseAfterScan(
+  res: http.ServerResponse,
+  diagnostics: UpstreamDiagnostics,
+  scanState?: ProxySSEStreamScanState,
+): void {
+  if (scanState && !scanState.sawTerminalPacket) {
+    console.error(
+      `[OpenClawTokenProxy] upstream SSE stream ended without a terminal packet for `
+      + `${diagnostics.method} ${diagnostics.upstreamPath}`,
+    );
+    abortProxyResponse(res);
+    return;
+  }
+  res.end();
 }
 
 function pipeNodeReadableResponse(
   stream: NodeJS.ReadableStream,
   res: http.ServerResponse,
   diagnostics: UpstreamDiagnostics,
+  scanState?: ProxySSEStreamScanState,
 ): void {
   let chunkCount = 0;
   let byteCount = 0;
+  const decoder = new TextDecoder();
+  let sseBuffer = '';
 
   stream.on('data', (chunk: Buffer | Uint8Array | string) => {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     chunkCount += 1;
     byteCount += buffer.byteLength;
+    if (scanState) {
+      sseBuffer = scanProxySSEBuffer(sseBuffer + decoder.decode(buffer, { stream: true }), scanState);
+    }
     if (chunkCount === 1) {
       console.debug(
         `[OpenClawTokenProxy] first upstream body chunk received in ${Date.now() - diagnostics.startedAt}ms `
@@ -535,16 +660,20 @@ function pipeNodeReadableResponse(
   });
 
   stream.on('end', () => {
+    if (scanState) {
+      const remainder = decoder.decode();
+      flushProxySSEBuffer(sseBuffer + remainder, scanState);
+    }
     console.debug(
       `[OpenClawTokenProxy] completed streaming response in ${Date.now() - diagnostics.startedAt}ms `
       + `for ${diagnostics.method} ${diagnostics.upstreamPath} chunks=${chunkCount} bytes=${byteCount}`,
     );
-    res.end();
+    endProxyResponseAfterScan(res, diagnostics, scanState);
   });
 
   stream.on('error', (err) => {
     console.error('[OpenClawTokenProxy] stream read error:', err);
-    res.end();
+    abortProxyResponse(res);
   });
 }
 
@@ -552,23 +681,33 @@ function pipeWebReadableResponse(
   webStream: ReadableStream<Uint8Array>,
   res: http.ServerResponse,
   diagnostics: UpstreamDiagnostics,
+  scanState?: ProxySSEStreamScanState,
 ): void {
   const reader = webStream.getReader();
   let chunkCount = 0;
   let byteCount = 0;
+  const decoder = new TextDecoder();
+  let sseBuffer = '';
 
   const pump = (): void => {
     reader.read().then(({ done, value }) => {
       if (done) {
+        if (scanState) {
+          const remainder = decoder.decode();
+          flushProxySSEBuffer(sseBuffer + remainder, scanState);
+        }
         console.debug(
           `[OpenClawTokenProxy] completed streaming response in ${Date.now() - diagnostics.startedAt}ms `
           + `for ${diagnostics.method} ${diagnostics.upstreamPath} chunks=${chunkCount} bytes=${byteCount}`,
         );
-        res.end();
+        endProxyResponseAfterScan(res, diagnostics, scanState);
         return;
       }
       chunkCount += 1;
       byteCount += value.byteLength;
+      if (scanState) {
+        sseBuffer = scanProxySSEBuffer(sseBuffer + decoder.decode(value, { stream: true }), scanState);
+      }
       if (chunkCount === 1) {
         console.debug(
           `[OpenClawTokenProxy] first upstream body chunk received in ${Date.now() - diagnostics.startedAt}ms `
@@ -579,8 +718,18 @@ function pipeWebReadableResponse(
       pump();
     }).catch((err) => {
       console.error('[OpenClawTokenProxy] stream read error:', err);
-      res.end();
+      abortProxyResponse(res);
     });
   };
   pump();
 }
+
+export const __openClawTokenProxyTestUtils = {
+  createProxySSEStreamScanState,
+  flushProxySSEBuffer,
+  isTerminalProxySSEPacket,
+  parseProxySSEPacket,
+  pipeNodeReadableResponse,
+  pipeWebReadableResponse,
+  scanProxySSEBuffer,
+};
