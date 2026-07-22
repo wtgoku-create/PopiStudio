@@ -3,6 +3,7 @@ import type { CoworkBrowserAnnotationMessageBatch } from '@shared/cowork/browser
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { hasGoalSettingMessageMetadata } from '../../../common/goalCommandDisplay';
+import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import { i18nService } from '../../services/i18n';
 import { skillService } from '../../services/skill';
 import type { CoworkImageAttachment, CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
@@ -23,6 +24,7 @@ import {
   getMessageModelLabel,
   messageMetaClassName,
 } from './messageDisplayUtils';
+import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
 import UserMessageContent from './UserMessageContent';
 
 const USER_MESSAGE_ATTACHMENT_IMAGE_CLASS_NAME = 'h-32 w-32 shrink-0 rounded-lg object-cover cursor-pointer border border-border hover:border-primary transition-colors';
@@ -148,6 +150,7 @@ const UserMessageItem: React.FC<{
   const messageKnowledgeFiles = (metadata?.knowledgeFiles ?? [])
     .filter((file): file is { id: string; title: string; knowledgeBaseName?: string; fileType?: string } => Boolean(file?.id));
   const hasContextBadges = messageSkills.length > 0 || messageKnowledgeBases.length > 0 || messageKnowledgeFiles.length > 0;
+  const selectedTextSnippets = (metadata?.selectedTextSnippets ?? []) as CoworkSelectedTextSnippet[];
 
   const browserAnnotations = (metadata?.browserAnnotations ?? []) as CoworkBrowserAnnotationMessageBatch[];
   const browserAnnotationCount = browserAnnotations.reduce(
@@ -171,11 +174,19 @@ const UserMessageItem: React.FC<{
             <div className="w-full min-w-0 flex flex-col items-end">
               <div className="w-fit max-w-full rounded-2xl px-4 py-2.5 bg-surface text-foreground shadow-subtle">
                 {browserAnnotationCount > 0 && (
-                  <div className={(hasContextBadges || displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
+                  <div className={(selectedTextSnippets.length > 0 || hasContextBadges || displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
                     <BrowserAnnotationAttachmentBadge
                       draftKey={sessionId}
                       batches={browserAnnotations}
                       readOnly
+                    />
+                  </div>
+                )}
+                {selectedTextSnippets.length > 0 && (
+                  <div className={(hasContextBadges || displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
+                    <SelectedTextSnippetBadge
+                      snippets={selectedTextSnippets}
+                      align="right"
                     />
                   </div>
                 )}

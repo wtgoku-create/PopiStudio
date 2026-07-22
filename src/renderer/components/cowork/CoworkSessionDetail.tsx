@@ -8,15 +8,15 @@ import {
   PhotoIcon,
   QuestionMarkCircleIcon,
 } from '@heroicons/react/24/outline';
+import {
+  type CoworkBrowserAnnotationMessageBatch,
+  normalizeBrowserAnnotationBatches,
+} from '@shared/cowork/browserAnnotations';
 import { CoworkSessionSourceKind } from '@shared/cowork/constants';
 import {
   COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
   type CoworkMessageRailIndexItem,
 } from '@shared/cowork/rail';
-import {
-  type CoworkBrowserAnnotationMessageBatch,
-  normalizeBrowserAnnotationBatches,
-} from '@shared/cowork/browserAnnotations';
 import {
   type CoworkSelectedTextSnippet,
   CoworkSelectedTextSource,
