@@ -12,7 +12,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 
 import { i18nService } from '../services/i18n';
-import { SourceReferenceKind, type SourceReference } from '../types/sourceReference';
+import { type SourceReference,SourceReferenceKind } from '../types/sourceReference';
 import { decodeSourceReferenceHref, encodeSourceReferencesForMarkdown } from '../utils/sourceReferences';
 import CodeBlock from './CodeBlock';
 
@@ -374,6 +374,7 @@ const createMarkdownComponents = (
   onImageClick?: (image: { src: string; alt?: string | null }) => void,
   onSourceReferenceClick?: (reference: SourceReference) => void,
   spacing: MarkdownSpacing = 'normal',
+  imageClassName?: string,
 ) => ({
   p: ({ node: _node, className: _className, children, ...props }: any) => (
     <p className="my-1 first:mt-0 last:mb-0 text-markdown-body-compact text-foreground/90" {...props}>
@@ -459,9 +460,10 @@ const createMarkdownComponents = (
   img: ({ node: _node, className: _className, src, alt, ...props }: any) => {
     const resolvedSrc = resolveMarkdownImageSrc(src, alt, resolveLocalFilePath);
     const altText = typeof alt === 'string' ? alt : null;
+    const defaultClassName = `max-w-full max-h-96 object-contain rounded-xl ${spacing === 'compact' ? 'my-2' : 'my-4'}`;
     return (
       <img
-        className={`max-w-full max-h-96 object-contain rounded-xl ${spacing === 'compact' ? 'my-2' : 'my-4'}${onImageClick ? ' cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
+        className={`${imageClassName ?? defaultClassName}${onImageClick ? ' cursor-pointer hover:opacity-90 transition-opacity' : ''}`}
         src={resolvedSrc}
         alt={altText ?? undefined}
         decoding="async"
@@ -678,6 +680,7 @@ interface MarkdownContentProps {
   enableLargePreview?: boolean;
   onImageClick?: (image: { src: string; alt?: string | null }) => void;
   onSourceReferenceClick?: (reference: SourceReference) => void;
+  imageClassName?: string;
 }
 
 const MarkdownContent: React.FC<MarkdownContentProps> = ({
@@ -689,6 +692,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
   enableLargePreview = true,
   onImageClick,
   onSourceReferenceClick,
+  imageClassName,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const canUseLargePreview = enableLargePreview && shouldUseLargeMarkdownPreview(content);
@@ -700,8 +704,9 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
       onImageClick,
       onSourceReferenceClick,
       spacing,
+      imageClassName,
     ),
-    [resolveLocalFilePath, showRevealInFolderAction, onImageClick, onSourceReferenceClick, spacing]
+    [resolveLocalFilePath, showRevealInFolderAction, onImageClick, onSourceReferenceClick, spacing, imageClassName]
   );
   const normalizedContent = useMemo(() => {
     if (useLargePreview) {

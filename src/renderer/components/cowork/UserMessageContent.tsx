@@ -3,6 +3,7 @@ import React from 'react';
 import MarkdownContent from '../MarkdownContent';
 
 const MARKDOWN_IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\((?:file|localfile|https?|data|blob):[^)]+\)\s*$/i;
+const USER_MESSAGE_IMAGE_CLASS_NAME = 'my-2 h-32 w-32 shrink-0 rounded-lg border border-border object-cover';
 
 const flushText = (
   nodes: React.ReactNode[],
@@ -43,6 +44,7 @@ const renderUserMessageParts = (
         content={line.trim()}
         spacing="compact"
         className="max-w-none"
+        imageClassName={USER_MESSAGE_IMAGE_CLASS_NAME}
         onImageClick={onImageClick}
       />
     );

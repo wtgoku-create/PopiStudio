@@ -14,6 +14,7 @@ import EditIcon from '../icons/EditIcon';
 import GoalIcon from '../icons/GoalIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
 import SkillIcon from '../icons/SkillIcon';
+import BrowserAnnotationAttachmentBadge from './BrowserAnnotationAttachmentBadge';
 import ImagePreviewModal, { type ImagePreviewSource } from './ImagePreviewModal';
 import { MessageCopyButton } from './MessageActionButton';
 import {
@@ -22,8 +23,9 @@ import {
   getMessageModelLabel,
   messageMetaClassName,
 } from './messageDisplayUtils';
-import BrowserAnnotationAttachmentBadge from './BrowserAnnotationAttachmentBadge';
 import UserMessageContent from './UserMessageContent';
+
+const USER_MESSAGE_ATTACHMENT_IMAGE_CLASS_NAME = 'h-32 w-32 shrink-0 rounded-lg object-cover cursor-pointer border border-border hover:border-primary transition-colors';
 
 // ── ReEditButton ─────────────────────────────────────────────────────────────
 
@@ -199,7 +201,7 @@ const UserMessageItem: React.FC<{
                         <img
                           src={`data:${img.mimeType};base64,${img.base64Data}`}
                           alt={img.name}
-                          className="max-h-48 max-w-[16rem] rounded-lg object-contain cursor-pointer border border-border hover:border-primary transition-colors"
+                          className={USER_MESSAGE_ATTACHMENT_IMAGE_CLASS_NAME}
                           title={img.name}
                           onClick={() => setExpandedImage({
                             src: `data:${img.mimeType};base64,${img.base64Data}`,
