@@ -1251,6 +1251,21 @@ const resolveAgentDefaultWorkingDirectory = (agentId?: string): string => {
     : configuredWorkingDirectory;
 };
 
+const resolveAgentWorkspacePath = (agentId: string): string => {
+  const stateDir = getOpenClawEngineManager().getStateDir();
+  return agentId === AgentId.Main
+    ? getMainAgentWorkspacePath(stateDir)
+    : path.join(stateDir, `workspace-${agentId}`);
+};
+
+const resolveExistingAgentWorkspacePath = (agentId?: string): string => {
+  const normalizedAgentId = agentId?.trim() || AgentId.Main;
+  if (normalizedAgentId !== AgentId.Main && getAgentManager().getAgent(normalizedAgentId) === null) {
+    throw new Error(`Agent ${normalizedAgentId} not found`);
+  }
+  return resolveAgentWorkspacePath(normalizedAgentId);
+};
+
 const resolveSessionWorkingDirectory = (options: { cwd?: string; agentId?: string }): string => {
   const explicitWorkingDirectory = options.cwd?.trim();
   if (explicitWorkingDirectory) return explicitWorkingDirectory;
@@ -4458,10 +4473,10 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('cowork:bootstrap:read', async (_event, filename: string) => {
+  ipcMain.handle('cowork:bootstrap:read', async (_event, filename: string, options?: { agentId?: string }) => {
     try {
-      const mainWorkspace = getMainAgentWorkspacePath(getOpenClawEngineManager().getStateDir());
-      const content = readBootstrapFile(mainWorkspace, filename);
+      const workspace = resolveExistingAgentWorkspacePath(options?.agentId);
+      const content = readBootstrapFile(workspace, filename);
       return { success: true, content };
     } catch (error) {
       return {
@@ -4471,10 +4486,10 @@ if (!gotTheLock) {
       };
     }
   });
-  ipcMain.handle('cowork:bootstrap:write', async (_event, filename: string, content: string) => {
+  ipcMain.handle('cowork:bootstrap:write', async (_event, filename: string, content: string, options?: { agentId?: string }) => {
     try {
-      const mainWorkspace = getMainAgentWorkspacePath(getOpenClawEngineManager().getStateDir());
-      writeBootstrapFile(mainWorkspace, filename, content);
+      const workspace = resolveExistingAgentWorkspacePath(options?.agentId);
+      writeBootstrapFile(workspace, filename, content);
       syncOpenClawConfig({ reason: 'bootstrap-updated' }).catch((err) => {
         console.error('[OpenClaw] config sync after bootstrap-updated failed:', err);
       });

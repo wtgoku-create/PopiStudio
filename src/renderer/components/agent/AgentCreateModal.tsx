@@ -103,10 +103,6 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     setActiveTab(AgentDetailTab.Identity);
     setShowUnsavedConfirm(false);
     setBoundKeys(new Set());
-    void coworkService.readBootstrapFile('USER.md').then((content) => {
-      initialUserInfoRef.current = content;
-      setUserInfo(content);
-    });
     imService.loadConfig().then((cfg) => {
       if (cfg) setImConfig(cfg);
     });
@@ -154,13 +150,6 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
     if (!name.trim()) return;
     setCreating(true);
     try {
-      if (userInfo !== initialUserInfoRef.current) {
-        const userInfoSaved = await coworkService.writeBootstrapFile('USER.md', userInfo);
-        if (!userInfoSaved) {
-          window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentCreateFailed') }));
-          return;
-        }
-      }
       const agent = await agentService.createAgent({
         name: name.trim(),
         description: description.trim(),
@@ -172,6 +161,12 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
         skillIds,
       });
       if (agent) {
+        if (userInfo !== initialUserInfoRef.current) {
+          const userInfoSaved = await coworkService.writeBootstrapFile('USER.md', userInfo, { agentId: agent.id });
+          if (!userInfoSaved) {
+            window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('agentSaveFailed') }));
+          }
+        }
         // Save IM bindings after agent is created
         if (boundKeys.size > 0 && imConfig) {
           const currentBindings = { ...(imConfig.settings?.platformAgentBindings || {}) };

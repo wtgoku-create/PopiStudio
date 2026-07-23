@@ -1625,10 +1625,10 @@ class CoworkService {
     return result.stats;
   }
 
-  async readBootstrapFile(filename: string): Promise<string> {
+  async readBootstrapFile(filename: string, options?: { agentId?: string }): Promise<string> {
     const api = window.electron?.cowork?.readBootstrapFile;
     if (!api) return '';
-    const result = await api(filename);
+    const result = await api(filename, options);
     if (!result?.success) {
       console.warn(`[CoworkService] readBootstrapFile: failed to read ${filename}`, result?.error);
       return '';
@@ -1636,10 +1636,10 @@ class CoworkService {
     return result.content || '';
   }
 
-  async writeBootstrapFile(filename: string, content: string): Promise<boolean> {
+  async writeBootstrapFile(filename: string, content: string, options?: { agentId?: string }): Promise<boolean> {
     const api = window.electron?.cowork?.writeBootstrapFile;
     if (!api) return false;
-    const result = await api(filename, content);
+    const result = await api(filename, content, options);
     return Boolean(result?.success);
   }
 

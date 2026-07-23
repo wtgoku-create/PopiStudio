@@ -737,10 +737,12 @@ interface IElectronAPI {
     getMemoryStats: () => Promise<{ success: boolean; stats?: CoworkMemoryStats; error?: string }>;
     readBootstrapFile: (
       filename: string,
+      options?: { agentId?: string },
     ) => Promise<{ success: boolean; content: string; error?: string }>;
     writeBootstrapFile: (
       filename: string,
       content: string,
+      options?: { agentId?: string },
     ) => Promise<{ success: boolean; error?: string }>;
     onStreamMessage: (
       callback: (data: { sessionId: string; message: CoworkMessage; beforeMessageId?: string }) => void,
