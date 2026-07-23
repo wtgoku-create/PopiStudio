@@ -2100,7 +2100,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       return this.store.getSession(managedSession.sessionId) ?? null;
     }
 
-    if (options.sessionId) {
+    const isCronRunSession = isCronSessionKey(sessionKey);
+
+    if (options.sessionId && !isCronRunSession) {
       const session = this.store.getSession(options.sessionId);
       if (session && session.messages.length > 0) {
         return session;
@@ -2108,7 +2110,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     // 1. Try existing local session via channel/main-agent resolution
-    if (this.channelSessionSync) {
+    if (this.channelSessionSync && !isCronRunSession) {
       const existingId = this.channelSessionSync.resolveSession(sessionKey);
       if (existingId) {
         const session = this.store.getSession(existingId);

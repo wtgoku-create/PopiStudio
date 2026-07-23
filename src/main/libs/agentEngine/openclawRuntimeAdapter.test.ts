@@ -685,6 +685,48 @@ function createActiveTurn(sessionId: string, sessionKey: string, runId: string) 
   };
 }
 
+test('fetchSessionByKey: cron run key uses gateway history instead of local session cache', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'assistant', content: 'local partial cron output', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const requests: Array<{ method: string; params: unknown }> = [];
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method !== 'chat.history') return {};
+      return {
+        messages: [
+          {
+            role: 'user',
+            content: '[cron:job-1 Daily] collect news',
+          },
+          {
+            role: 'assistant',
+            content: 'authoritative cron summary',
+          },
+        ],
+      };
+    },
+  };
+
+  const sessionKey = 'agent:main:cron:job-1:run:6bcc366b-b080-4fe6-b623-2caa27642c20';
+  const resolved = await adapter.fetchSessionByKey(sessionKey, { sessionId: session.id });
+
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({
+    method: 'chat.history',
+    params: { sessionKey },
+  });
+  expect(resolved?.id).toBe(`transient-${sessionKey}`);
+  expect(resolved?.messages.map(message => message.content)).toEqual([
+    '[cron:job-1 Daily] collect news',
+    'authoritative cron summary',
+  ]);
+});
+
 test('reconcileWithHistory: already in sync — skips replace', async () => {
   const { session, store, getReplaceCallCount } = createReconcileStore([
     { id: 'msg-1', type: 'user', content: 'Hello', timestamp: 1, metadata: {} },
