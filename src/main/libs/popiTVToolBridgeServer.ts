@@ -60,13 +60,13 @@ export class PopiTVToolBridgeServer {
   private popiTVToolHandler: PopiTVToolBridgeHandler | null = null;
 
   constructor(private readonly secret: string) {
-    this.registerLocalToolProvider({
-      serverName: POPITV_MCP_SERVER_NAME,
-      tools: getPopiTVMcpToolManifest(),
-      handleToolCall: (serverName, toolName, args, options) => (
-        this.popiTVToolHandler?.(serverName, toolName, args, options) ?? Promise.resolve(null)
-      ),
-    });
+    // this.registerLocalToolProvider({
+    //   serverName: POPITV_MCP_SERVER_NAME,
+    //   tools: getPopiTVMcpToolManifest(),
+    //   handleToolCall: (serverName, toolName, args, options) => (
+    //     this.popiTVToolHandler?.(serverName, toolName, args, options) ?? Promise.resolve(null)
+    //   ),
+    // });
   }
 
   get port(): number | null {
