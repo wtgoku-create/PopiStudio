@@ -1337,6 +1337,58 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(agentsMd).toContain('For every `browser` tool call, set `target="host"` explicitly.');
   });
 
+  test('writes skill creation policy into non-main agent workspaces', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getPopoInstances: () => [],
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [
+        {
+          id: 'videodirector-agent',
+          name: 'Video Director',
+          enabled: true,
+          identity: 'Video director identity',
+          systemPrompt: 'Video director system prompt',
+          skillIds: [],
+          model: '',
+        },
+      ],
+    } as never);
+
+    const result = sync.sync('agent-skill-creation-policy');
+    expect(result.ok).toBe(true);
+
+    const agentsMdPath = path.join(stateDir, 'workspace-videodirector-agent', 'AGENTS.md');
+    const agentsMd = fs.readFileSync(agentsMdPath, 'utf8');
+    expect(agentsMd).toContain('## Skill Creation');
+    expect(agentsMd).toContain('/SKILLs/<skill-name>/SKILL.md');
+    expect(agentsMd).toContain('Do NOT create skills under the workspace `skills/` subdirectory.');
+    expect(agentsMd.indexOf('## Skill Creation')).toBeLessThan(agentsMd.indexOf('## System Prompt'));
+  });
+
   test('writes browser and web fetch access settings', async () => {
     const { setSystemProxyEnabled } = await import('./systemProxy');
     const {

@@ -3007,6 +3007,8 @@ export class OpenClawConfigSync {
       // Build the managed section
       const sections: string[] = [];
 
+      sections.push(buildManagedSkillCreationPrompt(resolveSkillCreationPath()));
+
       // Add system prompt if configured — strip MARKER to prevent content corruption
       const systemPrompt = (coworkConfig.systemPrompt || '').trim().replaceAll(MARKER, '');
       if (systemPrompt) {
@@ -3022,7 +3024,6 @@ export class OpenClawConfigSync {
       sections.push(MANAGED_REPLY_MEDIA_PATH_PROMPT);
       sections.push(MANAGED_SUBAGENT_COORDINATION_PROMPT);
       sections.push(MANAGED_MEMORY_POLICY_PROMPT);
-      sections.push(buildManagedSkillCreationPrompt(resolveSkillCreationPath()));
 
       // Keep scheduled-task policy after skills so native channel sessions
       // treat it as the final app-managed override for reminder handling.
