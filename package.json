@@ -6,7 +6,7 @@
     "email": "popiai.project@rd.netease.com"
   },
   "license": "MIT",
-  "version": "2026.7.18",
+  "version": "2026.7.23",
   "popiartcli": {
     "repo": "wtgoku-create/popiartcli",
     "version": "latest"
