@@ -367,6 +367,11 @@ class ConfigService {
           );
         }
 
+        const migratedShortcuts = {
+          ...defaultConfig.shortcuts!,
+          ...(storedConfig.shortcuts ?? {}),
+        } as AppConfig['shortcuts'];
+
         this.config = migrateCustomProviders({
           ...defaultConfig,
           ...storedConfig,
@@ -379,10 +384,7 @@ class ConfigService {
             ...defaultConfig.app,
             ...storedConfig.app,
           },
-          shortcuts: {
-            ...defaultConfig.shortcuts!,
-            ...(storedConfig.shortcuts ?? {}),
-          } as AppConfig['shortcuts'],
+          shortcuts: migratedShortcuts,
           providers: mergedProviders as AppConfig['providers'],
           uiFontSize: normalizeFontPreference(
             storedConfig.uiFontSize,

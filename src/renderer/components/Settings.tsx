@@ -575,7 +575,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
 
   // 快捷键设置
   const [shortcuts, setShortcuts] = useState({
-    newChat: 'Ctrl+N',
     search: 'Ctrl+F',
     settings: 'Ctrl+,',
     sendMessage: defaultConfig.shortcuts!.sendMessage,
@@ -1998,7 +1997,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
 
   // Mapping from shortcut key to i18n label key for conflict messages
   const shortcutLabelMap: Record<string, string> = {
-    newChat: 'newChat',
     search: 'search',
     settings: 'openSettings',
     sendMessage: 'sendMessageShortcut',
@@ -2008,7 +2006,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
   const handleShortcutChange = (key: keyof typeof shortcuts, value: string) => {
     // Check for conflicts with other shortcuts
     const conflictKey = Object.keys(shortcuts).find(
-      k => k !== key && shortcuts[k as keyof typeof shortcuts] === value
+      k => value && k !== key && shortcuts[k as keyof typeof shortcuts] === value
     );
     if (conflictKey) {
       const conflictLabel = i18nService.t(shortcutLabelMap[conflictKey] ?? conflictKey);
@@ -3313,10 +3311,6 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
                 {i18nService.t('keyboardShortcuts')}
               </label>
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-foreground">{i18nService.t('newChat')}</span>
-                  <ShortcutRecorder value={shortcuts.newChat} onChange={(v) => handleShortcutChange('newChat', v)} />
-                </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-foreground">{i18nService.t('search')}</span>
                   <ShortcutRecorder value={shortcuts.search} onChange={(v) => handleShortcutChange('search', v)} />

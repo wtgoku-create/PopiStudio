@@ -609,12 +609,6 @@ const App: React.FC = () => {
         ...(shortcuts ?? {}),
       };
 
-      if (matchesShortcut(event, activeShortcuts.newChat)) {
-        event.preventDefault();
-        handleNewChat();
-        return;
-      }
-
       if (matchesShortcut(event, activeShortcuts.search)) {
         event.preventDefault();
         window.dispatchEvent(new CustomEvent('cowork:shortcut:search'));
@@ -629,7 +623,7 @@ const App: React.FC = () => {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleShowSettings, handleNewChat]);
+  }, [handleShowSettings]);
 
   useEffect(() => {
     return () => {

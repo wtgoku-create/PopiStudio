@@ -54,7 +54,6 @@ export interface AppConfig {
   };
   // 快捷键配置
   shortcuts?: {
-    newChat: string;
     search: string;
     settings: string;
     sendMessage: string;
@@ -128,7 +127,6 @@ export const defaultConfig: AppConfig = {
     testMode: process.env.NODE_ENV === 'development',
   },
   shortcuts: {
-    newChat: 'Ctrl+N',
     search: 'Ctrl+F',
     settings: 'Ctrl+,',
     sendMessage: 'Enter',
