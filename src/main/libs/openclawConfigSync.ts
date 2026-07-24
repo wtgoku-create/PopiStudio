@@ -46,7 +46,7 @@ import {
 import { parseChannelSessionKey } from './openclawChannelSessionSync';
 import type { OpenClawEngineManager } from './openclawEngineManager';
 import { repairHeartbeatFile, stripProactiveHeartbeatSection } from './openclawHeartbeatRepair';
-import { getMainAgentWorkspacePath, readBootstrapFile } from './openclawMemoryFile';
+import { getMainAgentWorkspacePath } from './openclawMemoryFile';
 
 const gwDiagTs = (): string => {
   const d = new Date();
@@ -3231,8 +3231,6 @@ export class OpenClawConfigSync {
     // Use the openclaw state directory as base, matching OpenClaw's own fallback
     // logic: {STATE_DIR}/workspace-{agentId}/
     const stateDir = this.engineManager.getStateDir();
-    const userContent = readBootstrapFile(mainWorkspaceDir, 'USER.md');
-
     try {
       if (repairHeartbeatFile(mainWorkspaceDir)) {
         console.log('[OpenClawConfigSync] repaired legacy HEARTBEAT.md in main workspace');
@@ -3262,9 +3260,12 @@ export class OpenClawConfigSync {
         const identityContent = (agent.identity || '').trim();
         this.syncFileIfChanged(identityPath, identityContent ? `${identityContent}\n` : '');
 
-        // Sync USER.md — shared user profile from the main Agent settings
+        // Sync USER.md — each agent owns its own "About You" content. Initialize
+        // missing files as empty instead of inheriting the main agent profile.
         const userPath = path.join(agentWorkspace, 'USER.md');
-        this.syncFileIfChanged(userPath, userContent);
+        if (!fs.existsSync(userPath)) {
+          this.syncFileIfChanged(userPath, '');
+        }
 
         // Sync AGENTS.md for this agent (reuse same logic as main agent)
         this.syncAgentsMd(agentWorkspace, {

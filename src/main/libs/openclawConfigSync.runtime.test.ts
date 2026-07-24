@@ -1389,6 +1389,116 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(agentsMd.indexOf('## Skill Creation')).toBeLessThan(agentsMd.indexOf('## System Prompt'));
   });
 
+  test('preserves per-agent USER.md instead of overwriting it from main agent', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const mainWorkspace = path.join(stateDir, 'workspace-main');
+    const agentWorkspace = path.join(stateDir, 'workspace-videodirector-agent');
+    fs.mkdirSync(mainWorkspace, { recursive: true });
+    fs.mkdirSync(agentWorkspace, { recursive: true });
+    fs.writeFileSync(path.join(mainWorkspace, 'USER.md'), 'main about you\n', 'utf8');
+    fs.writeFileSync(path.join(agentWorkspace, 'USER.md'), 'agent-specific about you\n', 'utf8');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getPopoInstances: () => [],
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [
+        {
+          id: 'videodirector-agent',
+          name: 'Video Director',
+          enabled: true,
+          identity: 'Video director identity',
+          systemPrompt: 'Video director system prompt',
+          skillIds: [],
+          model: '',
+        },
+      ],
+    } as never);
+
+    const result = sync.sync('agent-user-profile');
+    expect(result.ok).toBe(true);
+    expect(fs.readFileSync(path.join(agentWorkspace, 'USER.md'), 'utf8')).toBe('agent-specific about you\n');
+  });
+
+  test('initializes missing per-agent context files without copying main context', async () => {
+    const { OpenClawConfigSync } = await import('./openclawConfigSync');
+
+    const mainWorkspace = path.join(stateDir, 'workspace-main');
+    const agentWorkspace = path.join(stateDir, 'workspace-videodirector-agent');
+    fs.mkdirSync(mainWorkspace, { recursive: true });
+    fs.mkdirSync(agentWorkspace, { recursive: true });
+    fs.mkdirSync(path.join(mainWorkspace, 'memory'), { recursive: true });
+    fs.writeFileSync(path.join(mainWorkspace, 'USER.md'), 'main about you\n', 'utf8');
+    fs.writeFileSync(path.join(mainWorkspace, 'MEMORY.md'), 'main durable memory\n', 'utf8');
+    fs.writeFileSync(path.join(mainWorkspace, 'memory', '2026-07-24.md'), 'main daily memory\n', 'utf8');
+
+    const sync = new OpenClawConfigSync({
+      engineManager: {
+        getConfigPath: () => configPath,
+        getGatewayToken: () => 'gateway-token',
+        getStateDir: () => stateDir,
+        getBaseDir: () => tmpDir,
+      } as never,
+      getCoworkConfig: () => ({
+        workingDirectory: tmpDir,
+        systemPrompt: '',
+        executionMode: 'local',
+        agentEngine: 'openclaw',
+        memoryEnabled: false,
+        memoryImplicitUpdateEnabled: false,
+        memoryLlmJudgeEnabled: false,
+        memoryGuardLevel: 'balanced',
+        memoryUserMemoriesMaxItems: 100,
+        skipMissedJobs: false,
+      }),
+      isEnterprise: () => false,
+      getPopoInstances: () => [],
+      getNeteaseBeeChanConfig: () => null,
+      getWeixinConfig: () => null,
+      getIMSettings: () => null,
+      getSkillsList: () => [],
+      getAgents: () => [
+        {
+          id: 'videodirector-agent',
+          name: 'Video Director',
+          enabled: true,
+          identity: 'Video director identity',
+          systemPrompt: 'Video director system prompt',
+          skillIds: [],
+          model: '',
+        },
+      ],
+    } as never);
+
+    const result = sync.sync('agent-user-profile-init');
+    expect(result.ok).toBe(true);
+    expect(fs.readFileSync(path.join(agentWorkspace, 'USER.md'), 'utf8')).toBe('');
+    expect(fs.readFileSync(path.join(agentWorkspace, 'MEMORY.md'), 'utf8')).toBe('');
+    expect(fs.readdirSync(path.join(agentWorkspace, 'memory'))).toEqual([]);
+  });
+
   test('writes browser and web fetch access settings', async () => {
     const { setSystemProxyEnabled } = await import('./systemProxy');
     const {
