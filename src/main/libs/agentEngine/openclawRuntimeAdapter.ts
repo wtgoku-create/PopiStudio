@@ -159,6 +159,26 @@ const POPIART_BASH_COMMAND_RE = /(^|[\s;&|()])(?:"[^"]*[\\/])?(?:'[^']*[\\/])?(?
 const POPIART_AUTH_RE = /(^|[\s;&|()])(?:"[^"]*[\\/])?(?:'[^']*[\\/])?(?:[\w./\\-]*[\\/])?popiart(?:\.exe)?(?:\s+.*)?$/i;
 const POPIART_DENYLIST_RE = /(^|[\s;&|()])(?:[\w./\\-]*[\\/])?popiart(?:\.exe)?[\s;&|)]/i;
 
+const ensureRunWorkingDirectory = (cwd?: string | null): string | undefined => {
+  const trimmed = cwd?.trim();
+  if (!trimmed) return undefined;
+
+  const resolved = path.resolve(trimmed);
+  try {
+    if (!fs.existsSync(resolved)) {
+      fs.mkdirSync(resolved, { recursive: true });
+    }
+    if (!fs.statSync(resolved).isDirectory()) {
+      throw new Error('The path exists but is not a directory.');
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to prepare working directory ${resolved}: ${message}`);
+  }
+
+  return resolved;
+};
+
 /** How we chose assistant text to persist at chat.final (for tests and logs). */
 export type PersistedSegmentPickReason =
   | 'both_empty'
@@ -3157,7 +3177,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (this.cancelTurnStartupIfStopped(sessionId, 'outbound prompt built')) {
       return;
     }
-    const runCwd = session.cwd?.trim() ? path.resolve(session.cwd.trim()) : undefined;
+    const runCwd = ensureRunWorkingDirectory(session.cwd);
     const completionPromise = new Promise<void>((resolve, reject) => {
       this.pendingTurns.set(sessionId, { resolve, reject });
     });

@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test, vi } from 'vitest';
@@ -555,6 +557,22 @@ test('continueSession sends the session cwd to OpenClaw chat.send', async () => 
   const chatSend = requests.find((request) => request.method === 'chat.send');
   expect(chatSend?.params).toMatchObject({
     cwd: path.resolve('/tmp/popiai-selected-project'),
+  });
+});
+
+test('continueSession creates a missing session cwd before chat.send', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-run-cwd-'));
+  const missingCwd = path.join(tmpDir, 'missing-project');
+  const { adapter, requests } = createRunTurnAdapter({
+    sessionCwd: missingCwd,
+  });
+
+  await adapter.continueSession('session-1', 'hello');
+
+  expect(fs.statSync(missingCwd).isDirectory()).toBe(true);
+  const chatSend = requests.find((request) => request.method === 'chat.send');
+  expect(chatSend?.params).toMatchObject({
+    cwd: path.resolve(missingCwd),
   });
 });
 

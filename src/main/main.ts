@@ -3456,6 +3456,15 @@ if (!gotTheLock) {
         };
       }
 
+      try {
+        resolveTaskWorkingDirectory(existingSession.cwd);
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to prepare session working directory',
+        };
+      }
+
       const prompt = stripNullChars(options.prompt);
       const selectedTextSnippets = normalizeSelectedTextSnippetsForIpc(options.selectedTextSnippets);
       const normalizedBrowserAnnotations = normalizeBrowserAnnotationBatches(options.browserAnnotations);
