@@ -693,6 +693,7 @@ function createActiveTurn(sessionId: string, sessionKey: string, runId: string) 
     sawNonTextContentBlocks: false,
     textStreamMode: 'snapshot',
     toolUseMessageIdByToolCallId: new Map(),
+    toolNameByToolCallId: new Map(),
     toolResultMessageIdByToolCallId: new Map(),
     toolResultTextByToolCallId: new Map(),
     contextMaintenanceToolCallIds: new Set(),
@@ -2828,6 +2829,172 @@ test('empty tool final shows thinking-only hint only after the follow-up grace w
     ))).toBe(true);
     expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-empty');
     expect(session.status).toBe('completed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('sessions_yield final keeps session running while waiting for subagent work', async () => {
+  vi.useFakeTimers();
+  try {
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'delegate this', timestamp: 1, metadata: {} },
+      {
+        id: 'msg-2',
+        type: 'tool_use',
+        content: 'Using sessions_yield',
+        timestamp: 2,
+        metadata: { toolName: 'sessions_yield', toolUseId: 'call-1' },
+      },
+      {
+        id: 'msg-3',
+        type: 'tool_result',
+        content: '{\n  "status": "yielded",\n  "message": "Waiting for sub agent"\n}',
+        timestamp: 3,
+        metadata: {
+          toolResult: '{\n  "status": "yielded",\n  "message": "Waiting for sub agent"\n}',
+          toolUseId: 'call-1',
+        },
+      },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:popiai:${session.id}`;
+    const completeSpy = vi.fn();
+    const statusSpy = vi.fn();
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            { role: 'user', content: 'delegate this' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'thinking', thinking: 'Waiting for registered continuation work.' },
+                { type: 'toolCall', id: 'call-1', name: 'sessions_yield', arguments: {} },
+              ],
+            },
+            {
+              role: 'toolResult',
+              toolCallId: 'call-1',
+              content: '{\n  "status": "yielded",\n  "message": "Waiting for sub agent"\n}',
+            },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.on('complete', completeSpy);
+    adapter.on('sessionStatus', statusSpy);
+    const turn = createActiveTurn(session.id, sessionKey, 'run-yield');
+    turn.toolUseMessageIdByToolCallId.set('call-1', 'msg-2');
+    turn.toolResultMessageIdByToolCallId.set('call-1', 'msg-3');
+    adapter.activeTurns.set(session.id, turn);
+    adapter.sessionIdByRunId.set('run-yield', session.id);
+    adapter.rememberSessionKey(session.id, sessionKey);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId: 'run-yield',
+      sessionKey,
+    }, 1);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(statusSpy).toHaveBeenCalledWith(session.id, 'running');
+    expect(session.status).toBe('running');
+    expect(adapter.activeTurns.has(session.id)).toBe(false);
+    expect(adapter.sessionIdByRunId.has('run-yield')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.messages.some((message) => (
+      message.type === 'system'
+      && String(message.content).includes('[模型未输出内容]')
+    ))).toBe(false);
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(session.status).toBe('running');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('visible final after sessions_yield completes the parent session', async () => {
+  vi.useFakeTimers();
+  try {
+    const finalAnswer = 'Subagent finished and announced the final answer.';
+    const yieldedResult = '{\n  "status": "yielded",\n  "message": "Waiting for sub agent"\n}';
+    const { session, store } = createReconcileStore([
+      { id: 'msg-1', type: 'user', content: 'delegate this', timestamp: 1, metadata: {} },
+      {
+        id: 'msg-2',
+        type: 'tool_use',
+        content: 'Using sessions_yield',
+        timestamp: 2,
+        metadata: { toolName: 'sessions_yield', toolUseId: 'call-1' },
+      },
+      {
+        id: 'msg-3',
+        type: 'tool_result',
+        content: yieldedResult,
+        timestamp: 3,
+        metadata: { toolResult: yieldedResult, toolUseId: 'call-1' },
+      },
+    ]);
+    const adapter = new OpenClawRuntimeAdapter(store, {});
+    const sessionKey = `agent:main:popiai:${session.id}`;
+    const runId = `announce:v1:${sessionKey}:child-run`;
+    const completeSpy = vi.fn();
+
+    adapter.gatewayClient = {
+      start: () => {},
+      stop: () => {},
+      request: async (method: string) => {
+        if (method !== 'chat.history') return {};
+        return {
+          messages: [
+            { role: 'user', content: 'delegate this' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'toolCall', id: 'call-1', name: 'sessions_yield', arguments: {} },
+              ],
+            },
+            { role: 'toolResult', toolCallId: 'call-1', content: yieldedResult },
+            { role: 'assistant', content: finalAnswer },
+          ],
+        };
+      },
+    };
+
+    session.status = 'running';
+    adapter.on('complete', completeSpy);
+    const turn = createActiveTurn(session.id, sessionKey, runId);
+    adapter.activeTurns.set(session.id, turn);
+    adapter.sessionIdByRunId.set(runId, session.id);
+    adapter.rememberSessionKey(session.id, sessionKey);
+
+    adapter.handleChatEvent({
+      state: 'final',
+      runId,
+      sessionKey,
+      message: { role: 'assistant', content: finalAnswer },
+    }, 1);
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(800);
+
+    expect(completeSpy).toHaveBeenCalledWith(session.id, runId);
+    expect(session.status).toBe('completed');
+    expect(adapter.activeTurns.has(session.id)).toBe(false);
   } finally {
     vi.useRealTimers();
   }

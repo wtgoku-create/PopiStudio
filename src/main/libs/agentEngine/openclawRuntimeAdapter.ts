@@ -392,6 +392,7 @@ type ChatEventPayload = {
   message?: unknown;
   errorMessage?: string;
   stopReason?: string;
+  yielded?: boolean;
   provider?: string;
   model?: string;
   failoverReason?: string;
@@ -414,8 +415,17 @@ type TextStreamMode = 'unknown' | 'snapshot' | 'delta';
 
 const GatewayStopReason = {
   Error: 'error',
+  EndTurn: 'end_turn',
   ToolUse: 'toolUse',
   ToolUseSnake: 'tool_use',
+} as const;
+
+const OpenClawToolName = {
+  SessionsYield: 'sessions_yield',
+} as const;
+
+const OpenClawToolResultStatus = {
+  Yielded: 'yielded',
 } as const;
 
 const OpenClawHistoryRole = {
@@ -450,6 +460,7 @@ type ActiveTurn = {
   sawNonTextContentBlocks: boolean;
   textStreamMode: TextStreamMode;
   toolUseMessageIdByToolCallId: Map<string, string>;
+  toolNameByToolCallId: Map<string, string>;
   toolResultMessageIdByToolCallId: Map<string, string>;
   toolResultTextByToolCallId: Map<string, string>;
   contextMaintenanceToolCallIds: Set<string>;
@@ -918,6 +929,26 @@ const messageHasToolCallBlock = (message: unknown): boolean => {
 
 const isToolUseStopReason = (stopReason: string | undefined): boolean => {
   return stopReason === GatewayStopReason.ToolUse || stopReason === GatewayStopReason.ToolUseSnake;
+};
+
+const isYieldedChatFinal = (
+  payload: ChatEventPayload,
+  messageRecord: Record<string, unknown> | null,
+  stopReason: string | undefined,
+): boolean => {
+  const yielded = payload.yielded === true || messageRecord?.yielded === true;
+  return yielded && stopReason === GatewayStopReason.EndTurn;
+};
+
+const isYieldedToolResultText = (text: string): boolean => {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return isRecord(parsed) && parsed.status === OpenClawToolResultStatus.Yielded;
+  } catch {
+    return /\bstatus\b[^A-Za-z0-9_-]+yielded\b/i.test(trimmed);
+  }
 };
 
 const extractTextBlocksAndSignals = (
@@ -1583,6 +1614,54 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     return { hasToolWork, toolResultChars };
+  }
+
+  private hasYieldedSessionToolResult(sessionId: string, turn: ActiveTurn): boolean {
+    for (const [toolCallId, resultText] of turn.toolResultTextByToolCallId.entries()) {
+      const toolName = turn.toolNameByToolCallId.get(toolCallId)?.toLowerCase();
+      if (toolName === OpenClawToolName.SessionsYield && isYieldedToolResultText(resultText)) {
+        return true;
+      }
+    }
+
+    const session = this.store.getSession(sessionId);
+    if (!session) return false;
+
+    let lastUserIdx = -1;
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      if (session.messages[i].type === 'user') {
+        lastUserIdx = i;
+        break;
+      }
+    }
+
+    const yieldToolCallIds = new Set<string>();
+    const startIdx = lastUserIdx >= 0 ? lastUserIdx + 1 : 0;
+    for (let i = startIdx; i < session.messages.length; i++) {
+      const message = session.messages[i];
+      if (!isRecord(message)) continue;
+      const metadata = isRecord(message.metadata) ? message.metadata : {};
+      const toolUseId = typeof metadata.toolUseId === 'string' ? metadata.toolUseId.trim() : '';
+      if (!toolUseId) continue;
+
+      if (message.type === 'tool_use') {
+        const toolName = typeof metadata.toolName === 'string' ? metadata.toolName.trim().toLowerCase() : '';
+        if (toolName === OpenClawToolName.SessionsYield) {
+          yieldToolCallIds.add(toolUseId);
+        }
+        continue;
+      }
+
+      if (message.type === 'tool_result' && yieldToolCallIds.has(toolUseId)) {
+        const metadataResult = typeof metadata.toolResult === 'string' ? metadata.toolResult : '';
+        const content = typeof message.content === 'string' ? message.content : '';
+        if (isYieldedToolResultText(metadataResult || content)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   private hasTurnToolWork(sessionId: string, turn: ActiveTurn): boolean {
@@ -3199,6 +3278,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       sawNonTextContentBlocks: false,
       textStreamMode: 'unknown',
       toolUseMessageIdByToolCallId: new Map(),
+      toolNameByToolCallId: new Map(),
       toolResultMessageIdByToolCallId: new Map(),
       toolResultTextByToolCallId: new Map(),
       contextMaintenanceToolCallIds: new Set(),
@@ -4183,6 +4263,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       if (!turn.toolUseMessageIdByToolCallId.has(entry.toolCallId) && existingToolUseMessageId) {
         turn.toolUseMessageIdByToolCallId.set(entry.toolCallId, existingToolUseMessageId);
       }
+      turn.toolNameByToolCallId.set(entry.toolCallId, entry.toolName.toLowerCase());
 
       if (!turn.toolUseMessageIdByToolCallId.has(entry.toolCallId) && !existingToolUseMessageId) {
         const toolUseMessage = this.store.addMessage(sessionId, {
@@ -5694,6 +5775,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     const toolNameRaw = typeof data.name === 'string' ? data.name.trim() : '';
     const toolName = toolNameRaw || 'Tool';
+    if (toolNameRaw) {
+      turn.toolNameByToolCallId.set(toolCallId, toolNameRaw.toLowerCase());
+    }
 
     if (toolNameRaw.toLowerCase() === 'browser') {
       const isError = Boolean(data.isError);
@@ -6611,6 +6695,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (finalSegmentText) {
       this.logFirstResponseTiming(sessionId, turn, 'chat', finalSegmentText.length);
     }
+    const messageRecord = isRecord(payload.message) ? payload.message : null;
+    const stopReason = payload.stopReason
+      ?? (messageRecord && typeof messageRecord.stopReason === 'string' ? messageRecord.stopReason : undefined);
 
     // Collect media URLs and backfill tool result text from chat.history.
     // The agent tool event does not carry the result text (gateway strips it),
@@ -6682,6 +6769,30 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
     }
 
+    if (isYieldedChatFinal(payload, messageRecord, stopReason)
+        || (!finalText.trim() && this.hasYieldedSessionToolResult(sessionId, turn))) {
+      this.finalizeThinkingMessage(sessionId, turn);
+      if (isManagedSessionKey(turn.sessionKey)) {
+        await this.syncFinalAssistantWithHistory(sessionId, turn);
+      } else {
+        await this.syncSessionHistoryFromGateway(sessionId, turn.sessionKey);
+      }
+      if (this.activeTurns.get(sessionId) !== turn) {
+        return;
+      }
+      this.store.updateSession(sessionId, { status: 'running' });
+      this.emitSessionStatus(sessionId, 'running');
+      turn.allowRecentlyClosedRunRetryReopenOnCleanup = true;
+      this.cleanupSessionTurn(sessionId);
+      this.resolveTurn(sessionId);
+      console.debug(
+        '[OpenClawRuntime] yielded chat.final kept session running while waiting for subagent work.',
+        `sessionId=${sessionId}`,
+        `runId=${payload.runId ?? turn.runId}`,
+      );
+      return;
+    }
+
     if (!finalText.trim()) {
       console.debug(
         '[OpenClawRuntime] handleChatFinal: final payload had no text, falling back to chat.history sync',
@@ -6718,10 +6829,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
     }
 
-    const messageRecord = isRecord(payload.message) ? payload.message : null;
-
-    const stopReason = payload.stopReason
-      ?? (messageRecord && typeof messageRecord.stopReason === 'string' ? messageRecord.stopReason : undefined);
     const errorMessageFromMessage = messageRecord && typeof messageRecord.errorMessage === 'string'
       ? messageRecord.errorMessage
       : undefined;
@@ -8577,6 +8684,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       sawNonTextContentBlocks: false,
       textStreamMode: 'unknown',
       toolUseMessageIdByToolCallId: new Map(),
+      toolNameByToolCallId: new Map(),
       toolResultMessageIdByToolCallId: new Map(),
       toolResultTextByToolCallId: new Map(),
       contextMaintenanceToolCallIds: new Set(),
