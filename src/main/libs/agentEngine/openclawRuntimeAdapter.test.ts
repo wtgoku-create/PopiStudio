@@ -4575,8 +4575,12 @@ test('unmapped subagent session.tool events are cached for subtask history', asy
   });
 
   const messages = await adapter.getSubTaskHistory(parentSession.id, 'call-worker', childSessionKey);
-  expect(messages).toHaveLength(2);
+  expect(messages).toHaveLength(3);
   expect(messages[0]).toMatchObject({
+    type: 'user',
+    content: 'do child work',
+  });
+  expect(messages[1]).toMatchObject({
     type: 'tool_use',
     metadata: {
       toolName: 'exec',
@@ -4584,13 +4588,132 @@ test('unmapped subagent session.tool events are cached for subtask history', asy
       toolUseId: 'exec_1',
     },
   });
-  expect(messages[1]).toMatchObject({
+  expect(messages[2]).toMatchObject({
     type: 'tool_result',
     content: '/tmp\n',
     metadata: {
       toolResult: '/tmp\n',
       toolUseId: 'exec_1',
       isError: false,
+      isFinal: true,
+    },
+  });
+});
+
+test('unmapped subagent agent item events are cached for subtask history', async () => {
+  const parentSession = {
+    id: 'parent-session',
+    agentId: 'child-agent',
+    messages: [],
+  };
+  const runs = new Map<string, Record<string, unknown>>();
+  const store = {
+    getSession: vi.fn((sessionId: string) => (
+      sessionId === parentSession.id ? parentSession : null
+    )),
+    getAgent: vi.fn(() => ({ name: 'Child Agent' })),
+    updateSession: vi.fn(),
+  };
+  const subagentRunStore = {
+    insertSubagentRun: vi.fn((run: Record<string, unknown>) => {
+      runs.set(run.id as string, { ...run });
+    }),
+    updateSubagentRunStatus: vi.fn(),
+    updateSubagentRunSessionKey: vi.fn(),
+    updateSubagentRunChildSession: vi.fn(),
+    getSubagentRun: vi.fn((id: string) => runs.get(id) ?? null),
+    findSubagentRunBySessionKey: vi.fn((sessionKey: string) =>
+      Array.from(runs.values()).find(run => run.sessionKey === sessionKey) ?? null,
+    ),
+    listSubagentRuns: vi.fn(() => Array.from(runs.values())),
+    isMessagesPersisted: vi.fn(() => false),
+  };
+  const adapter = new OpenClawRuntimeAdapter(
+    store as never,
+    {},
+    {},
+    subagentRunStore as never,
+  );
+  const subagentId = 'e0fbd45e-25ef-4765-b1b1-a82035637f31';
+  const childSessionKey = `agent:child-agent:subagent:${subagentId}`;
+
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async (method: string) => (
+      method === 'sessions.messages.subscribe'
+        ? { subscribed: true, key: childSessionKey }
+        : { messages: [] }
+    ),
+  };
+
+  adapter.subagentTracker.onToolStart(
+    'call-worker',
+    { agentId: 'child-agent', task: 'do child work' },
+    parentSession.id,
+  );
+  adapter.subagentTracker.onSpawnResult(
+    'call-worker',
+    JSON.stringify({
+      status: 'accepted',
+      childSessionKey,
+    }),
+    {},
+  );
+
+  (adapter as unknown as {
+    handleGatewayEvent: (event: unknown) => void;
+  }).handleGatewayEvent({
+    event: 'agent',
+    payload: {
+      runId: 'child-run',
+      sessionKey: `subagent:${subagentId}`,
+      stream: 'item',
+      data: {
+        tag: 'tool_call_created',
+        title: 'browser',
+        toolCallId: 'browser_1',
+        rawInput: { action: 'open', url: 'https://example.com' },
+      },
+    },
+  });
+  (adapter as unknown as {
+    handleGatewayEvent: (event: unknown) => void;
+  }).handleGatewayEvent({
+    event: 'agent',
+    payload: {
+      runId: 'child-run',
+      sessionKey: `subagent:${subagentId}`,
+      stream: 'command_output',
+      data: {
+        tag: 'tool_call_done',
+        title: 'browser',
+        toolCallId: 'browser_1',
+        rawOutput: 'Opened https://example.com',
+      },
+    },
+  });
+
+  const messages = await adapter.getSubTaskHistory(parentSession.id, 'call-worker', childSessionKey);
+  expect(messages).toHaveLength(3);
+  expect(messages[0]).toMatchObject({
+    type: 'user',
+    content: 'do child work',
+  });
+  expect(messages[1]).toMatchObject({
+    type: 'tool_use',
+    metadata: {
+      toolName: 'browser',
+      toolInput: { action: 'open', url: 'https://example.com' },
+      toolUseId: 'browser_1',
+    },
+  });
+  expect(messages[2]).toMatchObject({
+    type: 'tool_result',
+    content: 'Opened https://example.com',
+    metadata: {
+      toolResult: 'Opened https://example.com',
+      toolUseId: 'browser_1',
       isFinal: true,
     },
   });

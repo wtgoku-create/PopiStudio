@@ -1246,6 +1246,9 @@ const normalizeSessionToolPhase = (phase: string): 'start' | 'update' | 'result'
     || normalized === 'begin'
     || normalized === 'running'
     || normalized === 'tool_call'
+    || normalized === 'tool_call_created'
+    || normalized === 'tool_call_start'
+    || normalized === 'tool_call_started'
     || normalized === 'in_progress'
   ) {
     return 'start';
@@ -4916,6 +4919,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     if (!sessionId) {
       if (isSubagentSessionKey(sessionKey)) {
+        const toolEvent = this.normalizeSessionToolPayload(agentPayload as unknown as Record<string, unknown>);
+        if (toolEvent && this.subagentTracker.appendToolEventFromSessionKey(sessionKey, toolEvent)) {
+          return;
+        }
         if (stream === 'lifecycle'
           && (lifecyclePhase === AgentLifecyclePhase.End || lifecyclePhase === AgentLifecyclePhase.Error)) {
           this.subagentTracker.tryMarkTerminalFromSessionKey(

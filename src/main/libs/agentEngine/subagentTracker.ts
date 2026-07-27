@@ -10,6 +10,7 @@ import {
   parseSubagentGatewayHistoryMessages,
   type SubagentCoworkMessage,
 } from './subagent/historyParser';
+import { parseSubagentSessionId } from './subagent/sessionKeys';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -623,8 +624,12 @@ export class SubagentTracker {
     if (!sessionKey) return null;
     const cached = this.subagentRunIdBySessionKey.get(sessionKey);
     if (cached) return cached;
+    const subagentSessionId = parseSubagentSessionId(sessionKey);
     for (const [runId, childSessionKey] of this.subagentSessionKeys) {
-      if (childSessionKey === sessionKey) {
+      if (
+        childSessionKey === sessionKey
+        || (subagentSessionId && parseSubagentSessionId(childSessionKey) === subagentSessionId)
+      ) {
         this.subagentRunIdBySessionKey.set(sessionKey, runId);
         return runId;
       }
