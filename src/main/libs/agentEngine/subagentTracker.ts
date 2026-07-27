@@ -942,6 +942,13 @@ export class SubagentTracker {
         });
       }
       this.appendInitialTaskMessage(toolCallId, existingRun.task, existingRun.createdAt);
+      this.notifySubagentMessagesChanged?.({
+        parentSessionId: existingRun.parentSessionId,
+        runId: toolCallId,
+        sessionKey: childSessionKey || existingRun.sessionKey || undefined,
+        status: nextStatus,
+        messages: this.subagentMessages.get(toolCallId),
+      });
       this.subscribeChildSession(candidate);
       return;
     }
@@ -985,6 +992,13 @@ export class SubagentTracker {
           childCoworkSessionId,
         });
       }
+      this.notifySubagentMessagesChanged?.({
+        parentSessionId: pending.parentSessionId,
+        runId: toolCallId,
+        sessionKey: childSessionKey || undefined,
+        status,
+        messages: this.subagentMessages.get(toolCallId),
+      });
       this.subscribeChildSession(candidate);
       this.pendingSpawnInfo.delete(toolCallId);
       console.log('[SubagentTracker] committed spawn result:', toolCallId, status,
