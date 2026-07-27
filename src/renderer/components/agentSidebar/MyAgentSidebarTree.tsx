@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
+import { AgentId } from '../../../shared/agent';
 import {
   CoworkSessionSourceKind,
   SESSION_AGNOSTIC_PERMISSION_SESSION_ID,
@@ -111,6 +112,39 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     }, 0);
   };
 
+  const handleReturnToMainAgent = async () => {
+    agentService.switchAgent(AgentId.Main);
+    onTaskTabChange(AgentSidebarTaskTab.Main);
+    onShowCowork();
+
+    const result = await coworkService.listAgentSidebarSessions();
+    const mainHomeSession = result.success
+      ? result.sessions?.find((session) => (
+        (session.agentId?.trim() || AgentId.Main) === AgentId.Main
+        && session.source?.kind === CoworkSessionSourceKind.AgentHome
+      ))
+      : null;
+    const mainTaskSession = result.success
+      ? result.sessions?.find((session) => (
+        (session.agentId?.trim() || AgentId.Main) === AgentId.Main
+        && session.source?.kind !== CoworkSessionSourceKind.ScheduledTask
+      ))
+      : null;
+
+    if (mainHomeSession) {
+      await coworkService.loadSession(mainHomeSession.id);
+      return;
+    }
+
+    if (mainTaskSession) {
+      await coworkService.loadSession(mainTaskSession.id);
+      return;
+    }
+
+    await coworkService.loadSessions(AgentId.Main);
+    coworkService.clearSession({ restoreAgentSkills: true });
+  };
+
   const handleDeleteSession = async (task: AgentSidebarTaskNode) => {
     if (task.source?.kind === CoworkSessionSourceKind.AgentHome) {
       if (isDefaultAgentId(task.agentId)) {
@@ -138,10 +172,16 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     if (deleted) {
       removeTaskPreview(task.id);
       if (currentSessionId === task.id) {
-        const agent = agentNodes.find((item) => item.id === task.agentId);
-        const nextTask = agent?.tasks[0];
-        if (agent && nextTask) {
-          await handleSelectAgentSession(agent, nextTask);
+        const nextAgent = agentNodes.find((item) => (
+          item.id === task.agentId
+          && item.tasks[0]?.id !== task.id
+          && item.tasks[0]?.source?.kind === task.source?.kind
+        ));
+        const nextTask = nextAgent?.tasks[0];
+        if (nextAgent && nextTask) {
+          await handleSelectAgentSession(nextAgent, nextTask);
+        } else if (task.source?.kind === CoworkSessionSourceKind.ScheduledTask) {
+          await handleReturnToMainAgent();
         }
       }
       return;
