@@ -58,7 +58,7 @@ const SkillsPopover: React.FC<SkillsPopoverProps> = ({
       // Calculate available space above the anchor
       if (anchorRef.current) {
         const anchorRect = anchorRef.current.getBoundingClientRect();
-        const maxHeight = asSubmenu ? 300 : 256;
+        const maxHeight = asSubmenu ? 260 : 256;
         const minHeight = asSubmenu ? 180 : 120;
         const availableHeight = asSubmenu
           ? anchorRect.bottom - 72

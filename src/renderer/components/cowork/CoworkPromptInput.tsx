@@ -1486,7 +1486,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="text-sm font-medium text-foreground">{i18nService.t('knowledgeBase')}</span>
       </div>
-      <div className="max-h-[300px] min-h-[180px] overflow-y-auto py-1">
+      <div className="max-h-[260px] min-h-[180px] overflow-y-auto py-1">
         {isLoadingKnowledgeBases && (
           <div className="px-3 py-3 text-sm text-secondary">{i18nService.t('folderLoading')}</div>
         )}
