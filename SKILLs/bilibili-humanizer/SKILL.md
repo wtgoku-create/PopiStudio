@@ -1,6 +1,14 @@
 ---
 name: bilibili-humanizer
 description: "Use when the user wants Bilibili scripts to sound more natural, less AI-generated, less encyclopedic, less press-release-like, more like a real UP creator, more opinionated, more conversational, more watchable, or better paced for medium/long video narration. This skill rewrites text while preserving meaning. It is content-only and must not publish, scrape, log in, operate accounts, or call Bilibili APIs."
+version: 1.0.0
+official: true
+name_i18n:
+  zh: B站口吻优化
+  en: Bilibili Humanizer
+description_i18n:
+  zh: 将 B站脚本改得更自然、更像真实 UP 主表达，并保留原意。
+  en: Make Bilibili scripts sound more natural and creator-like while preserving meaning.
 ---
 
 # Bilibili Humanizer

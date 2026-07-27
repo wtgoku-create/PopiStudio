@@ -1,6 +1,7 @@
 ---
 name: playwright
 description: Use when the task requires automating a real browser from the terminal (navigation, form filling, snapshots, screenshots, data extraction, UI-flow debugging) via `playwright-cli` or the bundled wrapper script.
+version: 1.0.0
 official: true
 category: 社媒运营
 name_i18n:

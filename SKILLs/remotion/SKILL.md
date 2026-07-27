@@ -1,6 +1,7 @@
 ---
 name: remotion-best-practices
 description: Best practices for Remotion - Video creation in React
+version: 1.0.0
 official: true
 category: AI剪辑
 metadata:

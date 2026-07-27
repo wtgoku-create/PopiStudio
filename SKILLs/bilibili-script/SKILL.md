@@ -1,6 +1,14 @@
 ---
 name: bilibili-script
 description: "Use when the user wants Bilibili video writing or optimization: titles, cover copy, opening 30 seconds, chapter outline, long-video script, narration draft, transition design, examples, visual/material suggestions, ending three-action prompts, description, tags, review videos, tutorials, explainers, commentary, vlogs, or turning a rough idea into a producible Bilibili video. This skill is content-only and must not publish or access Bilibili APIs."
+version: 1.0.0
+official: true
+name_i18n:
+  zh: B站脚本创作
+  en: Bilibili Script
+description_i18n:
+  zh: 创作和优化 B站标题、封面文案、开场、章节大纲和长视频脚本。
+  en: Write and optimize Bilibili titles, cover copy, openings, outlines, and video scripts.
 ---
 
 # Bilibili Script

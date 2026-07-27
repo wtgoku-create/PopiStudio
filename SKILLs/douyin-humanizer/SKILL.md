@@ -1,6 +1,14 @@
 ---
 name: douyin-humanizer
 description: "Use when the user wants Douyin scripts to sound more natural, less AI-generated, less written, less promotional, more like real oral speech, more rhythmic, more concise, stronger in the first 5 seconds, or more native to short-video delivery. This skill rewrites text while preserving meaning. It is content-only and must not publish, scrape, log in, operate accounts, or call Douyin APIs."
+version: 1.0.0
+official: true
+name_i18n:
+  zh: 抖音口播优化
+  en: Douyin Humanizer
+description_i18n:
+  zh: 将抖音脚本改得更口语、更自然、更有节奏，并强化前 5 秒。
+  en: Make Douyin scripts more natural, spoken, rhythmic, and stronger in the first 5 seconds.
 ---
 
 # Douyin Humanizer

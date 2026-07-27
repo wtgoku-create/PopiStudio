@@ -1,6 +1,7 @@
 ---
 name: create-plan
 description: Create a concise plan. Use when a user explicitly asks for a plan related to a coding task.
+version: 1.0.0
 official: true
 category: 内容创作
 metadata:

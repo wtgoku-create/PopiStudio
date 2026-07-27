@@ -1,6 +1,14 @@
 ---
 name: popi-mcn-avatarize-media
 description: Use for POPi MCN daily photo, vlog, short-video, pet-video, or user-generated media tasks where real people or pets should be replaced with anime, cartoon, 3D, VTuber, mascot, plush, or other virtual characters. Supports image and video deliverables, optional fixed character reference images, and workflows that route image edits to Seedream and reference-guided video replacement to Seedance.
+version: 1.0.0
+official: true
+name_i18n:
+  zh: POPi MCN 虚拟形象替换
+  en: POPi MCN Avatarize Media
+description_i18n:
+  zh: 将日常照片、vlog、短视频或宠物素材中的真人或宠物替换为虚拟角色。
+  en: Replace people or pets in daily photos, vlogs, short videos, and user media with virtual characters.
 ---
 
 # POPi MCN Avatarize Media

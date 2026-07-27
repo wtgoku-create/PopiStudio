@@ -1,6 +1,14 @@
 ---
 name: douyin-strategy
 description: "Use when the user needs Douyin content strategy: account positioning, persona design, target audience, vertical selection, content columns, short-video topic planning, viral structure analysis from provided examples, posting rhythm, conversion path, livestream or product-content planning, matrix content ideas, or growth review. This skill is content-only and must not log in, scrape, publish, comment, like, favorite, operate accounts, or call Douyin APIs."
+version: 1.0.0
+official: true
+name_i18n:
+  zh: 抖音内容策略
+  en: Douyin Strategy
+description_i18n:
+  zh: 规划抖音账号定位、人设、受众、选题、栏目、发布节奏和转化路径。
+  en: Plan Douyin positioning, personas, audiences, topics, content columns, rhythm, and conversion paths.
 ---
 
 # Douyin Strategy

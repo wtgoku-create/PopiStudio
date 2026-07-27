@@ -1,6 +1,14 @@
 ---
 name: bilibili-strategy
 description: "Use when the user needs Bilibili content strategy: UP creator positioning, target audience, vertical selection, content series, topic library, long-video structure planning, title-cover direction, upload rhythm, fan trust, community interaction, commercialization path, or growth review. This skill is content-only and must not log in, scrape, publish, comment, like, coin, favorite, follow, operate accounts, or call Bilibili APIs."
+version: 1.0.0
+official: true
+name_i18n:
+  zh: B站内容策略
+  en: Bilibili Strategy
+description_i18n:
+  zh: 规划 B站账号定位、受众、选题、系列栏目、发布节奏和增长复盘。
+  en: Plan Bilibili positioning, audiences, topics, series, publishing rhythm, and growth reviews.
 ---
 
 # Bilibili Strategy

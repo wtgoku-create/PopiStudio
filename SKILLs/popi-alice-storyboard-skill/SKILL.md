@@ -1,6 +1,8 @@
 ---
 name: popi-alice-storyboard-skill
 description: 使用 MCP 的文生图、Alice 参考图图生图、图生视频能力，为 Alice vlog 生成封面图、镜头参考图和短视频片段。
+version: 1.0.0
+official: true
 name_i18n:
   zh: Alice 分镜生成
   en: Alice Storyboard Generation

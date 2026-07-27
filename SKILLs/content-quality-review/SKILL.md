@@ -2,6 +2,14 @@
 name: content-quality-review
 description: >-
   Use when reviewing new-media content before publishing or handing off: detect AI tone, hard-sell language, vague claims, weak hooks, unsupported data, platform mismatch, compliance risk, and missing CTA.
+version: 1.0.0
+official: true
+name_i18n:
+  zh: 内容质检
+  en: Content Quality Review
+description_i18n:
+  zh: 发布前检查新媒体内容的 AI 腔、硬广感、弱钩子、证据不足、平台错位和合规风险。
+  en: Review new-media content for AI tone, hard sell, weak hooks, unsupported claims, platform mismatch, and compliance risk.
 ---
 
 # Content Quality Review | 内容质检

@@ -1,6 +1,14 @@
 ---
 name: douyin-script
 description: "Use when the user wants Douyin short-video writing or optimization: video titles, first-3-second hooks, oral scripts, scene-by-scene scripts, shot rhythm, subtitle suggestions, visual suggestions, comment prompts, conversion CTAs, livestream clip scripts, product seeding scripts, plot reversal scripts, tutorial scripts, review scripts, or turning a rough idea into shootable Douyin content. This skill is content-only and must not publish or access Douyin APIs."
+version: 1.0.0
+official: true
+name_i18n:
+  zh: 抖音脚本创作
+  en: Douyin Script
+description_i18n:
+  zh: 创作和优化抖音标题、前 3 秒钩子、口播脚本、镜头节奏和转化引导。
+  en: Write and optimize Douyin titles, hooks, spoken scripts, shot rhythm, and conversion CTAs.
 ---
 
 # Douyin Script

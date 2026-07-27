@@ -4,6 +4,7 @@ description: |
   WeChat Official Account topic planning and content calendar management. Based on WeChat article search and trending analysis,
   generates differentiated topic recommendations and outputs structured content calendars. Activated when users mention
   "topic", "planning", "content calendar", "trending", or "what to write next week".
+version: 1.0.0
 official: true
 category: 社媒运营
 name_i18n:

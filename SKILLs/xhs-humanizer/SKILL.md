@@ -1,6 +1,14 @@
 ---
 name: xhs-humanizer
 description: Use when the user wants Xiaohongshu content to sound more natural, less AI-generated, less promotional, more first-person, more lived-in, more specific, or more platform-native. This skill rewrites text while preserving meaning. It is content-only and must not publish, scrape, log in, or call Xiaohongshu APIs.
+version: 1.0.0
+official: true
+name_i18n:
+  zh: 小红书口吻优化
+  en: XHS Humanizer
+description_i18n:
+  zh: 将小红书内容改得更自然、更真实、更第一人称，并保留原意。
+  en: Make Xiaohongshu content more natural, lived-in, first-person, and platform-native.
 ---
 
 # XHS Humanizer
