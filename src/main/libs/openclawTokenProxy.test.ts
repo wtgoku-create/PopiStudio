@@ -74,6 +74,59 @@ test('classifies SSE packets as terminal only on done, finish reason, error, or 
   }
 });
 
+test('injects reasoning_split into llmChat request bodies', () => {
+  const body = Buffer.from(JSON.stringify({
+    model: 'MiniMax-M3',
+    stream: true,
+    messages: [],
+  }));
+
+  const transformed = testUtils.injectReasoningSplit('/api_client/anime/task/llmChat', body);
+  const payload = JSON.parse(transformed.toString('utf8'));
+
+  expect(payload.reasoning_split).toBe(true);
+  expect(payload.model).toBe('MiniMax-M3');
+});
+
+test('does not override existing reasoning_split request values', () => {
+  const body = Buffer.from(JSON.stringify({
+    model: 'MiniMax-M3',
+    reasoning_split: false,
+    messages: [],
+  }));
+
+  const transformed = testUtils.injectReasoningSplit('/api_client/anime/task/llmChat', body);
+  const payload = JSON.parse(transformed.toString('utf8'));
+
+  expect(payload.reasoning_split).toBe(false);
+});
+
+test('injects reasoning_split into non-MiniMax llmChat request bodies', () => {
+  const body = Buffer.from(JSON.stringify({
+    model: 'doubao-seed-2-0-lite-260428',
+    stream: true,
+    messages: [],
+  }));
+
+  const transformed = testUtils.injectReasoningSplit('/api_client/anime/task/llmChat', body);
+  const payload = JSON.parse(transformed.toString('utf8'));
+
+  expect(payload.reasoning_split).toBe(true);
+});
+
+test('does not inject reasoning_split outside llmChat request bodies', () => {
+  const body = Buffer.from(JSON.stringify({
+    model: 'MiniMax-M3',
+    stream: true,
+    messages: [],
+  }));
+
+  const transformed = testUtils.injectReasoningSplit('/api/proxy/example', body);
+  const payload = JSON.parse(transformed.toString('utf8'));
+
+  expect(payload.reasoning_split).toBeUndefined();
+});
+
 test('scan state observes a terminal packet split across chunk boundaries', () => {
   const scanState = testUtils.createProxySSEStreamScanState();
 

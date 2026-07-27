@@ -114,6 +114,24 @@ function logLlmChatRequestSummary(upstreamPath: string, body: Buffer): void {
   }
 }
 
+function injectReasoningSplit(upstreamPath: string, body: Buffer): Buffer {
+  if (upstreamPath !== POPIAI_LLM_CHAT_PATH || body.length === 0) {
+    return body;
+  }
+
+  try {
+    const payload = JSON.parse(body.toString('utf8')) as Record<string, unknown>;
+    if (payload.reasoning_split !== undefined) {
+      return body;
+    }
+
+    payload.reasoning_split = true;
+    return Buffer.from(JSON.stringify(payload));
+  } catch {
+    return body;
+  }
+}
+
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   try {
     const tokens = tokenGetter?.();
@@ -133,18 +151,19 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const body = await collectRequestBody(req);
 
     const upstreamPath = resolveUpstreamPath(req.url || '/');
+    const forwardBody = injectReasoningSplit(upstreamPath, body);
     const upstreamUrl = `${serverBaseUrl}${upstreamPath}`;
     console.debug(`[OpenClawTokenProxy] forwarding request to ${upstreamUrl}`);
-    logLlmChatRequestSummary(upstreamPath, body);
+    logLlmChatRequestSummary(upstreamPath, forwardBody);
 
-    const result = await forwardRequest(upstreamUrl, upstreamPath, req.method || 'POST', tokens.accessToken, body, req.headers);
+    const result = await forwardRequest(upstreamUrl, upstreamPath, req.method || 'POST', tokens.accessToken, forwardBody, req.headers);
     console.debug(`[OpenClawTokenProxy] upstream responded with status ${result.status}`);
 
     if ((result.status === 401 || result.status === 403) && !result.skipAuthRefresh && tokenRefresher) {
       console.log(`[OpenClawTokenProxy] received ${result.status}, attempting token refresh`);
       const newToken = await tokenRefresher('openclaw-proxy');
       if (newToken) {
-        const retryResult = await forwardRequest(upstreamUrl, upstreamPath, req.method || 'POST', newToken, body, req.headers);
+        const retryResult = await forwardRequest(upstreamUrl, upstreamPath, req.method || 'POST', newToken, forwardBody, req.headers);
         console.debug(`[OpenClawTokenProxy] upstream retry responded with status ${retryResult.status}`);
         pipeResponse(retryResult, res);
         return;
@@ -727,6 +746,7 @@ function pipeWebReadableResponse(
 export const __openClawTokenProxyTestUtils = {
   createProxySSEStreamScanState,
   flushProxySSEBuffer,
+  injectReasoningSplit,
   isTerminalProxySSEPacket,
   parseProxySSEPacket,
   pipeNodeReadableResponse,
