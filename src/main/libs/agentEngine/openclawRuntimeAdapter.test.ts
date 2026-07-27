@@ -2901,6 +2901,8 @@ test('sessions_yield final keeps session running while waiting for subagent work
       state: 'final',
       runId: 'run-yield',
       sessionKey,
+      stopReason: 'end_turn',
+      yielded: true,
     }, 1);
     await vi.advanceTimersByTimeAsync(2_000);
     await Promise.resolve();

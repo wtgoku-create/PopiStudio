@@ -420,14 +420,6 @@ const GatewayStopReason = {
   ToolUseSnake: 'tool_use',
 } as const;
 
-const OpenClawToolName = {
-  SessionsYield: 'sessions_yield',
-} as const;
-
-const OpenClawToolResultStatus = {
-  Yielded: 'yielded',
-} as const;
-
 const OpenClawHistoryRole = {
   Tool: 'tool',
   ToolResult: 'toolResult',
@@ -938,17 +930,6 @@ const isYieldedChatFinal = (
 ): boolean => {
   const yielded = payload.yielded === true || messageRecord?.yielded === true;
   return yielded && stopReason === GatewayStopReason.EndTurn;
-};
-
-const isYieldedToolResultText = (text: string): boolean => {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    return isRecord(parsed) && parsed.status === OpenClawToolResultStatus.Yielded;
-  } catch {
-    return /\bstatus\b[^A-Za-z0-9_-]+yielded\b/i.test(trimmed);
-  }
 };
 
 const extractTextBlocksAndSignals = (
@@ -1614,54 +1595,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     return { hasToolWork, toolResultChars };
-  }
-
-  private hasYieldedSessionToolResult(sessionId: string, turn: ActiveTurn): boolean {
-    for (const [toolCallId, resultText] of turn.toolResultTextByToolCallId.entries()) {
-      const toolName = turn.toolNameByToolCallId.get(toolCallId)?.toLowerCase();
-      if (toolName === OpenClawToolName.SessionsYield && isYieldedToolResultText(resultText)) {
-        return true;
-      }
-    }
-
-    const session = this.store.getSession(sessionId);
-    if (!session) return false;
-
-    let lastUserIdx = -1;
-    for (let i = session.messages.length - 1; i >= 0; i--) {
-      if (session.messages[i].type === 'user') {
-        lastUserIdx = i;
-        break;
-      }
-    }
-
-    const yieldToolCallIds = new Set<string>();
-    const startIdx = lastUserIdx >= 0 ? lastUserIdx + 1 : 0;
-    for (let i = startIdx; i < session.messages.length; i++) {
-      const message = session.messages[i];
-      if (!isRecord(message)) continue;
-      const metadata = isRecord(message.metadata) ? message.metadata : {};
-      const toolUseId = typeof metadata.toolUseId === 'string' ? metadata.toolUseId.trim() : '';
-      if (!toolUseId) continue;
-
-      if (message.type === 'tool_use') {
-        const toolName = typeof metadata.toolName === 'string' ? metadata.toolName.trim().toLowerCase() : '';
-        if (toolName === OpenClawToolName.SessionsYield) {
-          yieldToolCallIds.add(toolUseId);
-        }
-        continue;
-      }
-
-      if (message.type === 'tool_result' && yieldToolCallIds.has(toolUseId)) {
-        const metadataResult = typeof metadata.toolResult === 'string' ? metadata.toolResult : '';
-        const content = typeof message.content === 'string' ? message.content : '';
-        if (isYieldedToolResultText(metadataResult || content)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
   }
 
   private hasTurnToolWork(sessionId: string, turn: ActiveTurn): boolean {
@@ -6769,8 +6702,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
     }
 
-    if (isYieldedChatFinal(payload, messageRecord, stopReason)
-        || (!finalText.trim() && this.hasYieldedSessionToolResult(sessionId, turn))) {
+    if (isYieldedChatFinal(payload, messageRecord, stopReason)) {
       this.finalizeThinkingMessage(sessionId, turn);
       if (isManagedSessionKey(turn.sessionKey)) {
         await this.syncFinalAssistantWithHistory(sessionId, turn);
