@@ -65,6 +65,7 @@ import AttachmentCard from './AttachmentCard';
 import BrowserAnnotationAttachmentBadge from './BrowserAnnotationAttachmentBadge';
 import { getClipboardAttachmentFiles } from './clipboardAttachments';
 import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
+import { buildSelectedSkillRoutingPrompt } from './selectedSkillRoutingPrompt';
 import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
@@ -123,28 +124,6 @@ const extractBase64FromDataUrl = (dataUrl: string): { mimeType: string; base64Da
 const getFileNameFromPath = (path: string): string => {
   const parts = path.split(/[/\\]/);
   return parts[parts.length - 1] || path;
-};
-
-const getSkillDirectoryFromPath = (skillPath: string): string => {
-  const normalized = skillPath.trim().replace(/\\/g, '/');
-  return normalized.replace(/\/SKILL\.md$/i, '') || normalized;
-};
-
-const buildInlinedSkillPrompt = (skill: Skill): string => {
-  const skillDirectory = getSkillDirectoryFromPath(skill.skillPath);
-  return [
-    `## Skill: ${skill.name}`,
-    '<skill_context>',
-    `  <location>${skill.skillPath}</location>`,
-    `  <directory>${skillDirectory}</directory>`,
-    '  <path_rules>',
-    '    Resolve relative file references from this skill against <directory>.',
-    '    Do not assume skills are under the current workspace directory.',
-    '  </path_rules>',
-    '</skill_context>',
-    '',
-    skill.prompt,
-  ].join('\n');
 };
 
 const SEND_SHORTCUT_OPTIONS = [
@@ -688,7 +667,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
     // setShowFolderRequiredWarning(false);
 
-    // Get active skills prompts and combine them
+    // Get selected skill routing metadata. OpenClaw loads SKILL.md files
+    // natively, so do not inline full skill bodies here.
     const knowledgeBases = selectedKnowledgeBases.map(base => ({ id: base.id, name: base.name }));
     const hasSelectedKnowledgeBases = knowledgeBases.length > 0;
     const effectiveActiveSkillIds = hasSelectedKnowledgeBases && !activeSkillIds.includes(KnowledgeSkill.Base)
@@ -697,9 +677,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const activeSkills = effectiveActiveSkillIds
       .map(id => skills.find(s => s.id === id))
       .filter((s): s is Skill => s !== undefined);
-    const skillPrompt = activeSkills.length > 0
-      ? activeSkills.map(buildInlinedSkillPrompt).join('\n\n')
-      : undefined;
+    const skillPrompt = buildSelectedSkillRoutingPrompt(activeSkills);
 
     // Extract image attachments (with base64 data) for vision-capable models
     console.log('[CoworkPromptInput] handleSubmit: attachment diagnosis', {
