@@ -74,57 +74,83 @@ test('classifies SSE packets as terminal only on done, finish reason, error, or 
   }
 });
 
-test('injects reasoning_split into llmChat request bodies', () => {
+test('injects reasoning options into llmChat request bodies', () => {
   const body = Buffer.from(JSON.stringify({
     model: 'MiniMax-M3',
     stream: true,
     messages: [],
   }));
 
-  const transformed = testUtils.injectReasoningSplit('/api_client/anime/task/llmChat', body);
+  const transformed = testUtils.injectReasoningOptions('/api_client/anime/task/llmChat', body);
   const payload = JSON.parse(transformed.toString('utf8'));
 
   expect(payload.reasoning_split).toBe(true);
+  expect(payload.thinking).toEqual({ type: 'adaptive' });
   expect(payload.model).toBe('MiniMax-M3');
 });
 
-test('does not override existing reasoning_split request values', () => {
+test('does not override existing reasoning request values', () => {
   const body = Buffer.from(JSON.stringify({
     model: 'MiniMax-M3',
     reasoning_split: false,
+    thinking: { type: 'disabled' },
     messages: [],
   }));
 
-  const transformed = testUtils.injectReasoningSplit('/api_client/anime/task/llmChat', body);
+  const transformed = testUtils.injectReasoningOptions('/api_client/anime/task/llmChat', body);
   const payload = JSON.parse(transformed.toString('utf8'));
 
   expect(payload.reasoning_split).toBe(false);
+  expect(payload.thinking).toEqual({ type: 'disabled' });
 });
 
-test('injects reasoning_split into non-MiniMax llmChat request bodies', () => {
+test('does not inject reasoning options into non-MiniMax llmChat request bodies', () => {
   const body = Buffer.from(JSON.stringify({
     model: 'doubao-seed-2-0-lite-260428',
     stream: true,
     messages: [],
   }));
 
-  const transformed = testUtils.injectReasoningSplit('/api_client/anime/task/llmChat', body);
+  const transformed = testUtils.injectReasoningOptions('/api_client/anime/task/llmChat', body);
   const payload = JSON.parse(transformed.toString('utf8'));
 
-  expect(payload.reasoning_split).toBe(true);
+  expect(payload.reasoning_split).toBeUndefined();
+  expect(payload.thinking).toBeUndefined();
 });
 
-test('does not inject reasoning_split outside llmChat request bodies', () => {
+test('does not inject reasoning options outside llmChat request bodies', () => {
   const body = Buffer.from(JSON.stringify({
     model: 'MiniMax-M3',
     stream: true,
     messages: [],
   }));
 
-  const transformed = testUtils.injectReasoningSplit('/api/proxy/example', body);
+  const transformed = testUtils.injectReasoningOptions('/api/proxy/example', body);
   const payload = JSON.parse(transformed.toString('utf8'));
 
   expect(payload.reasoning_split).toBeUndefined();
+  expect(payload.thinking).toBeUndefined();
+});
+
+test('scan state counts OpenAI-compatible reasoning fields', () => {
+  const scanState = testUtils.createProxySSEStreamScanState();
+
+  testUtils.flushProxySSEBuffer(
+    [
+      'data: {"choices":[{"delta":{"reasoning_content":"inspect first"}}]}',
+      '',
+      'data: {"choices":[{"delta":{"content":"<think>leaked</think>"}}]}',
+      '',
+      'data: {"choices":[{"delta":{"content":"visible"},"finish_reason":"stop"}]}',
+      '',
+    ].join('\n'),
+    scanState,
+  );
+
+  expect(scanState.reasoningFields).toEqual({ reasoning_content: 1 });
+  expect(scanState.contentChunks).toBe(2);
+  expect(scanState.thinkTagContentChunks).toBe(1);
+  expect(scanState.sawTerminalPacket).toBe(true);
 });
 
 test('scan state observes a terminal packet split across chunk boundaries', () => {

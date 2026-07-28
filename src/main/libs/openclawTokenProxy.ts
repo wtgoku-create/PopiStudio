@@ -107,25 +107,42 @@ function logLlmChatRequestSummary(upstreamPath: string, body: Buffer): void {
     console.debug(
       `[OpenClawTokenProxy] llmChat request summary model=${String(payload.model ?? 'unknown')} `
       + `stream=${String(payload.stream)} messages=${messages.length} tools=${tools.length} `
-      + `streamOptions=${streamOptions.join(',') || 'none'} bodyBytes=${body.byteLength}`,
+      + `streamOptions=${streamOptions.join(',') || 'none'} `
+      + `reasoningSplit=${String(payload.reasoning_split)} `
+      + `thinking=${isRecord(payload.thinking) ? String(payload.thinking.type ?? 'present') : 'none'} `
+      + `bodyBytes=${body.byteLength}`,
     );
   } catch {
     console.debug(`[OpenClawTokenProxy] llmChat request body is not JSON bytes=${body.byteLength}`);
   }
 }
 
-function injectReasoningSplit(upstreamPath: string, body: Buffer): Buffer {
+function injectReasoningOptions(upstreamPath: string, body: Buffer): Buffer {
   if (upstreamPath !== POPIAI_LLM_CHAT_PATH || body.length === 0) {
     return body;
   }
 
   try {
     const payload = JSON.parse(body.toString('utf8')) as Record<string, unknown>;
-    if (payload.reasoning_split !== undefined) {
+    const model = typeof payload.model === 'string' ? payload.model : '';
+    if (!model.toLowerCase().includes('minimax')) {
       return body;
     }
 
-    payload.reasoning_split = true;
+    let changed = false;
+    if (payload.reasoning_split === undefined) {
+      payload.reasoning_split = true;
+      changed = true;
+    }
+    if (payload.thinking === undefined) {
+      payload.thinking = { type: 'adaptive' };
+      changed = true;
+    }
+    if (!changed) {
+      return body;
+    }
+
+    console.debug('[OpenClawTokenProxy] ensured llmChat reasoning options on request body');
     return Buffer.from(JSON.stringify(payload));
   } catch {
     return body;
@@ -151,7 +168,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const body = await collectRequestBody(req);
 
     const upstreamPath = resolveUpstreamPath(req.url || '/');
-    const forwardBody = injectReasoningSplit(upstreamPath, body);
+    const forwardBody = injectReasoningOptions(upstreamPath, body);
     const upstreamUrl = `${serverBaseUrl}${upstreamPath}`;
     console.debug(`[OpenClawTokenProxy] forwarding request to ${upstreamUrl}`);
     logLlmChatRequestSummary(upstreamPath, forwardBody);
@@ -249,10 +266,22 @@ type ParsedProxySSEPacket = {
 
 type ProxySSEStreamScanState = {
   sawTerminalPacket: boolean;
+  contentChunks: number;
+  reasoningFields: Record<string, number>;
+  thinkTagContentChunks: number;
+  logRawPackets: boolean;
+  loggedRawPackets: number;
 };
 
-function createProxySSEStreamScanState(): ProxySSEStreamScanState {
-  return { sawTerminalPacket: false };
+function createProxySSEStreamScanState(options?: { logRawPackets?: boolean }): ProxySSEStreamScanState {
+  return {
+    sawTerminalPacket: false,
+    contentChunks: 0,
+    reasoningFields: {},
+    thinkTagContentChunks: 0,
+    logRawPackets: options?.logRawPackets === true,
+    loggedRawPackets: 0,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -320,9 +349,69 @@ function findSSEPacketBoundary(buffer: string): { index: number; separatorLength
   };
 }
 
+function truncateForDebug(value: string, maxChars = 1200): string {
+  return value.length > maxChars ? `${value.slice(0, maxChars)}...` : value;
+}
+
+function logProxySSEPacketForDebug(packet: ParsedProxySSEPacket, parsed: unknown, scanState: ProxySSEStreamScanState): void {
+  if (!scanState.logRawPackets || scanState.loggedRawPackets >= 30) {
+    return;
+  }
+  scanState.loggedRawPackets += 1;
+
+  console.debug(
+    `[OpenClawTokenProxy] llmChat upstream SSE data #${scanState.loggedRawPackets}: `
+    + truncateForDebug(packet.payload),
+  );
+
+  if (!isRecord(parsed)) {
+    return;
+  }
+
+  for (const choice of toArray(parsed.choices)) {
+    if (!isRecord(choice) || !isRecord(choice.delta)) continue;
+    const delta = choice.delta;
+    const preview: Record<string, unknown> = {
+      deltaKeys: Object.keys(delta),
+    };
+    for (const field of ['reasoning_content', 'reasoning', 'reasoning_text', 'thoughts', 'thinking', 'content'] as const) {
+      if (typeof delta[field] === 'string' && delta[field]) {
+        preview[field] = truncateForDebug(delta[field], 240);
+      }
+    }
+    if (choice.finish_reason != null) {
+      preview.finishReason = choice.finish_reason;
+    }
+    console.debug(`[OpenClawTokenProxy] llmChat upstream SSE delta #${scanState.loggedRawPackets}: ${JSON.stringify(preview)}`);
+  }
+}
+
 function inspectProxySSEPacket(packet: string, scanState?: ProxySSEStreamScanState): void {
-  if (scanState && !scanState.sawTerminalPacket && isTerminalProxySSEPacket(parseProxySSEPacket(packet))) {
+  if (!scanState) return;
+
+  const parsedPacket = parseProxySSEPacket(packet);
+  if (!scanState.sawTerminalPacket && isTerminalProxySSEPacket(parsedPacket)) {
     scanState.sawTerminalPacket = true;
+  }
+
+  const parsed = tryParseJson(parsedPacket.payload);
+  logProxySSEPacketForDebug(parsedPacket, parsed, scanState);
+  if (!isRecord(parsed)) return;
+  for (const choice of toArray(parsed.choices)) {
+    if (!isRecord(choice) || !isRecord(choice.delta)) continue;
+    const delta = choice.delta;
+    const content = typeof delta.content === 'string' ? delta.content : '';
+    if (content) {
+      scanState.contentChunks += 1;
+      if (content.includes('<think>') || content.includes('</think>')) {
+        scanState.thinkTagContentChunks += 1;
+      }
+    }
+    for (const field of ['reasoning_content', 'reasoning', 'reasoning_text', 'thoughts', 'thinking'] as const) {
+      if (typeof delta[field] === 'string' && delta[field]) {
+        scanState.reasoningFields[field] = (scanState.reasoningFields[field] ?? 0) + 1;
+      }
+    }
   }
 }
 
@@ -613,7 +702,9 @@ function buildResponseHeaders(result: UpstreamResult): Record<string, string> {
 
 function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {
   res.writeHead(result.status, buildResponseHeaders(result));
-  const scanState = result.isStream ? createProxySSEStreamScanState() : undefined;
+  const scanState = result.isStream
+    ? createProxySSEStreamScanState({ logRawPackets: result.diagnostics.upstreamPath === POPIAI_LLM_CHAT_PATH })
+    : undefined;
 
   if (result.isStream && 'pipe' in result.body && typeof (result.body as NodeJS.ReadableStream).pipe === 'function') {
     pipeNodeReadableResponse(result.body as NodeJS.ReadableStream, res, result.diagnostics, scanState);
@@ -640,6 +731,15 @@ function endProxyResponseAfterScan(
   diagnostics: UpstreamDiagnostics,
   scanState?: ProxySSEStreamScanState,
 ): void {
+  if (scanState && diagnostics.upstreamPath === POPIAI_LLM_CHAT_PATH) {
+    const reasoningSummary = Object.entries(scanState.reasoningFields)
+      .map(([field, count]) => `${field}:${count}`)
+      .join(',') || 'none';
+    console.debug(
+      `[OpenClawTokenProxy] llmChat stream scan summary reasoningFields=${reasoningSummary} `
+      + `contentChunks=${scanState.contentChunks} thinkTagContentChunks=${scanState.thinkTagContentChunks}`,
+    );
+  }
   if (scanState && !scanState.sawTerminalPacket) {
     console.error(
       `[OpenClawTokenProxy] upstream SSE stream ended without a terminal packet for `
@@ -746,7 +846,7 @@ function pipeWebReadableResponse(
 export const __openClawTokenProxyTestUtils = {
   createProxySSEStreamScanState,
   flushProxySSEBuffer,
-  injectReasoningSplit,
+  injectReasoningOptions,
   isTerminalProxySSEPacket,
   parseProxySSEPacket,
   pipeNodeReadableResponse,
