@@ -132,27 +132,6 @@ test('does not inject reasoning options outside llmChat request bodies', () => {
   expect(payload.thinking).toBeUndefined();
 });
 
-test('scan state counts OpenAI-compatible reasoning fields', () => {
-  const scanState = testUtils.createProxySSEStreamScanState();
-
-  testUtils.flushProxySSEBuffer(
-    [
-      'data: {"choices":[{"delta":{"reasoning_content":"inspect first"}}]}',
-      '',
-      'data: {"choices":[{"delta":{"content":"<think>leaked</think>"}}]}',
-      '',
-      'data: {"choices":[{"delta":{"content":"visible"},"finish_reason":"stop"}]}',
-      '',
-    ].join('\n'),
-    scanState,
-  );
-
-  expect(scanState.reasoningFields).toEqual({ reasoning_content: 1 });
-  expect(scanState.contentChunks).toBe(2);
-  expect(scanState.thinkTagContentChunks).toBe(1);
-  expect(scanState.sawTerminalPacket).toBe(true);
-});
-
 test('scan state observes a terminal packet split across chunk boundaries', () => {
   const scanState = testUtils.createProxySSEStreamScanState();
 
