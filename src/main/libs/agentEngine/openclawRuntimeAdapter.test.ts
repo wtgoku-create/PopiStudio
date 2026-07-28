@@ -365,6 +365,7 @@ function createRunTurnAdapter(options: {
   cachedModel?: string;
   holdFirstModelPatch?: boolean;
   sessionCwd?: string;
+  sessionSystemPrompt?: string;
 } = {}) {
   const session = {
     id: 'session-1',
@@ -373,7 +374,7 @@ function createRunTurnAdapter(options: {
     status: 'completed',
     pinned: false,
     cwd: options.sessionCwd ?? '',
-    systemPrompt: '',
+    systemPrompt: options.sessionSystemPrompt ?? '',
     modelOverride: options.sessionModelOverride ?? '',
     executionMode: 'local',
     activeSkillIds: [],
@@ -574,6 +575,34 @@ test('continueSession creates a missing session cwd before chat.send', async () 
   expect(chatSend?.params).toMatchObject({
     cwd: path.resolve(missingCwd),
   });
+});
+
+test('startSession injects the stored system prompt into the outbound message', async () => {
+  const { adapter, requests } = createRunTurnAdapter({
+    sessionSystemPrompt: 'stored system prompt',
+  });
+
+  await adapter.startSession('session-1', 'hello');
+
+  const chatSend = requests.find((request) => request.method === 'chat.send');
+  expect(chatSend?.params.message).toContain('[Popiai system instructions]');
+  expect(chatSend?.params.message).toContain('stored system prompt');
+});
+
+test('continueSession injects the stored system prompt only when it changes', async () => {
+  const { adapter, requests } = createRunTurnAdapter({
+    sessionSystemPrompt: 'stored system prompt',
+  });
+
+  await adapter.startSession('session-1', 'hello');
+  await adapter.continueSession('session-1', 'continue');
+
+  const chatSends = requests.filter((request) => request.method === 'chat.send');
+  expect(chatSends).toHaveLength(2);
+  expect(chatSends[0].params.message).toContain('[Popiai system instructions]');
+  expect(chatSends[0].params.message).toContain('stored system prompt');
+  expect(chatSends[1].params.message).not.toContain('[Popiai system instructions]');
+  expect(chatSends[1].params.message).not.toContain('stored system prompt');
 });
 
 // ==================== Reconcile tests ====================

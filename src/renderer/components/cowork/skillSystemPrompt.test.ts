@@ -34,9 +34,9 @@ describe('buildCoworkContinuationSystemPrompt', () => {
     expect(buildCoworkContinuationSystemPrompt('skill prompt', 'base prompt')).toBe('skill prompt\n\nbase prompt');
   });
 
-  test('sends a refreshed prompt when only low-priority context changes', () => {
+  test('does not refresh the session prompt when only low-priority context changes', () => {
     expect(
       buildCoworkContinuationSystemPrompt(undefined, 'base prompt', 'tail prompt'),
-    ).toBe('base prompt\n\ntail prompt');
+    ).toBeUndefined();
   });
 });

@@ -21,7 +21,7 @@ export const buildCoworkContinuationSystemPrompt = (
   baseSystemPrompt?: string,
   tailPrompt?: string,
 ): string | undefined => {
-  if (!normalizePromptPart(skillPrompt) && !normalizePromptPart(tailPrompt)) {
+  if (!normalizePromptPart(skillPrompt)) {
     return undefined;
   }
 
