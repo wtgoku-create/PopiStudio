@@ -214,6 +214,31 @@ test('scan state treats MCP JSON-RPC result packets as terminal', () => {
   expect(scanState.sawTerminalPacket).toBe(true);
 });
 
+test('scan state treats MCP JSON-RPC batch results as terminal', () => {
+  const scanState = testUtils.createProxySSEStreamScanState('mcp');
+
+  testUtils.scanProxySSEBuffer(
+    'event: message\r\n'
+    + 'data: [{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}]\r\n\r\n',
+    scanState,
+  );
+
+  expect(scanState.sawTerminalPacket).toBe(true);
+});
+
+test('scan state treats MCP split JSON-RPC result text as terminal', () => {
+  const scanState = testUtils.createProxySSEStreamScanState('mcp');
+
+  testUtils.scanProxySSEBuffer(
+    'event: message\r\n'
+    + 'data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"first line\r\n'
+    + 'data: second line"}]}}\r\n\r\n',
+    scanState,
+  );
+
+  expect(scanState.sawTerminalPacket).toBe(true);
+});
+
 test('node stream ends proxied response when upstream SSE completes', async () => {
   const upstream = new PassThrough();
   const res = createMockProxyResponse();

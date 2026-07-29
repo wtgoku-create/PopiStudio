@@ -248,11 +248,22 @@ type ParsedProxySSEPacket = {
 };
 
 type ProxySSEStreamScanState = {
+  protocol: ProxySSEProtocol;
   sawTerminalPacket: boolean;
 };
 
-function createProxySSEStreamScanState(): ProxySSEStreamScanState {
-  return { sawTerminalPacket: false };
+const ProxySSEProtocol = {
+  Llm: 'llm',
+  Mcp: 'mcp',
+} as const;
+type ProxySSEProtocol = typeof ProxySSEProtocol[keyof typeof ProxySSEProtocol];
+
+function createProxySSEStreamScanState(protocol: ProxySSEProtocol = ProxySSEProtocol.Llm): ProxySSEStreamScanState {
+  return { protocol, sawTerminalPacket: false };
+}
+
+function resolveProxySSEProtocol(upstreamPath: string): ProxySSEProtocol {
+  return upstreamPath === '/mcp' ? ProxySSEProtocol.Mcp : ProxySSEProtocol.Llm;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -269,6 +280,10 @@ function tryParseJson(value: string): unknown {
   } catch {
     return null;
   }
+}
+
+function hasOwnRecordKey(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function parseProxySSEPacket(packet: string): ParsedProxySSEPacket {
@@ -292,20 +307,35 @@ function parseProxySSEPacket(packet: string): ParsedProxySSEPacket {
   };
 }
 
-function isTerminalProxySSEPacket(packet: ParsedProxySSEPacket): boolean {
+function isJsonRpcResponseRecord(value: unknown): boolean {
+  return isRecord(value)
+    && value.jsonrpc === '2.0'
+    && (hasOwnRecordKey(value, 'result') || hasOwnRecordKey(value, 'error'));
+}
+
+function isJsonRpcResponsePayload(payload: string, parsed: unknown, protocol: ProxySSEProtocol): boolean {
+  if (isJsonRpcResponseRecord(parsed)) {
+    return true;
+  }
+  if (Array.isArray(parsed) && parsed.some(isJsonRpcResponseRecord)) {
+    return true;
+  }
+  return protocol === ProxySSEProtocol.Mcp
+    && /"jsonrpc"\s*:\s*"2\.0"/.test(payload)
+    && /"(?:result|error)"\s*:/.test(payload);
+}
+
+function isTerminalProxySSEPacket(packet: ParsedProxySSEPacket, protocol: ProxySSEProtocol = ProxySSEProtocol.Llm): boolean {
   const { event, payload } = packet;
   if (!payload) return false;
   if (payload === '[DONE]') return true;
   if (event === 'error' || event === 'message_stop') return true;
 
   const parsed = tryParseJson(payload);
-  if (!isRecord(parsed)) return false;
-  if (
-    parsed.jsonrpc === '2.0'
-    && Object.prototype.hasOwnProperty.call(parsed, 'result')
-  ) {
+  if (isJsonRpcResponsePayload(payload, parsed, protocol)) {
     return true;
   }
+  if (!isRecord(parsed)) return false;
   if (parsed.type === 'error' || parsed.error != null || parsed.type === 'message_stop') {
     return true;
   }
@@ -327,7 +357,11 @@ function findSSEPacketBoundary(buffer: string): { index: number; separatorLength
 }
 
 function inspectProxySSEPacket(packet: string, scanState?: ProxySSEStreamScanState): void {
-  if (scanState && !scanState.sawTerminalPacket && isTerminalProxySSEPacket(parseProxySSEPacket(packet))) {
+  if (
+    scanState
+    && !scanState.sawTerminalPacket
+    && isTerminalProxySSEPacket(parseProxySSEPacket(packet), scanState.protocol)
+  ) {
     scanState.sawTerminalPacket = true;
   }
 }
@@ -680,7 +714,9 @@ function buildResponseHeaders(result: UpstreamResult): Record<string, string> {
 
 function pipeResponse(result: UpstreamResult, res: http.ServerResponse): void {
   res.writeHead(result.status, buildResponseHeaders(result));
-  const scanState = result.isStream ? createProxySSEStreamScanState() : undefined;
+  const scanState = result.isStream
+    ? createProxySSEStreamScanState(resolveProxySSEProtocol(result.diagnostics.upstreamPath))
+    : undefined;
 
   if (result.isStream && 'pipe' in result.body && typeof (result.body as NodeJS.ReadableStream).pipe === 'function') {
     pipeNodeReadableResponse(result.body as NodeJS.ReadableStream, res, result.diagnostics, scanState);
