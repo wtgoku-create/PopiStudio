@@ -4944,6 +4944,14 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const sessionIdByRunId = runId ? this.sessionIdByRunId.get(runId) : undefined;
     const sessionIdBySessionKey = sessionKey ? this.resolveSessionIdBySessionKey(sessionKey) ?? undefined : undefined;
     let sessionId = reopenedSessionId ?? sessionIdByRunId ?? sessionIdBySessionKey;
+    if (
+      sessionId
+      && lifecyclePhase === AgentLifecyclePhase.Start
+      && runId
+      && sessionKey
+    ) {
+      this.replaceActiveTurnForNewRun(sessionId, sessionKey, runId);
+    }
 
     // Re-create ActiveTurn for channel session follow-up turns.
     // Exclude stream=error events (e.g. seq gap notifications) — they are diagnostic alerts,
@@ -5017,6 +5025,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const turn = this.activeTurns.get(sessionId);
     if (!turn) {
       console.debug('[OpenClawRuntime] dropped an agent event because the session has no active turn.');
+      return;
+    }
+    if (runId && !turn.knownRunIds.has(runId)) {
+      console.debug('[OpenClawRuntime] dropped an agent event for a stale run.');
       return;
     }
 
@@ -6091,6 +6103,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       console.debug('[OpenClawRuntime] handleChatEvent — no active turn for sessionId:', sessionId);
       return;
     }
+    if (runId && !turn.knownRunIds.has(runId)) {
+      console.debug('[OpenClawRuntime] dropped a chat event for a stale run.');
+      return;
+    }
 
     // Buffer chat events while user messages are being prefetched for channel sessions
     if (turn.pendingUserSync) {
@@ -6342,11 +6358,15 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       if (sessionId && !this.activeTurns.has(sessionId)) {
         this.ensureActiveTurn(sessionId, sessionKey, runId);
       }
-      if (sessionId && runId) {
-        this.bindRunIdToTurn(sessionId, runId);
-      }
     }
     const turn = sessionId ? this.activeTurns.get(sessionId) : undefined;
+    if (runId && turn && !turn.knownRunIds.has(runId)) {
+      console.debug('[OpenClawRuntime] dropped assistant text for a stale run.');
+      return;
+    }
+    if (sessionId && runId && turn) {
+      this.bindRunIdToTurn(sessionId, runId);
+    }
 
     // Sync thinking message if thinking content is available
     if (parts.thinking && turn && sessionId) {
@@ -8708,6 +8728,26 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // Cooldown expired, remove the entry
     this.stoppedSessions.delete(sessionId);
     return false;
+  }
+
+  private replaceActiveTurnForNewRun(sessionId: string, sessionKey: string, runId: string): void {
+    const normalizedRunId = runId.trim();
+    if (!normalizedRunId) return;
+    const currentTurn = this.activeTurns.get(sessionId);
+    if (!currentTurn || currentTurn.knownRunIds.has(normalizedRunId)) {
+      return;
+    }
+    if (currentTurn.sessionKey !== sessionKey) {
+      return;
+    }
+    console.debug(
+      '[OpenClawRuntime] replacing active turn for a new run in the same session.',
+      `Session ${sessionId}.`,
+      `Previous run ${currentTurn.runId}.`,
+      `New run ${normalizedRunId}.`,
+    );
+    this.cleanupSessionTurn(sessionId);
+    this.ensureActiveTurn(sessionId, sessionKey, normalizedRunId);
   }
 
   private ensureActiveTurn(sessionId: string, sessionKey: string, runId: string): void {

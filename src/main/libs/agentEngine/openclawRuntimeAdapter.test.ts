@@ -3095,6 +3095,55 @@ test('visible final after sessions_yield completes the parent session', async ()
   }
 });
 
+test('new run thinking is inserted after a previous overlapping assistant run', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'first request', timestamp: 1, metadata: {} },
+    {
+      id: 'msg-2',
+      type: 'assistant',
+      content: 'Previous announce assistant text.',
+      timestamp: 2,
+      metadata: { isStreaming: true, isFinal: false },
+    },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:popiai:${session.id}`;
+  const oldRunId = 'announce:v1:agent:main:subagent:old:old-run';
+  const newRunId = 'new-user-run';
+
+  adapter.rememberSessionKey(session.id, sessionKey);
+  const oldTurn = createActiveTurn(session.id, sessionKey, oldRunId);
+  oldTurn.assistantMessageId = 'msg-2';
+  adapter.activeTurns.set(session.id, oldTurn);
+  adapter.sessionIdByRunId.set(oldRunId, session.id);
+
+  adapter.handleAgentEvent({
+    runId: newRunId,
+    sessionKey,
+    stream: 'lifecycle',
+    data: { phase: 'start' },
+  }, 1);
+  adapter.handleAgentEvent({
+    runId: newRunId,
+    sessionKey,
+    stream: 'thinking',
+    data: { text: 'New run thinking text.' },
+  }, 2);
+
+  expect(session.messages.map((message) => message.content)).toEqual([
+    'first request',
+    'Previous announce assistant text.',
+    'New run thinking text.',
+  ]);
+  const thinkingMessage = session.messages.at(-1);
+  expect(thinkingMessage?.metadata).toMatchObject({
+    isThinking: true,
+    isStreaming: true,
+  });
+  expect(adapter.activeTurns.get(session.id)?.runId).toBe(newRunId);
+  expect(adapter.activeTurns.get(session.id)?.assistantMessageId).toBeNull();
+});
+
 test('memory maintenance NO_REPLY stays running while waiting for a follow-up run', async () => {
   vi.useFakeTimers();
   try {
