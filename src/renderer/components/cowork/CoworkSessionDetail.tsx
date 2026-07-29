@@ -88,6 +88,7 @@ import {
   canScrollElementInWheelDirection,
   isWheelScrollingAwayFromBottom,
   shouldAutoScrollForPosition,
+  shouldShowScrollToBottomButton,
 } from './conversationScrollPolicy';
 import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
 import LazyRenderTurn from './LazyRenderTurn';
@@ -1274,8 +1275,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [steerPreviewPortalTarget, setSteerPreviewPortalTarget] = useState<HTMLDivElement | null>(null);
   const [goalStatusBarPortalTarget, setGoalStatusBarPortalTarget] = useState<HTMLDivElement | null>(null);
   const compactConfirmRef = useRef<HTMLDivElement>(null);
-  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const [, setShouldAutoScroll] = useState(true);
   const shouldAutoScrollRef = useRef(true);
+  const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
   const userDetachedFromBottomRef = useRef(false);
   // True while the initial-entry bottom-pinning rAF loop is active. During this
   // window, transient non-bottom scroll readings caused by lazily-rendered turns
@@ -1347,6 +1349,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     clearScrollToBottomSettleTimers();
     userDetachedFromBottomRef.current = false;
     userInitiatedHistoryScrollRef.current = false;
+    setShowScrollToBottomButton(false);
     if (markIntent) {
       scrollToBottomIntentRef.current = true;
     }
@@ -1370,6 +1373,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           }
           clearScrollToBottomSettleTimers();
           updateShouldAutoScroll(true);
+          setShowScrollToBottomButton(false);
           return;
         }
         latestContainer.scrollTo({
@@ -1398,6 +1402,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const distanceToBottom = container
       ? Math.max(0, Math.round(container.scrollHeight - container.scrollTop - container.clientHeight))
       : -1;
+    setShowScrollToBottomButton(distanceToBottom >= 0 && shouldShowScrollToBottomButton(distanceToBottom));
     console.debug(
       `[CoworkSessionDetail] Auto-scroll detached by user input; session=${currentSession?.id ?? 'unknown'}; source=${source}; distanceToBottom=${distanceToBottom}; cancelledScrollToBottom=${hadScrollToBottomIntent}.`,
     );
@@ -1555,6 +1560,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   useEffect(() => {
     userDetachedFromBottomRef.current = false;
     updateShouldAutoScroll(true);
+    setShowScrollToBottomButton(false);
   }, [currentSession?.id, updateShouldAutoScroll]);
 
   const handleCompactContext = useCallback(() => {
@@ -2821,6 +2827,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     userDetachedFromBottomRef.current = false;
     entryPinCompletedRef.current = false;
     updateShouldAutoScroll(true);
+    setShowScrollToBottomButton(false);
     lastScrollHeightRef.current = 0;
     turnElsCacheRef.current = [];
     loadedRailRangeRef.current = null;
@@ -3095,13 +3102,15 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       );
     }
     updateShouldAutoScroll(nextShouldAutoScroll);
+    // Check if content overflows the container (use functional updater to avoid redundant re-renders)
+    const scrollable = container.scrollHeight > container.clientHeight;
     if (scrollToBottomIntentRef.current && distanceToBottom <= SCROLL_TO_BOTTOM_SETTLE_THRESHOLD) {
       scrollToBottomIntentRef.current = false;
       clearScrollToBottomSettleTimers();
     }
-
-    // Check if content overflows the container (use functional updater to avoid redundant re-renders)
-    const scrollable = container.scrollHeight > container.clientHeight;
+    setShowScrollToBottomButton(
+      scrollable && !nextShouldAutoScroll && shouldShowScrollToBottomButton(distanceToBottom),
+    );
     setIsScrollable((prev) => (prev === scrollable ? prev : scrollable));
     if (!scrollable) return;
 
@@ -4676,7 +4685,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           </div>,
           document.body
         )}
-        {!shouldAutoScroll && (
+        {showScrollToBottomButton && (
           <button
             type="button"
             onClick={handleScrollToBottom}

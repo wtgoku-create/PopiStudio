@@ -3,6 +3,7 @@
 // streaming content again.
 export const CONVERSATION_AUTO_SCROLL_THRESHOLD = 120;
 export const CONVERSATION_AUTO_SCROLL_REATTACH_THRESHOLD = 2;
+export const CONVERSATION_SCROLL_TO_BOTTOM_BUTTON_THRESHOLD = 240;
 
 export const isWheelScrollingAwayFromBottom = (deltaY: number): boolean => deltaY < 0;
 
@@ -27,3 +28,7 @@ export const shouldAutoScrollForPosition = (
     : CONVERSATION_AUTO_SCROLL_THRESHOLD;
   return distanceToBottom <= threshold;
 };
+
+export const shouldShowScrollToBottomButton = (distanceToBottom: number): boolean => (
+  distanceToBottom > CONVERSATION_SCROLL_TO_BOTTOM_BUTTON_THRESHOLD
+);
