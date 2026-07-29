@@ -41,7 +41,26 @@ describe('knowledge MCP bridge tools', () => {
     const previewRagContext = vi.fn(async () => ({
       success: true,
       data: {
+        query: 'how to refund?',
         rendered_contexts: 'context',
+        search_result: [
+          { id: 'search-1', content: 'search content' },
+        ],
+        rerank_result: [
+          { id: 'rerank-1', content: 'rerank content' },
+        ],
+        merge_result: [
+          {
+            id: 'merge-1',
+            knowledge_id: 'doc-1',
+            knowledge_base_id: 'kb-1',
+            knowledge_title: 'Refunds',
+            chunk_index: 1,
+            chunk_type: 'text',
+            score: 0.8,
+            content: 'merge content',
+          },
+        ],
         user_content: 'question',
       },
     }));
@@ -64,7 +83,74 @@ describe('knowledge MCP bridge tools', () => {
       knowledgeBaseIds: ['kb-1'],
       knowledgeIds: ['doc-1'],
     });
-    expect(result?.content[0].text).toContain('"rendered_contexts": "context"');
+    expect(result?.content[0].text).toBe('context');
+    expect(result?.content[0].text).not.toContain('"rendered_contexts"');
+    expect(result?.content[0].text).not.toContain('search_result');
+    expect(result?.content[0].text).not.toContain('rerank_result');
+    expect(result?.content[0].text).not.toContain('merge_result');
+  });
+
+  test('returns only preview RAG rendered context from MCP output', async () => {
+    const longContent = 'x'.repeat(1500);
+    const previewRagContext = vi.fn(async () => ({
+      success: true,
+      data: {
+        query: 'summarize',
+        rendered_contexts: 'final rendered context',
+        user_content: 'final user content',
+        merge_result: Array.from({ length: 7 }, (_item, index) => ({
+          id: `merge-${index + 1}`,
+          knowledge_id: `doc-${index + 1}`,
+          knowledge_base_id: 'kb-1',
+          knowledge_title: `Doc ${index + 1}`,
+          chunk_index: index,
+          content: longContent,
+          score: 1 - index / 10,
+        })),
+      },
+    }));
+    const service = { previewRagContext } as unknown as RemoteKnowledgeService;
+
+    const result = await executeKnowledgeMcpTool(
+      KNOWLEDGE_MCP_SERVER_NAME,
+      'preview_rag_context',
+      {
+        query: 'summarize',
+        knowledgeBaseIds: ['kb-1'],
+      },
+      service,
+    );
+
+    expect(result?.isError).toBe(false);
+    expect(result?.content[0].text).toBe('final rendered context');
+    expect(result?.content[0].text).not.toContain('final user content');
+    expect(result?.content[0].text).not.toContain(longContent);
+  });
+
+  test('returns default text when preview RAG rendered context is empty', async () => {
+    const previewRagContext = vi.fn(async () => ({
+      success: true,
+      data: {
+        query: 'unknown',
+        rendered_contexts: '   ',
+        user_content: '   ',
+        merge_result: [],
+      },
+    }));
+    const service = { previewRagContext } as unknown as RemoteKnowledgeService;
+
+    const result = await executeKnowledgeMcpTool(
+      KNOWLEDGE_MCP_SERVER_NAME,
+      'preview_rag_context',
+      {
+        query: 'unknown',
+        knowledgeBaseIds: ['kb-1'],
+      },
+      service,
+    );
+
+    expect(result?.isError).toBe(false);
+    expect(result?.content[0].text).toBe('未查询到相关知识库内容。');
   });
 
   test('uploads a local file through RemoteKnowledgeService', async () => {

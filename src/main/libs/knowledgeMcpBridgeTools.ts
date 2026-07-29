@@ -11,6 +11,7 @@ export const KNOWLEDGE_MCP_SERVER_NAME = 'knowledge';
 
 const KNOWLEDGE_UPLOAD_TOOL_NAME = 'upload_agent_knowledge_file';
 const KNOWLEDGE_PREVIEW_RAG_CONTEXT_TOOL_NAME = 'preview_rag_context';
+const KNOWLEDGE_PREVIEW_RAG_CONTEXT_EMPTY_TEXT = '未查询到相关知识库内容。';
 
 const objectSchema = (
   properties: Record<string, object>,
@@ -27,6 +28,15 @@ const toToolResult = (
   details: Record<string, unknown> = {},
 ): PopiTVBridgeToolResult => ({
   content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+  isError: false,
+  details,
+});
+
+const toToolTextResult = (
+  text: string,
+  details: Record<string, unknown> = {},
+): PopiTVBridgeToolResult => ({
+  content: [{ type: 'text', text }],
   isError: false,
   details,
 });
@@ -62,6 +72,15 @@ const getOptionalStringArray = (
   if (!Array.isArray(value)) return undefined;
   const strings = value.filter((item): item is string => typeof item === 'string' && item.trim() !== '');
   return strings.length > 0 ? strings.map(item => item.trim()) : undefined;
+};
+
+const getPreviewRagContextRenderedContent = (result: {
+  data?: { rendered_contexts?: string };
+}): string => {
+  const renderedContent = result.data?.rendered_contexts;
+  return typeof renderedContent === 'string' && renderedContent.trim()
+    ? renderedContent
+    : KNOWLEDGE_PREVIEW_RAG_CONTEXT_EMPTY_TEXT;
 };
 
 export function getKnowledgeMcpToolManifest(): LocalMcpToolProvider['tools'] {
@@ -160,7 +179,7 @@ export async function executeKnowledgeMcpTool(
       if (!result.success) {
         return toToolError(result.error || 'RAG context preview failed', details);
       }
-      return toToolResult(result, details);
+      return toToolTextResult(getPreviewRagContextRenderedContent(result), details);
     }
 
     if (toolName !== KNOWLEDGE_UPLOAD_TOOL_NAME) {
