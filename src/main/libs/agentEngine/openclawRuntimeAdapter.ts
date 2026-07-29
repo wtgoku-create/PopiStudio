@@ -8017,7 +8017,22 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         );
         if (isChannel) {
           const latestOnly = this.reCreatedChannelSessionIds.has(sessionId);
-          this.syncChannelUserMessages(sessionId, history.messages, latestOnly, turn.sessionKey.includes(':discord:'), turn.sessionKey.includes(':qqbot:'), turn.sessionKey.includes(':moltbot-popo:'), turn.sessionKey.includes(':feishu:'));
+          this.syncChannelUserMessages(
+            sessionId,
+            history.messages,
+            latestOnly,
+            turn.sessionKey.includes(':discord:'),
+            turn.sessionKey.includes(':qqbot:'),
+            turn.sessionKey.includes(':moltbot-popo:'),
+            turn.sessionKey.includes(':feishu:'),
+            [
+              ...(turn.thinkingMessageId ? [turn.thinkingMessageId] : []),
+              ...turn.thinkingMessageIdByKey.values(),
+              ...turn.toolUseMessageIdByToolCallId.values(),
+              ...turn.toolResultMessageIdByToolCallId.values(),
+              ...(turn.assistantMessageId ? [turn.assistantMessageId] : []),
+            ],
+          );
         }
 
         if (!this.isCurrentTurnToken(sessionId, turn.turnToken)) {
@@ -8298,7 +8313,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
    * because OpenClaw's `chat.history` window can slide due to byte limits well before
    * the requested message count is reached.
    */
-  private syncChannelUserMessages(sessionId: string, historyMessages: unknown[], latestOnly = false, isDiscord = false, isQQ = false, isPopo = false, isFeishu = false): void {
+  private syncChannelUserMessages(
+    sessionId: string,
+    historyMessages: unknown[],
+    latestOnly = false,
+    isDiscord = false,
+    isQQ = false,
+    isPopo = false,
+    isFeishu = false,
+    insertBeforeMessageIds: string[] = [],
+  ): void {
     const historyEntries = this.collectChannelHistoryEntries(historyMessages, isDiscord, isQQ, isPopo, isFeishu);
 
     const cursor = this.channelSyncCursor.get(sessionId) ?? 0;
@@ -8408,6 +8432,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           }
           break;
         }
+        if (!insertBeforeId && insertBeforeMessageIds.length > 0) {
+          const insertBeforeIdSet = new Set(insertBeforeMessageIds);
+          const localAnchor = currentSession.messages.find(message => insertBeforeIdSet.has(message.id));
+          if (localAnchor) {
+            insertBeforeId = localAnchor.id;
+          }
+        }
       }
 
       let userMessage;
@@ -8417,7 +8448,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           content: entry.text,
           metadata: {},
         });
-        console.debug('[syncChannelUserMessages] inserted user message before assistant, sessionId:', sessionId);
+        console.debug('[syncChannelUserMessages] inserted user message before local turn output, sessionId:', sessionId);
       } else {
         userMessage = this.store.addMessage(sessionId, {
           type: 'user',

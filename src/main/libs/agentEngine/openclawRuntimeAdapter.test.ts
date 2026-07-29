@@ -775,6 +775,39 @@ test('fetchSessionByKey: cron run key uses gateway history instead of local sess
   ]);
 });
 
+test('syncChannelUserMessages inserts a late cron user prompt before current tool activity', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'tool-1', type: 'tool_use', content: '', timestamp: 1, metadata: { toolName: 'Read' } },
+    { id: 'tool-result-1', type: 'tool_result', content: '5 lines', timestamp: 2, metadata: { toolName: 'Read' } },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+
+  (adapter as unknown as {
+    syncChannelUserMessages: (
+      sessionId: string,
+      historyMessages: unknown[],
+      latestOnly?: boolean,
+      isDiscord?: boolean,
+      isQQ?: boolean,
+      isPopo?: boolean,
+      isFeishu?: boolean,
+      insertBeforeMessageIds?: string[],
+    ) => void;
+  }).syncChannelUserMessages(
+    session.id,
+    [{ role: 'user', content: '[cron:job-1 会议准备] 请梳理今天会议' }],
+    false,
+    false,
+    false,
+    false,
+    false,
+    ['tool-1', 'tool-result-1'],
+  );
+
+  expect(session.messages.map(message => message.type)).toEqual(['user', 'tool_use', 'tool_result']);
+  expect(session.messages[0].content).toBe('[cron:job-1 会议准备] 请梳理今天会议');
+});
+
 test('reconcileWithHistory: already in sync — skips replace', async () => {
   const { session, store, getReplaceCallCount } = createReconcileStore([
     { id: 'msg-1', type: 'user', content: 'Hello', timestamp: 1, metadata: {} },
