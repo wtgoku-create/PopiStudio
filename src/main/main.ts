@@ -1775,9 +1775,19 @@ const bindCoworkRuntimeForwarder = (): void => {
       ? (message as { type?: unknown }).type
       : undefined;
     if (beforeMessageId) {
-      console.log('[ThinkingOrder] IPC forwarding with beforeMessageId=', beforeMessageId, 'type=', messageType);
+      console.debug(
+        '[ThinkingOrder] forwarding a message before an existing message.',
+        `Session ${sessionId}.`,
+        `Before ${beforeMessageId}.`,
+        `Type ${String(messageType ?? 'unknown')}.`,
+      );
     }
-    console.log('[CoworkForwarder] forwarding message: sessionId=', sessionId, 'type=', messageType, 'windowCount=', windows.length);
+    console.debug(
+      '[CoworkForwarder] forwarding a cowork message to renderer windows.',
+      `Session ${sessionId}.`,
+      `Type ${String(messageType ?? 'unknown')}.`,
+      `Windows ${windows.length}.`,
+    );
     forwardCoworkMessage(sessionId, message, beforeMessageId);
   });
 

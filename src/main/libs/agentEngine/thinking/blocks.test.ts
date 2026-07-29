@@ -95,6 +95,21 @@ describe('OpenClaw thinking block extraction', () => {
     });
   });
 
+  test('preserves thinking formatting while ignoring blank thinking text', () => {
+    const result = extractCurrentTurnThinkingBlocks([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: '   ' },
+          { type: 'thinking', thinking: '\n  keep indentation\n    detail\n' },
+        ],
+      },
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].text).toBe('\n  keep indentation\n    detail\n');
+  });
+
   test('creates distinct deterministic keys for repeated final thinking text', () => {
     const history = [
       { role: 'assistant', content: [{ type: 'thinking', thinking: 'same' }] },

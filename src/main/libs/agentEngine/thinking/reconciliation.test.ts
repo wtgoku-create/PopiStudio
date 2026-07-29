@@ -206,3 +206,49 @@ test('reuses an identical provisional live-stream message and assigns its stable
     openclawThinkingKey: 'tool:call-read:thinking:0',
   });
 });
+
+test('reuses a similar provisional final thinking message from live stream', () => {
+  const provisionalMessage = createMessage(
+    'msg-2',
+    'assistant',
+    '已获上海天气数据，将整理摘要。准备输出重点。',
+    { isThinking: true, isStreaming: true, isFinal: false },
+  );
+  const answerMessage = createMessage('msg-3', 'assistant', '今日上海天气晴。', { isStreaming: true });
+  const { insertMessageBeforeId, messages, store } = createStore([
+    createMessage('msg-1', 'user', '上海天气'),
+    provisionalMessage,
+    answerMessage,
+  ]);
+  const messageIdByThinkingKey = new Map<string, string>();
+
+  reconcileOpenClawThinkingBlocks({
+    sessionId: 'session-1',
+    historyMessages: [
+      { role: 'user', content: '上海天气' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: '已获上海天气数据，将整理摘要。' },
+          { type: 'text', text: '今日上海天气晴。' },
+        ],
+      },
+    ],
+    includeUnanchored: true,
+    assistantMessageId: answerMessage.id,
+    toolUseMessageIdByToolCallId: new Map(),
+    messageIdByThinkingKey,
+    store,
+    emitMessage: vi.fn(),
+    emitMessageUpdate: vi.fn(),
+  });
+
+  expect(insertMessageBeforeId).not.toHaveBeenCalled();
+  expect(messages.filter((message) => message.metadata?.isThinking)).toHaveLength(1);
+  expect(provisionalMessage.content).toBe('已获上海天气数据，将整理摘要。');
+  expect(provisionalMessage.metadata).toMatchObject({
+    isStreaming: false,
+    isFinal: true,
+    openclawThinkingKey: expect.stringMatching(/^final:thinking:/),
+  });
+});

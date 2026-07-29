@@ -4082,7 +4082,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
    * Uses leading + trailing pattern: emit immediately if enough time has passed,
    * otherwise schedule a trailing emit to deliver the latest content.
    */
-  private throttledEmitMessageUpdate(sessionId: string, messageId: string, content: string): void {
+  private throttledEmitMessageUpdate(
+    sessionId: string,
+    messageId: string,
+    content: string,
+    metadata?: CoworkMessageMetadata,
+  ): void {
     const now = Date.now();
     const lastEmit = this.lastMessageUpdateEmitTime.get(messageId) ?? 0;
     const elapsed = now - lastEmit;
@@ -4090,7 +4095,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (elapsed >= OpenClawRuntimeAdapter.MESSAGE_UPDATE_THROTTLE_MS) {
       this.clearPendingMessageUpdate(messageId);
       this.lastMessageUpdateEmitTime.set(messageId, now);
-      this.emit('messageUpdate', sessionId, messageId, content);
+      this.emit('messageUpdate', sessionId, messageId, content, metadata);
       return;
     }
 
@@ -4099,7 +4104,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.pendingMessageUpdateTimer.set(messageId, setTimeout(() => {
       this.pendingMessageUpdateTimer.delete(messageId);
       this.lastMessageUpdateEmitTime.set(messageId, Date.now());
-      this.emit('messageUpdate', sessionId, messageId, content);
+      this.emit('messageUpdate', sessionId, messageId, content, metadata);
     }, OpenClawRuntimeAdapter.MESSAGE_UPDATE_THROTTLE_MS - elapsed));
   }
 
@@ -6480,17 +6485,28 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private handleAgentThinkingEvent(sessionId: string, turn: ActiveTurn, data: unknown): void {
     if (!isRecord(data)) return;
 
-    const cumulativeText = typeof data.text === 'string' ? data.text.trim() : '';
-    const deltaText = typeof data.delta === 'string' ? data.delta : '';
+    const cumulativeText = typeof data.text === 'string' && data.text.trim()
+      ? data.text
+      : '';
+    const deltaText = typeof data.delta === 'string' && data.delta.trim()
+      ? data.delta
+      : '';
+    const previousThinkingText = turn.currentThinkingText || '';
     const nextThinkingText = cumulativeText
-      || `${turn.currentThinkingText}${deltaText}`.trim();
-    if (!nextThinkingText || nextThinkingText === turn.currentThinkingText) return;
+      || `${previousThinkingText}${deltaText}`;
+    if (!nextThinkingText.trim() || nextThinkingText === previousThinkingText) return;
 
-    if (
-      turn.currentThinkingText
-      && !nextThinkingText.startsWith(turn.currentThinkingText)
-    ) {
-      this.finalizeThinkingMessage(sessionId, turn);
+    if (previousThinkingText.startsWith(nextThinkingText)) {
+      return;
+    }
+
+    if (previousThinkingText && !nextThinkingText.startsWith(previousThinkingText)) {
+      console.debug(
+        '[OpenClawRuntime] received a rewritten thinking stream snapshot.',
+        `Session ${sessionId}.`,
+        `Previous ${previousThinkingText.length} chars.`,
+        `Next ${nextThinkingText.length} chars.`,
+      );
     }
 
     turn.currentThinkingText = nextThinkingText;
@@ -6542,9 +6558,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       `messageId=${turn.thinkingMessageId}`,
       `chars=${thinkingText.length}`,
     );
-    this.throttledStoreUpdateMessage(sessionId, turn.thinkingMessageId,
-      thinkingText, { isThinking: true, isStreaming: true, isFinal: false });
-    this.throttledEmitMessageUpdate(sessionId, turn.thinkingMessageId, thinkingText);
+    const metadata = { isThinking: true, isStreaming: true, isFinal: false };
+    this.throttledStoreUpdateMessage(sessionId, turn.thinkingMessageId, thinkingText, metadata);
+    this.throttledEmitMessageUpdate(sessionId, turn.thinkingMessageId, thinkingText, metadata);
   }
 
   private finalizeThinkingMessage(sessionId: string, turn: ActiveTurn): string | undefined {

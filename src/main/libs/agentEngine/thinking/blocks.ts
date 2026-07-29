@@ -49,12 +49,12 @@ const isToolCallBlock = (block: Record<string, unknown>): boolean => {
 
 const extractThinkingText = (block: Record<string, unknown>): string => {
   if (block.type === 'thinking' && typeof block.thinking === 'string') {
-    return block.thinking.trim();
+    return block.thinking.trim() ? block.thinking : '';
   }
   for (const key of ['reasoning_content', 'reasoning', 'reasoning_text'] as const) {
     const value = block[key];
     if (typeof value === 'string' && value.trim()) {
-      return value.trim();
+      return value;
     }
   }
   return '';

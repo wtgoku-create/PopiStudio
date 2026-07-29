@@ -1133,7 +1133,9 @@ test('agent thinking stream creates and updates a streaming thinking message', a
   ]);
   const adapter = new OpenClawRuntimeAdapter(store, {});
   const sessionKey = `agent:main:popiai:${session.id}`;
+  const messageUpdateSpy = vi.fn();
   const turn = createActiveTurn(session.id, sessionKey, 'run-thinking-stream');
+  adapter.on('messageUpdate', messageUpdateSpy);
   adapter.activeTurns.set(session.id, turn);
   adapter.sessionIdByRunId.set('run-thinking-stream', session.id);
   adapter.rememberSessionKey(session.id, sessionKey);
@@ -1156,6 +1158,70 @@ test('agent thinking stream creates and updates a streaming thinking message', a
     },
   });
   expect(turn.thinkingMessageId).toBe(thinkingMessages[0].id);
+
+  adapter.handleAgentEvent({
+    runId: 'run-thinking-stream',
+    sessionKey,
+    stream: 'thinking',
+    data: { text: 'Need to inspect the log. Then compare gateway events.' },
+  }, 2);
+
+  expect(messageUpdateSpy).toHaveBeenCalledWith(
+    session.id,
+    thinkingMessages[0].id,
+    'Need to inspect the log. Then compare gateway events.',
+    expect.objectContaining({
+      isThinking: true,
+      isStreaming: true,
+      isFinal: false,
+    }),
+  );
+});
+
+test('agent thinking stream preserves formatting and rewrites the active thinking message', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'review the flow', timestamp: 1, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:popiai:${session.id}`;
+  const messageUpdateSpy = vi.fn();
+  const turn = createActiveTurn(session.id, sessionKey, 'run-thinking-format');
+  adapter.on('messageUpdate', messageUpdateSpy);
+  adapter.activeTurns.set(session.id, turn);
+  adapter.sessionIdByRunId.set('run-thinking-format', session.id);
+  adapter.rememberSessionKey(session.id, sessionKey);
+
+  adapter.handleAgentEvent({
+    runId: 'run-thinking-format',
+    sessionKey,
+    stream: 'thinking',
+    data: { text: '\n  First line\n    indented detail\n' },
+  }, 1);
+
+  const initialThinkingMessages = session.messages.filter((message) => message.metadata?.isThinking === true);
+  expect(initialThinkingMessages).toHaveLength(1);
+  expect(initialThinkingMessages[0].content).toBe('\n  First line\n    indented detail\n');
+
+  adapter.handleAgentEvent({
+    runId: 'run-thinking-format',
+    sessionKey,
+    stream: 'thinking',
+    data: { text: 'Rewritten reasoning snapshot.' },
+  }, 2);
+
+  const thinkingMessages = session.messages.filter((message) => message.metadata?.isThinking === true);
+  expect(thinkingMessages).toHaveLength(1);
+  expect(thinkingMessages[0].content).toBe('Rewritten reasoning snapshot.');
+  expect(messageUpdateSpy).toHaveBeenCalledWith(
+    session.id,
+    thinkingMessages[0].id,
+    'Rewritten reasoning snapshot.',
+    expect.objectContaining({
+      isThinking: true,
+      isStreaming: true,
+      isFinal: false,
+    }),
+  );
 });
 
 test('lifecycle fallback waits when history sync returns a short assistant segment after large tool results', async () => {

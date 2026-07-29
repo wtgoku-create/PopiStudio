@@ -5,8 +5,16 @@ import { getKnowledgeDefaultBaseUrl } from './endpoints';
 
 const PROXY_BIND_HOST = '127.0.0.1';
 const WEKNORA_OPENCLAW_MCP_PROXY_PATH = '/mcp/weknora-openclaw';
+const OPENCLAW_TOKEN_PROXY_RETRY_DELAYS_MS = [250, 750, 1500];
 const WEKNORA_OPENCLAW_MCP_RETRY_DELAYS_MS = [250, 750, 1500];
 const POPIAI_LLM_CHAT_PATH = '/api_client/anime/task/llmChat';
+
+const TransientUpstreamFetchErrorCode = {
+  ConnectionReset: 'net::ERR_CONNECTION_RESET',
+  Http2PingFailed: 'net::ERR_HTTP2_PING_FAILED',
+  NetworkChanged: 'net::ERR_NETWORK_CHANGED',
+  TimedOut: 'net::ERR_TIMED_OUT',
+} as const;
 
 let proxyServer: http.Server | null = null;
 let proxyPort: number | null = null;
@@ -231,6 +239,9 @@ type UpstreamDiagnostics = {
   headersAt: number;
 };
 
+type UpstreamFetchInit = Parameters<typeof net.fetch>[1];
+type UpstreamFetchResponse = Awaited<ReturnType<typeof net.fetch>>;
+
 type ParsedProxySSEPacket = {
   event: string;
   payload: string;
@@ -389,6 +400,52 @@ function normalizeLlmChatBusinessError(responseText: string): UpstreamResult | n
   };
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function getTransientUpstreamFetchErrorCode(error: unknown): string | null {
+  const message = getErrorMessage(error);
+  for (const code of Object.values(TransientUpstreamFetchErrorCode)) {
+    if (message.includes(code)) {
+      return code;
+    }
+  }
+  return null;
+}
+
+async function fetchUpstreamWithRetry(
+  url: string,
+  init: UpstreamFetchInit,
+  diagnostics: Pick<UpstreamDiagnostics, 'method' | 'upstreamPath'>,
+): Promise<UpstreamFetchResponse | null> {
+  for (let attemptIndex = 0; attemptIndex <= OPENCLAW_TOKEN_PROXY_RETRY_DELAYS_MS.length; attemptIndex += 1) {
+    try {
+      return await net.fetch(url, init);
+    } catch (error) {
+      const errorCode = getTransientUpstreamFetchErrorCode(error);
+      const isLastAttempt = attemptIndex >= OPENCLAW_TOKEN_PROXY_RETRY_DELAYS_MS.length;
+      if (!errorCode || isLastAttempt) {
+        console.warn(
+          `[OpenClawTokenProxy] upstream request failed after ${attemptIndex + 1} attempts `
+          + `for ${diagnostics.method} ${diagnostics.upstreamPath}:`,
+          error,
+        );
+        return null;
+      }
+
+      const delayMs = OPENCLAW_TOKEN_PROXY_RETRY_DELAYS_MS[attemptIndex];
+      console.debug(
+        `[OpenClawTokenProxy] upstream request hit ${errorCode}; retrying `
+        + `${diagnostics.method} ${diagnostics.upstreamPath} in ${delayMs}ms`,
+      );
+      await delay(delayMs);
+    }
+  }
+
+  return null;
+}
+
 async function forwardRequest(
   url: string,
   upstreamPath: string,
@@ -408,11 +465,26 @@ async function forwardRequest(
     headers['Accept'] = incomingHeaders.accept;
   }
 
-  const resp = await net.fetch(url, {
+  const resp = await fetchUpstreamWithRetry(url, {
     method,
     headers,
     body: body.length > 0 ? new Uint8Array(body) : undefined,
-  });
+  }, { method, upstreamPath });
+
+  if (!resp) {
+    return {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+      body: Buffer.from(JSON.stringify({
+        error: 'Token proxy upstream unavailable',
+        upstream: url,
+      })),
+      isStream: false,
+      diagnostics: { method, upstreamPath, startedAt, headersAt: Date.now() },
+      skipAuthRefresh: true,
+    };
+  }
+
   const headersAt = Date.now();
 
   const contentType = resp.headers.get('content-type') || '';
@@ -734,7 +806,9 @@ function pipeWebReadableResponse(
 
 export const __openClawTokenProxyTestUtils = {
   createProxySSEStreamScanState,
+  fetchUpstreamWithRetry,
   flushProxySSEBuffer,
+  getTransientUpstreamFetchErrorCode,
   injectReasoningOptions,
   isTerminalProxySSEPacket,
   parseProxySSEPacket,

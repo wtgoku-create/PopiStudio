@@ -70,6 +70,45 @@ const selectCanonicalBlocks = (
   });
 };
 
+const normalizeThinkingText = (text: string): string => {
+  return text.trim().replace(/\s+/g, ' ');
+};
+
+const countCommonSubsequenceChars = (left: string, right: string): number => {
+  if (!left || !right) return 0;
+  const previous = new Array(right.length + 1).fill(0);
+  const current = new Array(right.length + 1).fill(0);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = left[leftIndex - 1] === right[rightIndex - 1]
+        ? previous[rightIndex - 1] + 1
+        : Math.max(previous[rightIndex], current[rightIndex - 1]);
+    }
+    previous.splice(0, previous.length, ...current);
+    current.fill(0);
+  }
+
+  return previous[right.length];
+};
+
+const hasReusableThinkingText = (candidateText: string, canonicalText: string): boolean => {
+  const candidate = normalizeThinkingText(candidateText);
+  const canonical = normalizeThinkingText(canonicalText);
+  if (!candidate || !canonical) return false;
+  if (candidate === canonical) return true;
+
+  const shorterLength = Math.min(candidate.length, canonical.length);
+  if (shorterLength >= 8 && (candidate.includes(canonical) || canonical.includes(candidate))) {
+    return true;
+  }
+
+  const longerLength = Math.max(candidate.length, canonical.length);
+  if (longerLength < 12) return false;
+  if (longerLength > 1000) return false;
+  return countCommonSubsequenceChars(candidate, canonical) / longerLength >= 0.72;
+};
+
 export const reconcileOpenClawThinkingBlocks = (
   options: ReconcileOpenClawThinkingBlocksOptions,
 ): void => {
@@ -114,7 +153,7 @@ export const reconcileOpenClawThinkingBlocks = (
         return candidate.type === 'assistant'
           && candidate.metadata?.isThinking === true
           && !candidate.metadata?.[OpenClawThinkingMetadata.Key]
-          && candidate.content.trim() === block.text
+          && hasReusableThinkingText(candidate.content, block.text)
           && !claimedMessageIds.has(candidate.id)
           && (anchorIndex < 0 || index < anchorIndex);
       });

@@ -180,9 +180,8 @@ const collectThinkingChunks = (value: unknown): string[] => {
 
   const chunks: string[] = [];
   if (value.type === 'thinking' && typeof value.thinking === 'string') {
-    const thinking = value.thinking.trim();
-    if (thinking) {
-      chunks.push(thinking);
+    if (value.thinking.trim()) {
+      chunks.push(value.thinking);
     }
   }
   if (value.content !== undefined) {
@@ -199,11 +198,11 @@ export const extractGatewayMessageThinking = (message: unknown): string => {
   const content = message.content;
   if (Array.isArray(content)) {
     const chunks = collectThinkingChunks(content);
-    return chunks.join('\n\n').trim();
+    return chunks.join('\n\n');
   }
   if (isRecord(content)) {
     const chunks = collectThinkingChunks(content);
-    return chunks.join('\n\n').trim();
+    return chunks.join('\n\n');
   }
   return '';
 };

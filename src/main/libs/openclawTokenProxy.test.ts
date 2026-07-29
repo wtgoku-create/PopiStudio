@@ -1,5 +1,6 @@
 import { PassThrough } from 'node:stream';
 
+import { net } from 'electron';
 import http from 'http';
 import { expect, test, vi } from 'vitest';
 
@@ -46,6 +47,55 @@ function createDiagnostics() {
     headersAt: Date.now(),
   };
 }
+
+test('retries transient HTTP/2 ping failures before returning upstream response', async () => {
+  vi.useFakeTimers();
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  try {
+    const fetchMock = vi.mocked(net.fetch);
+    fetchMock.mockReset();
+    fetchMock
+      .mockRejectedValueOnce(new Error('net::ERR_HTTP2_PING_FAILED'))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }) as Awaited<ReturnType<typeof net.fetch>>);
+
+    const responsePromise = testUtils.fetchUpstreamWithRetry(
+      'https://example.invalid/api',
+      { method: 'POST' },
+      { method: 'POST', upstreamPath: '/api_client/anime/task/llmChat' },
+    );
+
+    await vi.advanceTimersByTimeAsync(250);
+    const response = await responsePromise;
+
+    expect(response?.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(warnSpy).not.toHaveBeenCalled();
+  } finally {
+    warnSpy.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+test('does not retry non-transient upstream fetch failures', async () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  try {
+    const fetchMock = vi.mocked(net.fetch);
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValueOnce(new Error('certificate rejected'));
+
+    const response = await testUtils.fetchUpstreamWithRetry(
+      'https://example.invalid/api',
+      { method: 'POST' },
+      { method: 'POST', upstreamPath: '/api_client/anime/task/llmChat' },
+    );
+
+    expect(response).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
 
 test('classifies SSE packets as terminal only on done, finish reason, error, or message stop', () => {
   const terminalPackets = [
