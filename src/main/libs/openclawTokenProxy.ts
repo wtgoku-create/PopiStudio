@@ -300,6 +300,12 @@ function isTerminalProxySSEPacket(packet: ParsedProxySSEPacket): boolean {
 
   const parsed = tryParseJson(payload);
   if (!isRecord(parsed)) return false;
+  if (
+    parsed.jsonrpc === '2.0'
+    && Object.prototype.hasOwnProperty.call(parsed, 'result')
+  ) {
+    return true;
+  }
   if (parsed.type === 'error' || parsed.error != null || parsed.type === 'message_stop') {
     return true;
   }

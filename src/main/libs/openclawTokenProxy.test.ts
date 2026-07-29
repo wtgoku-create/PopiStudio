@@ -202,6 +202,18 @@ test('flush detects a terminal packet in a trailing partial SSE frame', () => {
   expect(scanState.sawTerminalPacket).toBe(true);
 });
 
+test('scan state treats MCP JSON-RPC result packets as terminal', () => {
+  const scanState = testUtils.createProxySSEStreamScanState();
+
+  testUtils.scanProxySSEBuffer(
+    'event: message\r\n'
+    + 'data: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26"}}\r\n\r\n',
+    scanState,
+  );
+
+  expect(scanState.sawTerminalPacket).toBe(true);
+});
+
 test('node stream ends proxied response when upstream SSE completes', async () => {
   const upstream = new PassThrough();
   const res = createMockProxyResponse();
