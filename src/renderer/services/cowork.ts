@@ -12,6 +12,7 @@ import {
   CoworkSessionSourceKind,
   type CoworkSessionsChangedPayload,
 } from '../../shared/cowork/constants';
+import { buildCoworkErrorDetail, type CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import { normalizeCoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import {
@@ -90,6 +91,20 @@ import { i18nService } from './i18n';
 const classifyError = (error: string): string => {
   const key = classifyErrorKey(error);
   return key ? i18nService.t(key) : error;
+};
+
+const classifyErrorWithDetail = (
+  error: string,
+  errorDetail?: CoworkErrorDetail,
+): string => {
+  const detailText = [
+    errorDetail?.providerErrorMessagePreview,
+    errorDetail?.rawErrorPreview,
+    errorDetail?.rawErrorMessage,
+    errorDetail?.httpCode,
+    error,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0).join('\n');
+  return classifyError(detailText || error);
 };
 
 const CONTEXT_USAGE_REFRESH_DELAY_MS = 800;
@@ -337,7 +352,7 @@ class CoworkService {
     this.streamListenerCleanups.push(completeCleanup);
 
     // Error listener
-    const errorCleanup = cowork.onStreamError(({ sessionId, error }) => {
+    const errorCleanup = cowork.onStreamError(({ sessionId, error, errorDetail }) => {
       if (this.isStillRunningError(error)) {
         store.dispatch(updateSessionStatus({ sessionId, status: CoworkSessionStatusValue.Running }));
         window.dispatchEvent(new CustomEvent('app:showToast', {
@@ -350,12 +365,35 @@ class CoworkService {
       this.queuedFollowUpCoordinator.handleSessionError(sessionId);
       // Surface the error as a visible message so the user knows what happened.
       if (error) {
+        const displayError = classifyErrorWithDetail(error, errorDetail);
+        const existingMessages = store.getState().cowork.currentSession?.id === sessionId
+          ? store.getState().cowork.currentSession?.messages ?? []
+          : [];
+        const hasExistingErrorMessage = existingMessages.some((message) => (
+          message.type === 'system'
+          && (
+            message.content === error
+            || message.content === displayError
+            || message.metadata?.error === error
+            || message.metadata?.error === displayError
+          )
+        ));
+        if (hasExistingErrorMessage) return;
+        const normalizedErrorDetail = buildCoworkErrorDetail({
+          rawErrorMessage: error,
+          displayMessage: displayError,
+          metadata: errorDetail,
+        });
         store.dispatch(addMessage({
           sessionId,
           message: {
             id: `error-${Date.now()}`,
             type: 'system',
-            content: classifyError(error),
+            content: displayError,
+            metadata: {
+              error: displayError,
+              ...(normalizedErrorDetail ? { errorDetail: normalizedErrorDetail } : {}),
+            },
             timestamp: Date.now(),
           },
         }));

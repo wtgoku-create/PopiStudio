@@ -1,6 +1,7 @@
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { classifyErrorKey } from '../../../common/coworkErrorClassify';
 import { ContextCompactionStatus } from '../../../common/coworkSystemMessages';
 import { getScheduledReminderDisplayText } from '../../../scheduledTask/reminderText';
 import {
@@ -108,6 +109,30 @@ const buildErrorModelLine = (detail: CoworkErrorDetail): string | null => {
   return parts.join(' · ');
 };
 
+const isGenericCoworkErrorText = (value: string): boolean => {
+  return /^(LLM request failed\.?|OpenClaw run failed|Task execution failed\.?)$/i.test(value.trim());
+};
+
+const resolveSystemErrorDisplayText = (
+  rawContent: string,
+  detail: CoworkErrorDetail | null,
+): string => {
+  const detailText = [
+    detail?.providerErrorMessagePreview,
+    detail?.rawErrorPreview,
+    detail?.rawErrorMessage,
+    detail?.httpCode,
+    rawContent,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0).join('\n');
+  const key = classifyErrorKey(detailText || rawContent);
+  if (key) return i18nService.t(key);
+  if (!isGenericCoworkErrorText(rawContent)) return rawContent;
+  return detail?.providerErrorMessagePreview
+    || detail?.rawErrorPreview
+    || detail?.rawErrorMessage
+    || rawContent;
+};
+
 const SystemErrorTechnicalDetail: React.FC<{ detail: CoworkErrorDetail }> = ({ detail }) => {
   const [expanded, setExpanded] = useState(false);
   const detailText = useMemo(() => formatCoworkErrorDetailText(detail), [detail]);
@@ -187,14 +212,17 @@ const AssistantTurnBlock: React.FC<{
   }, [turn.id]);
 
   const renderSystemMessage = (message: CoworkMessage) => {
-    const isError = !hasText(message.content) && typeof message.metadata?.error === 'string';
+    const isError = typeof message.metadata?.error === 'string';
     const rawContent = hasText(message.content)
       ? message.content
       : (typeof message.metadata?.error === 'string' ? message.metadata.error : '');
-    const normalizedContent = getScheduledReminderDisplayText(rawContent) ?? rawContent;
+    const errorDetail = parseCoworkErrorDetail(message.metadata?.errorDetail);
+    const normalizedRawContent = isError
+      ? resolveSystemErrorDisplayText(rawContent, errorDetail)
+      : rawContent;
+    const normalizedContent = getScheduledReminderDisplayText(normalizedRawContent) ?? normalizedRawContent;
     const content = mapDisplayText ? mapDisplayText(normalizedContent) : normalizedContent;
     if (!content.trim() && !isContextCompactionMessage(message)) return null;
-    const errorDetail = parseCoworkErrorDetail(message.metadata?.errorDetail);
     const errorModelLine = errorDetail ? buildErrorModelLine(errorDetail) : null;
 
     if (isContextCompactionMessage(message)) {

@@ -6,6 +6,7 @@ import type {
 } from '../../shared/browserWebAccess/constants';
 import type { CoworkBrowserAnnotationMessageBatch } from '../../shared/cowork/browserAnnotations';
 import type { BrowserAnnotationScreenshotRef } from '../../shared/cowork/browserAnnotations';
+import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import type { CoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import type {
@@ -769,7 +770,7 @@ interface IElectronAPI {
     onStreamComplete: (
       callback: (data: { sessionId: string; claudeSessionId: string | null }) => void,
     ) => () => void;
-    onStreamError: (callback: (data: { sessionId: string; error: string }) => void) => () => void;
+    onStreamError: (callback: (data: { sessionId: string; error: string; errorDetail?: CoworkErrorDetail }) => void) => () => void;
     onSessionsChanged: (callback: (data?: CoworkSessionsChangedPayload) => void) => () => void;
     onSubagentMessagesChanged?: (callback: (data: CoworkSubagentMessagesChangedEvent) => void) => () => void;
     onOpenSessionFromNotification?: (

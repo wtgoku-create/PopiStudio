@@ -1884,13 +1884,13 @@ const bindCoworkRuntimeForwarder = (): void => {
     }
   });
 
-  runtime.on('error', (sessionId: string, error: string) => {
+  runtime.on('error', (sessionId: string, error: string, errorDetail?: unknown) => {
     // Mark session as error in store so the .catch() fallback can detect duplicates.
     try { getCoworkStore().updateSession(sessionId, { status: 'error' }); } catch { /* ignore */ }
     const windows = BrowserWindow.getAllWindows();
     windows.forEach((win) => {
       if (win.isDestroyed()) return;
-      win.webContents.send('cowork:stream:error', { sessionId, error });
+      win.webContents.send('cowork:stream:error', { sessionId, error, errorDetail });
     });
   });
 

@@ -59,6 +59,10 @@ test('billing: HTTP 402', () => {
   expect(classifyError('Request failed with status 402')).toBe('coworkErrorInsufficientBalance');
 });
 
+test('billing: HTTP 403', () => {
+  expect(classifyError('Request failed with status 403')).toBe('coworkErrorInsufficientBalance');
+});
+
 // ==================== Input too long ====================
 
 test('input: context length exceeded', () => {

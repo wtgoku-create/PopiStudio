@@ -3,6 +3,7 @@ import type { CoworkBrowserAnnotationMessageBatch } from '../../../shared/cowork
 import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import type { CoworkSteerResponse } from '../../../shared/cowork/steer';
 import type { CoworkGoal } from '../../../shared/cowork/goal';
+import type { CoworkErrorDetail } from '../../../shared/cowork/errorDetail';
 import type { CoworkMessage, CoworkSessionStatus } from '../../coworkStore';
 
 export type CoworkAgentEngine = 'openclaw';
@@ -39,7 +40,7 @@ export interface CoworkRuntimeEvents {
   contextMaintenance: (sessionId: string, active: boolean) => void;
   permissionRequest: (sessionId: string, request: PermissionRequest) => void;
   complete: (sessionId: string, claudeSessionId: string | null) => void;
-  error: (sessionId: string, error: string) => void;
+  error: (sessionId: string, error: string, errorDetail?: CoworkErrorDetail) => void;
   sessionStopped: (sessionId: string) => void;
 }
 

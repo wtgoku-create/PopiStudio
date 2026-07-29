@@ -9,8 +9,8 @@ const ERROR_RULES: Array<[RegExp, string]> = [
   // Rate limit: HTTP 429, Anthropic/DeepSeek overloaded, Gemini RESOURCE_EXHAUSTED
   // (must precede billing so "RESOURCE_EXHAUSTED: quota exceeded" maps to rate-limit)
   [/\b429\b|rate[_ ]limit|too many requests|overloaded|RESOURCE_EXHAUSTED/i, 'coworkErrorRateLimit'],
-  // Billing: DeepSeek 402, OpenAI, OpenRouter, Qwen, StepFun
-  [/insufficient.*(balance|quota|credits)|billing|quota[_ ]exceeded|Arrearage|account.*not.*in.*good.*standing|余额不足|\b402\b/i, 'coworkErrorInsufficientBalance'],
+  // Billing: DeepSeek 402/403, OpenAI, OpenRouter, Qwen, StepFun
+  [/insufficient.*(balance|quota|credits)|billing|quota[_ ]exceeded|Arrearage|account.*not.*in.*good.*standing|余额不足|\b40[23]\b/i, 'coworkErrorInsufficientBalance'],
   // Input too long: context length, HTTP 413, Qwen, payload too large
   [/input.*too.*long|context.*length.*exceeded|range of input length|\b413\b|payload.*too.*large|request.*entity.*too.*large|max[_ ]tokens/i, 'coworkErrorInputTooLong'],
   // PDF processing failure

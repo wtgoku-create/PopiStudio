@@ -403,6 +403,71 @@ type ChatEventPayload = {
   rawErrorPreview?: string;
 };
 
+const normalizeLifecycleErrorPayload = (
+  data: Record<string, unknown>,
+  defaults: {
+    runId?: string;
+    sessionKey?: string;
+    errorMessage: string;
+  },
+): ChatEventPayload => {
+  const pickString = (keys: string[]): string => {
+    for (const key of keys) {
+      const value = data[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return '';
+  };
+  const rawErrorPreview = pickString([
+    'rawErrorPreview',
+    'rawError',
+    'rawErr',
+    'raw_error',
+    'raw_err',
+  ]);
+  const providerErrorMessagePreview = pickString([
+    'providerErrorMessagePreview',
+    'providerErrorMessage',
+    'provider_error_message',
+    'messagePreview',
+  ]);
+  const httpCode = pickString([
+    'httpCode',
+    'httpStatus',
+    'statusCode',
+    'code',
+  ]);
+  const provider = pickString(['provider']);
+  const model = pickString(['model']);
+  const providerErrorType = pickString([
+    'providerErrorType',
+    'provider_error_type',
+    'errorType',
+    'type',
+  ]);
+  const failoverReason = pickString(['failoverReason', 'reason']);
+  const providerRuntimeFailureKind = pickString([
+    'providerRuntimeFailureKind',
+    'provider_runtime_failure_kind',
+    'failureKind',
+  ]);
+
+  return {
+    runId: defaults.runId,
+    sessionKey: defaults.sessionKey,
+    state: 'error',
+    errorMessage: defaults.errorMessage,
+    ...(provider ? { provider } : {}),
+    ...(model ? { model } : {}),
+    ...(httpCode ? { httpCode } : {}),
+    ...(providerErrorType ? { providerErrorType } : {}),
+    ...(providerErrorMessagePreview ? { providerErrorMessagePreview } : {}),
+    ...(rawErrorPreview ? { rawErrorPreview } : {}),
+    ...(failoverReason ? { failoverReason } : {}),
+    ...(providerRuntimeFailureKind ? { providerRuntimeFailureKind } : {}),
+  };
+};
+
 type AgentEventPayload = {
   seq?: number;
   runId?: string;
@@ -5489,19 +5554,19 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         }
         const erroredSessionKey = turn.sessionKey;
         this.store.updateSession(sessionId, { status: 'error' });
-        const errorDetail = this.buildChatErrorDetail(errorMessage, errorMessage, {
+        const errorPayload = normalizeLifecycleErrorPayload(data, {
           runId: errorRunId ?? undefined,
           sessionKey: erroredSessionKey,
-          state: 'error',
           errorMessage,
         });
+        const errorDetail = this.buildChatErrorDetail(errorMessage, errorMessage, errorPayload);
         const errorMsg = this.store.addMessage(sessionId, {
           type: 'system',
           content: errorMessage,
           metadata: { error: errorMessage, ...(errorDetail ? { errorDetail } : {}) },
         });
         this.emit('message', sessionId, errorMsg);
-        this.emit('error', sessionId, errorMessage);
+        this.emit('error', sessionId, errorMessage, errorDetail);
         this.cleanupSessionTurn(sessionId);
         this.rejectTurn(sessionId, new Error(errorMessage));
         void this.syncSessionHistoryFromGateway(sessionId, erroredSessionKey);
@@ -6865,7 +6930,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         metadata: { error: errorMessage, ...(errorDetail ? { errorDetail } : {}) },
       });
       this.emit('message', sessionId, errorMsg);
-      this.emit('error', sessionId, errorMessage);
+      this.emit('error', sessionId, errorMessage, errorDetail);
       this.cleanupSessionTurn(sessionId);
       this.rejectTurn(sessionId, new Error(errorMessage));
       // Reconcile even on error so the UI shows messages already delivered.
@@ -7352,7 +7417,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       metadata: { error: errorMessage, ...(errorDetail ? { errorDetail } : {}) },
     });
     this.emit('message', sessionId, errorMsg);
-    this.emit('error', sessionId, errorMessage);
+    this.emit('error', sessionId, errorMessage, errorDetail);
     this.cleanupSessionTurn(sessionId);
     this.rejectTurn(sessionId, new Error(errorMessage));
     void this.syncSessionHistoryFromGateway(sessionId, erroredSessionKey);
