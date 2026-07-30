@@ -7006,9 +7006,8 @@ end tell'`, { timeout: 5000 });
         'file:',
         'https://canvas.popi.art',
         getKnowledgeFrameSource(),
-        'http://localhost:5174',
-        'http://127.0.0.1:5174',
-        ...(isDev ? ['http://127.0.0.1:*', 'http://localhost:*'] : []),
+        'http://127.0.0.1:*',
+        'http://localhost:*',
       ].join(' ');
       const cspDirectives = [
         "default-src 'self'",
