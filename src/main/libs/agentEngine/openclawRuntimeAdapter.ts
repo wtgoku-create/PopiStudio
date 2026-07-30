@@ -7724,7 +7724,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         && authoritativeEntries[0]?.role === 'user'
       ) {
         const [firstEntry, ...remainingEntries] = authoritativeEntries;
-        this.store.insertMessageBeforeId(sessionId, firstExistingMessageId, {
+        const userMessage = this.store.insertMessageBeforeId(sessionId, firstExistingMessageId, {
           type: 'user',
           content: firstEntry.text,
           metadata: {
@@ -7733,8 +7733,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
             ...(firstEntry.metadata ?? {}),
           },
         });
+        this.emit('message', sessionId, userMessage, firstExistingMessageId);
         for (const entry of remainingEntries) {
-          this.store.addMessage(sessionId, {
+          const message = this.store.addMessage(sessionId, {
             type: entry.role,
             content: entry.text,
             metadata: {
@@ -7743,6 +7744,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
               ...(entry.metadata ?? {}),
             },
           });
+          this.emit('message', sessionId, message);
         }
         this.channelSyncCursor.set(sessionId, authoritativeEntries.length);
         return;
@@ -7782,7 +7784,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           continue;
         }
 
-        this.store.addMessage(sessionId, {
+        const message = this.store.addMessage(sessionId, {
           type: authoritative.role,
           content: authoritative.text,
           metadata: {
@@ -7791,6 +7793,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
             ...(authoritative.metadata ?? {}),
           },
         });
+        this.emit('message', sessionId, message);
       }
 
       this.channelSyncCursor.set(sessionId, authoritativeEntries.length);
@@ -8836,15 +8839,19 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     ));
     if (alreadyExists) return;
 
-    const message = this.store.addMessage(sessionId, {
+    const messagePayload = {
       type: 'user',
       content,
       metadata: buildCronRunHistoryMetadata(sessionKey, 0, {
         isStreaming: false,
         isFinal: true,
       }),
-    });
-    this.emit('message', sessionId, message);
+    } as const;
+    const firstMessageId = session.messages[0]?.id;
+    const message = firstMessageId
+      ? this.store.insertMessageBeforeId(sessionId, firstMessageId, messagePayload)
+      : this.store.addMessage(sessionId, messagePayload);
+    this.emit('message', sessionId, message, firstMessageId);
   }
 
   private ensureActiveTurn(sessionId: string, sessionKey: string, runId: string): void {

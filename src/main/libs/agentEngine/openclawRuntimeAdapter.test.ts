@@ -839,6 +839,48 @@ test('ensureActiveTurn inserts the cron prompt before runtime tool messages', ()
   ]);
 });
 
+test('ensureActiveTurn inserts the cron prompt before earlier runtime system errors', () => {
+  const { session, store } = createReconcileStore([
+    {
+      id: 'system-error-1',
+      type: 'system',
+      content: '请求过于频繁，请稍后再试',
+      timestamp: 1,
+      metadata: { error: '请求过于频繁，请稍后再试' },
+    },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {} as never, {
+    resolveCronJobPrompt: (jobId) => ({
+      message: '请收集新闻',
+      name: jobId === 'job-1' ? '科技早报' : null,
+    }),
+  });
+  const sessionKey = 'agent:main:cron:job-1:run:6bcc366b-b080-4fe6-b623-2caa27642c20';
+  const emittedMessages: Array<{ message: Record<string, unknown>; beforeMessageId?: string }> = [];
+  adapter.on('message', (_sessionId, message, beforeMessageId) => {
+    emittedMessages.push({ message: message as Record<string, unknown>, beforeMessageId });
+  });
+
+  adapter.ensureActiveTurn(session.id, sessionKey, 'run-1');
+
+  expect(session.messages.map(message => ({
+    type: message.type,
+    content: message.content,
+  }))).toEqual([
+    { type: 'user', content: '[cron:job-1 科技早报] 请收集新闻' },
+    { type: 'system', content: '请求过于频繁，请稍后再试' },
+  ]);
+  expect(emittedMessages).toEqual([
+    {
+      message: expect.objectContaining({
+        type: 'user',
+        content: '[cron:job-1 科技早报] 请收集新闻',
+      }),
+      beforeMessageId: 'system-error-1',
+    },
+  ]);
+});
+
 test('syncCronRunHistory inserts the cron prompt before early streamed tool activity', async () => {
   const { session, store } = createReconcileStore([
     { id: 'tool-1', type: 'tool_use', content: '', timestamp: 1, metadata: { toolName: 'browser' } },
@@ -857,6 +899,10 @@ test('syncCronRunHistory inserts the cron prompt before early streamed tool acti
     onStatus: () => () => {},
     getStatus: () => 'connected',
   } as never;
+  const emittedMessages: Array<{ message: Record<string, unknown>; beforeMessageId?: string }> = [];
+  adapter.on('message', (_sessionId, message, beforeMessageId) => {
+    emittedMessages.push({ message: message as Record<string, unknown>, beforeMessageId });
+  });
 
   await (adapter as unknown as {
     syncCronRunHistory: (sessionId: string, sessionKey: string) => Promise<void>;
@@ -873,6 +919,22 @@ test('syncCronRunHistory inserts the cron prompt before early streamed tool acti
     { type: 'tool_use', content: '' },
     { type: 'tool_result', content: '5 lines of output' },
     { type: 'assistant', content: '科技早报内容' },
+  ]);
+  expect(emittedMessages).toEqual([
+    {
+      message: expect.objectContaining({
+        type: 'user',
+        content: '[cron:job-1 科技早报] 请收集新闻',
+      }),
+      beforeMessageId: 'tool-1',
+    },
+    {
+      message: expect.objectContaining({
+        type: 'assistant',
+        content: '科技早报内容',
+      }),
+      beforeMessageId: undefined,
+    },
   ]);
 });
 
