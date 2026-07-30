@@ -150,7 +150,10 @@ interface ProviderDefInput {
     readonly id: string;
     readonly name: string;
     readonly supportsImage: boolean;
+    readonly supportsVideo?: boolean;
     readonly supportsThinking?: boolean;
+    readonly contextWindow?: number;
+    readonly maxTokens?: number;
   }[];
   /**
    * Coding Plan dedicated model list (only meaningful when codingPlanSupported=true).
@@ -161,7 +164,10 @@ interface ProviderDefInput {
     readonly id: string;
     readonly name: string;
     readonly supportsImage: boolean;
+    readonly supportsVideo?: boolean;
     readonly supportsThinking?: boolean;
+    readonly contextWindow?: number;
+    readonly maxTokens?: number;
   }[];
   /**
    * The OpenClaw gateway provider ID used when building model refs (e.g. "provider/modelId").
@@ -227,6 +233,7 @@ const PROVIDER_DEFINITIONS = [
     enPriority: 0,
     defaultModels: [
       { id: 'kimi-k2.6', name: 'Kimi K2.6', supportsImage: true, supportsThinking: true },
+      { id: 'kimi-k3', name: 'Kimi K3', supportsImage: true, supportsVideo: true, supportsThinking: true, contextWindow: 1_048_576, maxTokens: 8_192 },
       { id: 'kimi-k2.5', name: 'Kimi K2.5', supportsImage: true, supportsThinking: true },
     ],
     codingPlanModels: [{ id: 'kimi-for-coding', name: 'Kimi K2.5', supportsImage: true, supportsThinking: true }],
@@ -580,13 +587,19 @@ export interface ProviderDef {
     readonly id: string;
     readonly name: string;
     readonly supportsImage: boolean;
+    readonly supportsVideo?: boolean;
     readonly supportsThinking?: boolean;
+    readonly contextWindow?: number;
+    readonly maxTokens?: number;
   }[];
   readonly codingPlanModels?: readonly {
     readonly id: string;
     readonly name: string;
     readonly supportsImage: boolean;
+    readonly supportsVideo?: boolean;
     readonly supportsThinking?: boolean;
+    readonly contextWindow?: number;
+    readonly maxTokens?: number;
   }[];
   readonly openClawProviderId: OpenClawProviderId;
 }
@@ -669,6 +682,30 @@ class ProviderRegistryImpl {
     return model?.supportsThinking;
   }
 
+  getProviderModelSupportsVideo(providerName: string, modelId: string): boolean | undefined {
+    const def = this.idIndex.get(providerName);
+    if (!def) return undefined;
+    const model = [...def.defaultModels, ...(def.codingPlanModels ?? [])]
+      .find(candidate => candidate.id === modelId);
+    return model?.supportsVideo;
+  }
+
+  getProviderModelContextWindow(providerName: string, modelId: string): number | undefined {
+    const def = this.idIndex.get(providerName);
+    if (!def) return undefined;
+    const model = [...def.defaultModels, ...(def.codingPlanModels ?? [])]
+      .find(candidate => candidate.id === modelId);
+    return model?.contextWindow;
+  }
+
+  getProviderModelMaxTokens(providerName: string, modelId: string): number | undefined {
+    const def = this.idIndex.get(providerName);
+    if (!def) return undefined;
+    const model = [...def.defaultModels, ...(def.codingPlanModels ?? [])]
+      .find(candidate => candidate.id === modelId);
+    return model?.maxTokens;
+  }
+
   resolveModelSupportsImage(
     providerName: string,
     modelId: string,
@@ -704,6 +741,37 @@ class ProviderRegistryImpl {
       return true;
     }
     return configuredSupportsThinking ?? false;
+  }
+
+  resolveModelSupportsVideo(
+    providerName: string,
+    modelId: string,
+    configuredSupportsVideo?: boolean,
+  ): boolean {
+    const providerModelSupportsVideo = this.getProviderModelSupportsVideo(providerName, modelId);
+    if (providerModelSupportsVideo !== undefined) {
+      return providerModelSupportsVideo;
+    }
+    if (configuredSupportsVideo === true) {
+      return true;
+    }
+    return configuredSupportsVideo ?? false;
+  }
+
+  resolveModelContextWindow(
+    providerName: string,
+    modelId: string,
+    configuredContextWindow?: number,
+  ): number | undefined {
+    return this.getProviderModelContextWindow(providerName, modelId) ?? configuredContextWindow;
+  }
+
+  resolveModelMaxTokens(
+    providerName: string,
+    modelId: string,
+    configuredMaxTokens?: number,
+  ): number | undefined {
+    return this.getProviderModelMaxTokens(providerName, modelId) ?? configuredMaxTokens;
   }
 
   /** Provider IDs filtered by region. */

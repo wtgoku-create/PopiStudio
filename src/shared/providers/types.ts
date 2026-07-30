@@ -9,8 +9,11 @@ export interface ProviderConfig {
     id: string;
     name: string;
     supportsImage?: boolean;
+    supportsVideo?: boolean;
     supportsThinking?: boolean;
     contextWindow?: number;
+    maxTokens?: number;
+    runtimeProfile?: string;
     customParams?: Record<string, unknown>;
   }>;
   displayName?: string;

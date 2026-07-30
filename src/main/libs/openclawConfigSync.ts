@@ -14,10 +14,15 @@ import {
 } from '../../shared/browserWebAccess/constants';
 import {
   AuthType,
+  getModelRuntimeProfileDefinition,
   OpenClawApi as OpenClawApiConst,
   OpenClawProviderId,
   ProviderName,
   ProviderRegistry,
+  resolveModelRuntimeProfile,
+  ModelRuntimeProfile,
+  ModelRuntimeProfileSource,
+  type ModelRuntimeProfileType,
 } from '../../shared/providers';
 import type { Agent, CoworkConfig, CoworkExecutionMode } from '../coworkStore';
 import type { DiscordInstanceConfig, IMSettings, TelegramInstanceConfig } from '../im/types';
@@ -88,8 +93,20 @@ const mapExecutionModeToSandboxMode = (
 export const OPENCLAW_AGENT_TIMEOUT_SECONDS = 3600;
 const DINGTALK_OPENCLAW_CHANNEL = 'dingtalk-connector';
 const OPENCLAW_MEMORY_CORE_PLUGIN_ID = 'memory-core';
+const OPENCLAW_MODEL_COMPAT_PLUGIN_ID = 'lobsterai-model-compat';
 export const OPENCLAW_BINDING_ANY_ACCOUNT_ID = '*';
 const OPENCLAW_DEFAULT_MODEL_MAX_TOKENS = 8192;
+const OpenClawModelReasoningEffort = {
+  Off: 'off',
+  Minimal: 'minimal',
+  Low: 'low',
+  Medium: 'medium',
+  High: 'high',
+  XHigh: 'xhigh',
+  Max: 'max',
+} as const;
+type OpenClawModelReasoningEffort =
+  typeof OpenClawModelReasoningEffort[keyof typeof OpenClawModelReasoningEffort];
 
 const OpenClawContextCacheProvider = {
   DashScope: 'dashscope',
@@ -486,14 +503,20 @@ type OpenClawProviderApi =
   | 'openai-codex-responses'
   | 'google-generative-ai';
 
+type OpenClawProviderOwnerApi =
+  | OpenClawProviderApi
+  | typeof OPENCLAW_MODEL_COMPAT_PLUGIN_ID;
+
 type OpenClawProviderSelection = {
   providerId: string;
   legacyModelId: string;
   sessionModelId: string;
   primaryModel: string;
+  runtimeProfile?: ModelRuntimeProfileType;
+  compatibilityOwnerProfile?: ModelRuntimeProfileType;
   providerConfig: {
     baseUrl: string;
-    api: OpenClawProviderApi;
+    api: OpenClawProviderOwnerApi;
     apiKey?: string;
     auth: typeof AuthType[keyof typeof AuthType];
     headers?: Record<string, string>;
@@ -508,6 +531,7 @@ type OpenClawProviderSelection = {
       api: OpenClawProviderApi;
       input: string[];
       reasoning?: boolean;
+      thinkingLevelMap?: Partial<Record<OpenClawModelReasoningEffort, string | null>>;
       cost?: {
         input: number;
         output: number;
@@ -516,6 +540,13 @@ type OpenClawProviderSelection = {
       };
       contextWindow?: number;
       maxTokens?: number;
+      compat?: {
+        maxTokensField?: 'max_tokens' | 'max_completion_tokens';
+        supportsUsageInStreaming?: boolean;
+        requiresStringContent?: boolean;
+        supportsReasoningEffort?: boolean;
+        supportedReasoningEfforts?: OpenClawModelReasoningEffort[];
+      };
     }>;
   };
 };
@@ -679,8 +710,10 @@ const resolveModelMaxTokensForOpenClaw = (options: {
   api: OpenClawProviderApi;
   descriptor: ProviderDescriptor;
   contextWindow?: number;
+  maxTokens?: number;
 }): number | undefined => {
-  const rawMaxTokens = options.descriptor.modelDefaults?.maxTokens
+  const rawMaxTokens = options.maxTokens
+    ?? options.descriptor.modelDefaults?.maxTokens
     ?? (
       options.api === OpenClawApiConst.AnthropicMessages
         ? OPENCLAW_DEFAULT_MODEL_MAX_TOKENS
@@ -861,9 +894,12 @@ export const buildProviderSelection = (options: {
   authType?: 'apikey' | 'oauth';
   codingPlanEnabled?: boolean;
   supportsImage?: boolean;
+  supportsVideo?: boolean;
   supportsThinking?: boolean;
   modelName?: string;
   contextWindow?: number;
+  maxTokens?: number;
+  runtimeProfile?: unknown;
 }): OpenClawProviderSelection => {
   const providerName = options.providerName ?? '';
   const descriptor = resolveDescriptor(providerName, !!options.codingPlanEnabled, options.authType);
@@ -886,6 +922,21 @@ export const buildProviderSelection = (options: {
   const sessionModelId = descriptor.resolveSessionModelId
     ? descriptor.resolveSessionModelId(options.modelId)
     : options.modelId;
+  const runtimeProfileSource = descriptor.providerId === OpenClawProviderId.Moonshot
+    ? ModelRuntimeProfileSource.BuiltIn
+    : descriptor.providerId === OpenClawProviderId.PopiaiServer
+      ? ModelRuntimeProfileSource.Server
+      : ModelRuntimeProfileSource.Custom;
+  const runtimeProfile = resolveModelRuntimeProfile({
+    source: runtimeProfileSource,
+    providerId: descriptor.providerId,
+    modelId: sessionModelId,
+    api,
+    serverRuntimeProfile: options.runtimeProfile,
+  });
+  const runtimeProfileDefinition = runtimeProfile
+    ? getModelRuntimeProfileDefinition(runtimeProfile)
+    : undefined;
 
   const providerModelName = resolveModelDisplayName(sessionModelId, options.modelName);
   const supportsImage = ProviderRegistry.resolveModelSupportsImage(
@@ -893,12 +944,22 @@ export const buildProviderSelection = (options: {
     options.modelId,
     options.supportsImage,
   );
+  const supportsVideo = runtimeProfileDefinition?.input.includes('video')
+    ?? ProviderRegistry.resolveModelSupportsVideo(
+      providerName,
+      options.modelId,
+      options.supportsVideo,
+    );
   const supportsThinking = ProviderRegistry.resolveModelSupportsThinking(
     providerName,
     options.modelId,
     options.supportsThinking,
   );
-  const modelInput: string[] = supportsImage ? ['text', 'image'] : ['text'];
+  const modelInput: string[] = [
+    'text',
+    ...(supportsImage ? ['image'] : []),
+    ...(supportsVideo ? ['video'] : []),
+  ];
   const auth = (
     (options.providerName === ProviderName.Minimax || options.providerName === ProviderName.OpenAI)
     && options.authType === 'oauth'
@@ -910,12 +971,18 @@ export const buildProviderSelection = (options: {
   const descriptorReasoning = descriptor.resolveModelReasoning
     ? descriptor.resolveModelReasoning(options.modelId, !!options.codingPlanEnabled)
     : descriptor.modelDefaults?.reasoning;
-  const reasoning = supportsThinking ? true : descriptorReasoning;
-  const contextWindow = options.contextWindow ?? descriptor.modelDefaults?.contextWindow;
+  const reasoning = runtimeProfileDefinition?.reasoning
+    ?? (supportsThinking ? true : descriptorReasoning);
+  const contextWindow = runtimeProfileDefinition?.contextWindow
+    ?? ProviderRegistry.resolveModelContextWindow(providerName, options.modelId, options.contextWindow)
+    ?? descriptor.modelDefaults?.contextWindow;
+  const resolvedMaxTokens = runtimeProfileDefinition?.maxTokens
+    ?? ProviderRegistry.resolveModelMaxTokens(providerName, options.modelId, options.maxTokens);
   const modelMaxTokens = resolveModelMaxTokensForOpenClaw({
     api,
     descriptor,
     contextWindow,
+    maxTokens: resolvedMaxTokens,
   });
   const request = shouldUseEnvProxyForProviderBaseUrl(baseUrl)
     ? { proxy: { mode: 'env-proxy' as const } }
@@ -924,12 +991,31 @@ export const buildProviderSelection = (options: {
     descriptor.providerId === OpenClawProviderId.OpenAICodex
       ? buildOpenAICodexHeaders()
       : undefined;
+  const modelOverrides = runtimeProfileDefinition
+    ? {
+        reasoning: runtimeProfileDefinition.reasoning,
+        input: [...runtimeProfileDefinition.input],
+        contextWindow: runtimeProfileDefinition.contextWindow,
+        maxTokens: runtimeProfileDefinition.maxTokens,
+        thinkingLevelMap: { ...runtimeProfileDefinition.thinkingLevelMap },
+        compat: {
+          ...runtimeProfileDefinition.compat,
+          supportedReasoningEfforts: [
+            ...runtimeProfileDefinition.compat.supportedReasoningEfforts,
+          ],
+        },
+      }
+    : {};
 
   return {
     providerId: descriptor.providerId,
     legacyModelId: options.modelId,
     sessionModelId,
     primaryModel: `${descriptor.providerId}/${sessionModelId}`,
+    ...(runtimeProfile ? { runtimeProfile } : {}),
+    ...(runtimeProfile && runtimeProfileSource !== ModelRuntimeProfileSource.BuiltIn
+      ? { compatibilityOwnerProfile: runtimeProfile }
+      : {}),
     providerConfig: {
       baseUrl,
       api,
@@ -949,6 +1035,7 @@ export const buildProviderSelection = (options: {
           ...(modelMaxTokens !== undefined
             ? { maxTokens: modelMaxTokens }
             : {}),
+          ...modelOverrides,
         },
       ],
     },
@@ -1034,6 +1121,55 @@ const upsertProviderModel = (
     return;
   }
   providerConfig.models.push(model);
+};
+
+type FinalizedModelCompatibilityOwners = {
+  modelProfiles: Record<string, ModelRuntimeProfileType>;
+  rejectedModelRefs: string[];
+};
+
+const collectCompatibilityOwnerProfile = (
+  profiles: Record<string, ModelRuntimeProfileType>,
+  selection: OpenClawProviderSelection,
+): void => {
+  if (!selection.compatibilityOwnerProfile) return;
+  profiles[`${selection.providerId}/${selection.sessionModelId}`] = selection.compatibilityOwnerProfile;
+};
+
+const finalizeModelCompatibilityOwners = (
+  providers: Record<string, OpenClawProviderSelection['providerConfig']>,
+  candidateProfiles: Record<string, ModelRuntimeProfileType>,
+): FinalizedModelCompatibilityOwners => {
+  const modelProfiles: Record<string, ModelRuntimeProfileType> = {};
+  const rejectedModelRefs: string[] = [];
+
+  for (const [modelRef, profile] of Object.entries(candidateProfiles).sort(([a], [b]) =>
+    a.localeCompare(b))) {
+    const separatorIndex = modelRef.indexOf('/');
+    const providerId = separatorIndex > 0 ? modelRef.slice(0, separatorIndex) : '';
+    const modelId = separatorIndex > 0 ? modelRef.slice(separatorIndex + 1) : '';
+    const provider = providerId ? providers[providerId] : undefined;
+    const model = provider?.models.find(candidate => candidate.id === modelId);
+    if (
+      !provider
+      || !model
+      || profile !== ModelRuntimeProfile.MoonshotKimiK3
+      || model.api !== OpenClawApiConst.OpenAICompletions
+    ) {
+      rejectedModelRefs.push(modelRef);
+      continue;
+    }
+
+    provider.api = OPENCLAW_MODEL_COMPAT_PLUGIN_ID;
+    modelProfiles[modelRef] = profile;
+  }
+
+  return {
+    modelProfiles: Object.fromEntries(
+      Object.entries(modelProfiles).sort(([a], [b]) => a.localeCompare(b)),
+    ),
+    rejectedModelRefs: Array.from(new Set(rejectedModelRefs)).sort(),
+  };
 };
 
 const stripExplicitContextCacheProviderSuffix = (modelId: string, provider?: string): string => {
@@ -1473,6 +1609,7 @@ export class OpenClawConfigSync {
 
     let allProvidersMap: Record<string, OpenClawProviderSelection['providerConfig']> = {};
     const perModelCustomDefaults: Record<string, OpenClawAgentModelDefault> = {};
+    const candidateModelProfiles: Record<string, ModelRuntimeProfileType> = {};
     let primaryModel = '';
     let providerSelection: OpenClawProviderSelection | null = null;
 
@@ -1502,6 +1639,7 @@ export class OpenClawConfigSync {
         contextWindow: apiResolution.providerMetadata?.contextWindow,
       });
       primaryModel = providerSelection.primaryModel;
+      collectCompatibilityOwnerProfile(candidateModelProfiles, providerSelection);
       addExplicitContextCacheDefault(perModelCustomDefaults, providerSelection, {
         modelId,
         provider: apiResolution.providerMetadata?.providerName,
@@ -1518,10 +1656,14 @@ export class OpenClawConfigSync {
             authType: p.authType,
             codingPlanEnabled: p.codingPlanEnabled,
             supportsImage: m.supportsImage,
+            supportsVideo: m.supportsVideo,
             supportsThinking: m.supportsThinking,
             modelName: m.name,
             contextWindow: m.contextWindow,
+            maxTokens: m.maxTokens,
+            runtimeProfile: m.runtimeProfile,
           });
+          collectCompatibilityOwnerProfile(candidateModelProfiles, sel);
           if (!allProvidersMap[sel.providerId]) {
             allProvidersMap[sel.providerId] = { ...sel.providerConfig, models: [] };
           }
@@ -1573,8 +1715,12 @@ export class OpenClawConfigSync {
             apiType: 'openai',
             providerName: ProviderName.PopiaiServer,
             supportsImage: serverModels[0]?.supportsImage,
+            supportsVideo: serverModels[0]?.supportsVideo,
             supportsThinking: serverModels[0]?.supportsThinking,
+            maxTokens: serverModels[0]?.maxTokens,
+            runtimeProfile: serverModels[0]?.runtimeProfile,
           });
+          collectCompatibilityOwnerProfile(candidateModelProfiles, firstServerSel);
           const popiaiProviderConfig =
             allProvidersMap[providerId] ?? {
               ...firstServerSel.providerConfig,
@@ -1593,10 +1739,14 @@ export class OpenClawConfigSync {
                 apiType: 'openai',
                 providerName: ProviderName.PopiaiServer,
                 supportsImage: sm.supportsImage,
+                supportsVideo: sm.supportsVideo,
                 supportsThinking: sm.supportsThinking,
                 modelName: sm.modelId,
                 contextWindow: sm.contextWindow,
+                maxTokens: sm.maxTokens,
+                runtimeProfile: sm.runtimeProfile,
               });
+              collectCompatibilityOwnerProfile(candidateModelProfiles, serverSel);
               addExplicitContextCacheDefault(perModelCustomDefaults, serverSel, {
                 modelId: sm.modelId,
                 provider: ProviderName.PopiaiServer,
@@ -1606,6 +1756,19 @@ export class OpenClawConfigSync {
           }
         }
       }
+    }
+
+    const finalizedCompatibility = finalizeModelCompatibilityOwners(
+      allProvidersMap,
+      candidateModelProfiles,
+    );
+    if (finalizedCompatibility.rejectedModelRefs.length > 0) {
+      return {
+        ok: false,
+        changed: false,
+        configPath,
+        error: `OpenClaw config sync failed: invalid Kimi K3 compatibility ownership for ${finalizedCompatibility.rejectedModelRefs.join(', ')}.`,
+      };
     }
 
     const sandboxMode = mapExecutionModeToSandboxMode(
@@ -1831,6 +1994,7 @@ export class OpenClawConfigSync {
         ];
         const transientPluginIds = [
           ...(hasPreinstalledPlugin('openclaw-lark') ? ['feishu'] : []),
+          OPENCLAW_MODEL_COMPAT_PLUGIN_ID,
         ];
         const cleanedExistingEntries = Object.fromEntries(
           Object.entries(existingPluginEntries).filter(([id]) => (
@@ -1874,6 +2038,16 @@ export class OpenClawConfigSync {
             ? { feishu: { enabled: false } }
             : {}),
           ...(hasAskUserPlugin ? { 'ask-user-question': { enabled: true } } : {}),
+          ...(Object.keys(finalizedCompatibility.modelProfiles).length > 0
+            ? {
+                [OPENCLAW_MODEL_COMPAT_PLUGIN_ID]: {
+                  enabled: true,
+                  config: {
+                    modelProfiles: finalizedCompatibility.modelProfiles,
+                  },
+                },
+              }
+            : {}),
           // Some OpenClaw versions auto-inject qwen-portal-auth for
           // Qwen/DashScope URLs. Declare it only when the plugin actually
           // exists, otherwise it becomes a stale entry on every startup.
@@ -1898,6 +2072,9 @@ export class OpenClawConfigSync {
           ...existingAllow,
           OPENCLAW_MEMORY_CORE_PLUGIN_ID,
           ...(hasAskUserPlugin ? ['ask-user-question'] : []),
+          ...(Object.keys(finalizedCompatibility.modelProfiles).length > 0
+            ? [OPENCLAW_MODEL_COMPAT_PLUGIN_ID]
+            : []),
           ...preinstalledPlugins.map(plugin => plugin.pluginId),
           ...userPlugins.filter(plugin => plugin.enabled).map(plugin => plugin.pluginId),
         ])).sort();

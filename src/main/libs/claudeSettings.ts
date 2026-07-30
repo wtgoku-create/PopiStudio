@@ -34,8 +34,11 @@ type ProviderModelConfig = {
   id: string;
   name: string;
   supportsImage?: boolean;
+  supportsVideo?: boolean;
   supportsThinking?: boolean;
   contextWindow?: number;
+  maxTokens?: number;
+  runtimeProfile?: string;
   customParams?: Record<string, unknown>;
 };
 
@@ -43,8 +46,11 @@ type ProviderModelInputConfig = {
   id: string;
   name?: string;
   supportsImage?: boolean;
+  supportsVideo?: boolean;
   supportsThinking?: boolean;
   contextWindow?: number;
+  maxTokens?: number;
+  runtimeProfile?: string;
   customParams?: Record<string, unknown>;
 };
 
@@ -56,9 +62,12 @@ export type ApiConfigResolution = {
     authType?: ProviderConfig['authType'];
     codingPlanEnabled: boolean;
     supportsImage?: boolean;
+    supportsVideo?: boolean;
     supportsThinking?: boolean;
     modelName?: string;
     contextWindow?: number;
+    maxTokens?: number;
+    runtimeProfile?: string;
   };
 };
 
@@ -84,34 +93,52 @@ export function setServerBaseUrlGetter(getter: () => string): void {
 }
 
 // Cached server model metadata (populated when auth:getModels is called)
-// Keyed by modelId -> { supportsImage, supportsThinking, contextWindow }
-let serverModelMetadataCache: Map<string, { supportsImage?: boolean; supportsThinking?: boolean; contextWindow?: number }> = new Map();
+// Keyed by modelId -> model capability metadata.
+type ServerModelCapabilityMetadata = {
+  supportsImage?: boolean;
+  supportsVideo?: boolean;
+  supportsThinking?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
+  runtimeProfile?: string;
+};
+
+let serverModelMetadataCache: Map<string, ServerModelCapabilityMetadata> = new Map();
 
 const serializeServerModelMetadata = (
-  models: Array<{ modelId: string; supportsImage?: boolean; supportsThinking?: boolean; contextWindow?: number }>,
+  models: Array<{ modelId: string } & ServerModelCapabilityMetadata>,
 ): string => JSON.stringify(
   models
     .map((model) => ({
       modelId: model.modelId,
       supportsImage: model.supportsImage,
+      supportsVideo: model.supportsVideo,
       supportsThinking: model.supportsThinking,
       contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+      runtimeProfile: model.runtimeProfile,
     }))
     .sort((a, b) => a.modelId.localeCompare(b.modelId)),
 );
 
-export function updateServerModelMetadata(models: readonly { modelId: string; supportsImage?: boolean; supportsThinking?: boolean; contextWindow?: number }[]): boolean {
+export function updateServerModelMetadata(models: readonly ({ modelId: string } & ServerModelCapabilityMetadata)[]): boolean {
   const previous = serializeServerModelMetadata(getAllServerModelMetadata());
   const nextCache = new Map(models.map(m => [m.modelId, {
     supportsImage: m.supportsImage,
+    supportsVideo: m.supportsVideo,
     supportsThinking: m.supportsThinking,
     contextWindow: m.contextWindow,
+    maxTokens: m.maxTokens,
+    runtimeProfile: m.runtimeProfile,
   }]));
   const next = serializeServerModelMetadata(Array.from(nextCache.entries()).map(([modelId, meta]) => ({
     modelId,
     supportsImage: meta.supportsImage,
+    supportsVideo: meta.supportsVideo,
     supportsThinking: meta.supportsThinking,
     contextWindow: meta.contextWindow,
+    maxTokens: meta.maxTokens,
+    runtimeProfile: meta.runtimeProfile,
   })));
   serverModelMetadataCache = nextCache;
   return previous !== next;
@@ -121,12 +148,15 @@ export function clearServerModelMetadata(): void {
   serverModelMetadataCache.clear();
 }
 
-export function getAllServerModelMetadata(): Array<{ modelId: string; supportsImage?: boolean; supportsThinking?: boolean; contextWindow?: number }> {
+export function getAllServerModelMetadata(): Array<{ modelId: string } & ServerModelCapabilityMetadata> {
   return Array.from(serverModelMetadataCache.entries()).map(([modelId, meta]) => ({
     modelId,
     supportsImage: meta.supportsImage,
+    supportsVideo: meta.supportsVideo,
     supportsThinking: meta.supportsThinking,
     contextWindow: meta.contextWindow,
+    maxTokens: meta.maxTokens,
+    runtimeProfile: meta.runtimeProfile,
   }));
 }
 
@@ -135,7 +165,11 @@ function buildServerFallbackModels(effectiveModelId: string): NonNullable<LocalP
     id: model.modelId,
     name: model.modelId,
     supportsImage: model.supportsImage,
+    supportsVideo: model.supportsVideo,
     supportsThinking: model.supportsThinking,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    runtimeProfile: model.runtimeProfile,
   }));
 
   if (!models.some(model => model.id === effectiveModelId)) {
@@ -144,7 +178,11 @@ function buildServerFallbackModels(effectiveModelId: string): NonNullable<LocalP
       id: effectiveModelId,
       name: effectiveModelId,
       supportsImage: cachedMeta?.supportsImage,
+      supportsVideo: cachedMeta?.supportsVideo,
       supportsThinking: cachedMeta?.supportsThinking,
+      contextWindow: cachedMeta?.contextWindow,
+      maxTokens: cachedMeta?.maxTokens,
+      runtimeProfile: cachedMeta?.runtimeProfile,
     });
   }
 
@@ -162,10 +200,25 @@ function normalizeProviderModels(providerName: string, models?: ProviderModelInp
         model.id,
         model.supportsImage,
       ),
+      supportsVideo: ProviderRegistry.resolveModelSupportsVideo(
+        providerName,
+        model.id,
+        model.supportsVideo,
+      ),
       supportsThinking: ProviderRegistry.resolveModelSupportsThinking(
         providerName,
         model.id,
         model.supportsThinking,
+      ),
+      contextWindow: ProviderRegistry.resolveModelContextWindow(
+        providerName,
+        model.id,
+        model.contextWindow,
+      ),
+      maxTokens: ProviderRegistry.resolveModelMaxTokens(
+        providerName,
+        model.id,
+        model.maxTokens,
       ),
     }));
 }

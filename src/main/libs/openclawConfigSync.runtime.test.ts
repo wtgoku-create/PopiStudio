@@ -700,6 +700,87 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(customSelection.providerConfig.models[0].input).toEqual(['text', 'image']);
   });
 
+  test('writes Kimi K3 with the OpenClaw reasoning compatibility profile', async () => {
+    const { OpenClawApi, ProviderName } = await import('../../shared/providers');
+    const { buildProviderSelection } = await import('./openclawConfigSync');
+
+    const selection = buildProviderSelection({
+      apiKey: 'sk-test',
+      baseURL: 'https://api.moonshot.cn/v1',
+      modelId: 'kimi-k3',
+      apiType: 'openai',
+      providerName: ProviderName.Moonshot,
+      supportsImage: true,
+      supportsThinking: true,
+      modelName: 'Kimi K3',
+    });
+
+    expect(selection.providerConfig.api).toBe(OpenClawApi.OpenAICompletions);
+    expect(selection.providerConfig.models[0]).toMatchObject({
+      id: 'kimi-k3',
+      reasoning: true,
+      input: ['text', 'image', 'video'],
+      contextWindow: 1_048_576,
+      maxTokens: 8192,
+      thinkingLevelMap: {
+        off: null,
+        minimal: 'max',
+        low: 'max',
+        medium: 'max',
+        high: 'max',
+        xhigh: 'max',
+        max: 'max',
+      },
+      compat: {
+        maxTokensField: 'max_tokens',
+        supportsUsageInStreaming: false,
+        requiresStringContent: true,
+        supportsReasoningEffort: true,
+        supportedReasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      },
+    });
+  });
+
+  test('routes custom Kimi K3 through the model compatibility owner plugin', async () => {
+    mockRuntimeState.rawApiConfig = {
+      config: {
+        baseURL: 'https://gateway.example.com/v1',
+        apiKey: 'sk-test',
+        model: 'kimi-k3',
+        apiType: 'openai',
+      },
+      providerMetadata: {
+        providerName: 'custom_0',
+        codingPlanEnabled: false,
+        supportsImage: true,
+        supportsThinking: true,
+        modelName: 'Kimi K3',
+      },
+    };
+
+    const sync = await createSync();
+    const result = sync.sync('custom-kimi-k3-compat');
+
+    expect(result.ok).toBe(true);
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.models.providers.custom_0.api).toBe('lobsterai-model-compat');
+    expect(config.models.providers.custom_0.models[0]).toMatchObject({
+      id: 'kimi-k3',
+      api: 'openai-completions',
+      reasoning: true,
+      input: ['text', 'image', 'video'],
+    });
+    expect(config.plugins.entries['lobsterai-model-compat']).toEqual({
+      enabled: true,
+      config: {
+        modelProfiles: {
+          'custom_0/kimi-k3': 'moonshot-kimi-k3',
+        },
+      },
+    });
+    expect(config.plugins.allow).toContain('lobsterai-model-compat');
+  });
+
   test('marks DeepSeek reasoning models and all Xiaomi models as reasoning-capable', async () => {
     const { OpenClawApi, ProviderName } = await import('../../shared/providers');
     const { buildProviderSelection } = await import('./openclawConfigSync');
