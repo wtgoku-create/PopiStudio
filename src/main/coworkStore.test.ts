@@ -53,6 +53,8 @@ function setupDb(): void {
       execution_mode TEXT NOT NULL DEFAULT 'local',
       active_skill_ids TEXT,
       agent_id TEXT NOT NULL DEFAULT 'main',
+      parent_session_id TEXT,
+      goal_json TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );

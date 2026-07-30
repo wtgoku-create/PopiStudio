@@ -504,6 +504,8 @@ export class CronJobService {
    *  Used by channel session sync to decide whether a cron run needs a local
    *  "[定时]" session or delivers into an IM conversation instead. */
   private jobDeliveryCache: Map<string, ScheduledTaskJobDelivery> = new Map();
+  /** Synchronous jobId → agent prompt cache, populated during polling. */
+  private jobPromptCache: Map<string, string> = new Map();
   /** Job IDs currently running (non-null `runningAtMs`), updated during polling. */
   private runningJobIds: Set<string> = new Set();
   /** Keep the fast poll cadence until this timestamp (set by manual runs). */
@@ -535,6 +537,24 @@ export class CronJobService {
    */
   getJobDeliverySync(jobId: string): ScheduledTaskJobDelivery | null {
     return this.jobDeliveryCache.get(jobId) ?? null;
+  }
+
+  /**
+   * Look up a job's agent-turn prompt synchronously from the polling cache.
+   * Returns null for system-event jobs or before the cache has been populated.
+   */
+  getJobPromptSync(jobId: string): string | null {
+    return this.jobPromptCache.get(jobId) ?? null;
+  }
+
+  private cacheJobMetadata(job: GatewayJob): void {
+    this.jobNameCache.set(job.id, job.name);
+    this.cacheJobDelivery(job.id, job.delivery);
+    if (job.payload.kind === PayloadKind.AgentTurn && job.payload.message.trim()) {
+      this.jobPromptCache.set(job.id, job.payload.message.trim());
+    } else {
+      this.jobPromptCache.delete(job.id);
+    }
   }
 
   private cacheJobDelivery(
@@ -612,8 +632,7 @@ export class CronJobService {
       ...(input.sessionKey?.trim() ? { sessionKey: input.sessionKey.trim() } : {}),
     });
     const mapped = mapGatewayJob(job);
-    this.jobNameCache.set(mapped.id, mapped.name);
-    this.cacheJobDelivery(mapped.id, mapped.delivery);
+    this.cacheJobMetadata(job);
     console.log('[CronJobService][addJob] created job id:', mapped.id, 'name:', mapped.name);
     return mapped;
   }
@@ -655,8 +674,7 @@ export class CronJobService {
     console.log('[CronJobService][updateJob] final patch:', JSON.stringify(patch, null, 2));
     const job = await client.request<GatewayJob>('cron.update', { id, patch });
     const mapped = mapGatewayJob(job);
-    this.jobNameCache.set(mapped.id, mapped.name);
-    this.cacheJobDelivery(mapped.id, mapped.delivery);
+    this.cacheJobMetadata(job);
     console.log('[CronJobService][updateJob] updated job id:', mapped.id, 'name:', mapped.name);
     return mapped;
   }
@@ -668,16 +686,21 @@ export class CronJobService {
     this.lastKnownRunAtMs.delete(id);
     this.jobNameCache.delete(id);
     this.jobDeliveryCache.delete(id);
+    this.jobPromptCache.delete(id);
   }
 
   async listJobs(): Promise<ScheduledTask[]> {
     const jobs = await this.listGatewayJobs();
+    for (const job of jobs) {
+      this.cacheJobMetadata(job);
+    }
     return jobs.filter(job => !isInternalScheduledTaskJob(job)).map(mapGatewayJob);
   }
 
   async getJob(id: string): Promise<ScheduledTask | null> {
     const raw = await this.getJobRaw(id);
     if (raw && isInternalScheduledTaskJob(raw)) return null;
+    if (raw) this.cacheJobMetadata(raw);
     return raw ? mapGatewayJob(raw) : null;
   }
 
@@ -696,6 +719,7 @@ export class CronJobService {
   async toggleJob(id: string, enabled: boolean): Promise<ScheduledTask> {
     const client = await this.client();
     const job = await client.request<GatewayJob>('cron.update', { id, patch: { enabled } });
+    this.cacheJobMetadata(job);
     return mapGatewayJob(job);
   }
 
@@ -899,10 +923,10 @@ export class CronJobService {
       // (used by session naming and cron session routing).
       this.jobNameCache.clear();
       this.jobDeliveryCache.clear();
+      this.jobPromptCache.clear();
       this.runningJobIds.clear();
       for (const job of jobs) {
-        this.jobNameCache.set(job.id, job.name);
-        this.cacheJobDelivery(job.id, job.delivery);
+        this.cacheJobMetadata(job);
         if (job.state.runningAtMs) {
           this.runningJobIds.add(job.id);
         }

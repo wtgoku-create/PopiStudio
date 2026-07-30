@@ -1912,6 +1912,14 @@ const getCoworkEngineRouter = () => {
     if (!openClawRuntimeAdapter) {
       openClawRuntimeAdapter = new OpenClawRuntimeAdapter(getCoworkStore(), getOpenClawEngineManager(), {
         normalizeModelRef: normalizeOpenClawModelRef,
+        resolveCronJobPrompt: (jobId) => {
+          const message = getCronJobService().getJobPromptSync(jobId);
+          if (!message) return null;
+          return {
+            message,
+            name: getCronJobService().getJobNameSync(jobId),
+          };
+        },
       }, new SubagentRunStore(getStore().getDatabase()), new SubagentMessageStore(getStore().getDatabase()));
       // Wire up channel session sync for IM conversations via OpenClaw
       try {

@@ -43,6 +43,7 @@ import { setCoworkProxySessionId } from '../coworkOpenAICompatProxy';
 import { extractOpenClawAssistantStreamParts,extractOpenClawAssistantStreamText } from '../openclawAssistantText';
 import {
   buildManagedSessionKey,
+  extractCronJobIdFromSessionKey,
   isCronSessionKey,
   isManagedSessionKey,
   type OpenClawChannelSessionSync,
@@ -90,9 +91,10 @@ import {
 } from './openclawConversationReconciliation';
 import {
   buildCronRunHistoryEntries,
+  buildCronRunHistoryMetadata,
   buildCronRunLocalHistoryEntries,
   findCronRunHistoryLocalMatch,
-  hasCronRunHistoryForSession,
+  isCronRunPromptContentCoveredByMessage,
   shouldReplaceLocalConversationWithCronHistory,
 } from './openclawCronRunHistorySync';
 import { OpenClawTurnHistorySync } from './openclawTurnHistorySync';
@@ -378,6 +380,7 @@ function shouldBootstrapGoalFromPrompt(
 
 type OpenClawRuntimeAdapterOptions = {
   normalizeModelRef?: (modelRef: string) => string;
+  resolveCronJobPrompt?: (jobId: string) => { message: string; name?: string | null } | null;
 };
 
 const MANUAL_CONTEXT_COMPACTION_TIMEOUT_MS = 300_000;
@@ -7713,12 +7716,38 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       const session = this.store.getSession(sessionId);
       if (!session) return;
 
-      if (hasCronRunHistoryForSession(session.messages, sessionKey)) {
+      const localEntries = buildCronRunLocalHistoryEntries(session.messages);
+      const firstExistingMessageId = session.messages[0]?.id;
+      if (
+        localEntries.length === 0
+        && firstExistingMessageId
+        && authoritativeEntries[0]?.role === 'user'
+      ) {
+        const [firstEntry, ...remainingEntries] = authoritativeEntries;
+        this.store.insertMessageBeforeId(sessionId, firstExistingMessageId, {
+          type: 'user',
+          content: firstEntry.text,
+          metadata: {
+            isStreaming: false,
+            isFinal: true,
+            ...(firstEntry.metadata ?? {}),
+          },
+        });
+        for (const entry of remainingEntries) {
+          this.store.addMessage(sessionId, {
+            type: entry.role,
+            content: entry.text,
+            metadata: {
+              isStreaming: false,
+              isFinal: true,
+              ...(entry.metadata ?? {}),
+            },
+          });
+        }
         this.channelSyncCursor.set(sessionId, authoritativeEntries.length);
         return;
       }
 
-      const localEntries = buildCronRunLocalHistoryEntries(session.messages);
       if (shouldReplaceLocalConversationWithCronHistory(localEntries, authoritativeEntries, sessionKey)) {
         this.store.replaceConversationMessages(
           sessionId,
@@ -7739,12 +7768,17 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
         if (matchingLocal) {
           usedLocalMessageIds.add(matchingLocal.id);
+          const metadata = {
+            ...(matchingLocal.metadata ?? {}),
+            ...(authoritative.metadata ?? {}),
+          };
           this.store.updateMessage(sessionId, matchingLocal.id, {
-            metadata: {
-              ...(matchingLocal.metadata ?? {}),
-              ...(authoritative.metadata ?? {}),
-            },
+            content: authoritative.text,
+            metadata,
           });
+          if (matchingLocal.text !== authoritative.text) {
+            this.emit('messageUpdate', sessionId, matchingLocal.id, authoritative.text, metadata);
+          }
           continue;
         }
 
@@ -8781,6 +8815,38 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.ensureActiveTurn(sessionId, sessionKey, normalizedRunId);
   }
 
+  private resolveCronRunPromptContent(sessionKey: string): string | null {
+    if (!isCronSessionKey(sessionKey)) return null;
+    const jobId = extractCronJobIdFromSessionKey(sessionKey);
+    const resolved = this.options.resolveCronJobPrompt?.(jobId) ?? null;
+    const prompt = resolved?.message.trim() ?? '';
+    if (!prompt) return null;
+    const name = resolved?.name?.trim();
+    return `[cron:${jobId}${name ? ` ${name}` : ''}] ${prompt}`;
+  }
+
+  private ensureCronRunPromptMessage(sessionId: string, sessionKey: string): void {
+    const content = this.resolveCronRunPromptContent(sessionKey);
+    if (!content) return;
+
+    const session = this.store.getSession(sessionId);
+    if (!session) return;
+    const alreadyExists = session.messages.some((message) => (
+      message.type === 'user' && isCronRunPromptContentCoveredByMessage(message.content, content)
+    ));
+    if (alreadyExists) return;
+
+    const message = this.store.addMessage(sessionId, {
+      type: 'user',
+      content,
+      metadata: buildCronRunHistoryMetadata(sessionKey, 0, {
+        isStreaming: false,
+        isFinal: true,
+      }),
+    });
+    this.emit('message', sessionId, message);
+  }
+
   private ensureActiveTurn(sessionId: string, sessionKey: string, runId: string): void {
     if (this.activeTurns.has(sessionId)) return;
     if (runId && this.isRecentlyClosedRunId(runId)) {
@@ -8860,6 +8926,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (runId) {
       this.sessionIdByRunId.set(runId, sessionId);
     }
+    this.ensureCronRunPromptMessage(sessionId, sessionKey);
     this.store.updateSession(sessionId, { status: 'running' });
     this.emitSessionStatus(sessionId, 'running');
     this.startTurnTimeoutWatchdog(sessionId);

@@ -30,10 +30,48 @@ const isSameHistoryEntry = (
   right: { role: 'user' | 'assistant'; text: string },
 ): boolean => left.role === right.role && left.text === right.text;
 
+export const isCronRunPromptContentCoveredByMessage = (
+  messageContent: string,
+  promptContent: string,
+): boolean => {
+  const message = messageContent.trim();
+  const prompt = promptContent.trim();
+  return Boolean(prompt && (message === prompt || message.startsWith(`${prompt}\n`)));
+};
+
+const normalizeCronRunSessionKey = (sessionKey: string): string => {
+  const trimmed = sessionKey.trim();
+  const legacyMatch = trimmed.match(/^cron:([^:\s]+)$/i);
+  if (legacyMatch) return `cron:${legacyMatch[1]}`;
+  const agentMatch = trimmed.match(/^agent:([^:]+):cron:([^:\s]+)(?::run:.+)?$/i);
+  if (agentMatch) return `agent:${agentMatch[1]}:cron:${agentMatch[2]}`;
+  return trimmed;
+};
+
+const isSameCronRunSessionKey = (left: string | null, right: string): boolean => {
+  return Boolean(left && normalizeCronRunSessionKey(left) === normalizeCronRunSessionKey(right));
+};
+
+export const buildCronRunHistoryMetadata = (
+  sessionKey: string,
+  entryIndex: number,
+  metadata: Record<string, unknown> = {},
+): Record<string, unknown> => ({
+  ...metadata,
+  [CronRunHistoryMetadataKey.SessionKey]: normalizeCronRunSessionKey(sessionKey),
+  [CronRunHistoryMetadataKey.EntryIndex]: entryIndex,
+});
+
 export const getCronRunHistorySessionKey = (metadata: unknown): string | null => {
   if (!isRecord(metadata)) return null;
   const value = metadata[CronRunHistoryMetadataKey.SessionKey];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+};
+
+export const getCronRunHistoryEntryIndex = (metadata: unknown): number | null => {
+  if (!isRecord(metadata)) return null;
+  const value = metadata[CronRunHistoryMetadataKey.EntryIndex];
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
 };
 
 const withCronRunHistoryMetadata = (
@@ -42,11 +80,7 @@ const withCronRunHistoryMetadata = (
   entryIndex: number,
 ): CronRunHistoryEntry => ({
   ...entry,
-  metadata: {
-    ...(entry.metadata ?? {}),
-    [CronRunHistoryMetadataKey.SessionKey]: sessionKey,
-    [CronRunHistoryMetadataKey.EntryIndex]: entryIndex,
-  },
+  metadata: buildCronRunHistoryMetadata(sessionKey, entryIndex, entry.metadata),
 });
 
 export const buildCronRunHistoryEntries = (
@@ -108,13 +142,6 @@ export const buildCronRunLocalHistoryEntries = (
     .filter((entry) => entry.text && !shouldSuppressHeartbeatText(entry.role, entry.text));
 };
 
-export const hasCronRunHistoryForSession = (
-  messages: CoworkMessage[],
-  sessionKey: string,
-): boolean => {
-  return messages.some((message) => getCronRunHistorySessionKey(message.metadata) === sessionKey);
-};
-
 export const isLocalConversationCoveredByCronHistory = (
   localEntries: ReadonlyArray<{ role: 'user' | 'assistant'; text: string }>,
   authoritativeEntries: ReadonlyArray<CronRunHistoryEntry>,
@@ -143,7 +170,7 @@ export const shouldReplaceLocalConversationWithCronHistory = (
 ): boolean => {
   const hasOtherCronRunHistory = localEntries.some((entry) => {
     const importedSessionKey = getCronRunHistorySessionKey(entry.metadata);
-    return Boolean(importedSessionKey && importedSessionKey !== sessionKey);
+    return Boolean(importedSessionKey && !isSameCronRunSessionKey(importedSessionKey, sessionKey));
   });
 
   return !hasOtherCronRunHistory
@@ -158,8 +185,18 @@ export const findCronRunHistoryLocalMatch = (
 ): CronRunLocalHistoryEntry | undefined => {
   return localEntries.find((entry) => {
     if (usedLocalMessageIds.has(entry.id)) return false;
-    if (!isSameHistoryEntry(entry, authoritative)) return false;
     const importedSessionKey = getCronRunHistorySessionKey(entry.metadata);
-    return !importedSessionKey || importedSessionKey === sessionKey;
+    const importedEntryIndex = getCronRunHistoryEntryIndex(entry.metadata);
+    const authoritativeEntryIndex = getCronRunHistoryEntryIndex(authoritative.metadata);
+    if (
+      isSameCronRunSessionKey(importedSessionKey, sessionKey)
+      && importedEntryIndex != null
+      && importedEntryIndex === authoritativeEntryIndex
+      && entry.role === authoritative.role
+    ) {
+      return true;
+    }
+    if (!isSameHistoryEntry(entry, authoritative)) return false;
+    return !importedSessionKey || isSameCronRunSessionKey(importedSessionKey, sessionKey);
   });
 };

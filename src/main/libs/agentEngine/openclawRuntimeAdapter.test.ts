@@ -760,7 +760,6 @@ test('fetchSessionByKey: cron run key uses gateway history instead of local sess
     },
   };
 
-  const sessionKey = 'agent:main:cron:job-1:run:6bcc366b-b080-4fe6-b623-2caa27642c20';
   const resolved = await adapter.fetchSessionByKey(sessionKey, { sessionId: session.id });
 
   expect(requests).toHaveLength(1);
@@ -806,6 +805,115 @@ test('syncChannelUserMessages inserts a late cron user prompt before current too
 
   expect(session.messages.map(message => message.type)).toEqual(['user', 'tool_use', 'tool_result']);
   expect(session.messages[0].content).toBe('[cron:job-1 会议准备] 请梳理今天会议');
+});
+
+test('ensureActiveTurn inserts the cron prompt before runtime tool messages', () => {
+  const { session, store } = createReconcileStore([]);
+  const adapter = new OpenClawRuntimeAdapter(store, {} as never, {
+    resolveCronJobPrompt: (jobId) => ({
+      message: '请收集新闻',
+      name: jobId === 'job-1' ? '科技早报' : null,
+    }),
+  });
+  const sessionKey = 'agent:main:cron:job-1:run:6bcc366b-b080-4fe6-b623-2caa27642c20';
+
+  adapter.ensureActiveTurn(session.id, sessionKey, 'run-1');
+  adapter.handleAgentEvent({
+    runId: 'run-1',
+    sessionKey,
+    stream: 'tool',
+    data: {
+      phase: 'start',
+      toolCallId: 'tool-1',
+      name: 'Read',
+      args: { file_path: '/tmp/file.md' },
+    },
+  });
+
+  expect(session.messages.map(message => ({
+    type: message.type,
+    content: message.content,
+  }))).toEqual([
+    { type: 'user', content: '[cron:job-1 科技早报] 请收集新闻' },
+    { type: 'tool_use', content: 'Using tool: Read' },
+  ]);
+});
+
+test('syncCronRunHistory inserts the cron prompt before early streamed tool activity', async () => {
+  const { session, store } = createReconcileStore([
+    { id: 'tool-1', type: 'tool_use', content: '', timestamp: 1, metadata: { toolName: 'browser' } },
+    { id: 'tool-result-1', type: 'tool_result', content: '5 lines of output', timestamp: 2, metadata: { toolName: 'browser' } },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: '[cron:job-1 科技早报] 请收集新闻' },
+        { role: 'assistant', content: '科技早报内容' },
+      ],
+    }),
+    onStatus: () => () => {},
+    getStatus: () => 'connected',
+  } as never;
+
+  await (adapter as unknown as {
+    syncCronRunHistory: (sessionId: string, sessionKey: string) => Promise<void>;
+  }).syncCronRunHistory(
+    session.id,
+    'agent:main:cron:job-1:run:6bcc366b-b080-4fe6-b623-2caa27642c20',
+  );
+
+  expect(session.messages.map(message => ({
+    type: message.type,
+    content: message.content,
+  }))).toEqual([
+    { type: 'user', content: '[cron:job-1 科技早报] 请收集新闻' },
+    { type: 'tool_use', content: '' },
+    { type: 'tool_result', content: '5 lines of output' },
+    { type: 'assistant', content: '科技早报内容' },
+  ]);
+});
+
+test('syncCronRunHistory updates the runtime cron prompt instead of duplicating it', async () => {
+  const { session, store } = createReconcileStore([]);
+  const adapter = new OpenClawRuntimeAdapter(store, {} as never, {
+    resolveCronJobPrompt: () => ({
+      message: '请收集新闻',
+      name: '科技早报',
+    }),
+  });
+  const runtimeSessionKey = 'agent:main:cron:job-1';
+  const historySessionKey = 'agent:main:cron:job-1:run:6bcc366b-b080-4fe6-b623-2caa27642c20';
+  const fullPrompt = [
+    '[cron:job-1 科技早报] 请收集新闻',
+    'Current time: Thursday, July 30th, 2026 - 15:47 (Asia/Shanghai)',
+    'Reference UTC: 2026-07-30 07:47 UTC',
+  ].join('\n');
+
+  adapter.ensureActiveTurn(session.id, runtimeSessionKey, 'run-1');
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: fullPrompt },
+        { role: 'assistant', content: '科技早报内容' },
+      ],
+    }),
+    onStatus: () => () => {},
+    getStatus: () => 'connected',
+  } as never;
+
+  await (adapter as unknown as {
+    syncCronRunHistory: (sessionId: string, sessionKey: string) => Promise<void>;
+  }).syncCronRunHistory(session.id, historySessionKey);
+
+  const userMessages = session.messages.filter(message => message.type === 'user');
+  expect(userMessages).toHaveLength(1);
+  expect(userMessages[0].content).toBe(fullPrompt);
+  expect(session.messages.map(message => message.type)).toEqual(['user', 'assistant']);
 });
 
 test('reconcileWithHistory: already in sync — skips replace', async () => {
