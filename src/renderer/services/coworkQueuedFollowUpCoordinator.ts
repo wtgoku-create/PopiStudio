@@ -8,7 +8,7 @@ import {
   removePendingSteer,
   updateSteerStatus,
 } from '../store/slices/coworkSlice';
-import type { CoworkContinueOptions, CoworkSessionStatus } from '../types/cowork';
+import type { CoworkContinueOptions, CoworkImageAttachment, CoworkSessionStatus } from '../types/cowork';
 import { CoworkSessionStatusValue } from '../types/cowork';
 import { i18nService } from './i18n';
 import { selectQueuedFollowUp } from './queuedFollowUpSelection';
@@ -144,9 +144,11 @@ export class CoworkQueuedFollowUpCoordinator {
       if (!stillQueued) return false;
 
       this.startingQueuedTurnSessionIds.add(sessionId);
+      const imageAttachments = await this.buildImageAttachments(queuedSteer);
       const sent = await this.dependencies.continueSession({
         sessionId,
         prompt: this.buildPrompt(queuedSteer),
+        ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
         browserAnnotations: queuedSteer.browserAnnotations,
       });
       if (operation.cancelled) {
@@ -209,5 +211,42 @@ export class CoworkQueuedFollowUpCoordinator {
     const text = queuedSteer.text.trim();
     if (!text) return attachmentLines;
     return attachmentLines ? `${text}\n\n${attachmentLines}` : text;
+  }
+
+  private async buildImageAttachments(queuedSteer: CoworkPendingSteer): Promise<CoworkImageAttachment[]> {
+    const images: CoworkImageAttachment[] = [];
+    for (const attachment of queuedSteer.attachments ?? []) {
+      if (!attachment.isImage) continue;
+
+      const dataUrl = attachment.dataUrl ?? await this.readAttachmentDataUrl(attachment.path);
+      if (!dataUrl) continue;
+
+      const parsed = this.extractBase64FromDataUrl(dataUrl);
+      if (!parsed) continue;
+
+      images.push({
+        name: attachment.name,
+        mimeType: parsed.mimeType,
+        base64Data: parsed.base64Data,
+      });
+    }
+    return images;
+  }
+
+  private async readAttachmentDataUrl(filePath: string): Promise<string | null> {
+    if (!filePath || filePath.startsWith('inline:')) return null;
+    try {
+      const result = await window.electron?.dialog?.readFileAsDataUrl(filePath);
+      return result?.success && result.dataUrl ? result.dataUrl : null;
+    } catch (error) {
+      this.dependencies.log('warn', `failed to read queued image attachment; path=${filePath}.`, error);
+      return null;
+    }
+  }
+
+  private extractBase64FromDataUrl(dataUrl: string): { mimeType: string; base64Data: string } | null {
+    const match = /^data:(.+);base64,(.*)$/.exec(dataUrl);
+    if (!match) return null;
+    return { mimeType: match[1], base64Data: match[2] };
   }
 }

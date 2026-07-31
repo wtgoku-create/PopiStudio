@@ -121,6 +121,81 @@ const extractBase64FromDataUrl = (dataUrl: string): { mimeType: string; base64Da
   return { mimeType: match[1], base64Data: match[2] };
 };
 
+interface ParsedBase64Paste {
+  fileName: string;
+  mimeType: string;
+  base64Data: string;
+}
+
+const MIN_PASTED_BASE64_CHARS = 4096;
+
+const getBase64FileType = (base64Data: string): { fileName: string; mimeType: string } => {
+  if (base64Data.startsWith('iVBORw0KGgo')) {
+    return { fileName: 'pasted-base64.png', mimeType: 'image/png' };
+  }
+  if (base64Data.startsWith('/9j/')) {
+    return { fileName: 'pasted-base64.jpg', mimeType: 'image/jpeg' };
+  }
+  if (base64Data.startsWith('R0lGOD')) {
+    return { fileName: 'pasted-base64.gif', mimeType: 'image/gif' };
+  }
+  if (base64Data.startsWith('UklGR')) {
+    return { fileName: 'pasted-base64.webp', mimeType: 'image/webp' };
+  }
+  if (base64Data.startsWith('JVBERi0')) {
+    return { fileName: 'pasted-base64.pdf', mimeType: 'application/pdf' };
+  }
+  if (base64Data.startsWith('UEsDB')) {
+    return { fileName: 'pasted-base64.zip', mimeType: 'application/zip' };
+  }
+  return { fileName: 'pasted-base64.bin', mimeType: 'application/octet-stream' };
+};
+
+const getExtensionForMimeType = (mimeType: string): string => {
+  switch (mimeType.toLowerCase()) {
+    case 'image/png':
+      return 'png';
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg';
+    case 'image/gif':
+      return 'gif';
+    case 'image/webp':
+      return 'webp';
+    case 'image/svg+xml':
+      return 'svg';
+    case 'application/pdf':
+      return 'pdf';
+    case 'application/zip':
+      return 'zip';
+    default:
+      return 'bin';
+  }
+};
+
+const parsePastedBase64File = (text: string): ParsedBase64Paste | null => {
+  const trimmed = text.trim();
+  const dataUrlMatch = /^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(trimmed);
+  if (dataUrlMatch) {
+    const mimeType = dataUrlMatch[1].trim().toLowerCase();
+    const base64Data = dataUrlMatch[2].replace(/\s+/g, '');
+    if (base64Data.length < MIN_PASTED_BASE64_CHARS || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64Data)) {
+      return null;
+    }
+    return {
+      fileName: `pasted-base64.${getExtensionForMimeType(mimeType)}`,
+      mimeType,
+      base64Data,
+    };
+  }
+
+  const base64Data = trimmed.replace(/\s+/g, '');
+  if (base64Data.length < MIN_PASTED_BASE64_CHARS) return null;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64Data)) return null;
+  const fileType = getBase64FileType(base64Data);
+  return { ...fileType, base64Data };
+};
+
 const getFileNameFromPath = (path: string): string => {
   const parts = path.split(/[/\\]/);
   return parts[parts.length - 1] || path;
@@ -708,6 +783,29 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             dataUrlPrefix: attachment.dataUrl.slice(0, 60),
           });
         }
+      } else if (attachment.isImage && modelSupportsImage && !attachment.path.startsWith('inline:')) {
+        try {
+          const result = await window.electron.dialog.readFileAsDataUrl(attachment.path);
+          if (result.success && result.dataUrl) {
+            const extracted = extractBase64FromDataUrl(result.dataUrl);
+            if (extracted) {
+              imageAtts.push({
+                name: attachment.name,
+                mimeType: extracted.mimeType,
+                base64Data: extracted.base64Data,
+              });
+              continue;
+            }
+          }
+          console.warn('[CoworkPromptInput] handleSubmit: image path could not be read as vision input', {
+            path: attachment.path,
+            name: attachment.name,
+            success: result.success,
+            error: result.error,
+          });
+        } catch (error) {
+          console.error('[CoworkPromptInput] handleSubmit: failed to read image path as vision input:', error);
+        }
       } else if (attachment.isImage) {
         console.warn('[CoworkPromptInput] handleSubmit: image attachment missing dataUrl', {
           path: attachment.path,
@@ -1123,6 +1221,29 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   }, [fileToBase64, workingDirectory]);
 
+  const savePastedBase64File = useCallback(async (parsed: ParsedBase64Paste): Promise<string | null> => {
+    try {
+      const result = await window.electron.dialog.saveInlineFile({
+        dataBase64: parsed.base64Data,
+        fileName: parsed.fileName,
+        mimeType: parsed.mimeType,
+        cwd: workingDirectory,
+      });
+      if (result.success && result.path) {
+        return result.path;
+      }
+      console.warn('[CoworkPromptInput] pasted base64 saveInlineFile failed', {
+        fileName: parsed.fileName,
+        mimeType: parsed.mimeType,
+        error: result.error,
+      });
+      return null;
+    } catch (error) {
+      console.error('[CoworkPromptInput] failed to save pasted base64 file:', error);
+      return null;
+    }
+  }, [workingDirectory]);
+
   const handleIncomingFiles = useCallback(async (fileList: FileList | File[]) => {
     if (disabled || isStreaming) return;
     const files = Array.from(fileList ?? []);
@@ -1327,12 +1448,35 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   };
 
   const handlePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (disabled || isStreaming) return;
+    if (disabled) return;
     const files = getClipboardAttachmentFiles(event.clipboardData);
-    if (files.length === 0) return;
+    if (files.length > 0) {
+      if (isStreaming) return;
+      event.preventDefault();
+      void handleIncomingFiles(files);
+      return;
+    }
+
+    const pastedText = event.clipboardData.getData('text/plain');
+    const parsedBase64 = parsePastedBase64File(pastedText);
+    if (!parsedBase64) return;
+
     event.preventDefault();
-    void handleIncomingFiles(files);
-  }, [disabled, handleIncomingFiles, isStreaming]);
+    void (async () => {
+      const stagedPath = await savePastedBase64File(parsedBase64);
+      if (!stagedPath) {
+        await window.electron.dialog.showMessageBox({
+          type: 'warning',
+          message: i18nService.t('coworkPastedBase64SaveFailed'),
+        });
+        return;
+      }
+
+      addAttachment(stagedPath, {
+        isImage: isImageMimeType(parsedBase64.mimeType),
+      });
+    })();
+  }, [addAttachment, disabled, handleIncomingFiles, isStreaming, savePastedBase64File]);
 
   const activeTextareaValue = steerInputActive ? steerValue : value;
   const goalCommandCanRunWhileStreaming = goalInputActive && !!sessionId && !!onGoalCommand;

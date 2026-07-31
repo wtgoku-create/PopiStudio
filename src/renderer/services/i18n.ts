@@ -593,6 +593,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     imageLimitReached: '最多上传 10 张图片',
     imageReadError: '读取图片失败',
     imageInputNotSupported: '当前模型不支持图像输入',
+    coworkPastedBase64SaveFailed: '无法将粘贴的 base64 内容保存为文件，请改用文件附件上传。',
 
     // 模型选择
     selectModel: '选择模型',
@@ -3003,6 +3004,7 @@ const translations: Record<LanguageType, Record<string, string>> = {
     imageLimitReached: 'Up to 10 images',
     imageReadError: 'Failed to read image',
     imageInputNotSupported: 'Current model does not support images',
+    coworkPastedBase64SaveFailed: 'Could not save the pasted base64 content as a file. Please upload it as a file attachment instead.',
 
     // Model Selection
     selectModel: 'Select Model',
