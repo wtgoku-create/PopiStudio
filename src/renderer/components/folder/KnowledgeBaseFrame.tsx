@@ -55,7 +55,7 @@ interface KnowledgeBaseFrameProps {
 }
 
 const getKnowledgeTheme = (): string => {
-  return document.documentElement.dataset.theme?.includes('dark') ? 'dark' : 'light';
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 };
 
 const buildKnowledgeGraphUrl = (detail: OpenKnowledgeGraphEventDetail, knowledgeBasesUrl: string): string => {
@@ -368,7 +368,7 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
 
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-theme'],
+      attributeFilter: ['class', 'data-theme'],
     });
 
     return () => observer.disconnect();
