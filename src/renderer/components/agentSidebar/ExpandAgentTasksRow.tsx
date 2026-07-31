@@ -6,24 +6,37 @@ interface ExpandAgentTasksRowProps {
   isLoading: boolean;
   label: string;
   onClick: () => void;
+  secondaryLabel?: string;
+  onSecondaryClick?: () => void;
 }
 
 const ExpandAgentTasksRow: React.FC<ExpandAgentTasksRowProps> = ({
   isLoading,
   label,
   onClick,
+  secondaryLabel,
+  onSecondaryClick,
 }) => {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={isLoading}
-      className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center rounded-md pl-[38px] pr-2.5 text-left text-[13px] font-normal transition-colors hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/[0.04]"
-    >
-      <span className="text-foreground opacity-[0.28]">
+    <div className="-ml-[6px] flex h-7 w-[calc(100%+12px)] items-center gap-5 rounded-md pl-[38px] pr-2.5 text-[13px] font-normal">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={isLoading}
+        className="min-w-0 text-left text-secondary transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+      >
         {isLoading ? i18nService.t('loading') : label}
-      </span>
-    </button>
+      </button>
+      {secondaryLabel && onSecondaryClick && (
+        <button
+          type="button"
+          onClick={onSecondaryClick}
+          className="min-w-0 text-left text-secondary transition-colors hover:text-foreground"
+        >
+          {secondaryLabel}
+        </button>
+      )}
+    </div>
   );
 };
 

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
-import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -58,22 +57,11 @@ const AgentAddFriendModal: React.FC<AgentAddFriendModalProps> = ({
     });
   };
 
-  const openAgentHome = async (agent: Agent) => {
+  const openAgentEntry = async (agent: Agent) => {
     agentService.switchAgent(agent.id);
     onShowCowork();
-
-    const sidebarSessionsResult = await coworkService.listAgentSidebarSessions();
-    const homeSession = sidebarSessionsResult.success
-      ? sidebarSessionsResult.sessions?.find((session) => (
-        session.agentId === agent.id && session.source?.kind === CoworkSessionSourceKind.AgentHome
-      ))
-      : null;
-
-    if (homeSession) {
-      await coworkService.loadSession(homeSession.id);
-    } else {
-      await coworkService.loadSessions(agent.id);
-    }
+    await coworkService.loadSessions(agent.id);
+    coworkService.clearSession({ restoreAgentSkills: true });
   };
 
   const handleAddSelectedTemplates = async () => {
@@ -100,7 +88,7 @@ const AgentAddFriendModal: React.FC<AgentAddFriendModalProps> = ({
       }
 
       if (lastAddedAgent) {
-        await openAgentHome(lastAddedAgent);
+        await openAgentEntry(lastAddedAgent);
       }
 
       setSelectedPresetIds(new Set());

@@ -1,5 +1,6 @@
 export const AgentSidebarIndicator = {
   None: 'none',
+  PendingPermission: 'pending_permission',
   Running: 'running',
   CompletedUnread: 'completed_unread',
 } as const;
@@ -20,6 +21,7 @@ export type AgentSidebarTaskTab =
   typeof AgentSidebarTaskTab[keyof typeof AgentSidebarTaskTab];
 
 export const AgentSidebarPageSize = {
-  Preview: 20,
+  Preview: 6,
+  ExpandBatch: 10,
   AllBatch: 100,
 } as const;

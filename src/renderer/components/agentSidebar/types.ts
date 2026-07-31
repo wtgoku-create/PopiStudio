@@ -28,12 +28,18 @@ export interface AgentSidebarTaskNode {
 }
 
 export interface AgentSidebarAgentNode extends AgentSidebarAgentSummary {
+  isExpanded: boolean;
+  isTaskListExpanded: boolean;
+  canExpandTasks: boolean;
+  canCollapseTasks: boolean;
   isLoadingTasks: boolean;
   hasLoadError: boolean;
   tasks: AgentSidebarTaskNode[];
 }
 
 export interface AgentSidebarPreferenceState {
+  expandedAgentIds?: string[];
+  expandedTaskListAgentIds?: string[];
   selectedAgentId?: string;
   selectedTaskId?: string;
 }

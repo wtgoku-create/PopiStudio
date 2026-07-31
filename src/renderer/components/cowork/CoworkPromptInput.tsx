@@ -44,6 +44,7 @@ import {
   updateCurrentSessionModelOverride,
 } from '../../store/slices/coworkSlice';
 import type { Model } from '../../store/slices/modelSlice';
+import { setSelectedModel } from '../../store/slices/modelSlice';
 import { setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
 import { CoworkImageAttachment } from '../../types/cowork';
 import { Skill } from '../../types/skill';
@@ -64,9 +65,9 @@ import { resolveAgentModelSelection, resolveEffectiveModel, useAgentSelectedMode
 import AttachmentCard from './AttachmentCard';
 import BrowserAnnotationAttachmentBadge from './BrowserAnnotationAttachmentBadge';
 import { getClipboardAttachmentFiles } from './clipboardAttachments';
-import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
+import FolderSelectorPopover from './FolderSelectorPopover';
 import { buildSelectedSkillRoutingPrompt } from './selectedSkillRoutingPrompt';
-import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
+import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
 // so that attachment state survives view switches (cowork ↔ skills, etc.)
@@ -302,6 +303,7 @@ interface CoworkPromptInputProps {
   disabled?: boolean;
   size?: 'normal' | 'large' | 'compact';
   workingDirectory?: string;
+  onWorkingDirectoryChange?: (workingDirectory: string) => void;
   showFolderSelector?: boolean;
   showModelSelector?: boolean;
   showAgentSelector?: boolean;
@@ -334,6 +336,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       disabled = false,
       size = 'normal',
       workingDirectory = '',
+      onWorkingDirectoryChange,
       showFolderSelector = false,
       showModelSelector = false,
       showAgentSelector = false,
@@ -381,6 +384,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [goalInputActive, setGoalInputActive] = useState(false);
     const [goalInputMode, setGoalInputMode] = useState<GoalInputMode>('start');
     const [showAddMenu, setShowAddMenu] = useState(false);
+    const [showFolderMenu, setShowFolderMenu] = useState(false);
     const [showSkillsPopover, setShowSkillsPopover] = useState(false);
     const [showKnowledgeSubmenu, setShowKnowledgeSubmenu] = useState(false);
     const [isDraggingFiles, setIsDraggingFiles] = useState(false);
@@ -393,6 +397,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const addMenuButtonRef = useRef<HTMLButtonElement>(null);
+    const folderButtonRef = useRef<HTMLButtonElement>(null);
     const addMenuRef = useRef<HTMLDivElement>(null);
     const knowledgeMenuItemRef = useRef<HTMLButtonElement>(null);
     const skillMenuItemRef = useRef<HTMLButtonElement>(null);
@@ -449,13 +454,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     : currentAgentId;
   const currentAgent = agents.find((agent) => agent.id === modelTargetAgentId);
   const currentAgentSelectedModel = useAgentSelectedModel(modelTargetAgentId, currentAgent?.model ?? '');
-  const {
-    isPersistingAgentModel,
-    persistAgentModelSelection,
-  } = usePersistAgentModelSelection({
-    agentId: modelTargetAgentId,
-    syncDefaultModel: modelTargetAgentId === 'main' || currentAgent?.isDefault === true,
-  });
   const {
     selectedModel: agentSelectedModel,
     hasInvalidExplicitModel: agentModelIsInvalid,
@@ -1130,6 +1128,19 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
   }, [workingDirectory]);
 
+  const handleWorkingDirectoryControlClick = useCallback(() => {
+    if (showFolderSelector && onWorkingDirectoryChange) {
+      setShowFolderMenu((current) => !current);
+      return;
+    }
+    void handleOpenWorkingDirectory();
+  }, [handleOpenWorkingDirectory, onWorkingDirectoryChange, showFolderSelector]);
+
+  const handleSelectWorkingDirectory = useCallback((path: string) => {
+    onWorkingDirectoryChange?.(path);
+    setShowFolderMenu(false);
+  }, [onWorkingDirectoryChange]);
+
   const addAttachment = useCallback((filePath: string, options?: { isImage?: boolean; isDirectory?: boolean; dataUrl?: string }) => {
     if (!filePath) return;
     dispatch(addDraftAttachment({
@@ -1517,12 +1528,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         compact={useHomeContextLayout}
         dropdownDirection="up"
         alignDropdownToTriggerEnd={useHomeContextLayout}
-        disabled={isPatchingModel || isPersistingAgentModel}
+        disabled={isPatchingModel}
         value={agentModelIsInvalid && currentSession?.modelOverride
           ? { id: '__invalid__', name: currentSession.modelOverride.split('/').pop() || currentSession.modelOverride } as Model
           : agentSelectedModel}
         onChange={async (nextModel) => {
-          if (isPatchingModel || isPersistingAgentModel) return;
+          if (isPatchingModel) return;
           if (!nextModel) return;
           const modelRef = toOpenClawModelRef(nextModel);
           if (sessionId) {
@@ -1549,8 +1560,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 }));
                 return;
               }
-
-              await persistAgentModelSelection(nextModel);
               void coworkService.refreshContextUsage(sessionId, { notifyCompaction: false });
             } catch {
               if (requestId === modelPatchRequestIdRef.current) {
@@ -1569,7 +1578,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             }
             return;
           }
-          await persistAgentModelSelection(nextModel);
+          dispatch(setSelectedModel({ agentId: modelTargetAgentId, model: nextModel }));
         }}
       />
       {agentModelIsInvalid && (
@@ -1581,21 +1590,40 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   ) : null;
 
   const largeWorkingDirectoryControl = (showFolderSelector || showReadOnlyContext) ? (
-    <button
-      type="button"
-      onClick={handleOpenWorkingDirectory}
-      disabled={!hasWorkingDirectory}
-      className={`flex h-[34px] max-w-[220px] min-w-0 shrink items-center gap-1.5 rounded-lg px-2 text-[13px] text-secondary transition-colors ${
-        hasWorkingDirectory ? 'hover:bg-surface-raised hover:text-foreground' : 'cursor-default opacity-60'
-      }`}
-      title={workingDirectory || i18nService.t('noFolderSelected')}
-      aria-label={i18nService.t('coworkOpenFolder')}
-    >
-      <FolderIcon className="h-4 w-4 shrink-0" />
-      <span className="min-w-0 truncate">
-        {truncatePath(workingDirectory, ContextLabelMaxLength.Folder)}
-      </span>
-    </button>
+    <div className="relative min-w-0 shrink">
+      <button
+        ref={folderButtonRef}
+        type="button"
+        onClick={handleWorkingDirectoryControlClick}
+        disabled={showReadOnlyContext && !hasWorkingDirectory}
+        className={`flex h-[34px] max-w-[220px] min-w-0 shrink items-center gap-1.5 rounded-lg border px-2 text-[13px] transition-colors ${
+          showFolderMenu
+            ? 'border-[#70a8ff] bg-surface-raised text-foreground'
+            : showReadOnlyContext && !hasWorkingDirectory
+              ? 'cursor-default border-transparent text-secondary opacity-60'
+              : 'border-transparent text-secondary hover:border-[#70a8ff] hover:bg-surface-raised hover:text-foreground'
+        }`}
+        title={workingDirectory || i18nService.t('noFolderSelected')}
+        aria-label={showFolderSelector ? i18nService.t('folderSelect') : i18nService.t('coworkOpenFolder')}
+        aria-haspopup={showFolderSelector ? 'menu' : undefined}
+        aria-expanded={showFolderSelector ? showFolderMenu : undefined}
+      >
+        <FolderIcon className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 truncate">
+          {truncatePath(workingDirectory, ContextLabelMaxLength.Folder)}
+        </span>
+      </button>
+      {showFolderSelector && onWorkingDirectoryChange && (
+        <FolderSelectorPopover
+          isOpen={showFolderMenu}
+          onClose={() => setShowFolderMenu(false)}
+          onSelectFolder={handleSelectWorkingDirectory}
+          anchorRef={folderButtonRef}
+          portal
+          placement="top"
+        />
+      )}
+    </div>
   ) : null;
 
   const renderKnowledgeSubmenu = () => (

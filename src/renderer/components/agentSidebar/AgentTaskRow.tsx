@@ -169,21 +169,27 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
     setIsRenaming(false);
   };
 
-  const indicatorLabel = task.indicator === AgentSidebarIndicator.Running
-    ? i18nService.t('myAgentSidebarRunning')
-    : i18nService.t('myAgentSidebarUnreadResult');
   const menuItemClassName =
     'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
   const menuIconClassName = 'h-3.5 w-3.5';
   const relativeTime = formatAgentTaskRelativeTime(task.updatedAt || task.createdAt);
+  const showPendingConfirmationIndicator = task.indicator === AgentSidebarIndicator.PendingPermission;
+  const showRunningIndicator = task.indicator === AgentSidebarIndicator.Running;
+  const showUnreadIndicator = task.indicator === AgentSidebarIndicator.CompletedUnread;
   const showRelativeTime = task.indicator === AgentSidebarIndicator.None;
   const pinLabel = task.pinned ? i18nService.t('coworkUnpinSession') : i18nService.t('coworkPinSession');
+  const pendingConfirmationLabel = i18nService.t('myAgentSidebarPendingPermission');
+  const indicatorLabel = showPendingConfirmationIndicator
+    ? pendingConfirmationLabel
+    : task.indicator === AgentSidebarIndicator.Running
+      ? i18nService.t('myAgentSidebarRunning')
+      : i18nService.t('myAgentSidebarUnreadResult');
 
   return (
     <div
-      className={`group relative -ml-[6px] flex h-[30px] w-[calc(100%+12px)] items-center gap-2 rounded-md ${
-        isBatchMode ? 'pl-4' : 'pl-[38px]'
-      } pr-2.5 text-[14px] font-normal transition-colors ${
+      className={`group relative flex h-9 w-full items-center gap-2 rounded-md ${
+        isBatchMode ? 'pl-4' : 'pl-9'
+      } pr-3 text-[14px] font-normal transition-colors ${
         isSelectionDisabled
           ? 'cursor-default text-foreground/30'
           : task.isSelected && !hasActiveSubagent
@@ -208,12 +214,12 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
             event.currentTarget.blur();
             void onTogglePin(nextPinned);
           }}
-          className={`absolute left-[13px] top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-foreground transition-opacity hover:opacity-[0.46] focus:outline-none ${
+          className={`absolute left-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-foreground transition-[background-color,opacity] hover:opacity-[0.46] focus:outline-none ${
             suppressPinHover
               ? 'pointer-events-none opacity-0'
-              : task.pinned
-                ? 'opacity-[0.46]'
-                : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-[0.3]'
+            : task.pinned
+                ? 'bg-black/[0.04] opacity-[0.46] dark:bg-white/[0.05]'
+                : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:bg-black/[0.04] group-hover:opacity-[0.3] dark:group-hover:bg-white/[0.05]'
           }`}
           aria-label={pinLabel}
           title={pinLabel}
@@ -257,7 +263,17 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
           <span className="min-w-0 flex-1 truncate">
             {task.title}
           </span>
-          {task.indicator === AgentSidebarIndicator.Running && (
+          {showPendingConfirmationIndicator && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-amber-700 transition-opacity group-hover:opacity-0 dark:text-amber-300"
+              title={pendingConfirmationLabel}
+              aria-label={pendingConfirmationLabel}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+              {pendingConfirmationLabel}
+            </span>
+          )}
+          {showRunningIndicator && (
             <span
               className="inline-flex h-3 w-3 shrink-0 items-center justify-center transition-opacity group-hover:opacity-0"
               title={indicatorLabel}
@@ -266,7 +282,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
               <LoadingIcon className="h-3 w-3 animate-spin text-secondary" aria-hidden="true" />
             </span>
           )}
-          {task.indicator === AgentSidebarIndicator.CompletedUnread && (
+          {showUnreadIndicator && (
             <span
               className="h-[7px] w-[7px] shrink-0 rounded-full bg-blue-500 transition-opacity group-hover:opacity-0"
               title={indicatorLabel}
