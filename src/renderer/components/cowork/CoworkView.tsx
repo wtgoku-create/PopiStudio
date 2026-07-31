@@ -113,8 +113,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
   const agents = useSelector((state: RootState) => state.agent.agents);
   const currentAgent = agents.find((agent) => agent.id === currentAgentId);
   const currentAgentWorkingDirectory = currentAgent?.workingDirectory?.trim() || config.workingDirectory || '';
-  const [newSessionWorkingDirectory, setNewSessionWorkingDirectory] = useState(currentAgentWorkingDirectory);
-  const sessionCreationWorkingDirectory = newSessionWorkingDirectory.trim() || currentAgentWorkingDirectory;
   const currentAgentSelectedModel = useAgentSelectedModel(currentAgentId, currentAgent?.model ?? '');
   const hasCurrentSessionMessages = Boolean(
     currentSession && ((currentSession.totalMessages ?? 0) > 0 || currentSession.messages.length > 0),
@@ -125,10 +123,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     currentSession
       && (hasCurrentSessionMessages || isCurrentSessionRemoteSource),
   );
-
-  useEffect(() => {
-    setNewSessionWorkingDirectory(currentAgentWorkingDirectory);
-  }, [currentAgentId, currentAgentWorkingDirectory]);
 
   const resolveEngineStatusText = (status: OpenClawEngineStatus): string => {
     if (status.message?.trim()) {
@@ -284,6 +278,38 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
       const selectedTextSnippets = options?.selectedTextSnippets;
       const browserAnnotations = options?.browserAnnotations;
+      const existingSessionResult = await coworkService.listSessionsForAgentPreview(currentAgentId, 1, 0);
+      const existingSessionSummary = existingSessionResult.success
+        ? existingSessionResult.sessions?.[0]
+        : null;
+
+      if (existingSessionSummary) {
+        const loadedSession = await coworkService.loadSession(existingSessionSummary.id);
+        const popitvContextSkillIds = sessionSkillIds.length > 0
+          ? sessionSkillIds
+          : loadedSession?.activeSkillIds ?? [];
+        const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
+          shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
+          sessionId: existingSessionSummary.id,
+        });
+        const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
+        const sent = await coworkService.continueSession({
+          sessionId: existingSessionSummary.id,
+          prompt,
+          knowledgeBases,
+          knowledgeFiles,
+          selectedTextSnippets,
+          browserAnnotations,
+          systemPrompt: combinedSystemPrompt,
+          activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
+          imageAttachments,
+        });
+        if (sent && sessionSkillIds.length > 0) {
+          dispatch(clearActiveSkills());
+        }
+        dispatch(clearSelection());
+        return sent;
+      }
 
       // Create a temporary session with user message to show immediately
       const tempSessionId = `temp-${Date.now()}`;
@@ -301,7 +327,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         pinned: false,
         createdAt: now,
         updatedAt: now,
-        cwd: sessionCreationWorkingDirectory,
+        cwd: currentAgentWorkingDirectory,
         systemPrompt: '',
         modelOverride: currentAgentSelectedModel ? toOpenClawModelRef(currentAgentSelectedModel) : '',
         executionMode: config.executionMode || 'local',
@@ -358,7 +384,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         selectedTextSnippets,
         browserAnnotations,
         title: fallbackTitle,
-        cwd: sessionCreationWorkingDirectory || undefined,
+        cwd: currentAgentWorkingDirectory || undefined,
         systemPrompt: combinedSystemPrompt,
         activeSkillIds: sessionSkillIds,
         agentId: currentAgentId,
@@ -707,8 +733,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
               disabled={!isEngineReady}
               placeholder={i18nService.t('coworkPlaceholder')}
               size="large"
-              workingDirectory={sessionCreationWorkingDirectory}
-              onWorkingDirectoryChange={setNewSessionWorkingDirectory}
+              workingDirectory={currentAgentWorkingDirectory}
               showFolderSelector={true}
               showModelSelector={true}
               showAgentSelector={true}

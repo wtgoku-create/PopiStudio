@@ -10,6 +10,7 @@ import {
   COWORK_MESSAGE_PAGE_SIZE,
   COWORK_SESSION_PAGE_SIZE,
   type CoworkSessionsChangedPayload,
+  CoworkSessionSourceKind,
 } from '../../shared/cowork/constants';
 import { buildCoworkErrorDetail, type CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import { normalizeCoworkGoal } from '../../shared/cowork/goal';
@@ -176,6 +177,7 @@ class CoworkService {
 
     // Load sessions list
     await this.loadSessions();
+    await this.loadDefaultAgentHomeSession();
 
     // Set up stream listeners
     this.setupStreamListeners();
@@ -260,6 +262,21 @@ class CoworkService {
       void this.loadSessionArtifacts(sessionId);
     }, delayMs);
     this.artifactRefreshTimers.set(sessionId, timer);
+  }
+
+  private async loadDefaultAgentHomeSession(): Promise<void> {
+    if (store.getState().cowork.currentSessionId) return;
+
+    const result = await this.listAgentSidebarSessions();
+    if (!result.success) return;
+
+    const mainHomeSession = result.sessions?.find((session) => (
+      (session.agentId?.trim() || AgentId.Main) === AgentId.Main
+      && session.source?.kind === CoworkSessionSourceKind.AgentHome
+    ));
+    if (!mainHomeSession) return;
+
+    await this.loadSession(mainHomeSession.id);
   }
 
   private setupStreamListeners(): void {

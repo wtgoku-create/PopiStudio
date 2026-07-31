@@ -5,6 +5,7 @@ import { HIDDEN_IM_PLATFORMS, PlatformRegistry } from '@shared/platform';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
+import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -178,8 +179,17 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
           await imService.saveAndSyncConfig();
         }
         agentService.switchAgent(agent.id);
-        await coworkService.loadSessions(agent.id);
-        coworkService.clearSession({ restoreAgentSkills: true });
+        const sidebarSessionsResult = await coworkService.listAgentSidebarSessions();
+        const homeSession = sidebarSessionsResult.success
+          ? sidebarSessionsResult.sessions?.find((session) => (
+            session.agentId === agent.id && session.source?.kind === CoworkSessionSourceKind.AgentHome
+          ))
+          : null;
+        if (homeSession) {
+          await coworkService.loadSession(homeSession.id);
+        } else {
+          await coworkService.loadSessions(agent.id);
+        }
         onClose();
         resetForm();
       } else {

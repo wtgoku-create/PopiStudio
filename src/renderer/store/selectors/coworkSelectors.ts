@@ -71,22 +71,5 @@ export const selectFirstCurrentSessionPendingPermission = createSelector(
 
 export const selectPendingPermissionSessionIds = createSelector(
   selectPendingPermissions,
-  (permissions) => {
-    const ids = new Set<string>();
-    for (const permission of permissions) {
-      ids.add(permission.sessionId);
-      const sessionKey = typeof permission.toolInput?.sessionKey === 'string'
-        ? permission.toolInput.sessionKey.trim()
-        : '';
-      const parts = sessionKey.split(':');
-      if (parts.length < 4 || parts[0] !== 'agent') continue;
-
-      const source = parts[2]?.trim();
-      const sessionId = parts.slice(3).join(':').trim();
-      if ((source === 'popiai' || source === 'subagent') && sessionId) {
-        ids.add(sessionId);
-      }
-    }
-    return Array.from(ids);
-  },
+  (permissions) => permissions.map((permission) => permission.sessionId),
 );

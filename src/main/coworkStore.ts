@@ -29,6 +29,7 @@ import {
   type CoworkMessageRailIndexItem,
   getCoworkRailPreview,
 } from '../shared/cowork/rail';
+import { resolveMainAgentWorkingDirectory } from './agentWorkingDirectory';
 
 
 // Default working directory for new users
@@ -37,6 +38,10 @@ const getDefaultWorkingDirectory = (): string => {
 };
 
 const TASK_WORKSPACE_CONTAINER_DIR = '.popiai-tasks';
+
+const resolveAgentWorkingDirectory = (workingDirectoryRoot: string, agentId: string): string => {
+  return path.join(workingDirectoryRoot.trim(), agentId);
+};
 
 const normalizeRecentWorkspacePath = (cwd: string): string => {
   const resolved = path.resolve(cwd);
@@ -2854,6 +2859,7 @@ export class CoworkStore {
     }
 
     const agent = this.getAgent(id)!;
+    this.ensureAgentHomeSession(agent.id);
     return agent;
   }
 

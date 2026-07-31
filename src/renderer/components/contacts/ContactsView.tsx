@@ -1,21 +1,26 @@
 import {
   ChatBubbleOvalLeftEllipsisIcon,
   Cog6ToothIcon,
+  DocumentArrowDownIcon,
   MagnifyingGlassIcon,
+  ShareIcon,
 } from '@heroicons/react/24/outline';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
+import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import type { RootState } from '../../store';
 import type { AgentSummary } from '../../store/slices/agentSlice';
 import { getAgentDisplayName, isDefaultAgentId } from '../../utils/agentDisplay';
+import { sanitizeExportFileName, sessionToJSON, sessionToMarkdown } from '../../utils/coworkSessionExport';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import AgentSettingsPanel from '../agent/AgentSettingsPanel';
 import { AgentConfirmDialogVariant } from '../agent/constants';
+import Modal from '../common/Modal';
 import TrashIcon from '../icons/TrashIcon';
 
 interface ContactsViewProps {
@@ -37,6 +42,7 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null);
   const [deleteAgent, setDeleteAgent] = useState<AgentSummary | null>(null);
+  const [shareAgent, setShareAgent] = useState<AgentSummary | null>(null);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_CONTACTS_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const isResizingRef = useRef(false);
@@ -106,21 +112,77 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
     window.dispatchEvent(new CustomEvent('app:showToast', { detail: message }));
   }, []);
 
-  const openAgentEntry = useCallback(
-    async (agent: AgentSummary): Promise<void> => {
+  const openAgentHomeSession = useCallback(
+    async (agent: AgentSummary): Promise<string | null> => {
       agentService.switchAgent(agent.id);
       onShowCowork();
+
+      const sidebarSessionsResult = await coworkService.listAgentSidebarSessions();
+      const homeSession = sidebarSessionsResult.success
+        ? sidebarSessionsResult.sessions?.find((session) => (
+          session.agentId === agent.id && session.source?.kind === CoworkSessionSourceKind.AgentHome
+        ))
+        : null;
+
+      if (homeSession) {
+        await coworkService.loadSession(homeSession.id);
+        return homeSession.id;
+      }
+
       await coworkService.loadSessions(agent.id);
-      coworkService.clearSession({ restoreAgentSkills: true });
+      return null;
     },
     [onShowCowork],
   );
 
   const handleMessageAgent = useCallback(
     async (agent: AgentSummary) => {
-      await openAgentEntry(agent);
+      await openAgentHomeSession(agent);
     },
-    [openAgentEntry],
+    [openAgentHomeSession],
+  );
+
+  const handleExportAgentSession = useCallback(
+    async (agent: AgentSummary, format: 'md' | 'json') => {
+      try {
+        const sidebarSessionsResult = await coworkService.listAgentSidebarSessions();
+        const homeSession = sidebarSessionsResult.success
+          ? sidebarSessionsResult.sessions?.find((session) => (
+            session.agentId === agent.id
+            && session.source?.kind === CoworkSessionSourceKind.AgentHome
+          ))
+          : null;
+
+        if (!homeSession) {
+          throw new Error('Agent home session not found');
+        }
+
+        const session = await coworkService.getSessionSnapshot(homeSession.id);
+        if (!session) {
+          throw new Error('Agent home session snapshot not found');
+        }
+
+        const content = format === 'md' ? sessionToMarkdown(session) : sessionToJSON(session);
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const fileName = sanitizeExportFileName(`${session.title}-${timestamp}.${format}`);
+        const result = await window.electron.cowork.exportSessionText({
+          content,
+          defaultFileName: fileName,
+          fileExtension: format,
+        });
+        if (result.success && !result.canceled) {
+          showToast(i18nService.t('coworkExportTextSuccess'));
+          return;
+        }
+        if (!result.success) {
+          throw new Error(result.error || 'Export failed');
+        }
+      } catch (error) {
+        console.error('Failed to export agent session:', error);
+        showToast(i18nService.t('coworkExportTextFailed'));
+      }
+    },
+    [showToast],
   );
 
   const handleDeleteAgent = useCallback(async () => {
@@ -147,6 +209,13 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
           label: i18nService.t('contactsSendMessage'),
           icon: ChatBubbleOvalLeftEllipsisIcon,
           onClick: () => void handleMessageAgent(selectedAgent),
+          tone: 'normal',
+        },
+        {
+          key: 'share',
+          label: i18nService.t('contactsShare'),
+          icon: ShareIcon,
+          onClick: () => setShareAgent(selectedAgent),
           tone: 'normal',
         },
         {
@@ -287,7 +356,7 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
                   </p>
                 </div>
 
-                <div className="grid w-full max-w-[420px] grid-cols-3 gap-[5px]">
+                <div className="grid w-full max-w-[520px] grid-cols-4 gap-[5px]">
                   {actionCards.map(action => {
                     const Icon = action.icon;
                     const isDanger = action.tone === 'danger';
@@ -297,10 +366,10 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
                         type="button"
                         onClick={action.onClick}
                         disabled={action.key === 'delete' && isDefaultAgentId(selectedAgent.id)}
-                        className={`flex min-h-[76px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl bg-[#eeeeee] px-3 py-3 text-center transition-colors dark:bg-white/[0.04] ${
+                        className={`flex min-h-[76px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl bg-[#f9f9f9] px-3 py-3 text-center transition-colors dark:bg-white/[0.04] ${
                           isDanger
-                            ? 'text-destructive hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-45'
-                            : 'text-foreground hover:bg-[#e7e2f1] dark:hover:bg-white/[0.07]'
+                            ? 'text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-45'
+                            : 'text-foreground hover:bg-[#f0edf9] dark:hover:bg-white/[0.07]'
                         }`}
                       >
                         <Icon className="h-6 w-6 shrink-0" />
@@ -330,6 +399,56 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
       </div>
 
       <AgentSettingsPanel agentId={settingsAgentId} onClose={() => setSettingsAgentId(null)} />
+
+      {shareAgent && (
+        <Modal
+          onClose={() => setShareAgent(null)}
+          overlayClassName="fixed inset-0 z-50 flex items-center justify-center modal-backdrop"
+          className="modal-content w-full max-w-xs overflow-hidden rounded-2xl bg-surface shadow-modal"
+        >
+          <div className="border-b border-border px-5 py-4">
+            <h3 className="text-base font-semibold text-foreground">
+              {i18nService.t('coworkExportAs')}
+            </h3>
+          </div>
+          <div className="py-1">
+            <button
+              type="button"
+              onClick={() => {
+                const agent = shareAgent;
+                setShareAgent(null);
+                void handleExportAgentSession(agent, 'md');
+              }}
+              className="flex w-full items-center gap-3 px-5 py-3 text-left text-sm text-foreground transition-colors hover:bg-surface-raised"
+            >
+              <DocumentArrowDownIcon className="h-5 w-5 shrink-0 text-secondary" />
+              <div>
+                <div className="font-medium">Markdown</div>
+                <div className="text-xs text-secondary">
+                  {i18nService.t('coworkExportMarkdownDesc')}
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const agent = shareAgent;
+                setShareAgent(null);
+                void handleExportAgentSession(agent, 'json');
+              }}
+              className="flex w-full items-center gap-3 px-5 py-3 text-left text-sm text-foreground transition-colors hover:bg-surface-raised"
+            >
+              <DocumentArrowDownIcon className="h-5 w-5 shrink-0 text-secondary" />
+              <div>
+                <div className="font-medium">JSON</div>
+                <div className="text-xs text-secondary">
+                  {i18nService.t('coworkExportJSONDesc')}
+                </div>
+              </div>
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {deleteAgent && (
         <AgentConfirmDialog
