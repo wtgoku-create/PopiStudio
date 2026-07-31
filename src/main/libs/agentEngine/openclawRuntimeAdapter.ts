@@ -94,8 +94,12 @@ import {
   buildCronRunHistoryMetadata,
   buildCronRunLocalHistoryEntries,
   findCronRunHistoryLocalMatch,
+  getCronRunHistorySessionKey,
   isCronRunPromptContentCoveredByMessage,
+  isSameCronRunHistorySessionKey,
   shouldReplaceLocalConversationWithCronHistory,
+  type CronRunHistoryEntry,
+  type CronRunLocalHistoryEntry,
 } from './openclawCronRunHistorySync';
 import { OpenClawTurnHistorySync } from './openclawTurnHistorySync';
 import { buildSubagentChildHistorySyncPlan } from './subagent/childHistorySync';
@@ -7676,6 +7680,78 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
    * history must be merged non-destructively instead of replacing the whole
    * conversation from one run-scoped chat.history window.
    */
+  private findCronRunHistoryInsertBeforeId(
+    session: CoworkSession,
+    authoritativeEntries: CronRunHistoryEntry[],
+    localEntries: CronRunLocalHistoryEntry[],
+    usedLocalMessageIds: ReadonlySet<string>,
+    sessionKey: string,
+    authoritativeIndex: number,
+  ): string | null {
+    const messageIndexById = new Map<string, number>();
+    session.messages.forEach((message, index) => {
+      messageIndexById.set(message.id, index);
+    });
+
+    let previousRunBoundary = -1;
+    for (const message of session.messages) {
+      const importedSessionKey = getCronRunHistorySessionKey(message.metadata);
+      if (!importedSessionKey || isSameCronRunHistorySessionKey(importedSessionKey, sessionKey)) {
+        continue;
+      }
+      previousRunBoundary = Math.max(previousRunBoundary, messageIndexById.get(message.id) ?? -1);
+    }
+
+    let nextMatchedLocalId: string | null = null;
+    let nextMatchedLocalIndex: number | null = null;
+    for (let index = authoritativeIndex + 1; index < authoritativeEntries.length; index++) {
+      const matchingLocal = findCronRunHistoryLocalMatch(
+        authoritativeEntries[index],
+        localEntries,
+        usedLocalMessageIds,
+        sessionKey,
+      );
+      if (!matchingLocal) continue;
+      const matchingIndex = messageIndexById.get(matchingLocal.id) ?? -1;
+      if (matchingIndex > previousRunBoundary) {
+        nextMatchedLocalId = matchingLocal.id;
+        nextMatchedLocalIndex = matchingIndex;
+        break;
+      }
+    }
+
+    if (authoritativeEntries[authoritativeIndex]?.role !== 'user') {
+      return nextMatchedLocalId;
+    }
+
+    const firstCurrentRunOutput = session.messages.find((message, index) => {
+      if (index <= previousRunBoundary) return false;
+      const importedSessionKey = getCronRunHistorySessionKey(message.metadata);
+      if (importedSessionKey && !isSameCronRunHistorySessionKey(importedSessionKey, sessionKey)) {
+        return false;
+      }
+      return message.type === 'assistant'
+        || message.type === 'tool_use'
+        || message.type === 'tool_result'
+        || message.type === 'system';
+    });
+    const firstCurrentRunOutputIndex = firstCurrentRunOutput
+      ? messageIndexById.get(firstCurrentRunOutput.id) ?? null
+      : null;
+
+    if (
+      firstCurrentRunOutput
+      && (
+        nextMatchedLocalIndex == null
+        || (firstCurrentRunOutputIndex != null && firstCurrentRunOutputIndex < nextMatchedLocalIndex)
+      )
+    ) {
+      return firstCurrentRunOutput.id;
+    }
+
+    return nextMatchedLocalId;
+  }
+
   private async syncCronRunHistory(
     sessionId: string,
     sessionKey: string,
@@ -7750,7 +7826,13 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         return;
       }
 
-      if (shouldReplaceLocalConversationWithCronHistory(localEntries, authoritativeEntries, sessionKey)) {
+      const hasNonConversationMessages = session.messages.some(
+        message => message.type !== 'user' && message.type !== 'assistant',
+      );
+      if (
+        !hasNonConversationMessages
+        && shouldReplaceLocalConversationWithCronHistory(localEntries, authoritativeEntries, sessionKey)
+      ) {
         this.store.replaceConversationMessages(
           sessionId,
           applyLocalTimestampsToEntries(authoritativeEntries, localEntries),
@@ -7760,7 +7842,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
 
       const usedLocalMessageIds = new Set<string>();
-      for (const authoritative of authoritativeEntries) {
+      for (const [authoritativeIndex, authoritative] of authoritativeEntries.entries()) {
         const matchingLocal = findCronRunHistoryLocalMatch(
           authoritative,
           localEntries,
@@ -7784,7 +7866,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           continue;
         }
 
-        const message = this.store.addMessage(sessionId, {
+        const messagePayload = {
           type: authoritative.role,
           content: authoritative.text,
           metadata: {
@@ -7792,8 +7874,19 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
             isFinal: true,
             ...(authoritative.metadata ?? {}),
           },
-        });
-        this.emit('message', sessionId, message);
+        } as const;
+        const insertBeforeId = this.findCronRunHistoryInsertBeforeId(
+          session,
+          authoritativeEntries,
+          localEntries,
+          usedLocalMessageIds,
+          sessionKey,
+          authoritativeIndex,
+        );
+        const message = insertBeforeId
+          ? this.store.insertMessageBeforeId(sessionId, insertBeforeId, messagePayload)
+          : this.store.addMessage(sessionId, messagePayload);
+        this.emit('message', sessionId, message, insertBeforeId ?? undefined);
       }
 
       this.channelSyncCursor.set(sessionId, authoritativeEntries.length);
@@ -8828,26 +8921,84 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     return `[cron:${jobId}${name ? ` ${name}` : ''}] ${prompt}`;
   }
 
-  private ensureCronRunPromptMessage(sessionId: string, sessionKey: string): void {
-    const content = this.resolveCronRunPromptContent(sessionKey);
-    if (!content) return;
+  private formatCronRunPromptWithTime(prompt: string, now: Date = new Date()): string {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const ordinal = (day: number): string => {
+      const mod100 = day % 100;
+      if (mod100 >= 11 && mod100 <= 13) return `${day}th`;
+      switch (day % 10) {
+        case 1:
+          return `${day}st`;
+        case 2:
+          return `${day}nd`;
+        case 3:
+          return `${day}rd`;
+        default:
+          return `${day}th`;
+      }
+    };
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(now);
+    const value = (type: Intl.DateTimeFormatPartTypes): string => (
+      parts.find(part => part.type === type)?.value ?? ''
+    );
+    const localTime = `${value('weekday')}, ${value('month')} ${ordinal(Number(value('day')))}, ${value('year')} - ${value('hour')}:${value('minute')} (${timezone})`;
+    const utcParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(now);
+    const utcValue = (type: Intl.DateTimeFormatPartTypes): string => (
+      utcParts.find(part => part.type === type)?.value ?? ''
+    );
+    const referenceUtc = `${utcValue('year')}-${utcValue('month')}-${utcValue('day')} ${utcValue('hour')}:${utcValue('minute')} UTC`;
+    return `${prompt}\nCurrent time: ${localTime}\nReference UTC: ${referenceUtc}`;
+  }
 
+  private buildCronRunScopedSessionKey(sessionKey: string, runId: string): string {
+    if (!runId.trim() || /:run:[^:\s]+$/i.test(sessionKey.trim())) return sessionKey;
+    return `${sessionKey}:run:${runId.trim()}`;
+  }
+
+  private ensureCronRunPromptMessage(sessionId: string, sessionKey: string, runId: string): void {
+    const baseContent = this.resolveCronRunPromptContent(sessionKey);
+    if (!baseContent) return;
+    const content = this.formatCronRunPromptWithTime(baseContent);
+
+    const promptSessionKey = this.buildCronRunScopedSessionKey(sessionKey, runId);
     const session = this.store.getSession(sessionId);
     if (!session) return;
     const alreadyExists = session.messages.some((message) => (
-      message.type === 'user' && isCronRunPromptContentCoveredByMessage(message.content, content)
+      message.type === 'user'
+      && isCronRunPromptContentCoveredByMessage(message.content, content)
+      && isSameCronRunHistorySessionKey(getCronRunHistorySessionKey(message.metadata), promptSessionKey)
     ));
     if (alreadyExists) return;
 
     const messagePayload = {
       type: 'user',
       content,
-      metadata: buildCronRunHistoryMetadata(sessionKey, 0, {
+      metadata: buildCronRunHistoryMetadata(promptSessionKey, 0, {
         isStreaming: false,
         isFinal: true,
       }),
     } as const;
-    const firstMessageId = session.messages[0]?.id;
+    const hasConversationMessages = session.messages.some(message => (
+      message.type === 'user' || message.type === 'assistant'
+    ));
+    const firstMessageId = hasConversationMessages ? undefined : session.messages[0]?.id;
     const message = firstMessageId
       ? this.store.insertMessageBeforeId(sessionId, firstMessageId, messagePayload)
       : this.store.addMessage(sessionId, messagePayload);
@@ -8933,7 +9084,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (runId) {
       this.sessionIdByRunId.set(runId, sessionId);
     }
-    this.ensureCronRunPromptMessage(sessionId, sessionKey);
+    this.ensureCronRunPromptMessage(sessionId, sessionKey, turnRunId);
     this.store.updateSession(sessionId, { status: 'running' });
     this.emitSessionStatus(sessionId, 'running');
     this.startTurnTimeoutWatchdog(sessionId);

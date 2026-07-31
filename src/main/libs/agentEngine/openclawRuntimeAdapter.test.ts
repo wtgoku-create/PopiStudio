@@ -26,6 +26,7 @@ import {
   OpenClawRuntimeAdapter,
   pickPersistedAssistantSegment,
 } from './openclawRuntimeAdapter';
+import { buildCronRunHistoryMetadata } from './openclawCronRunHistorySync';
 
 test('pickPersistedAssistantSegment: stream authority keeps previous when same length or longer', () => {
   expect(pickPersistedAssistantSegment('aa', 'a', true)).toEqual({
@@ -418,7 +419,12 @@ function createRunTurnAdapter(options: {
         Object.assign(message, patch);
       }
     },
-    deleteMessage: () => true,
+    deleteMessage: (sessionId: string, messageId: string) => {
+      expect(sessionId).toBe(session.id);
+      const before = session.messages.length;
+      session.messages = session.messages.filter((entry) => entry.id !== messageId);
+      return session.messages.length !== before;
+    },
     getAgent: (agentId: string) => (agentId === 'main'
       ? {
         id: 'main',
@@ -699,7 +705,12 @@ function createReconcileStore(messages: Array<Record<string, unknown>>) {
           });
         }
       },
-      deleteMessage: () => true,
+      deleteMessage: (sessionId: string, messageId: string) => {
+        expect(sessionId).toBe(session.id);
+        const before = session.messages.length;
+        session.messages = session.messages.filter((entry) => entry.id !== messageId);
+        return session.messages.length !== before;
+      },
     },
   };
 }
@@ -734,6 +745,7 @@ function createActiveTurn(sessionId: string, sessionKey: string, runId: string) 
 }
 
 test('fetchSessionByKey: cron run key uses gateway history instead of local session cache', async () => {
+  const sessionKey = 'agent:main:cron:job-1:run:run-1';
   const { session, store } = createReconcileStore([
     { id: 'msg-1', type: 'assistant', content: 'local partial cron output', timestamp: 1, metadata: {} },
   ]);
@@ -830,13 +842,10 @@ test('ensureActiveTurn inserts the cron prompt before runtime tool messages', ()
     },
   });
 
-  expect(session.messages.map(message => ({
-    type: message.type,
-    content: message.content,
-  }))).toEqual([
-    { type: 'user', content: '[cron:job-1 科技早报] 请收集新闻' },
-    { type: 'tool_use', content: 'Using tool: Read' },
-  ]);
+  expect(session.messages.map(message => message.type)).toEqual(['user', 'tool_use']);
+  expect(session.messages[0].content).toContain('[cron:job-1 科技早报] 请收集新闻\nCurrent time: ');
+  expect(session.messages[0].content).toContain('\nReference UTC: ');
+  expect(session.messages[1].content).toBe('Using tool: Read');
 });
 
 test('ensureActiveTurn inserts the cron prompt before earlier runtime system errors', () => {
@@ -863,22 +872,62 @@ test('ensureActiveTurn inserts the cron prompt before earlier runtime system err
 
   adapter.ensureActiveTurn(session.id, sessionKey, 'run-1');
 
-  expect(session.messages.map(message => ({
-    type: message.type,
-    content: message.content,
-  }))).toEqual([
-    { type: 'user', content: '[cron:job-1 科技早报] 请收集新闻' },
-    { type: 'system', content: '请求过于频繁，请稍后再试' },
-  ]);
+  expect(session.messages.map(message => message.type)).toEqual(['user', 'system']);
+  expect(session.messages[0].content).toContain('[cron:job-1 科技早报] 请收集新闻\nCurrent time: ');
+  expect(session.messages[0].content).toContain('\nReference UTC: ');
+  expect(session.messages[1].content).toBe('请求过于频繁，请稍后再试');
   expect(emittedMessages).toEqual([
     {
       message: expect.objectContaining({
         type: 'user',
-        content: '[cron:job-1 科技早报] 请收集新闻',
+        content: expect.stringContaining('[cron:job-1 科技早报] 请收集新闻\nCurrent time: '),
       }),
       beforeMessageId: 'system-error-1',
     },
   ]);
+});
+
+test('ensureActiveTurn appends a second cron prompt after the previous run output', () => {
+  const { session, store } = createReconcileStore([
+    {
+      id: 'run-1-user',
+      type: 'user',
+      content: '[cron:job-1 科技早报] 请收集新闻',
+      timestamp: 1,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:run-1', 0),
+    },
+    {
+      id: 'run-1-tool',
+      type: 'tool_use',
+      content: 'Using tool: Read',
+      timestamp: 2,
+      metadata: { toolName: 'Read' },
+    },
+    {
+      id: 'run-1-assistant',
+      type: 'assistant',
+      content: '第一次结果',
+      timestamp: 3,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:run-1', 1),
+    },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {} as never, {
+    resolveCronJobPrompt: (jobId) => ({
+      message: '请收集新闻',
+      name: jobId === 'job-1' ? '科技早报' : null,
+    }),
+  });
+
+  adapter.ensureActiveTurn(session.id, 'agent:main:cron:job-1', 'run-2');
+
+  expect(session.messages.map(message => message.type)).toEqual(['user', 'tool_use', 'assistant', 'user']);
+  expect(session.messages[0].content).toBe('[cron:job-1 科技早报] 请收集新闻');
+  expect(session.messages[3].content).toContain('[cron:job-1 科技早报] 请收集新闻\nCurrent time: ');
+  expect(session.messages[3].content).toContain('\nReference UTC: ');
+  expect(session.messages[3].metadata).toMatchObject({
+    openclawCronRunSessionKey: 'agent:main:cron:job-1:run:run-2',
+    openclawCronRunEntryIndex: 0,
+  });
 });
 
 test('syncCronRunHistory inserts the cron prompt before early streamed tool activity', async () => {
@@ -948,13 +997,14 @@ test('syncCronRunHistory updates the runtime cron prompt instead of duplicating 
   });
   const runtimeSessionKey = 'agent:main:cron:job-1';
   const historySessionKey = 'agent:main:cron:job-1:run:6bcc366b-b080-4fe6-b623-2caa27642c20';
+  const historyRunId = '6bcc366b-b080-4fe6-b623-2caa27642c20';
   const fullPrompt = [
     '[cron:job-1 科技早报] 请收集新闻',
     'Current time: Thursday, July 30th, 2026 - 15:47 (Asia/Shanghai)',
     'Reference UTC: 2026-07-30 07:47 UTC',
   ].join('\n');
 
-  adapter.ensureActiveTurn(session.id, runtimeSessionKey, 'run-1');
+  adapter.ensureActiveTurn(session.id, runtimeSessionKey, historyRunId);
   adapter.gatewayClient = {
     start: () => {},
     stop: () => {},
@@ -976,6 +1026,152 @@ test('syncCronRunHistory updates the runtime cron prompt instead of duplicating 
   expect(userMessages).toHaveLength(1);
   expect(userMessages[0].content).toBe(fullPrompt);
   expect(session.messages.map(message => message.type)).toEqual(['user', 'assistant']);
+});
+
+test('syncCronRunHistory reuses the preinserted full cron prompt when run metadata differs', async () => {
+  const historySessionKey = 'agent:main:cron:job-1:run:6bcc366b-b080-4fe6-b623-2caa27642c20';
+  const fullPrompt = [
+    '[cron:job-1 科技早报] 请收集新闻',
+    'Current time: Thursday, July 30th, 2026 - 15:47 (Asia/Shanghai)',
+    'Reference UTC: 2026-07-30 07:47 UTC',
+  ].join('\n');
+  const { session, store } = createReconcileStore([
+    {
+      id: 'preinserted-prompt',
+      type: 'user',
+      content: fullPrompt,
+      timestamp: 1,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:runtime-run-id', 0),
+    },
+    {
+      id: 'assistant-1',
+      type: 'assistant',
+      content: '科技早报内容',
+      timestamp: 3,
+      metadata: buildCronRunHistoryMetadata(historySessionKey, 1),
+    },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: fullPrompt },
+        { role: 'assistant', content: '科技早报内容' },
+      ],
+    }),
+    onStatus: () => () => {},
+    getStatus: () => 'connected',
+  } as never;
+
+  await (adapter as unknown as {
+    syncCronRunHistory: (sessionId: string, sessionKey: string) => Promise<void>;
+  }).syncCronRunHistory(session.id, historySessionKey);
+
+  expect(session.messages.filter(message => message.type === 'user')).toHaveLength(1);
+  expect(session.messages[0].id).toBe('preinserted-prompt');
+  expect(session.messages[0].metadata).toMatchObject({
+    openclawCronRunSessionKey: 'agent:main:cron:job-1:run:6bcc366b-b080-4fe6-b623-2caa27642c20',
+  });
+  expect(session.messages.map(message => message.type)).toEqual(['user', 'assistant']);
+});
+
+test('syncCronRunHistory inserts a delayed cron prompt before current run tool and assistant output', async () => {
+  const currentSessionKey = 'agent:main:cron:job-1:run:run-2';
+  const { session, store, getReplaceCallCount } = createReconcileStore([
+    {
+      id: 'prev-user',
+      type: 'user',
+      content: '[cron:job-1 科技早报] 第一次',
+      timestamp: 1,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:run-1', 0),
+    },
+    {
+      id: 'prev-assistant',
+      type: 'assistant',
+      content: '第一次结果',
+      timestamp: 2,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:run-1', 1),
+    },
+    { id: 'tool-2', type: 'tool_use', content: '', timestamp: 3, metadata: { toolName: 'browser' } },
+    { id: 'assistant-2', type: 'assistant', content: '第二次结果', timestamp: 4, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: '[cron:job-1 科技早报] 第二次' },
+        { role: 'assistant', content: '第二次结果' },
+      ],
+    }),
+    onStatus: () => () => {},
+    getStatus: () => 'connected',
+  } as never;
+
+  await (adapter as unknown as {
+    syncCronRunHistory: (sessionId: string, sessionKey: string) => Promise<void>;
+  }).syncCronRunHistory(session.id, currentSessionKey);
+
+  expect(getReplaceCallCount()).toBe(0);
+  expect(session.messages.map(message => ({
+    type: message.type,
+    content: message.content,
+  }))).toEqual([
+    { type: 'user', content: '[cron:job-1 科技早报] 第一次' },
+    { type: 'assistant', content: '第一次结果' },
+    { type: 'user', content: '[cron:job-1 科技早报] 第二次' },
+    { type: 'tool_use', content: '' },
+    { type: 'assistant', content: '第二次结果' },
+  ]);
+});
+
+test('syncCronRunHistory does not update a previous cron run user message on the second run', async () => {
+  const { session, store } = createReconcileStore([
+    {
+      id: 'prev-user',
+      type: 'user',
+      content: '[cron:job-1 科技早报] 第一次',
+      timestamp: 1,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:run-1', 0),
+    },
+    {
+      id: 'prev-assistant',
+      type: 'assistant',
+      content: '第一次结果',
+      timestamp: 2,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:run-1', 1),
+    },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        { role: 'user', content: '[cron:job-1 科技早报] 第二次' },
+        { role: 'assistant', content: '第二次结果' },
+      ],
+    }),
+    onStatus: () => () => {},
+    getStatus: () => 'connected',
+  } as never;
+
+  await (adapter as unknown as {
+    syncCronRunHistory: (sessionId: string, sessionKey: string) => Promise<void>;
+  }).syncCronRunHistory(session.id, 'agent:main:cron:job-1:run:run-2');
+
+  expect(session.messages.map(message => ({
+    type: message.type,
+    content: message.content,
+  }))).toEqual([
+    { type: 'user', content: '[cron:job-1 科技早报] 第一次' },
+    { type: 'assistant', content: '第一次结果' },
+    { type: 'user', content: '[cron:job-1 科技早报] 第二次' },
+    { type: 'assistant', content: '第二次结果' },
+  ]);
 });
 
 test('reconcileWithHistory: already in sync — skips replace', async () => {

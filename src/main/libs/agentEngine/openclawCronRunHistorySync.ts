@@ -39,17 +39,47 @@ export const isCronRunPromptContentCoveredByMessage = (
   return Boolean(prompt && (message === prompt || message.startsWith(`${prompt}\n`)));
 };
 
+export const isCronRunPromptHistoryText = (content: string): boolean => {
+  const text = content.trim();
+  return /^\[cron:[^\]]+\] /.test(text)
+    && text.includes('\nCurrent time: ')
+    && text.includes('\nReference UTC: ');
+};
+
 const normalizeCronRunSessionKey = (sessionKey: string): string => {
   const trimmed = sessionKey.trim();
   const legacyMatch = trimmed.match(/^cron:([^:\s]+)$/i);
   if (legacyMatch) return `cron:${legacyMatch[1]}`;
-  const agentMatch = trimmed.match(/^agent:([^:]+):cron:([^:\s]+)(?::run:.+)?$/i);
+  const agentMatch = trimmed.match(/^agent:([^:]+):cron:([^:\s]+)(?::run:([^:\s]+))?$/i);
+  if (agentMatch?.[3]) return `agent:${agentMatch[1]}:cron:${agentMatch[2]}:run:${agentMatch[3]}`;
   if (agentMatch) return `agent:${agentMatch[1]}:cron:${agentMatch[2]}`;
   return trimmed;
 };
 
 const isSameCronRunSessionKey = (left: string | null, right: string): boolean => {
   return Boolean(left && normalizeCronRunSessionKey(left) === normalizeCronRunSessionKey(right));
+};
+
+const normalizeCronRunJobSessionKey = (sessionKey: string): string => {
+  return normalizeCronRunSessionKey(sessionKey).replace(/:run:[^:\s]+$/i, '');
+};
+
+const isSameCronRunJobSessionKey = (left: string | null, right: string): boolean => {
+  return Boolean(left && normalizeCronRunJobSessionKey(left) === normalizeCronRunJobSessionKey(right));
+};
+
+const isJobLevelCronRunSessionKey = (sessionKey: string | null): boolean => {
+  return Boolean(sessionKey && !/:run:[^:\s]+$/i.test(normalizeCronRunSessionKey(sessionKey)));
+};
+
+const isCoveredHistoryEntry = (
+  local: { role: 'user' | 'assistant'; text: string },
+  authoritative: { role: 'user' | 'assistant'; text: string },
+): boolean => {
+  if (isSameHistoryEntry(local, authoritative)) return true;
+  if (local.role !== 'user' || authoritative.role !== 'user') return false;
+  return isCronRunPromptContentCoveredByMessage(authoritative.text, local.text)
+    || isCronRunPromptContentCoveredByMessage(local.text, authoritative.text);
 };
 
 export const buildCronRunHistoryMetadata = (
@@ -72,6 +102,23 @@ export const getCronRunHistoryEntryIndex = (metadata: unknown): number | null =>
   if (!isRecord(metadata)) return null;
   const value = metadata[CronRunHistoryMetadataKey.EntryIndex];
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+};
+
+export const isSameCronRunHistorySessionKey = (left: string | null, right: string): boolean => {
+  return isSameCronRunSessionKey(left, right);
+};
+
+const isCronRunHistoryPromptDuplicate = (
+  local: CronRunLocalHistoryEntry,
+  authoritative: CronRunHistoryEntry,
+  sessionKey: string,
+): boolean => {
+  if (local.role !== 'user' || authoritative.role !== 'user') return false;
+  if (!isCoveredHistoryEntry(local, authoritative)) return false;
+  const importedSessionKey = getCronRunHistorySessionKey(local.metadata);
+  return !importedSessionKey
+    || isSameCronRunSessionKey(importedSessionKey, sessionKey)
+    || (isJobLevelCronRunSessionKey(importedSessionKey) && isSameCronRunJobSessionKey(importedSessionKey, sessionKey));
 };
 
 const withCronRunHistoryMetadata = (
@@ -183,20 +230,53 @@ export const findCronRunHistoryLocalMatch = (
   usedLocalMessageIds: ReadonlySet<string>,
   sessionKey: string,
 ): CronRunLocalHistoryEntry | undefined => {
-  return localEntries.find((entry) => {
-    if (usedLocalMessageIds.has(entry.id)) return false;
+  const availableEntries = localEntries.filter(entry => !usedLocalMessageIds.has(entry.id));
+
+  const sameRunMatch = availableEntries.find((entry) => {
     const importedSessionKey = getCronRunHistorySessionKey(entry.metadata);
     const importedEntryIndex = getCronRunHistoryEntryIndex(entry.metadata);
     const authoritativeEntryIndex = getCronRunHistoryEntryIndex(authoritative.metadata);
-    if (
-      isSameCronRunSessionKey(importedSessionKey, sessionKey)
+    return isSameCronRunSessionKey(importedSessionKey, sessionKey)
+      && importedEntryIndex != null
+      && importedEntryIndex === authoritativeEntryIndex
+      && entry.role === authoritative.role;
+  });
+  if (sameRunMatch) return sameRunMatch;
+
+  const legacyJobMatch = availableEntries.find((entry) => {
+    const importedSessionKey = getCronRunHistorySessionKey(entry.metadata);
+    const importedEntryIndex = getCronRunHistoryEntryIndex(entry.metadata);
+    const authoritativeEntryIndex = getCronRunHistoryEntryIndex(authoritative.metadata);
+    return isJobLevelCronRunSessionKey(importedSessionKey)
+      && isSameCronRunJobSessionKey(importedSessionKey, sessionKey)
       && importedEntryIndex != null
       && importedEntryIndex === authoritativeEntryIndex
       && entry.role === authoritative.role
-    ) {
-      return true;
-    }
+      && isCoveredHistoryEntry(entry, authoritative);
+  });
+  if (legacyJobMatch) return legacyJobMatch;
+
+  if (
+    authoritative.role === 'user'
+    && isCronRunPromptHistoryText(authoritative.text)
+  ) {
+    const exactPromptMatch = [...availableEntries].reverse().find((entry) => (
+      entry.role === 'user'
+      && entry.text === authoritative.text
+      && isCronRunPromptHistoryText(entry.text)
+    ));
+    if (exactPromptMatch) return exactPromptMatch;
+  }
+
+  return availableEntries.find((entry) => {
+    if (usedLocalMessageIds.has(entry.id)) return false;
+    const importedSessionKey = getCronRunHistorySessionKey(entry.metadata);
     if (!isSameHistoryEntry(entry, authoritative)) return false;
-    return !importedSessionKey || isSameCronRunSessionKey(importedSessionKey, sessionKey);
+    if (entry.role === 'user') {
+      return isCronRunHistoryPromptDuplicate(entry, authoritative, sessionKey);
+    }
+    return !importedSessionKey
+      || isSameCronRunSessionKey(importedSessionKey, sessionKey)
+      || (isJobLevelCronRunSessionKey(importedSessionKey) && isSameCronRunJobSessionKey(importedSessionKey, sessionKey));
   });
 };
