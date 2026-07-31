@@ -27,8 +27,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo,useRef, useStat
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
-import { collectSessionArtifacts, loadDetectedFileArtifact } from '../../services/artifactDetection';
-import { dedupeArtifactsForDisplay, normalizeFilePathForDedup, parseMediaTokensFromText, parseToolResultMediaArtifacts } from '../../services/artifactParser';
+import { dedupeArtifactsForDisplay } from '../../services/artifactParser';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import { knowledgeService } from '../../services/knowledge';
@@ -1750,8 +1749,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     return result;
   }, [subagentsByRunId]);
 
-  const loadedFileIdsRef = useRef<Set<string>>(new Set());
-
   useEffect(() => {
     let animationFrame: number | undefined;
     let transitionTimeout: number | undefined;
@@ -1859,7 +1856,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setBrowserPreviewUrl(sessionId ? browserPreviewUrlBySessionRef.current[sessionId] ?? '' : '');
     setSelectedSubagent(null);
     setShowArtifactAddMenu(false);
-    loadedFileIdsRef.current = new Set();
   }, [sessionId]);
 
   const setSessionFileListPreviewTabOpen = useCallback((open: boolean) => {
@@ -2706,103 +2702,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     };
   }, [showArtifactAddMenu]);
 
-  useEffect(() => {
-    if (!sessionId || !currentSession?.messages?.length) return;
-    if (isStreaming) return;
-
-    try {
-      const cwd = currentSession.cwd;
-      const detected = collectSessionArtifacts(currentSession.messages, sessionId, cwd);
-
-      for (const artifact of detected) {
-        if (artifact.type === ArtifactTypeValue.LocalService) {
-          dispatch(addArtifact({ sessionId, artifact }));
-        }
-      }
-
-      const toLoad = detected.filter(a => a.filePath && !loadedFileIdsRef.current.has(a.id));
-      if (toLoad.length === 0) return;
-
-      const loadFiles = async () => {
-        for (const artifact of toLoad) {
-          await waitForNextFrame();
-          const loaded = await loadDetectedFileArtifact(artifact, cwd);
-          loadedFileIdsRef.current.add(artifact.id);
-          if (loaded) {
-            dispatch(addArtifact({ sessionId, artifact: loaded }));
-          }
-        }
-      };
-      loadFiles();
-    } catch (err) {
-      console.error('[ArtifactDetection] failed:', err);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- uses messagesLength as stable proxy for currentSession.messages
-  }, [sessionId, messagesLength, isStreaming, dispatch]);
-
-  // Mid-turn artifact detection: detect MEDIA/file artifacts from backfilled tool results
-  // while still streaming. The main effect above skips when isStreaming=true, but incremental
-  // backfill can populate tool_result text mid-turn. This effect handles that case.
-  useEffect(() => {
-    if (!sessionId || !isStreaming || !currentSession?.messages?.length) return;
-
-    try {
-      const messages = currentSession.messages;
-      const cwd = currentSession.cwd;
-      const toLoad: Artifact[] = [];
-
-      for (const msg of messages) {
-        if (msg.type !== 'tool_result' || !msg.content || !msg.metadata?.isFinal) continue;
-        if (loadedFileIdsRef.current.has(msg.id)) continue;
-
-        // Only detect explicit MEDIA: tokens in tool results — do NOT parse bare file paths
-        // here, because tool output (e.g. `ls`) may contain many irrelevant file paths.
-        const seenFilePaths = new Set<string>();
-        const toolMediaArtifacts = parseToolResultMediaArtifacts(msg, sessionId);
-        for (const mediaArtifact of toolMediaArtifacts) {
-          if (!mediaArtifact.filePath) {
-            if (!loadedFileIdsRef.current.has(mediaArtifact.id)) {
-              loadedFileIdsRef.current.add(mediaArtifact.id);
-              dispatch(addArtifact({ sessionId, artifact: mediaArtifact }));
-            }
-            continue;
-          }
-          const normalized = normalizeFilePathForDedup(mediaArtifact.filePath);
-          if (!seenFilePaths.has(normalized) && !loadedFileIdsRef.current.has(mediaArtifact.id)) {
-            seenFilePaths.add(normalized);
-            toLoad.push(mediaArtifact);
-          }
-        }
-
-        const mediaArtifacts = parseMediaTokensFromText(msg.content, msg.id, sessionId);
-        for (const ma of mediaArtifacts) {
-          const normalized = ma.filePath ? normalizeFilePathForDedup(ma.filePath) : '';
-          if (ma.filePath && !seenFilePaths.has(normalized) && !loadedFileIdsRef.current.has(ma.id)) {
-            seenFilePaths.add(normalized);
-            toLoad.push(ma);
-          }
-        }
-      }
-
-      if (toLoad.length === 0) return;
-
-      const loadFiles = async () => {
-        for (const artifact of toLoad) {
-          if (loadedFileIdsRef.current.has(artifact.id)) continue;
-          await waitForNextFrame();
-          const loaded = await loadDetectedFileArtifact(artifact, cwd);
-          loadedFileIdsRef.current.add(artifact.id);
-          if (loaded) {
-            dispatch(addArtifact({ sessionId, artifact: loaded }));
-          }
-        }
-      };
-      loadFiles();
-    } catch (err) {
-      console.error('[ArtifactDetection:midTurn] failed:', err);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- mid-turn artifact detection for backfilled tool results
-  }, [sessionId, messagesLength, isStreaming, dispatch]);
   // Cleanup nav timers on unmount
   useEffect(() => {
     return () => {
@@ -4021,6 +3920,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       const turnArtifacts = sessionArtifacts.filter(
         a => turnMessageIds.has(a.messageId) && PREVIEWABLE_ARTIFACT_TYPES.has(a.type)
       );
+      const visibleTurnArtifacts = isStreaming && isLastTurn
+        ? EMPTY_ARTIFACTS
+        : turnArtifacts;
       return (
         <LazyRenderTurn
           key={turn.id}
@@ -4053,7 +3955,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             >
               <AssistantTurnBlock
                 turn={turn}
-                artifacts={turnArtifacts}
+                artifacts={visibleTurnArtifacts}
                 resolveLocalFilePath={resolveLocalFilePath}
                 mapDisplayText={mapDisplayText}
                 localServiceDirectory={currentSession?.cwd}

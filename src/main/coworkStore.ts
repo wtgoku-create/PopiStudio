@@ -8,6 +8,12 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { AgentId, normalizeAgentAvatarIcon } from '../shared/agent';
 import {
+  type Artifact,
+  type ArtifactMessage,
+  collectSessionArtifacts,
+  getArtifactStorageIdentity,
+} from '../shared/cowork/artifacts';
+import {
   COWORK_MESSAGE_PAGE_SIZE,
   COWORK_SESSION_PAGE_SIZE,
   CoworkSessionSourceKind,
@@ -648,6 +654,24 @@ interface CoworkMessageRow {
   sequence: number | null;
 }
 
+interface CoworkArtifactRow {
+  id: string;
+  session_id: string;
+  message_id: string;
+  type: string;
+  title: string;
+  content: string;
+  file_name: string | null;
+  file_path: string | null;
+  url: string | null;
+  remote_url: string | null;
+  source: string | null;
+  metadata: string | null;
+  content_version: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
 interface CoworkUserMemoryRow {
   id: string;
   text: string;
@@ -1238,6 +1262,7 @@ export class CoworkStore {
     if (ids.length === 0) return;
     const placeholders = ids.map(() => '?').join(',');
     this.db.prepare(`DELETE FROM cowork_session_sources WHERE session_id IN (${placeholders})`).run(...ids);
+    this.db.prepare(`DELETE FROM cowork_artifacts WHERE session_id IN (${placeholders})`).run(...ids);
     this.db.prepare(`DELETE FROM cowork_messages WHERE session_id IN (${placeholders})`).run(...ids);
     this.db.prepare(`DELETE FROM cowork_sessions WHERE id IN (${placeholders})`).run(...ids);
   }
@@ -1511,6 +1536,133 @@ export class CoworkStore {
     return this.mapConversationMessageRows(sessionId, rows);
   }
 
+  private mapArtifactRow(row: CoworkArtifactRow): Artifact {
+    let metadata: Record<string, unknown> | undefined;
+    if (row.metadata) {
+      try {
+        metadata = JSON.parse(row.metadata);
+      } catch {
+        console.warn(`[CoworkStore] corrupt artifact metadata detected for artifact ${row.id}, discarding metadata`);
+      }
+    }
+    const localService = metadata?.localService &&
+      typeof metadata.localService === 'object' &&
+      !Array.isArray(metadata.localService)
+      ? metadata.localService as Artifact['localService']
+      : undefined;
+
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      messageId: row.message_id,
+      type: row.type as Artifact['type'],
+      title: row.title,
+      content: row.content || '',
+      ...(row.file_name ? { fileName: row.file_name } : {}),
+      ...(row.file_path ? { filePath: row.file_path } : {}),
+      ...(row.url ? { url: row.url } : {}),
+      ...(row.remote_url ? { remoteUrl: row.remote_url } : {}),
+      ...(row.source ? { source: row.source as Artifact['source'] } : {}),
+      ...(localService ? { localService } : {}),
+      ...(row.content_version != null ? { contentVersion: row.content_version } : {}),
+      ...(metadata ? { metadata } : {}),
+      createdAt: row.created_at,
+    };
+  }
+
+  listArtifacts(sessionId: string): Artifact[] {
+    const rows = this.getAll<CoworkArtifactRow>(
+      `
+      SELECT id, session_id, message_id, type, title, content, file_name, file_path,
+        url, remote_url, source, metadata, content_version, created_at, updated_at
+      FROM cowork_artifacts
+      WHERE session_id = ?
+      ORDER BY updated_at ASC, created_at ASC, ROWID ASC
+    `,
+      [sessionId],
+    );
+
+    return rows.map(row => this.mapArtifactRow(row));
+  }
+
+  syncArtifactsForSession(sessionId: string): Artifact[] {
+    const sessionRow = this.getOne<{ cwd: string }>(
+      'SELECT cwd FROM cowork_sessions WHERE id = ?',
+      [sessionId],
+    );
+    if (!sessionRow) return [];
+
+    const messages = this.getSessionMessages(sessionId) as ArtifactMessage[];
+    const detected = collectSessionArtifacts(messages, sessionId, sessionRow.cwd);
+    const now = Date.now();
+    const artifactByIdentityKey = new Map<string, Artifact>();
+    for (const artifact of detected) {
+      artifactByIdentityKey.set(getArtifactStorageIdentity(artifact), artifact);
+    }
+
+    const upsert = this.db.prepare(`
+      INSERT INTO cowork_artifacts (
+        id, session_id, message_id, identity_key, type, title, content, file_name,
+        file_path, url, remote_url, source, metadata, content_version, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id, identity_key) DO UPDATE SET
+        id = excluded.id,
+        message_id = excluded.message_id,
+        type = excluded.type,
+        title = excluded.title,
+        content = excluded.content,
+        file_name = excluded.file_name,
+        file_path = excluded.file_path,
+        url = excluded.url,
+        remote_url = excluded.remote_url,
+        source = excluded.source,
+        metadata = excluded.metadata,
+        content_version = excluded.content_version,
+        updated_at = excluded.updated_at
+    `);
+
+    this.db.transaction(() => {
+      for (const [identityKey, artifact] of artifactByIdentityKey) {
+        const content = artifact.filePath ? '' : artifact.content;
+        upsert.run(
+          artifact.id,
+          sessionId,
+          artifact.messageId,
+          identityKey,
+          artifact.type,
+          artifact.title,
+          content,
+          artifact.fileName ?? null,
+          artifact.filePath ?? null,
+          artifact.url ?? null,
+          artifact.remoteUrl ?? null,
+          artifact.source ?? null,
+          artifact.metadata || artifact.localService ? JSON.stringify({
+            ...(artifact.metadata ?? {}),
+            ...(artifact.localService ? { localService: artifact.localService } : {}),
+          }) : null,
+          artifact.contentVersion ?? null,
+          artifact.createdAt,
+          now,
+        );
+      }
+
+      if (artifactByIdentityKey.size === 0) {
+        this.db.prepare('DELETE FROM cowork_artifacts WHERE session_id = ?').run(sessionId);
+        return;
+      }
+
+      const identityKeys = Array.from(artifactByIdentityKey.keys());
+      const deletePlaceholders = identityKeys.map(() => '?').join(', ');
+      this.db
+        .prepare(`DELETE FROM cowork_artifacts WHERE session_id = ? AND identity_key NOT IN (${deletePlaceholders})`)
+        .run(sessionId, ...identityKeys);
+    })();
+
+    return this.listArtifacts(sessionId);
+  }
+
   getMessageRailIndex(sessionId: string, limit = 5000): CoworkMessageRailIndexItem[] {
     const boundedLimit = Math.max(1, Math.min(20000, Math.floor(limit)));
     const rows = this.getAll<{
@@ -1642,6 +1794,7 @@ export class CoworkStore {
 
     this.db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(now, sessionId);
     this.updateSessionPreviewFromMessage(sessionId, message);
+    this.syncArtifactsForSession(sessionId);
 
     return {
       id,
@@ -1705,6 +1858,7 @@ export class CoworkStore {
       this.db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(now, sessionId);
       this.refreshSessionPreviewFromMessages(sessionId);
     })();
+    this.syncArtifactsForSession(sessionId);
 
     return {
       id,
@@ -1725,6 +1879,7 @@ export class CoworkStore {
       .run(messageId, sessionId);
     if (result.changes > 0) {
       this.refreshSessionPreviewFromMessages(sessionId);
+      this.syncArtifactsForSession(sessionId);
     }
     return result.changes > 0;
   }
@@ -1818,6 +1973,7 @@ export class CoworkStore {
       }
       this.refreshSessionPreviewFromMessages(sessionId);
     })();
+    this.syncArtifactsForSession(sessionId);
   }
 
   replaceSessionMessages(
@@ -1861,6 +2017,7 @@ export class CoworkStore {
       }
       this.refreshSessionPreviewFromMessages(sessionId);
     })();
+    this.syncArtifactsForSession(sessionId);
   }
 
   updateMessage(
@@ -1897,6 +2054,7 @@ export class CoworkStore {
     if (result.changes > 0) {
       this.db.prepare('UPDATE cowork_sessions SET updated_at = ? WHERE id = ?').run(now, sessionId);
       this.refreshSessionPreviewFromMessages(sessionId);
+      this.syncArtifactsForSession(sessionId);
     }
   }
 

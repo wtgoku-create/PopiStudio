@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Artifact } from '@/types/artifact';
 
+import ArtifactPreviewStatusMessage from './ArtifactPreviewStatusMessage';
+
 interface ImageRendererProps {
   artifact: Artifact;
 }
@@ -28,11 +30,7 @@ const ImageRenderer: React.FC<ImageRendererProps> = ({ artifact }) => {
   }, [handleWheel]);
 
   if (!artifact.content) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted text-sm">
-        Loading image...
-      </div>
-    );
+    return <ArtifactPreviewStatusMessage artifact={artifact} fallbackKey="artifactSourceLoading" />;
   }
 
   if (error) {

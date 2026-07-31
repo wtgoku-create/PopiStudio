@@ -9,8 +9,8 @@ import { AgentId } from '../../shared/agent';
 import {
   COWORK_MESSAGE_PAGE_SIZE,
   COWORK_SESSION_PAGE_SIZE,
-  CoworkSessionSourceKind,
   type CoworkSessionsChangedPayload,
+  CoworkSessionSourceKind,
 } from '../../shared/cowork/constants';
 import { buildCoworkErrorDetail, type CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import { normalizeCoworkGoal } from '../../shared/cowork/goal';
@@ -21,6 +21,7 @@ import {
   CoworkSteerStatus,
 } from '../../shared/cowork/steer';
 import { store } from '../store';
+import { clearSessionArtifacts, setSessionArtifacts } from '../store/slices/artifactSlice';
 import {
   addMessage,
   addPendingSteer,
@@ -58,11 +59,12 @@ import {
   updateSessionPinned,
   updateSessionStatus,
   updateSessionTitle,
-  updateSubagentRunStatus,
   updateSteerStatus,
+  updateSubagentRunStatus,
   upsertSessionSummary,
 } from '../store/slices/coworkSlice';
 import { clearActiveSkills, setActiveSkillIds } from '../store/slices/skillSlice';
+import type { Artifact } from '../types/artifact';
 import type {
   CoworkApiConfig,
   CoworkConfigUpdate,
@@ -81,6 +83,7 @@ import type {
   SubagentSessionSummary,
 } from '../types/cowork';
 import { CoworkSessionStatusValue } from '../types/cowork';
+import { loadDetectedFileArtifact } from './artifactDetection';
 import { CoworkQueuedFollowUpCoordinator } from './coworkQueuedFollowUpCoordinator';
 import {
   getPreservedMessageWindow,
@@ -155,6 +158,9 @@ class CoworkService {
   private contextCompactionWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
   private subagentListRequests = new Map<string, Promise<SubagentSessionSummary[]>>();
   private subagentHistoryRequests = new Map<string, Promise<CoworkMessage[]>>();
+  private artifactRefreshTimers = new Map<string, number>();
+  private artifactLoadRequestIds = new Map<string, number>();
+  private hydratedArtifactFiles = new Map<string, Artifact>();
   private readonly queuedFollowUpCoordinator = new CoworkQueuedFollowUpCoordinator({
     getState: store.getState,
     dispatch: store.dispatch,
@@ -181,6 +187,81 @@ class CoworkService {
     await this.loadOpenClawEngineStatus();
 
     this.initialized = true;
+  }
+
+  private async hydrateArtifactsForPreview(artifacts: Artifact[], cwd?: string): Promise<Artifact[]> {
+    const hydrated: Artifact[] = [];
+    for (const artifact of artifacts) {
+      if (!artifact.filePath) {
+        hydrated.push(artifact);
+        continue;
+      }
+
+      const cached = this.hydratedArtifactFiles.get(artifact.id);
+      if (cached) {
+        hydrated.push({
+          ...artifact,
+          content: cached.content,
+          filePath: cached.filePath,
+          contentVersion: cached.contentVersion ?? artifact.contentVersion,
+          preview: cached.preview,
+        });
+        continue;
+      }
+
+      const loaded = await loadDetectedFileArtifact(artifact, cwd);
+      if (loaded) {
+        this.hydratedArtifactFiles.set(artifact.id, loaded);
+        hydrated.push(loaded);
+      } else {
+        hydrated.push(artifact);
+      }
+    }
+    return hydrated;
+  }
+
+  private async loadSessionArtifacts(sessionId: string, options: { resyncIfEmpty?: boolean } = {}): Promise<void> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.listArtifacts) return;
+
+    const requestId = (this.artifactLoadRequestIds.get(sessionId) ?? 0) + 1;
+    this.artifactLoadRequestIds.set(sessionId, requestId);
+    const session = store.getState().cowork.currentSession;
+    let result = await cowork.listArtifacts(sessionId);
+    if (
+      options.resyncIfEmpty &&
+      result?.success &&
+      result.artifacts?.length === 0 &&
+      cowork.resyncArtifacts
+    ) {
+      result = await cowork.resyncArtifacts(sessionId);
+    }
+    if (!result?.success || !result.artifacts) return;
+    if (this.artifactLoadRequestIds.get(sessionId) !== requestId) return;
+
+    const hydrated = await this.hydrateArtifactsForPreview(
+      result.artifacts,
+      session?.id === sessionId ? session.cwd : undefined,
+    );
+    if (this.artifactLoadRequestIds.get(sessionId) !== requestId) return;
+    const existingArtifacts = store.getState().artifact.artifactsBySession[sessionId] ?? [];
+    const manualArtifacts = existingArtifacts.filter(artifact =>
+      artifact.source === 'manual' || artifact.messageId.startsWith('source-reference:')
+    );
+    store.dispatch(setSessionArtifacts({ sessionId, artifacts: [...hydrated, ...manualArtifacts] }));
+  }
+
+  private scheduleArtifactRefresh(sessionId: string, delayMs = 120): void {
+    const existing = this.artifactRefreshTimers.get(sessionId);
+    if (existing) {
+      window.clearTimeout(existing);
+    }
+
+    const timer = window.setTimeout(() => {
+      this.artifactRefreshTimers.delete(sessionId);
+      void this.loadSessionArtifacts(sessionId);
+    }, delayMs);
+    this.artifactRefreshTimers.set(sessionId, timer);
   }
 
   private async loadDefaultAgentHomeSession(): Promise<void> {
@@ -240,6 +321,7 @@ class CoworkService {
         this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
       }
       store.dispatch(addMessage({ sessionId, message, beforeMessageId }));
+      this.scheduleArtifactRefresh(sessionId);
       this.scheduleContextUsageRefresh(sessionId, true);
     });
     this.streamListenerCleanups.push(messageCleanup);
@@ -252,6 +334,9 @@ class CoworkService {
         this.queuedFollowUpCoordinator.handleSessionRunning(sessionId);
       }
       store.dispatch(updateMessageContent({ sessionId, messageId, content, metadata }));
+      if (metadata?.isFinal === true) {
+        this.scheduleArtifactRefresh(sessionId, 0);
+      }
     });
     this.streamListenerCleanups.push(messageUpdateCleanup);
 
@@ -1051,7 +1136,14 @@ class CoworkService {
     const result = await cowork.deleteSession(sessionId);
     if (result.success) {
       this.queuedFollowUpCoordinator.clearSession(sessionId);
+      this.hydratedArtifactFiles.forEach((artifact, artifactId) => {
+        if (artifact.sessionId === sessionId) {
+          this.hydratedArtifactFiles.delete(artifactId);
+        }
+      });
+      this.artifactLoadRequestIds.delete(sessionId);
       store.dispatch(deleteSessionAction(sessionId));
+      store.dispatch(clearSessionArtifacts(sessionId));
       return true;
     }
 
@@ -1066,7 +1158,16 @@ class CoworkService {
     const result = await cowork.deleteSessions(sessionIds);
     if (result.success) {
       sessionIds.forEach(sessionId => this.queuedFollowUpCoordinator.clearSession(sessionId));
+      sessionIds.forEach(sessionId => {
+        this.hydratedArtifactFiles.forEach((artifact, artifactId) => {
+          if (artifact.sessionId === sessionId) {
+            this.hydratedArtifactFiles.delete(artifactId);
+          }
+        });
+        this.artifactLoadRequestIds.delete(sessionId);
+      });
       store.dispatch(deleteSessionsAction(sessionIds));
+      sessionIds.forEach(sessionId => store.dispatch(clearSessionArtifacts(sessionId)));
       return true;
     }
 
@@ -1257,6 +1358,7 @@ class CoworkService {
       if (!isSameLoadedSession(shown, session)) {
         store.dispatch(setCurrentSession(session));
       }
+      void this.loadSessionArtifacts(sessionId, { resyncIfEmpty: true });
       store.dispatch(setStreaming(session.status === 'running'));
       this.refreshContextUsageForSessionEntry(sessionId);
       void this.loadSessionMessageRailIndex(sessionId);

@@ -44,6 +44,26 @@ function getShortPath(filePath: string): string {
     : parts.join('/');
 }
 
+function getShortUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(/\/+$/, '');
+    const fileName = path.split('/').filter(Boolean).pop();
+    return fileName
+      ? `${parsed.host}/.../${fileName}`
+      : parsed.host;
+  } catch {
+    return url;
+  }
+}
+
+function getArtifactSecondaryText(artifact: Artifact): string {
+  const remoteUrl = artifact.remoteUrl || (!artifact.filePath && /^https?:\/\//i.test(artifact.content) ? artifact.content : '');
+  if (remoteUrl) return getShortUrl(remoteUrl);
+  if (artifact.filePath) return getShortPath(artifact.filePath);
+  return '';
+}
+
 interface FileDirectoryViewProps {
   artifacts: Artifact[];
   selectedId: string | null;
@@ -60,8 +80,14 @@ const FileDirectoryView: React.FC<FileDirectoryViewProps> = ({ artifacts, select
     if (search.trim()) {
       const keyword = search.trim().toLowerCase();
       items = items.filter(a => {
-        const name = (a.fileName || a.title || '').toLowerCase();
-        return name.includes(keyword);
+        const searchable = [
+          a.fileName,
+          a.title,
+          a.filePath,
+          a.remoteUrl,
+          /^https?:\/\//i.test(a.content) ? a.content : '',
+        ].filter(Boolean).join(' ').toLowerCase();
+        return searchable.includes(keyword);
       });
     }
 
@@ -69,9 +95,7 @@ const FileDirectoryView: React.FC<FileDirectoryViewProps> = ({ artifacts, select
       const typeA = TYPE_ORDER[a.type] ?? 99;
       const typeB = TYPE_ORDER[b.type] ?? 99;
       if (typeA !== typeB) return typeA - typeB;
-      const nameA = (a.fileName || a.title || '').toLowerCase();
-      const nameB = (b.fileName || b.title || '').toLowerCase();
-      return nameA.localeCompare(nameB);
+      return a.createdAt - b.createdAt || a.id.localeCompare(b.id);
     });
   }, [artifacts, search]);
 
@@ -105,6 +129,7 @@ const FileDirectoryView: React.FC<FileDirectoryViewProps> = ({ artifacts, select
               idx === 0 || artifact.type !== sortedAndFiltered[idx - 1].type
             );
             const fileName = artifact.fileName || artifact.title;
+            const secondaryText = getArtifactSecondaryText(artifact);
             return (
               <React.Fragment key={artifact.id}>
                 {showGroupHeader && (
@@ -122,15 +147,15 @@ const FileDirectoryView: React.FC<FileDirectoryViewProps> = ({ artifacts, select
                     <div className="truncate">
                       {fileName}
                     </div>
-                    {!compact && artifact.filePath && (
+                    {!compact && secondaryText && (
                       <div className="text-[10px] text-muted truncate">
-                        {getShortPath(artifact.filePath)}
+                        {secondaryText}
                       </div>
                     )}
                   </div>
                   {!compact && (
                     <span className="shrink-0 text-xs text-muted uppercase">
-                      {artifact.type}
+                      {t(TYPE_LABEL_KEYS[artifact.type] || 'artifactCode')}
                     </span>
                   )}
                 </div>

@@ -112,6 +112,33 @@ export class SqliteStore {
     `);
 
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS cowork_artifacts (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        identity_key TEXT NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        file_name TEXT,
+        file_path TEXT,
+        url TEXT,
+        remote_url TEXT,
+        source TEXT,
+        metadata TEXT,
+        content_version INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(session_id, identity_key),
+        FOREIGN KEY (session_id) REFERENCES cowork_sessions(id) ON DELETE CASCADE
+      );
+    `);
+
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_cowork_artifacts_session_id ON cowork_artifacts(session_id);
+    `);
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS cowork_session_sources (
         session_id TEXT NOT NULL,
         kind TEXT NOT NULL,

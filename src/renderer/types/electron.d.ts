@@ -4,15 +4,16 @@ import type {
   BrowserDiagnosticResult,
   BrowserRuntimeProfile,
 } from '../../shared/browserWebAccess/constants';
+import type { Artifact } from '../../shared/cowork/artifacts';
 import type { CoworkBrowserAnnotationMessageBatch } from '../../shared/cowork/browserAnnotations';
 import type { BrowserAnnotationScreenshotRef } from '../../shared/cowork/browserAnnotations';
-import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
-import type { CoworkGoal } from '../../shared/cowork/goal';
-import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import type {
   CoworkSessionsChangedPayload,
   CoworkSubagentMessagesChangedEvent,
 } from '../../shared/cowork/constants';
+import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
+import type { CoworkGoal } from '../../shared/cowork/goal';
+import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type {
   DistillPage,
@@ -649,6 +650,12 @@ interface IElectronAPI {
       total?: number;
       error?: string;
     }>;
+    listArtifacts: (
+      sessionId: string,
+    ) => Promise<{ success: boolean; artifacts?: Artifact[]; error?: string }>;
+    resyncArtifacts: (
+      sessionId: string,
+    ) => Promise<{ success: boolean; artifacts?: Artifact[]; error?: string }>;
     exportResultImage: (options: {
       rect: { x: number; y: number; width: number; height: number };
       defaultFileName?: string;

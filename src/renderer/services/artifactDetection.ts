@@ -1,195 +1,17 @@
-import { type Artifact, ArtifactTypeValue } from '../types/artifact';
-import type { CoworkMessage } from '../types/cowork';
 import {
-  isIgnoredArtifactPath,
-  isPathInsideDirectory,
-  normalizeFilePathForDedup,
-  normalizeLocalServiceUrlForDedup,
-  parseFileLinksFromMessage,
-  parseFilePathsFromText,
-  parseLocalServiceUrlsFromText,
-  parseMediaTokensFromText,
-  parseRemoteImageArtifactsFromText,
-  parseToolArtifact,
-  parseToolResultMediaArtifacts,
-  shouldParseFilePathsFromToolResult,
-  stripFileLinksFromText,
+  type Artifact,
+  ArtifactPreviewStatus,
+  ArtifactTypeValue,
+  collectSessionArtifacts,
   toAbsoluteArtifactPath,
-} from './artifactParser';
+} from '@shared/cowork/artifacts';
 
-/**
- * Detect artifacts from a session transcript.
- *
- * Detection signals, by trust level:
- * - Tool input paths and markdown file links are intentional signals.
- * - Bare file paths in prose must live inside the session working directory.
- * - Media outputs bypass directory filtering because they may live in app data.
- */
-export function collectSessionArtifacts(
-  messages: CoworkMessage[],
-  sessionId: string,
-  cwd?: string,
-): Artifact[] {
-  const detected: Artifact[] = [];
+export { collectSessionArtifacts };
 
-  const absolutize = (artifact: Artifact): Artifact =>
-    artifact.filePath
-      ? { ...artifact, filePath: toAbsoluteArtifactPath(artifact.filePath, cwd) }
-      : artifact;
-
-  const pushFileArtifactIfNew = (artifact: Artifact, seenFilePaths: Set<string>) => {
-    const normalized = artifact.filePath ? normalizeFilePathForDedup(artifact.filePath) : '';
-    if (!artifact.filePath || seenFilePaths.has(normalized)) return;
-    seenFilePaths.add(normalized);
-    detected.push(artifact);
-  };
-
-  const pushLinkedFileArtifact = (artifact: Artifact, seenFilePaths: Set<string>) => {
-    const resolved = absolutize(artifact);
-    if (!resolved.filePath || isIgnoredArtifactPath(resolved.filePath)) return;
-    pushFileArtifactIfNew(resolved, seenFilePaths);
-  };
-
-  const pushBarePathArtifact = (artifact: Artifact, seenFilePaths: Set<string>) => {
-    const resolved = absolutize(artifact);
-    if (!resolved.filePath || isIgnoredArtifactPath(resolved.filePath)) return;
-    if (cwd?.trim() && !isPathInsideDirectory(resolved.filePath, cwd)) return;
-    pushFileArtifactIfNew(resolved, seenFilePaths);
-  };
-
-  const pushMediaFileArtifact = (artifact: Artifact, seenFilePaths: Set<string>) => {
-    pushFileArtifactIfNew(absolutize(artifact), seenFilePaths);
-  };
-
-  const pushLocalServiceArtifactIfNew = (artifact: Artifact, seenLocalServiceUrls: Set<string>) => {
-    const url = artifact.url || artifact.content;
-    const normalized = normalizeLocalServiceUrlForDedup(url);
-    if (!url || seenLocalServiceUrls.has(normalized)) return;
-    seenLocalServiceUrls.add(normalized);
-    detected.push(artifact);
-  };
-
-  for (const msg of messages) {
-    if (msg.type === 'assistant' && !msg.metadata?.isThinking && msg.content) {
-      const seenFilePaths = new Set<string>();
-      const seenLocalServiceUrls = new Set<string>();
-      const localServiceArtifacts = parseLocalServiceUrlsFromText(
-        msg.content,
-        msg.id,
-        sessionId,
-        { projectDirectory: cwd },
-      );
-      for (const serviceArtifact of localServiceArtifacts) {
-        pushLocalServiceArtifactIfNew(serviceArtifact, seenLocalServiceUrls);
-      }
-
-      const fileLinks = parseFileLinksFromMessage(msg.content, msg.id, sessionId);
-      for (const fileLink of fileLinks) {
-        pushLinkedFileArtifact(fileLink, seenFilePaths);
-      }
-
-      const pathArtifacts = parseFilePathsFromText(
-        stripFileLinksFromText(msg.content),
-        msg.id,
-        sessionId,
-      );
-      for (const pathArtifact of pathArtifacts) {
-        pushBarePathArtifact(pathArtifact, seenFilePaths);
-      }
-
-      detected.push(...parseRemoteImageArtifactsFromText(msg.content, msg.id, sessionId, 'artifact-remote-assistant'));
-    }
-
-    if (msg.type === 'tool_result') {
-      const seenFilePaths = new Set<string>();
-      const toolMediaArtifacts = parseToolResultMediaArtifacts(msg, sessionId);
-      if (toolMediaArtifacts.length > 0) {
-        for (const mediaArtifact of toolMediaArtifacts) {
-          if (mediaArtifact.filePath) {
-            pushMediaFileArtifact(mediaArtifact, seenFilePaths);
-          } else {
-            detected.push(mediaArtifact);
-          }
-        }
-        continue;
-      }
-
-      if (!msg.content) continue;
-
-      const mediaArtifacts = parseMediaTokensFromText(msg.content, msg.id, sessionId);
-      for (const mediaArtifact of mediaArtifacts) {
-        pushMediaFileArtifact(mediaArtifact, seenFilePaths);
-      }
-
-      const toolUseId = msg.metadata?.toolUseId;
-      const pairedToolUse = toolUseId
-        ? messages.find(m => m.type === 'tool_use' && m.metadata?.toolUseId === toolUseId)
-        : undefined;
-      const toolName = pairedToolUse?.metadata?.toolName
-        ? String(pairedToolUse.metadata.toolName)
-        : '';
-      if (shouldParseFilePathsFromToolResult(toolName)) {
-        const pathArtifacts = parseFilePathsFromText(msg.content, msg.id, sessionId, 'artifact-toolresult');
-        for (const pathArtifact of pathArtifacts) {
-          pushMediaFileArtifact(pathArtifact, seenFilePaths);
-        }
-      }
-      detected.push(...parseRemoteImageArtifactsFromText(msg.content, msg.id, sessionId, 'artifact-remote-toolresult'));
-    }
-
-    if (msg.type === 'system') {
-      const seenFilePaths = new Set<string>();
-      const toolMediaArtifacts = parseToolResultMediaArtifacts(msg, sessionId);
-      if (toolMediaArtifacts.length > 0) {
-        for (const mediaArtifact of toolMediaArtifacts) {
-          if (mediaArtifact.filePath) {
-            pushMediaFileArtifact(mediaArtifact, seenFilePaths);
-          } else {
-            detected.push(mediaArtifact);
-          }
-        }
-        continue;
-      }
-
-      if (!msg.content) continue;
-
-      const fileLinks = parseFileLinksFromMessage(msg.content, msg.id, sessionId);
-      for (const fileLink of fileLinks) {
-        pushLinkedFileArtifact(fileLink, seenFilePaths);
-      }
-
-      const pathArtifacts = parseFilePathsFromText(
-        stripFileLinksFromText(msg.content),
-        msg.id,
-        sessionId,
-        'artifact-system-path',
-      );
-      for (const pathArtifact of pathArtifacts) {
-        pushBarePathArtifact(pathArtifact, seenFilePaths);
-      }
-
-      detected.push(...parseRemoteImageArtifactsFromText(msg.content, msg.id, sessionId, 'artifact-remote-system'));
-    }
-  }
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.type !== 'tool_use') continue;
-    const toolUseId = msg.metadata?.toolUseId;
-    const toolResult = toolUseId
-      ? messages.find(m => m.type === 'tool_result' && m.metadata?.toolUseId === toolUseId)
-      : messages[i + 1]?.type === 'tool_result' ? messages[i + 1] : undefined;
-    const toolArtifact = parseToolArtifact(msg, toolResult, sessionId);
-    if (toolArtifact?.filePath) {
-      const resolved = absolutize(toolArtifact);
-      if (resolved.filePath && !isIgnoredArtifactPath(resolved.filePath)) {
-        detected.push(resolved);
-      }
-    }
-  }
-
-  return detected;
-}
+const resolveFailedPreviewStatus = (error?: string): ArtifactPreviewStatus =>
+  error && /too large|file too large|max \d+mb/i.test(error)
+    ? ArtifactPreviewStatus.TooLarge
+    : ArtifactPreviewStatus.Unreadable;
 
 export async function loadDetectedFileArtifact(
   artifact: Artifact,
@@ -199,25 +21,111 @@ export async function loadDetectedFileArtifact(
   const absPath = toAbsoluteArtifactPath(artifact.filePath, cwd);
 
   if (artifact.type === ArtifactTypeValue.Video || artifact.type === ArtifactTypeValue.Audio) {
-    return { ...artifact, content: '', filePath: absPath };
+    try {
+      const stat = await window.electron.dialog.statFile(absPath);
+      if (!stat?.success || !stat.isFile) {
+        return {
+          ...artifact,
+          content: '',
+          filePath: absPath,
+          preview: {
+            status: ArtifactPreviewStatus.Missing,
+            error: stat?.error || 'File not found',
+          },
+        };
+      }
+      return {
+        ...artifact,
+        content: '',
+        filePath: absPath,
+        preview: {
+          status: ArtifactPreviewStatus.Ready,
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+        },
+      };
+    } catch (error) {
+      return {
+        ...artifact,
+        content: '',
+        filePath: absPath,
+        preview: {
+          status: ArtifactPreviewStatus.Unreadable,
+          error: error instanceof Error ? error.message : 'Failed to stat file',
+        },
+      };
+    }
   }
 
   if (artifact.type === ArtifactTypeValue.Html) {
     try {
       const stat = await window.electron.dialog.statFile(absPath);
       if (stat?.success && stat.isFile) {
-        return { ...artifact, content: '', filePath: absPath, contentVersion: Date.now() };
+        return {
+          ...artifact,
+          content: '',
+          filePath: absPath,
+          contentVersion: Date.now(),
+          preview: {
+            status: ArtifactPreviewStatus.Ready,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+          },
+        };
       }
+      return {
+        ...artifact,
+        content: '',
+        filePath: absPath,
+        preview: {
+          status: ArtifactPreviewStatus.Missing,
+          error: stat?.error || 'File not found',
+        },
+      };
     } catch {
       // File unreadable or missing.
     }
-    return null;
+    return {
+      ...artifact,
+      content: '',
+      filePath: absPath,
+      preview: {
+        status: ArtifactPreviewStatus.Unreadable,
+        error: 'File unreadable or missing',
+      },
+    };
   }
 
   try {
+    const isTextType = artifact.type !== ArtifactTypeValue.Image && artifact.type !== ArtifactTypeValue.Document;
+    if (isTextType && window.electron.dialog.readTextFile) {
+      const result = await window.electron.dialog.readTextFile(absPath);
+      if (result?.success && typeof result.content === 'string') {
+        return {
+          ...artifact,
+          content: result.content,
+          filePath: absPath,
+          preview: {
+            status: ArtifactPreviewStatus.Ready,
+            size: result.size,
+            readBytes: result.readBytes,
+            truncated: result.truncated,
+          },
+        };
+      }
+      return {
+        ...artifact,
+        content: '',
+        filePath: absPath,
+        preview: {
+          status: resolveFailedPreviewStatus(result?.error),
+          error: result?.error || 'Failed to read file',
+        },
+      };
+    }
+
     const result = await window.electron.dialog.readFileAsDataUrl(absPath);
     if (result?.success && result.dataUrl) {
-      const isTextType = artifact.type !== ArtifactTypeValue.Image && artifact.type !== ArtifactTypeValue.Document;
       let content = result.dataUrl;
       if (isTextType) {
         try {
@@ -228,10 +136,34 @@ export async function loadDetectedFileArtifact(
           content = result.dataUrl;
         }
       }
-      return { ...artifact, content, filePath: absPath };
+      return {
+        ...artifact,
+        content,
+        filePath: absPath,
+        preview: {
+          status: ArtifactPreviewStatus.Ready,
+        },
+      };
     }
+    return {
+      ...artifact,
+      content: '',
+      filePath: absPath,
+      preview: {
+        status: resolveFailedPreviewStatus(result?.error),
+        error: result?.error || 'Failed to read file',
+      },
+    };
   } catch {
     // File unreadable or missing.
   }
-  return null;
+  return {
+    ...artifact,
+    content: '',
+    filePath: absPath,
+    preview: {
+      status: ArtifactPreviewStatus.Unreadable,
+      error: 'File unreadable or missing',
+    },
+  };
 }

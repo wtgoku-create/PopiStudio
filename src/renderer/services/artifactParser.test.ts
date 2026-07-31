@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import { dedupeArtifactsForDisplay, normalizeFilePathForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseRemoteImageArtifactsFromText, parseToolArtifact, parseToolResultMediaArtifacts, shouldParseFilePathsFromToolResult } from './artifactParser';
 import type { Artifact } from '../types/artifact';
+import { dedupeArtifactsForDisplay, normalizeFilePathForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseRemoteImageArtifactsFromText, parseToolArtifact, parseToolResultMediaArtifacts, shouldParseFilePathsFromToolResult } from './artifactParser';
 
 describe('normalizeFilePathForDedup', () => {
   test('strips leading / before Windows drive letter', () => {
@@ -248,7 +248,9 @@ describe('parseRemoteImageArtifactsFromText', () => {
     expect(artifacts).toHaveLength(2);
     expect(artifacts[0].type).toBe('image');
     expect(artifacts[0].content).toBe('https://cdn.example.com/a.png');
+    expect(artifacts[0].fileName).toBe('result');
     expect(artifacts[1].content).toBe('https://cdn.example.com/b.webp');
+    expect(artifacts[1].fileName).toBe('b.webp');
   });
 
   test('deduplicates repeated remote image URLs within one message', () => {
@@ -256,6 +258,16 @@ describe('parseRemoteImageArtifactsFromText', () => {
     const artifacts = parseRemoteImageArtifactsFromText(content, 'msg1', 'sess1');
 
     expect(artifacts).toHaveLength(1);
+  });
+
+  test('uses stable URL-derived names for untitled remote images', () => {
+    const first = parseRemoteImageArtifactsFromText('![](https://cdn.example.com/render?id=1)', 'msg1', 'sess1');
+    const second = parseRemoteImageArtifactsFromText('![](https://cdn.example.com/render?id=2)', 'msg2', 'sess1');
+
+    expect(first[0].fileName).toMatch(/^remote-image-[a-z0-9]+\.png$/);
+    expect(second[0].fileName).toMatch(/^remote-image-[a-z0-9]+\.png$/);
+    expect(first[0].fileName).not.toBe(second[0].fileName);
+    expect(first[0].fileName).not.toBe('generated-image-1');
   });
 });
 
@@ -280,6 +292,32 @@ describe('parseToolResultMediaArtifacts', () => {
     expect(artifacts).toHaveLength(2);
     expect(artifacts[0].content).toBe('https://cdn.example.com/image.png');
     expect(artifacts[1].filePath).toBe('/tmp/movie.mp4');
+  });
+
+  test('uses remote image file name when a downloaded asset has a local cache path', () => {
+    const toolResultMsg = {
+      id: 'result1',
+      type: 'tool_result' as const,
+      content: '',
+      timestamp: 123,
+      metadata: {
+        toolResultDetails: {
+          assets: [
+            {
+              type: 'image',
+              url: 'https://cdn.example.com/output/165749.png',
+              localPath: '/tmp/download-cache/165749.jpeg',
+            },
+          ],
+        },
+      },
+    };
+
+    const artifacts = parseToolResultMediaArtifacts(toolResultMsg, 'sess1');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].fileName).toBe('165749.png');
+    expect(artifacts[0].filePath).toBe('/tmp/download-cache/165749.jpeg');
+    expect(artifacts[0].remoteUrl).toBe('https://cdn.example.com/output/165749.png');
   });
 
   test('ignores errored tool results', () => {

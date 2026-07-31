@@ -23,20 +23,20 @@ import {
 } from '../shared/browserWebAccess/constants';
 import { ClipboardIpc } from '../shared/clipboard/constants';
 import {
-  type CoworkBrowserAnnotationMessageBatch,
   BrowserAnnotationScreenshotStatus,
+  type CoworkBrowserAnnotationMessageBatch,
   normalizeBrowserAnnotationBatches,
 } from '../shared/cowork/browserAnnotations';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import {
-  CoworkSteerRejectReason,
-  CoworkSteerStatus,
-} from '../shared/cowork/steer';
-import {
   type CoworkSelectedTextSnippet,
   normalizeCoworkSelectedTextSnippets,
 } from '../shared/cowork/selectedText';
+import {
+  CoworkSteerRejectReason,
+  CoworkSteerStatus,
+} from '../shared/cowork/steer';
 import { stripNullChars } from '../shared/cowork/text';
 import { DialogIpc } from '../shared/dialog/constants';
 import { FolderIpc, type FolderTreeEntry } from '../shared/folder/constants';
@@ -119,6 +119,7 @@ import {
   isCronSessionKey,
   OpenClawChannelSessionSync,
 } from './libs/openclawChannelSessionSync';
+import { deliverOpenClawConfigToGateway } from './libs/openclawConfigDelivery';
 import {
   classifyAppConfigChange,
   classifyCoworkConfigChange,
@@ -130,7 +131,6 @@ import {
   OpenClawPluginChangeAction,
   removeImpactDecisionReasons,
 } from './libs/openclawConfigImpact';
-import { deliverOpenClawConfigToGateway } from './libs/openclawConfigDelivery';
 import { buildProviderSelection, OpenClawConfigSync } from './libs/openclawConfigSync';
 import { OpenClawEngineManager, type OpenClawEngineStatus } from './libs/openclawEngineManager';
 import {
@@ -3865,6 +3865,30 @@ if (!gotTheLock) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to get message rail index',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.ListArtifacts, async (_event, sessionId: string) => {
+    try {
+      const artifacts = getCoworkStore().listArtifacts(sessionId);
+      return { success: true, artifacts };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list session artifacts',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.ResyncArtifacts, async (_event, sessionId: string) => {
+    try {
+      const artifacts = getCoworkStore().syncArtifactsForSession(sessionId);
+      return { success: true, artifacts };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to resync session artifacts',
       };
     }
   });

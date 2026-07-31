@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { i18nService } from '@/services/i18n';
 import type { Artifact } from '@/types/artifact';
 
+import ArtifactPreviewStatusMessage from './ArtifactPreviewStatusMessage';
+
 const t = (key: string) => i18nService.t(key);
 
 function useIsDark() {
@@ -52,11 +54,7 @@ const TextRenderer: React.FC<TextRendererProps> = ({ artifact }) => {
   );
 
   if (!artifact.content) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted text-sm">
-        No content
-      </div>
-    );
+    return <ArtifactPreviewStatusMessage artifact={artifact} />;
   }
 
   const lines = artifact.content.split('\n');

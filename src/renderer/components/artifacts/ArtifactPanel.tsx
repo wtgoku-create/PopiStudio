@@ -6,9 +6,9 @@ import {
   BrowserAnnotationGuestEventType,
   BrowserAnnotationLimit,
   BrowserAnnotationProtocolVersion,
-  BrowserAnnotationTheme,
   type BrowserAnnotationScreenshotRef,
   BrowserAnnotationScreenshotStatus,
+  BrowserAnnotationTheme,
   type CoworkBrowserAnnotation,
   type CoworkBrowserAnnotationBatch,
 } from '@shared/cowork/browserAnnotations';
@@ -17,6 +17,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
+import { loadDetectedFileArtifact } from '@/services/artifactDetection';
 import { writeBlobToClipboard, writeTextToClipboard } from '@/services/clipboard';
 import { i18nService } from '@/services/i18n';
 import type { RootState } from '@/store';
@@ -118,10 +119,6 @@ function buildBrowserHtml(artifact: Artifact): string | null {
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function shouldReadArtifactContent(type: ArtifactType): boolean {
-  return type !== ArtifactTypeValue.Video && type !== ArtifactTypeValue.Audio;
 }
 
 interface ArtifactPanelProps {
@@ -500,56 +497,15 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
 
   const handleRefresh = useCallback(async () => {
     if (!selectedArtifact?.filePath) return;
-    if (!shouldReadArtifactContent(selectedArtifact.type)) {
+    const loaded = await loadDetectedFileArtifact(selectedArtifact);
+    if (loaded) {
       dispatch(addArtifact({
         sessionId: selectedArtifact.sessionId,
-        artifact: { ...selectedArtifact, content: '' },
+        artifact: {
+          ...loaded,
+          contentVersion: loaded.contentVersion ?? Date.now(),
+        },
       }));
-      return;
-    }
-    try {
-      if (selectedArtifact.type === ArtifactTypeValue.Html) {
-        dispatch(addArtifact({
-          sessionId: selectedArtifact.sessionId,
-          artifact: {
-            ...selectedArtifact,
-            contentVersion: Date.now(),
-          },
-        }));
-        return;
-      }
-
-      const isTextType = selectedArtifact.type !== 'image' && selectedArtifact.type !== 'document';
-      if (isTextType && window.electron?.dialog?.readTextFile) {
-        const result = await window.electron.dialog.readTextFile(selectedArtifact.filePath);
-        if (result?.success && typeof result.content === 'string') {
-          dispatch(addArtifact({
-            sessionId: selectedArtifact.sessionId,
-            artifact: { ...selectedArtifact, content: result.content, contentVersion: Date.now() },
-          }));
-        }
-        return;
-      }
-
-      const result = await window.electron.dialog.readFileAsDataUrl(selectedArtifact.filePath);
-      if (result?.success && result.dataUrl) {
-        let content = result.dataUrl;
-        if (isTextType) {
-          try {
-            const base64 = result.dataUrl.split(',')[1] || '';
-            const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-            content = new TextDecoder('utf-8').decode(bytes);
-          } catch {
-            content = result.dataUrl;
-          }
-        }
-        dispatch(addArtifact({
-          sessionId: selectedArtifact.sessionId,
-          artifact: { ...selectedArtifact, content },
-        }));
-      }
-    } catch {
-      // File unreadable or missing
     }
   }, [selectedArtifact, dispatch]);
 

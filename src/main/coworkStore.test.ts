@@ -74,6 +74,28 @@ function setupDb(): void {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_artifacts (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      identity_key TEXT NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      file_name TEXT,
+      file_path TEXT,
+      url TEXT,
+      remote_url TEXT,
+      source TEXT,
+      metadata TEXT,
+      content_version INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(session_id, identity_key)
+    );
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS cowork_config (
       key TEXT PRIMARY KEY,
       value TEXT,
@@ -267,6 +289,57 @@ test('updateMessage refreshes the cached session preview', () => {
   store.updateMessage(sid, message.id, { content: 'final answer' });
 
   expect(store.listSessions(10, 0)[0]?.lastMessagePreview).toBe('final answer');
+});
+
+test('addMessage syncs detected artifacts into the resource table', () => {
+  const sid = 'sess-artifact-add';
+  insertSession(sid, 'main', 1000);
+  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run('/repo', sid);
+
+  store.addMessage(sid, { type: 'assistant', content: 'created /repo/output/report.pdf' });
+
+  const artifacts = store.listArtifacts(sid);
+  expect(artifacts).toHaveLength(1);
+  expect(artifacts[0]).toMatchObject({
+    sessionId: sid,
+    type: 'document',
+    fileName: 'report.pdf',
+    filePath: '/repo/output/report.pdf',
+    content: '',
+  });
+});
+
+test('updateMessage syncs artifacts discovered in finalized long messages', () => {
+  const sid = 'sess-artifact-update';
+  insertSession(sid, 'main', 1000);
+  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run('/repo', sid);
+  const message = store.addMessage(sid, { type: 'assistant', content: 'streaming...' });
+
+  expect(store.listArtifacts(sid)).toEqual([]);
+
+  store.updateMessage(sid, message.id, {
+    content: 'final output at /repo/output/final.html',
+    metadata: { isFinal: true },
+  });
+
+  expect(store.listArtifacts(sid).map(artifact => artifact.filePath)).toEqual([
+    '/repo/output/final.html',
+  ]);
+});
+
+test('deleteSession clears persisted artifacts', () => {
+  const sid = 'sess-artifact-delete';
+  insertSession(sid, 'main', 1000);
+  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run('/repo', sid);
+  store.addMessage(sid, { type: 'assistant', content: 'created /repo/output/report.pdf' });
+
+  expect(store.listArtifacts(sid)).toHaveLength(1);
+
+  store.deleteSession(sid);
+
+  const row = db.prepare('SELECT COUNT(*) AS count FROM cowork_artifacts WHERE session_id = ?')
+    .get(sid) as { count: number };
+  expect(row.count).toBe(0);
 });
 
 test('deleteMessage falls back to the previous latest preview', () => {
