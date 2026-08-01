@@ -124,6 +124,10 @@ const encodeFileUrlsInMarkdown = (content: string): string => {
   return result;
 };
 
+export const unwrapCodeWrappedMarkdownLinks = (content: string): string => {
+  return content.replace(/`(\[[^\]\n]+]\((?:file|localfile):\/\/[^\n`]+?\))`/gi, '$1');
+};
+
 /**
  * Normalize multi-line display math blocks for remark-math compatibility.
  * remark-math treats $$ like code fences: opening $$ must be on its own line,
@@ -712,7 +716,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
     if (useLargePreview) {
       return '';
     }
-    return normalizeDisplayMath(encodeFileUrlsInMarkdown(encodeSourceReferencesForMarkdown(content)));
+    return normalizeDisplayMath(encodeFileUrlsInMarkdown(unwrapCodeWrappedMarkdownLinks(encodeSourceReferencesForMarkdown(content))));
   }, [content, useLargePreview]);
 
   if (useLargePreview) {
