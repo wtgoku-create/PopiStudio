@@ -140,6 +140,31 @@ const strongPatchValidators = {
       ],
     },
   ],
+  'openclaw-live-tool-result-cache-stability.patch': [
+    {
+      file: 'src/agents/embedded-agent-runner/run/attempt.ts',
+      snippets: [
+        'truncateOversizedToolResultsInMessages(\n            activeSession.messages,',
+        'promptToolResultMaxChars,\n            null,',
+        'truncateOversizedToolResultsInMessages(\n                    messages,\n                    contextTokenBudget,\n                    promptToolResultMaxChars,\n                    null,',
+      ],
+      forbiddenSnippets: [
+        'promptToolResultMaxChars * PROMPT_TOOL_RESULT_AGGREGATE_CAP_MULTIPLIER',
+      ],
+    },
+    {
+      file: 'src/agents/embedded-agent-runner/tool-result-truncation.ts',
+      snippets: [
+        'aggregateMaxCharsOverride?: number | null',
+        'aggregateMaxCharsOverride === null',
+        'Number.POSITIVE_INFINITY',
+      ],
+    },
+    {
+      file: 'src/agents/embedded-agent-runner/tool-result-truncation.test.ts',
+      snippets: ['keeps prompt projections byte-stable as history grows'],
+    },
+  ],
 };
 
 function collectMissingStrongPatchSnippets(patchFile) {
@@ -160,6 +185,11 @@ function collectMissingStrongPatchSnippets(patchFile) {
     for (const snippet of validator.snippets) {
       if (!source.includes(snippet)) {
         missing.push(`${validator.file}: missing ${JSON.stringify(snippet)}`);
+      }
+    }
+    for (const snippet of validator.forbiddenSnippets ?? []) {
+      if (source.includes(snippet)) {
+        missing.push(`${validator.file}: contains forbidden ${JSON.stringify(snippet)}`);
       }
     }
   }
