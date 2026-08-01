@@ -785,18 +785,18 @@ class CoworkService {
     return result ?? { success: false, error: 'Cowork IPC is unavailable' };
   }
 
-  async listSessionsForSearch(limit: number, offset: number): Promise<CoworkSessionListResult> {
-    const result = await this.listAgentSidebarSessions();
-    if (!result.success) {
-      return result;
-    }
-
-    const sessions = result.sessions ?? [];
-    return {
-      success: true,
-      sessions: sessions.slice(offset, offset + limit),
-      hasMore: offset + limit < sessions.length,
-    };
+  async listSessionsForSearch(
+    limit: number,
+    offset: number,
+    query?: string,
+  ): Promise<CoworkSessionListResult> {
+    const trimmedQuery = query?.trim();
+    const result = await window.electron?.cowork?.listSessions({
+      limit,
+      offset,
+      ...(trimmedQuery ? { searchQuery: trimmedQuery } : {}),
+    });
+    return result ?? { success: false, error: 'Cowork IPC is unavailable' };
   }
 
   async loadMoreSessions(): Promise<boolean> {

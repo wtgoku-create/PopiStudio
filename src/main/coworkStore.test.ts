@@ -269,6 +269,24 @@ test('listAgentSidebarSessions returns cached last message previews from session
   expect(sessions[0]?.lastMessagePreview).toBe('cached preview');
 });
 
+test('searchSessions returns matching plain sessions and escapes LIKE wildcards', () => {
+  insertSession('matching-session', 'main', 3000);
+  insertSession('wildcard-session', 'main', 2000);
+  insertSession('other-session', 'agent-1', 1000);
+  db.prepare('UPDATE cowork_sessions SET title = ? WHERE id = ?')
+    .run('Quarterly plan', 'matching-session');
+  db.prepare('UPDATE cowork_sessions SET title = ? WHERE id = ?')
+    .run('100% done', 'wildcard-session');
+  db.prepare('UPDATE cowork_sessions SET title = ? WHERE id = ?')
+    .run('Other task', 'other-session');
+
+  expect(store.searchSessions({ query: 'plan', limit: 10, offset: 0 }).map((session) => session.id))
+    .toEqual(['matching-session']);
+  expect(store.countSearchSessions({ query: 'plan' })).toBe(1);
+  expect(store.searchSessions({ query: '%', limit: 10, offset: 0 }).map((session) => session.id))
+    .toEqual(['wildcard-session']);
+});
+
 test('addMessage stores the latest user or assistant message preview on the session', () => {
   const sid = 'sess-preview-add';
   insertSession(sid);

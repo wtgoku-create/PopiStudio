@@ -292,7 +292,7 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('cowork:session:remoteManaged', sessionId),
     markSessionViewed: (sessionId: string | null) =>
       ipcRenderer.invoke(CoworkIpcChannel.MarkSessionViewed, sessionId),
-    listSessions: (options?: { limit?: number; offset?: number; agentId?: string }) =>
+    listSessions: (options?: { limit?: number; offset?: number; agentId?: string; searchQuery?: string }) =>
       ipcRenderer.invoke('cowork:session:list', options),
     listAgentSidebarSessions: () =>
       ipcRenderer.invoke(CoworkIpcChannel.ListAgentSidebarSessions),

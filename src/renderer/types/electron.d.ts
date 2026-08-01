@@ -613,7 +613,7 @@ interface IElectronAPI {
     markSessionViewed?: (
       sessionId: string | null,
     ) => Promise<{ success: boolean; error?: string }>;
-    listSessions: (options?: { limit?: number; offset?: number; agentId?: string }) => Promise<{
+    listSessions: (options?: { limit?: number; offset?: number; agentId?: string; searchQuery?: string }) => Promise<{
       success: boolean;
       sessions?: CoworkSessionSummary[];
       hasMore?: boolean;

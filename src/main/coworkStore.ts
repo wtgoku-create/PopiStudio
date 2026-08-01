@@ -703,6 +703,13 @@ interface CoworkSessionSummaryRow {
   updated_at: number;
 }
 
+interface CoworkSessionSearchOptions {
+  query: string;
+  limit?: number;
+  offset?: number;
+  agentId?: string;
+}
+
 export class CoworkStore {
   private db: Database.Database;
 
@@ -716,6 +723,10 @@ export class CoworkStore {
 
   private getAll<T>(sql: string, params: (string | number | null)[] = []): T[] {
     return this.db.prepare(sql).all(...params) as T[];
+  }
+
+  private escapeLikePattern(value: string): string {
+    return value.replace(/[\\%_]/g, match => `\\${match}`);
   }
 
   private mapConversationMessageRows(sessionId: string, rows: CoworkMessageRow[]): CoworkMessage[] {
@@ -1375,6 +1386,79 @@ export class CoworkStore {
         LIMIT ? OFFSET ?
       `,
         [limit, offset],
+      );
+    }
+
+    return rows.map(row => this.mapSessionSummaryRow(row));
+  }
+
+  countSearchSessions(options: CoworkSessionSearchOptions): number {
+    const query = options.query.trim();
+    if (!query) return this.countSessions(options.agentId);
+
+    const pattern = `%${this.escapeLikePattern(query)}%`;
+    if (options.agentId) {
+      const row = this.db
+        .prepare(
+          `
+          SELECT COUNT(*) as count
+          FROM cowork_sessions
+          WHERE title LIKE ? ESCAPE '\\'
+            AND COALESCE(NULLIF(TRIM(agent_id), ''), ?) = ?
+        `,
+        )
+        .get(pattern, AgentId.Main, options.agentId) as { count: number } | undefined;
+      return row?.count || 0;
+    }
+
+    const row = this.db
+      .prepare(
+        `
+        SELECT COUNT(*) as count
+        FROM cowork_sessions
+        WHERE title LIKE ? ESCAPE '\\'
+      `,
+      )
+      .get(pattern) as { count: number } | undefined;
+    return row?.count || 0;
+  }
+
+  searchSessions(options: CoworkSessionSearchOptions): CoworkSessionSummary[] {
+    const query = options.query.trim();
+    const limit = options.limit ?? COWORK_SESSION_PAGE_SIZE;
+    const offset = options.offset ?? 0;
+    if (!query) return this.listSessions(limit, offset, options.agentId);
+
+    const pattern = `%${this.escapeLikePattern(query)}%`;
+    let rows: CoworkSessionSummaryRow[];
+    if (options.agentId) {
+      rows = this.getAll<CoworkSessionSummaryRow>(
+        `
+        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, parent_session_id, goal_json, created_at, updated_at
+        FROM cowork_sessions
+        WHERE title LIKE ? ESCAPE '\\'
+          AND COALESCE(NULLIF(TRIM(agent_id), ''), ?) = ?
+        ORDER BY pinned DESC,
+          CASE WHEN pinned = 1 THEN COALESCE(pin_order, updated_at, created_at) END ASC,
+          CASE WHEN pinned = 0 THEN updated_at END DESC,
+          updated_at DESC
+        LIMIT ? OFFSET ?
+      `,
+        [pattern, AgentId.Main, options.agentId, limit, offset],
+      );
+    } else {
+      rows = this.getAll<CoworkSessionSummaryRow>(
+        `
+        SELECT id, title, last_message_preview, status, pinned, pin_order, agent_id, parent_session_id, goal_json, created_at, updated_at
+        FROM cowork_sessions
+        WHERE title LIKE ? ESCAPE '\\'
+        ORDER BY pinned DESC,
+          CASE WHEN pinned = 1 THEN COALESCE(pin_order, updated_at, created_at) END ASC,
+          CASE WHEN pinned = 0 THEN updated_at END DESC,
+          updated_at DESC
+        LIMIT ? OFFSET ?
+      `,
+        [pattern, limit, offset],
       );
     }
 

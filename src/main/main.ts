@@ -3797,14 +3797,24 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('cowork:session:list', async (_event, options?: { limit?: number; offset?: number; agentId?: string }) => {
+  ipcMain.handle('cowork:session:list', async (_event, options?: {
+    limit?: number;
+    offset?: number;
+    agentId?: string;
+    searchQuery?: string;
+  }) => {
     try {
       const limit = options?.limit ?? COWORK_SESSION_PAGE_SIZE;
       const offset = options?.offset ?? 0;
       const agentId = options?.agentId;
+      const searchQuery = options?.searchQuery?.trim() ?? '';
       const store = getCoworkStore();
-      const sessions = await annotateCoworkSessionSummaries(store.listSessions(limit, offset, agentId));
-      const total = store.countSessions(agentId);
+      const sessions = await annotateCoworkSessionSummaries(searchQuery
+        ? store.searchSessions({ query: searchQuery, limit, offset, agentId })
+        : store.listSessions(limit, offset, agentId));
+      const total = searchQuery
+        ? store.countSearchSessions({ query: searchQuery, agentId })
+        : store.countSessions(agentId);
       return { success: true, sessions, hasMore: offset + sessions.length < total };
     } catch (error) {
       return {
