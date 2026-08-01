@@ -4,7 +4,7 @@ import type {
   BrowserDiagnosticResult,
   BrowserRuntimeProfile,
 } from '../../shared/browserWebAccess/constants';
-import type { Artifact } from '../../shared/cowork/artifacts';
+import type { Artifact, CoworkArtifactResourceSession } from '../../shared/cowork/artifacts';
 import type { CoworkBrowserAnnotationMessageBatch } from '../../shared/cowork/browserAnnotations';
 import type { BrowserAnnotationScreenshotRef } from '../../shared/cowork/browserAnnotations';
 import type {
@@ -653,6 +653,11 @@ interface IElectronAPI {
     listArtifacts: (
       sessionId: string,
     ) => Promise<{ success: boolean; artifacts?: Artifact[]; error?: string }>;
+    listArtifactResources: () => Promise<{
+      success: boolean;
+      sessions?: CoworkArtifactResourceSession[];
+      error?: string;
+    }>;
     resyncArtifacts: (
       sessionId: string,
     ) => Promise<{ success: boolean; artifacts?: Artifact[]; error?: string }>;

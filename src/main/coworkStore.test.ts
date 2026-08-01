@@ -342,6 +342,48 @@ test('deleteSession clears persisted artifacts', () => {
   expect(row.count).toBe(0);
 });
 
+test('listArtifactResources groups artifacts by agent sessions', () => {
+  insertSession('main-session', 'main', 3000);
+  insertSession('empty-agent-session', 'agent-1', 2500);
+  insertSession('agent-session', 'agent-1', 2000);
+  insertSession('agent-home-session', 'main', 1000);
+  db.prepare('UPDATE cowork_sessions SET title = ?, cwd = ? WHERE id = ?')
+    .run('Main Session', '/repo/main', 'main-session');
+  db.prepare('UPDATE cowork_sessions SET title = ?, cwd = ? WHERE id = ?')
+    .run('Empty Agent Session', '/repo/empty-agent', 'empty-agent-session');
+  db.prepare('UPDATE cowork_sessions SET title = ?, cwd = ? WHERE id = ?')
+    .run('Agent Session', '/repo/agent', 'agent-session');
+  db.prepare('UPDATE cowork_sessions SET title = ?, cwd = ? WHERE id = ?')
+    .run('Popiai', '/repo/home', 'agent-home-session');
+  db.prepare(
+    `INSERT INTO cowork_session_sources (session_id, kind, priority, label, task_id, platform, conversation_id, created_at, updated_at)
+     VALUES (?, ?, 0, NULL, NULL, NULL, NULL, ?, ?)`,
+  ).run('agent-home-session', CoworkSessionSourceKind.AgentHome, Date.now(), Date.now());
+
+  store.addMessage('main-session', { type: 'assistant', content: 'created /repo/main/report.pdf' });
+  store.addMessage('agent-session', { type: 'assistant', content: 'created /repo/agent/output.html' });
+  store.addMessage('agent-home-session', { type: 'assistant', content: 'created /repo/home/home.html' });
+
+  const sessions = store.listArtifactResources();
+
+  expect(sessions.map((session) => [session.id, session.agentId, session.title])).toEqual([
+    ['empty-agent-session', 'agent-1', 'Empty Agent Session'],
+    ['agent-session', 'agent-1', 'Agent Session'],
+    ['main-session', 'main', 'Main Session'],
+  ]);
+  expect(sessions.find((session) => session.id === 'empty-agent-session')?.artifacts).toEqual([]);
+  expect(sessions.find((session) => session.id === 'agent-session')?.artifacts[0]).toMatchObject({
+    sessionId: 'agent-session',
+    fileName: 'output.html',
+    filePath: '/repo/agent/output.html',
+  });
+  expect(sessions.find((session) => session.id === 'main-session')?.artifacts[0]).toMatchObject({
+    sessionId: 'main-session',
+    fileName: 'report.pdf',
+    filePath: '/repo/main/report.pdf',
+  });
+});
+
 test('deleteMessage falls back to the previous latest preview', () => {
   const sid = 'sess-preview-delete';
   insertSession(sid);

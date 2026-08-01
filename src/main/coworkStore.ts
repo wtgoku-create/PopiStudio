@@ -11,6 +11,7 @@ import {
   type Artifact,
   type ArtifactMessage,
   collectSessionArtifacts,
+  type CoworkArtifactResourceSession,
   getArtifactStorageIdentity,
 } from '../shared/cowork/artifacts';
 import {
@@ -665,6 +666,15 @@ interface CoworkArtifactRow {
   content_version: number | null;
   created_at: number;
   updated_at: number;
+}
+
+interface CoworkArtifactResourceRow extends Partial<CoworkArtifactRow> {
+  session_id: string;
+  session_title: string;
+  session_agent_id: string | null;
+  session_cwd: string;
+  session_created_at: number;
+  session_updated_at: number;
 }
 
 interface CoworkUserMemoryRow {
@@ -1578,6 +1588,59 @@ export class CoworkStore {
     );
 
     return rows.map(row => this.mapArtifactRow(row));
+  }
+
+  listArtifactResources(): CoworkArtifactResourceSession[] {
+    const rows = this.getAll<CoworkArtifactResourceRow>(
+      `
+      SELECT a.id, s.id AS session_id, a.message_id, a.type, a.title, a.content, a.file_name, a.file_path,
+        a.url, a.remote_url, a.source, a.metadata, a.content_version, a.created_at, a.updated_at,
+        s.title AS session_title,
+        s.agent_id AS session_agent_id,
+        s.cwd AS session_cwd,
+        s.created_at AS session_created_at,
+        s.updated_at AS session_updated_at
+      FROM cowork_sessions s
+      LEFT JOIN cowork_artifacts a ON a.session_id = s.id
+      LEFT JOIN cowork_session_sources src_home
+        ON src_home.session_id = s.id AND src_home.kind = ?
+      WHERE src_home.session_id IS NULL
+      ORDER BY COALESCE(s.agent_id, ?) ASC,
+        s.updated_at DESC,
+        s.created_at DESC,
+        a.updated_at DESC,
+        a.created_at DESC,
+        a.ROWID DESC
+    `,
+      [CoworkSessionSourceKind.AgentHome, AgentId.Main],
+    );
+
+    const sessionById = new Map<string, CoworkArtifactResourceSession>();
+    for (const row of rows) {
+      const sessionId = row.session_id;
+      const existing = sessionById.get(sessionId);
+      if (!existing) {
+        sessionById.set(sessionId, {
+          id: sessionId,
+          title: row.session_title,
+          agentId: row.session_agent_id || AgentId.Main,
+          cwd: row.session_cwd,
+          createdAt: row.session_created_at,
+          updatedAt: row.session_updated_at,
+          artifacts: [],
+        });
+      }
+      if (!row.id) {
+        continue;
+      }
+      const artifact = this.mapArtifactRow(row as CoworkArtifactRow);
+      const session = sessionById.get(sessionId);
+      if (session) {
+        session.artifacts.push(artifact);
+      }
+    }
+
+    return Array.from(sessionById.values());
   }
 
   syncArtifactsForSession(sessionId: string): Artifact[] {

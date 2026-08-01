@@ -3872,6 +3872,18 @@ if (!gotTheLock) {
     }
   });
 
+  ipcMain.handle(CoworkIpcChannel.ListArtifactResources, async () => {
+    try {
+      const sessions = getCoworkStore().listArtifactResources();
+      return { success: true, sessions };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list artifact resources',
+      };
+    }
+  });
+
   ipcMain.handle(CoworkIpcChannel.ResyncArtifacts, async (_event, sessionId: string) => {
     try {
       const artifacts = getCoworkStore().syncArtifactsForSession(sessionId);

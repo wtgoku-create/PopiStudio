@@ -79,6 +79,16 @@ export interface Artifact {
   createdAt: number;
 }
 
+export interface CoworkArtifactResourceSession {
+  id: string;
+  title: string;
+  agentId: string;
+  cwd: string;
+  createdAt: number;
+  updatedAt: number;
+  artifacts: Artifact[];
+}
+
 export interface ArtifactMarker {
   type: ArtifactType;
   title: string;

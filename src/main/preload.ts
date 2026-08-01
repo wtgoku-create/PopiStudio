@@ -302,6 +302,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(CoworkIpcChannel.GetMessageRailIndex, { sessionId, limit }),
     listArtifacts: (sessionId: string) =>
       ipcRenderer.invoke(CoworkIpcChannel.ListArtifacts, sessionId),
+    listArtifactResources: () =>
+      ipcRenderer.invoke(CoworkIpcChannel.ListArtifactResources),
     resyncArtifacts: (sessionId: string) =>
       ipcRenderer.invoke(CoworkIpcChannel.ResyncArtifacts, sessionId),
     getContextUsage: (sessionId: string) =>

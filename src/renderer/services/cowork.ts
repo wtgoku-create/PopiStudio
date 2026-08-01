@@ -780,6 +780,11 @@ class CoworkService {
     return result ?? { success: false, error: 'Cowork IPC is unavailable' };
   }
 
+  async listArtifactResources() {
+    const result = await window.electron?.cowork?.listArtifactResources();
+    return result ?? { success: false, error: 'Cowork IPC is unavailable' };
+  }
+
   async listSessionsForSearch(limit: number, offset: number): Promise<CoworkSessionListResult> {
     const result = await this.listAgentSidebarSessions();
     if (!result.success) {
