@@ -58,6 +58,14 @@ const getKnowledgeTheme = (): string => {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 };
 
+const getKnowledgeThemeId = (): string => {
+  return document.documentElement.dataset.theme || '';
+};
+
+const getKnowledgeLocale = (): string => {
+  return i18nService.getLanguage() === 'en' ? 'en-US' : 'zh-CN';
+};
+
 const buildKnowledgeGraphUrl = (detail: OpenKnowledgeGraphEventDetail, knowledgeBasesUrl: string): string => {
   const url = new URL(`${knowledgeBasesUrl}/${encodeURIComponent(detail.knowledgeBaseId)}`);
   url.searchParams.set('tab', 'graph');
@@ -74,6 +82,7 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
   const unbindKnowledgeWebviewRef = useRef<(() => void) | null>(null);
   const isWebviewReadyRef = useRef(false);
   const postKnowledgeThemeRef = useRef<() => void>(() => undefined);
+  const postKnowledgeLocaleRef = useRef<() => void>(() => undefined);
   const postKnowledgeTokenRef = useRef<() => void>(() => undefined);
   const isLoggedIn = useSelector((state: RootState) => state.auth.isLoggedIn);
   const authRefreshKey = useSelector((state: RootState) => (
@@ -118,9 +127,21 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
 
   const postKnowledgeTheme = useCallback(async () => {
     const theme = getKnowledgeTheme();
+    const themeId = getKnowledgeThemeId();
     await postKnowledgeMessage({
       type: 'weknora:theme',
       theme,
+      themeId,
+      theme_id: themeId,
+    });
+  }, [postKnowledgeMessage]);
+
+  const postKnowledgeLocale = useCallback(async () => {
+    const locale = getKnowledgeLocale();
+    await postKnowledgeMessage({
+      type: 'weknora:locale',
+      locale,
+      language: i18nService.getLanguage(),
     });
   }, [postKnowledgeMessage]);
 
@@ -200,7 +221,8 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
   useEffect(() => {
     void postKnowledgeToken();
     void postKnowledgeTheme();
-  }, [postKnowledgeTheme, postKnowledgeToken]);
+    void postKnowledgeLocale();
+  }, [postKnowledgeLocale, postKnowledgeTheme, postKnowledgeToken]);
 
   useEffect(() => {
     if (lastAuthRefreshKeyRef.current === authRefreshKey) return;
@@ -264,7 +286,10 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
     postKnowledgeThemeRef.current = () => {
       void postKnowledgeTheme();
     };
-  }, [postKnowledgeTheme, postKnowledgeToken]);
+    postKnowledgeLocaleRef.current = () => {
+      void postKnowledgeLocale();
+    };
+  }, [postKnowledgeLocale, postKnowledgeTheme, postKnowledgeToken]);
 
   const bindKnowledgeWebview = useCallback((webview: KnowledgeWebviewElement) => {
     unbindKnowledgeWebviewRef.current?.();
@@ -275,6 +300,7 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
     const postKnowledgeState = () => {
       postKnowledgeTokenRef.current();
       postKnowledgeThemeRef.current();
+      postKnowledgeLocaleRef.current();
     };
 
     const markWebviewReady = () => {
@@ -373,6 +399,14 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
 
     return () => observer.disconnect();
   }, [postKnowledgeTheme]);
+
+  useEffect(() => {
+    const unsubscribe = i18nService.subscribe(() => {
+      void postKnowledgeLocale();
+    });
+
+    return unsubscribe;
+  }, [postKnowledgeLocale]);
 
   return (
     <>
