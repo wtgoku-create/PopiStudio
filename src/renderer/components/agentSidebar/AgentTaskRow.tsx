@@ -188,7 +188,7 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
   return (
     <div
       className={`group relative flex h-9 w-full items-center gap-2 rounded-md ${
-        isBatchMode ? 'pl-4' : 'pl-9'
+        isBatchMode ? 'pl-4' : 'pl-[54px]'
       } pr-3 text-[14px] font-normal transition-colors ${
         isSelectionDisabled
           ? 'cursor-default text-foreground/30'
@@ -214,12 +214,12 @@ const AgentTaskRow: React.FC<AgentTaskRowProps> = ({
             event.currentTarget.blur();
             void onTogglePin(nextPinned);
           }}
-          className={`absolute left-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-foreground transition-[background-color,opacity] hover:opacity-[0.46] focus:outline-none ${
+          className={`absolute left-[27px] top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-foreground transition-[background-color,opacity] hover:opacity-[0.46] focus:outline-none ${
             suppressPinHover
               ? 'pointer-events-none opacity-0'
             : task.pinned
-                ? 'bg-black/[0.04] opacity-[0.46] dark:bg-white/[0.05]'
-                : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:bg-black/[0.04] group-hover:opacity-[0.3] dark:group-hover:bg-white/[0.05]'
+                ? 'opacity-[0.46]'
+                : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-[0.3]'
           }`}
           aria-label={pinLabel}
           title={pinLabel}

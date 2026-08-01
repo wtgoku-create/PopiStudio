@@ -84,14 +84,15 @@ const CoworkSearchModal: React.FC<CoworkSearchModalProps> = ({
   const displayedSessions = useMemo(() => {
     const trimmedQuery = searchQuery.trim().toLowerCase();
     if (!trimmedQuery) return recentSessions;
-    const resultQuery = searchResultQuery.trim().toLowerCase();
-    const titleMatches = resultQuery === trimmedQuery ? searchSessions : [];
-    const recentMatches = recentSessions.filter((session) => {
+    const matchesCurrentQuery = (session: CoworkSessionSummary) => {
       const agentId = getSessionAgentId(session);
       const agentName = getAgentDisplayNameById(agentId, agents) ?? agentId;
       return session.title.toLowerCase().includes(trimmedQuery)
         || agentName.toLowerCase().includes(trimmedQuery);
-    });
+    };
+    const resultQuery = searchResultQuery.trim().toLowerCase();
+    const titleMatches = resultQuery === trimmedQuery ? searchSessions.filter(matchesCurrentQuery) : [];
+    const recentMatches = recentSessions.filter(matchesCurrentQuery);
     return mergeUniqueSessions(titleMatches, recentMatches);
   }, [agents, recentSessions, searchQuery, searchResultQuery, searchSessions]);
 
