@@ -707,9 +707,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({
           {/* Welcome Section - staggered entrance animation */}
           <div className="w-full max-w-3xl text-center">
             <img
-              src="popi_mcn.png"
+              src="popi_home_logo.png"
               alt="Popiai"
-              className="mx-auto h-8 animate-fade-in-up"
+              className="mx-auto h-9 w-auto animate-fade-in-up"
             />
             <p
               className="mt-4 text-[15px] font-normal leading-6 text-secondary animate-fade-in-up"
