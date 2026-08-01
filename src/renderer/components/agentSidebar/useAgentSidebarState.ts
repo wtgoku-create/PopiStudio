@@ -271,25 +271,16 @@ export const useAgentSidebarState = () => {
     setLoadingAgentIds(Array.from(activeAgentIds));
     setFailedAgentIds([]);
     try {
-      const [sourceResult, ...agentResults] = await Promise.all([
-        coworkService.listAgentSidebarSessions(),
-        ...sortedEnabledAgents.map((agent) => (
-          coworkService.listSessionsForAgentPreview(agent.id, AgentSidebarPageSize.Preview, 0)
-        )),
-      ]);
-      if (!sourceResult.success || agentResults.some((result) => !result.success)) {
+      const agentResults = await Promise.all(sortedEnabledAgents.map((agent) => (
+        coworkService.listSessionsForAgentPreview(agent.id, AgentSidebarPageSize.Preview, 0)
+      )));
+      if (agentResults.some((result) => !result.success)) {
         setFailedAgentIds(Array.from(activeAgentIds));
         return;
       }
 
-      const sourceSessions = sourceResult.sessions ?? [];
-      const sourceSessionById = new Map(sourceSessions.map((session) => [session.id, session]));
       const agentSessions = agentResults.flatMap((result) => result.sessions ?? []);
-      const sessions = sortSidebarSessions(mergeSidebarSessions(agentSessions, sourceSessions)
-        .map((session) => {
-          const sourceSession = sourceSessionById.get(session.id);
-          return sourceSession?.source ? { ...session, source: sourceSession.source } : session;
-        }));
+      const sessions = sortSidebarSessions(agentSessions);
       setSidebarSessions(sessions.filter((session) => (
         activeAgentIds.has(normalizeAgentId(session.agentId))
       )));

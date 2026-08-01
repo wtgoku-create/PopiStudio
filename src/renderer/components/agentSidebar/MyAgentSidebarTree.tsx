@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux';
 
 import { AgentId } from '../../../shared/agent';
-import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -15,7 +14,6 @@ import AgentSettingsPanel from '../agent/AgentSettingsPanel';
 import { type CoworkOpenShareOptionsEventDetail, CoworkUiEvent } from '../cowork/constants';
 import AgentTaskRow from './AgentTaskRow';
 import AgentTreeNode from './AgentTreeNode';
-import { AgentSidebarPageSize, AgentSidebarTaskTab } from './constants';
 import ExpandAgentTasksRow from './ExpandAgentTasksRow';
 import MyAgentSidebarHeader from './MyAgentSidebarHeader';
 import type { AgentSidebarAgentNode, AgentSidebarTaskNode } from './types';
@@ -99,9 +97,7 @@ interface MyAgentSidebarTreeProps {
   batchAgentId: string | null;
   deletedSessionIds: string[];
   selectedIds: Set<string>;
-  activeTab: AgentSidebarTaskTab;
   onShowCowork: () => void;
-  onTaskTabChange: (tab: AgentSidebarTaskTab) => void;
   onToggleSelection: (sessionId: string, agentId: string) => void;
   onEnterBatchMode: (sessionId: string, agentId: string) => void;
   onBatchSelectableIdsChange: (sessionIds: string[]) => void;
@@ -113,9 +109,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   batchAgentId,
   deletedSessionIds,
   selectedIds,
-  activeTab,
   onShowCowork,
-  onTaskTabChange,
   onToggleSelection,
   onEnterBatchMode,
   onBatchSelectableIdsChange,
@@ -138,19 +132,12 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     toggleAgentExpanded,
   } = useAgentSidebarState();
 
-  const isTaskInActiveTab = useCallback((task: AgentSidebarTaskNode) => {
-    const isScheduledTask = task.source?.kind === CoworkSessionSourceKind.ScheduledTask;
-    return activeTab === AgentSidebarTaskTab.Scheduled ? isScheduledTask : !isScheduledTask;
-  }, [activeTab]);
   const visibleAgentNodes = useMemo(() => agentNodes
     .map((agent) => ({
       ...agent,
-      tasks: agent.tasks.filter(isTaskInActiveTab),
-      canExpandTasks: activeTab === AgentSidebarTaskTab.Main
-        && agent.canExpandTasks
-        && agent.tasks.filter(isTaskInActiveTab).length >= AgentSidebarPageSize.Preview,
-      canCollapseTasks: activeTab === AgentSidebarTaskTab.Main && agent.canCollapseTasks,
-    })), [activeTab, agentNodes, isTaskInActiveTab]);
+      canExpandTasks: agent.canExpandTasks,
+      canCollapseTasks: agent.canCollapseTasks,
+    })), [agentNodes]);
   const isBatchSelectableTask = useCallback((_task: AgentSidebarTaskNode) => true, []);
   const getChildTasks = useCallback((agent: AgentSidebarAgentNode) => agent.tasks, []);
   useEffect(() => {
@@ -223,14 +210,12 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
 
   const handleReturnToMainAgent = async () => {
     agentService.switchAgent(AgentId.Main);
-    onTaskTabChange(AgentSidebarTaskTab.Main);
     onShowCowork();
 
     const result = await coworkService.listAgentSidebarSessions();
     const mainTaskSession = result.success
       ? result.sessions?.find((session) => (
         (session.agentId?.trim() || AgentId.Main) === AgentId.Main
-        && session.source?.kind !== CoworkSessionSourceKind.ScheduledTask
       ))
       : null;
 
@@ -250,14 +235,14 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
       if (currentSessionId === task.id) {
         const nextAgent = agentNodes.find((item) => (
           item.id === task.agentId
-          && item.tasks.some((candidate) => candidate.id !== task.id && isTaskInActiveTab(candidate))
+          && item.tasks.some((candidate) => candidate.id !== task.id)
         ));
         const nextTask = nextAgent?.tasks.find((candidate) => (
-          candidate.id !== task.id && isTaskInActiveTab(candidate)
+          candidate.id !== task.id
         ));
         if (nextAgent && nextTask) {
           await handleSelectAgentSession(nextAgent, nextTask);
-        } else if (task.source?.kind === CoworkSessionSourceKind.ScheduledTask) {
+        } else {
           await handleReturnToMainAgent();
         }
       }
@@ -309,17 +294,12 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
 
   const renderAgentNode = (agent: AgentSidebarAgentNode) => {
     const childTasks = getChildTasks(agent);
-    const displayTask = agent.tasks[0] ?? null;
-    const displayAgent: AgentSidebarAgentNode = {
-      ...agent,
-      tasks: displayTask ? [displayTask] : [],
-    };
     const isAgentActive = agent.id === currentAgentId && !currentSessionId;
 
     return (
       <div key={agent.id} className="space-y-1">
         <AgentTreeNode
-          agent={displayAgent}
+          agent={agent}
           isActive={isAgentActive}
           onToggleExpanded={toggleAgentExpanded}
           onEditAgent={(agent) => setSettingsAgentId(agent.id)}
@@ -383,11 +363,9 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
   return (
     <div className="pb-3" role="tree" aria-label={i18nService.t('myAgents')}>
       <MyAgentSidebarHeader
-        activeTab={activeTab}
         onAddFriend={() => setIsAddFriendOpen(true)}
         onCreateAgent={() => setIsCreateOpen(true)}
         onSearch={onSearch}
-        onTaskTabChange={onTaskTabChange}
       />
 
       {agentNodes.length === 0 ? (
@@ -406,9 +384,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
       ) : visibleAgentNodes.length === 0 ? (
         <div className="px-3 py-6 text-center">
           <p className="text-xs font-medium text-secondary">
-            {activeTab === AgentSidebarTaskTab.Scheduled
-              ? i18nService.t('myAgentSidebarNoScheduledTasks')
-              : i18nService.t('myAgentSidebarNoTasks')}
+            {i18nService.t('myAgentSidebarNoTasks')}
           </p>
         </div>
       ) : (

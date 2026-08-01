@@ -4,12 +4,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { PlatformRegistry } from '../../../shared/platform';
 import { i18nService } from '../../services/i18n';
-import { getAgentDisplayName, isDefaultAgentId, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
-import AgentConfirmDialog from '../agent/AgentConfirmDialog';
+import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
+import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import { AgentConfirmDialogVariant } from '../agent/constants';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
-import EditIcon from '../icons/EditIcon';
 import EllipsisHorizontalIcon from '../icons/EllipsisHorizontalIcon';
 import LoadingIcon from '../icons/LoadingIcon';
 import TrashIcon from '../icons/TrashIcon';
@@ -24,14 +23,12 @@ interface AgentSessionNodeProps {
   onSelect: (agent: AgentSidebarAgentNode, task: AgentSidebarTaskNode) => void;
   onDelete: (task: AgentSidebarTaskNode) => Promise<void>;
   onShare: (agent: AgentSidebarAgentNode, task: AgentSidebarTaskNode) => Promise<void>;
-  onEditAgent?: (agent: AgentSidebarAgentNode) => void;
   hasPendingConfirmation?: boolean;
 }
 
 const ACTION_MENU_VIEWPORT_PADDING = 8;
 const ACTION_MENU_VERTICAL_GAP = 4;
 const ACTION_MENU_BASE_HEIGHT = 74;
-const ACTION_MENU_AGENT_HOME_HEIGHT = 111;
 
 const AgentAvatar: React.FC<{ agent: AgentSidebarAgentNode }> = ({ agent }) => {
   if (shouldUseDefaultAgentIcon(agent)) {
@@ -77,7 +74,6 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
   onSelect,
   onDelete,
   onShare,
-  onEditAgent,
   hasPendingConfirmation = false,
 }) => {
   const [menuPosition, setMenuPosition] = useState<{ right: number; top: number } | null>(null);
@@ -86,9 +82,7 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const isMenuOpen = menuPosition !== null;
   const agentName = getAgentDisplayName(agent);
-  const isAgentHomeSession = task.source?.kind === CoworkSessionSourceKind.AgentHome;
   const isScheduledTaskSession = task.source?.kind === CoworkSessionSourceKind.ScheduledTask;
-  const canDeleteSession = !(isAgentHomeSession && isDefaultAgentId(agent.id));
   const sourceLabel = getSessionSourceLabel(task);
   const indicator = task.indicator;
   const showPendingConfirmationIndicator = hasPendingConfirmation;
@@ -102,8 +96,6 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
   const trailingMetaClassName = isMenuOpen ? 'opacity-0' : 'group-hover:opacity-0';
   const menuItemClassName =
     'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
-  const disabledMenuItemClassName =
-    'flex w-full cursor-not-allowed items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-secondary/40';
   const rowActionButtonClassName =
     'inline-flex h-7 w-7 items-center justify-center rounded-lg text-foreground opacity-[0.46] transition-colors hover:bg-black/[0.06] hover:opacity-[0.7] dark:hover:bg-white/[0.06]';
   const menuIconClassName = 'h-3.5 w-3.5';
@@ -117,14 +109,12 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
       ACTION_MENU_VIEWPORT_PADDING,
       Math.min(
         rect.bottom + ACTION_MENU_VERTICAL_GAP,
-        window.innerHeight -
-          (isAgentHomeSession ? ACTION_MENU_AGENT_HOME_HEIGHT : ACTION_MENU_BASE_HEIGHT) -
-          ACTION_MENU_VIEWPORT_PADDING,
+        window.innerHeight - ACTION_MENU_BASE_HEIGHT - ACTION_MENU_VIEWPORT_PADDING,
       ),
     );
 
     return { right, top };
-  }, [isAgentHomeSession]);
+  }, []);
 
   const closeMenu = useCallback(() => {
     setMenuPosition(null);
@@ -249,21 +239,6 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
           style={{ top: menuPosition.top, right: menuPosition.right }}
           role="menu"
         >
-          {isAgentHomeSession && onEditAgent && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                closeMenu();
-                onEditAgent(agent);
-              }}
-              className={menuItemClassName}
-              role="menuitem"
-            >
-              <EditIcon className={menuIconClassName} />
-              {i18nService.t('edit')}
-            </button>
-          )}
           <button
             type="button"
             onClick={(event) => {
@@ -281,14 +256,11 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              if (!canDeleteSession) return;
               closeMenu();
               setShowConfirmDelete(true);
             }}
-            disabled={!canDeleteSession}
-            className={canDeleteSession ? menuItemClassName : disabledMenuItemClassName}
+            className={menuItemClassName}
             role="menuitem"
-            title={canDeleteSession ? undefined : i18nService.t('agentDefaultCannotDelete')}
           >
             <TrashIcon className={menuIconClassName} />
             {i18nService.t('deleteSession')}
@@ -299,14 +271,8 @@ const AgentSessionNode: React.FC<AgentSessionNodeProps> = ({
       {showConfirmDelete && (
         <AgentConfirmDialog
           variant={AgentConfirmDialogVariant.Delete}
-          title={i18nService.t(
-            isAgentHomeSession ? 'agentDeleteConfirmTitle' : 'deleteTaskConfirmTitle',
-          )}
-          message={
-            isAgentHomeSession
-              ? i18nService.t('agentDeleteConfirmMessage').replace('{name}', agentName)
-              : i18nService.t('deleteTaskConfirmMessage')
-          }
+          title={i18nService.t('deleteTaskConfirmTitle')}
+          message={i18nService.t('deleteTaskConfirmMessage')}
           cancelLabel={i18nService.t('cancel')}
           confirmLabel={i18nService.t('deleteSession')}
           onCancel={() => setShowConfirmDelete(false)}

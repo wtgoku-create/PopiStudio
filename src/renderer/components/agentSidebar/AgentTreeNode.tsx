@@ -5,6 +5,7 @@ import { getAgentDisplayName, isDefaultAgentId, shouldUseDefaultAgentIcon } from
 import AgentAvatarIcon from '../agent/AgentAvatarIcon';
 import AgentConfirmDialog from '../agent/AgentConfirmDialog';
 import { AgentConfirmDialogVariant } from '../agent/constants';
+import ChevronRightIcon from '../icons/ChevronRightIcon';
 import ComposeIcon from '../icons/ComposeIcon';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import EditIcon from '../icons/EditIcon';
@@ -180,12 +181,19 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
         <button
           type="button"
           onClick={handleAgentClick}
-          className="flex h-full w-full items-center gap-2 rounded-md bg-transparent py-0 pl-2.5 pr-11 text-left"
+          className="flex h-full w-full items-center gap-1.5 rounded-md bg-transparent py-0 pl-1.5 pr-11 text-left"
           role="treeitem"
           aria-level={1}
           aria-expanded={agent.isExpanded}
           aria-current={isActive ? 'page' : undefined}
         >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center text-secondary transition-colors group-hover:text-foreground">
+            <ChevronRightIcon
+              className={`h-3.5 w-3.5 transition-transform duration-200 ease-out motion-reduce:transition-none ${
+                agent.isExpanded ? 'rotate-90' : 'rotate-0'
+              }`}
+            />
+          </span>
           <span className="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden leading-none text-foreground">
             <AgentAvatar agent={agent} />
           </span>

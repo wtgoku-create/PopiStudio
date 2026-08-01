@@ -5,14 +5,11 @@ import { createPortal } from 'react-dom';
 import { i18nService } from '../../services/i18n';
 import BoltIcon from '../icons/BoltIcon';
 import UserPlusIcon from '../icons/UserPlusIcon';
-import { AgentSidebarTaskTab, type AgentSidebarTaskTab as AgentSidebarTaskTabValue } from './constants';
 
 interface MyAgentSidebarHeaderProps {
-  activeTab: AgentSidebarTaskTabValue;
   onAddFriend: () => void;
   onCreateAgent: () => void;
   onSearch: () => void;
-  onTaskTabChange: (tab: AgentSidebarTaskTabValue) => void;
 }
 
 const ADD_MENU_OFFSET_X = -10;
@@ -21,11 +18,9 @@ const ADD_MENU_VIEWPORT_PADDING = 8;
 const ADD_MENU_WIDTH = 216;
 
 const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
-  activeTab,
   onAddFriend,
   onCreateAgent,
   onSearch,
-  onTaskTabChange,
 }) => {
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
@@ -177,32 +172,6 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
         <MagnifyingGlassIcon className="h-4 w-4 shrink-0 text-secondary/70" />
         <span className="truncate text-muted">{i18nService.t('mcpCategorySearch')}</span>
       </button>
-      <div className="mt-2 flex items-center rounded-lg bg-black/[0.03] p-0.5 text-[12px] font-medium text-secondary dark:bg-white/[0.04]">
-        <button
-          type="button"
-          onClick={() => onTaskTabChange(AgentSidebarTaskTab.Main)}
-          className={`h-7 min-w-0 flex-1 rounded-md px-2 transition-colors ${
-            activeTab === AgentSidebarTaskTab.Main
-              ? 'bg-white text-foreground shadow-sm dark:bg-white/[0.08]'
-              : 'hover:text-foreground'
-          }`}
-          aria-pressed={activeTab === AgentSidebarTaskTab.Main}
-        >
-          {i18nService.t('myAgentSidebarMainTasks')}
-        </button>
-        <button
-          type="button"
-          onClick={() => onTaskTabChange(AgentSidebarTaskTab.Scheduled)}
-          className={`h-7 min-w-0 flex-1 rounded-md px-2 transition-colors ${
-            activeTab === AgentSidebarTaskTab.Scheduled
-              ? 'bg-white text-foreground shadow-sm dark:bg-white/[0.08]'
-              : 'hover:text-foreground'
-          }`}
-          aria-pressed={activeTab === AgentSidebarTaskTab.Scheduled}
-        >
-          {i18nService.t('myAgentSidebarScheduledTasks')}
-        </button>
-      </div>
     </div>
   );
 };

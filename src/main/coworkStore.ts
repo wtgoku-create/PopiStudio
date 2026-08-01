@@ -1601,10 +1601,7 @@ export class CoworkStore {
         s.created_at AS session_created_at,
         s.updated_at AS session_updated_at
       FROM cowork_sessions s
-      LEFT JOIN cowork_artifacts a ON a.session_id = s.id
-      LEFT JOIN cowork_session_sources src_home
-        ON src_home.session_id = s.id AND src_home.kind = ?
-      WHERE src_home.session_id IS NULL
+      INNER JOIN cowork_artifacts a ON a.session_id = s.id
       ORDER BY COALESCE(s.agent_id, ?) ASC,
         s.updated_at DESC,
         s.created_at DESC,
@@ -1612,7 +1609,7 @@ export class CoworkStore {
         a.created_at DESC,
         a.ROWID DESC
     `,
-      [CoworkSessionSourceKind.AgentHome, AgentId.Main],
+      [AgentId.Main],
     );
 
     const sessionById = new Map<string, CoworkArtifactResourceSession>();

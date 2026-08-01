@@ -3,7 +3,6 @@ import { AgentId } from '@shared/agent';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
-import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
 import { agentService } from '../../services/agent';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -17,7 +16,6 @@ import { getAgentDisplayNameById } from '../../utils/agentDisplay';
 import Modal from '../common/Modal';
 import CoworkSearchModal from '../cowork/CoworkSearchModal';
 import TrashIcon from '../icons/TrashIcon';
-import { AgentSidebarTaskTab } from './constants';
 import MyAgentSidebarTree from './MyAgentSidebarTree';
 
 interface AgentSidebarPanelProps {
@@ -30,11 +28,6 @@ const MIN_AGENT_PANEL_WIDTH = 300;
 const MAX_AGENT_PANEL_WIDTH = 540;
 const SIDEBAR_COLLAPSE_TRANSITION_MS = 200;
 const normalizeAgentId = (agentId?: string | null) => agentId?.trim() || AgentId.Main;
-const resolveTaskTabForSession = (session: CoworkSessionSummary) => {
-  return session.source?.kind === CoworkSessionSourceKind.ScheduledTask
-    ? AgentSidebarTaskTab.Scheduled
-    : AgentSidebarTaskTab.Main;
-};
 
 const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
   isCollapsed,
@@ -46,7 +39,6 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
   const currentSessionId = useSelector(selectCurrentSessionId);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isBatchMode, setIsBatchMode] = useState(false);
-  const [activeTaskTab, setActiveTaskTab] = useState<AgentSidebarTaskTab>(AgentSidebarTaskTab.Main);
   const [batchAgentId, setBatchAgentId] = useState<string | null>(null);
   const [batchSelectableIds, setBatchSelectableIds] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -93,7 +85,6 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
     if (agentId !== currentAgentId) {
       agentService.switchAgent(agentId);
     }
-    setActiveTaskTab(resolveTaskTabForSession(session));
     onShowCowork();
     await coworkService.loadSession(session.id);
   };
@@ -272,9 +263,7 @@ const AgentSidebarPanel: React.FC<AgentSidebarPanelProps> = ({
               batchAgentId={batchAgentId}
               deletedSessionIds={deletedSessionIds}
               selectedIds={selectedIds}
-              activeTab={activeTaskTab}
               onShowCowork={onShowCowork}
-              onTaskTabChange={setActiveTaskTab}
               onToggleSelection={handleToggleSelection}
               onEnterBatchMode={handleEnterBatchMode}
               onBatchSelectableIdsChange={handleBatchSelectableIdsChange}

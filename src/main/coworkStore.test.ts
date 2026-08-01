@@ -342,7 +342,7 @@ test('deleteSession clears persisted artifacts', () => {
   expect(row.count).toBe(0);
 });
 
-test('listArtifactResources groups artifacts by agent sessions', () => {
+test('listArtifactResources groups artifacts by sessions with resources including agent home sessions', () => {
   insertSession('main-session', 'main', 3000);
   insertSession('empty-agent-session', 'agent-1', 2500);
   insertSession('agent-session', 'agent-1', 2000);
@@ -367,11 +367,16 @@ test('listArtifactResources groups artifacts by agent sessions', () => {
   const sessions = store.listArtifactResources();
 
   expect(sessions.map((session) => [session.id, session.agentId, session.title])).toEqual([
-    ['empty-agent-session', 'agent-1', 'Empty Agent Session'],
     ['agent-session', 'agent-1', 'Agent Session'],
+    ['agent-home-session', 'main', 'Popiai'],
     ['main-session', 'main', 'Main Session'],
   ]);
-  expect(sessions.find((session) => session.id === 'empty-agent-session')?.artifacts).toEqual([]);
+  expect(sessions.find((session) => session.id === 'empty-agent-session')).toBeUndefined();
+  expect(sessions.find((session) => session.id === 'agent-home-session')?.artifacts[0]).toMatchObject({
+    sessionId: 'agent-home-session',
+    fileName: 'home.html',
+    filePath: '/repo/home/home.html',
+  });
   expect(sessions.find((session) => session.id === 'agent-session')?.artifacts[0]).toMatchObject({
     sessionId: 'agent-session',
     fileName: 'output.html',

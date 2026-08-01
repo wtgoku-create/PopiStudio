@@ -10,7 +10,6 @@ import {
   DocumentIcon,
   FolderIcon,
 } from '@heroicons/react/24/outline';
-import { AgentId } from '@shared/agent';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
@@ -245,11 +244,7 @@ const FolderView: React.FC<FolderViewProps> = ({
 
     const nextNodes: Record<string, FolderTreeNode> = {};
     const rootChildren: string[] = [];
-    const agentIds = new Set<string>(agents.map((agent) => agent.id));
-    agentIds.add(AgentId.Main);
-    for (const agentId of sessionsByAgentId.keys()) {
-      agentIds.add(agentId);
-    }
+    const agentIds = Array.from(sessionsByAgentId.keys());
 
     for (const agentId of agentIds) {
       const sessions = sessionsByAgentId.get(agentId) ?? [];
