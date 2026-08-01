@@ -13,6 +13,7 @@ import { buildGoalSettingMessageMetadata } from '../../../common/goalCommandDisp
 import {
   type OpenClawSessionPatch,
   OpenClawSessionReasoningLevel,
+  OpenClawSessionThinkingLevel,
 } from '../../../common/openclawSession';
 import {
   buildBrowserAnnotationPromptSection,
@@ -3148,7 +3149,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           key: sessionKey,
           model,
           ...(isManagedSessionKey(sessionKey)
-            ? { reasoningLevel: OpenClawSessionReasoningLevel.Stream }
+            ? {
+              reasoningLevel: OpenClawSessionReasoningLevel.Stream,
+              thinkingLevel: OpenClawSessionThinkingLevel.Medium,
+            }
             : {}),
         });
         this.lastPatchedModelBySession.set(sessionId, model);

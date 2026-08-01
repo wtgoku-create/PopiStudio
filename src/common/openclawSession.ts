@@ -24,10 +24,18 @@ export const OpenClawSessionReasoningLevel = {
 export type OpenClawSessionReasoningLevel =
   typeof OpenClawSessionReasoningLevel[keyof typeof OpenClawSessionReasoningLevel];
 
+export const OpenClawSessionThinkingLevel = {
+  Off: 'off',
+  Medium: 'medium',
+} as const;
+
+export type OpenClawSessionThinkingLevel =
+  typeof OpenClawSessionThinkingLevel[keyof typeof OpenClawSessionThinkingLevel];
+
 export interface OpenClawSessionPatch {
   model?: string | null;
-  thinkingLevel?: string | null;
-  reasoningLevel?: string | null;
+  thinkingLevel?: OpenClawSessionThinkingLevel | string | null;
+  reasoningLevel?: OpenClawSessionReasoningLevel | string | null;
   elevatedLevel?: string | null;
   responseUsage?: OpenClawSessionResponseUsage | null;
   sendPolicy?: OpenClawSessionSendPolicy | null;

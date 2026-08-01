@@ -5,6 +5,10 @@ import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
 import {
+  OpenClawSessionReasoningLevel,
+  OpenClawSessionThinkingLevel,
+} from '../../../common/openclawSession';
+import {
   type CoworkBrowserAnnotationBatch,
   type CoworkBrowserAnnotationMessageBatch,
   normalizeBrowserAnnotationBatches,
@@ -1536,6 +1540,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           if (isPatchingModel) return;
           if (!nextModel) return;
           const modelRef = toOpenClawModelRef(nextModel);
+          const supportsThinking = nextModel.supportsThinking === true;
           if (sessionId) {
             const requestId = modelPatchRequestIdRef.current + 1;
             modelPatchRequestIdRef.current = requestId;
@@ -1547,7 +1552,15 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             dispatch(updateCurrentSessionModelOverride({ sessionId, modelOverride: modelRef }));
 
             try {
-              const patchedSession = await coworkService.patchSession(sessionId, { model: modelRef });
+              const patchedSession = await coworkService.patchSession(sessionId, {
+                model: modelRef,
+                thinkingLevel: supportsThinking
+                  ? OpenClawSessionThinkingLevel.Medium
+                  : OpenClawSessionThinkingLevel.Off,
+                reasoningLevel: supportsThinking
+                  ? OpenClawSessionReasoningLevel.Stream
+                  : OpenClawSessionReasoningLevel.Off,
+              });
               if (requestId !== modelPatchRequestIdRef.current) return;
 
               if (!patchedSession) {
