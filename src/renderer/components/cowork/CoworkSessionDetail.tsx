@@ -281,14 +281,14 @@ const getPermissionPreviewText = (permission: CoworkPermissionRequest): string =
 
 const HeaderAgentAvatar: React.FC<{ agent: HeaderAgent }> = ({ agent }) => {
   if (shouldUseDefaultAgentIcon(agent)) {
-    return <DefaultAgentIcon className="h-4 w-4" />;
+    return <DefaultAgentIcon className="h-5 w-5" />;
   }
 
   return (
     <AgentAvatarIcon
       value={agent.icon}
       className="h-8 w-8"
-      iconClassName="h-4 w-4"
+      iconClassName="h-5 w-5"
       legacyClassName="text-[16px]"
       fallbackText={getAgentDisplayName(agent).trim().slice(0, 1).toUpperCase() || 'A'}
     />
@@ -4012,16 +4012,13 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               {updateBadge}
             </div>
           )} */}
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-transparent leading-none text-foreground dark:border-white/[0.12]">
+          <div className="flex min-w-0 items-center gap-1">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-transparent leading-none text-foreground">
               <HeaderAgentAvatar agent={headerAgent} />
             </span>
             <div className="min-w-0">
               <div className="truncate text-sm font-medium leading-4 text-foreground max-w-[360px]">
                 {currentSession.source?.kind === CoworkSessionSourceKind.ScheduledTask ? currentSession.source.label || currentSession.title || i18nService.t('coworkNewSession') : headerAgentName}
-              </div>
-              <div className="mt-0.5 truncate text-[12px] leading-4 text-secondary max-w-[360px]">
-                {currentSession.title || i18nService.t('coworkNewSession')}
               </div>
             </div>
           </div>
