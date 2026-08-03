@@ -215,6 +215,16 @@ const getArtifactAttachmentName = (artifact: Artifact): string => (
   artifact.fileName || getFileNameFromPath(artifact.filePath || artifact.title) || artifact.title
 );
 
+const getArtifactMentionReference = (artifact: Artifact): string => {
+  if (artifact.filePath?.trim()) return artifact.filePath;
+  if (artifact.remoteUrl?.trim()) return artifact.remoteUrl;
+  if (/^https?:\/\//i.test(artifact.content.trim())) return artifact.content.trim();
+  if (artifact.url?.trim()) return artifact.url;
+  return '';
+};
+
+const isHttpUrl = (value: string): boolean => /^https?:\/\//i.test(value.trim());
+
 const SEND_SHORTCUT_OPTIONS = [
   { value: 'Enter', label: 'Enter', labelMac: 'Enter' },
   { value: 'Shift+Enter', label: 'Shift+Enter', labelMac: 'Shift+Enter' },
@@ -499,14 +509,15 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const query = fileMentionQuery.trim().toLowerCase();
     const attachedPaths = new Set(attachments.map(attachment => attachment.path));
     return sessionArtifacts
-      .filter((artifact) => Boolean(artifact.filePath?.trim()))
-      .filter((artifact) => !attachedPaths.has(artifact.filePath || ''))
+      .filter((artifact) => Boolean(getArtifactMentionReference(artifact)))
+      .filter((artifact) => !attachedPaths.has(getArtifactMentionReference(artifact)))
       .filter((artifact) => {
         if (!query) return true;
+        const reference = getArtifactMentionReference(artifact);
         const searchable = [
           getArtifactAttachmentName(artifact),
           artifact.title,
-          artifact.filePath,
+          reference,
           artifact.remoteUrl,
         ].filter(Boolean).join(' ').toLowerCase();
         return searchable.includes(query);
@@ -909,7 +920,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             dataUrlPrefix: attachment.dataUrl.slice(0, 60),
           });
         }
-      } else if (attachment.isImage && modelSupportsImage && !attachment.path.startsWith('inline:')) {
+      } else if (attachment.isImage && modelSupportsImage && !attachment.path.startsWith('inline:') && !isHttpUrl(attachment.path)) {
         try {
           const result = await window.electron.dialog.readFileAsDataUrl(attachment.path);
           if (result.success && result.dataUrl) {
@@ -964,9 +975,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         names: imageAtts.map(a => a.name),
         base64Lengths: imageAtts.map(a => a.base64Data.length),
       });
-    } else if (attachments.some(a => a.isImage || isImagePath(a.path))) {
+    } else if (attachments.some(a => a.isImage || (!isHttpUrl(a.path) && isImagePath(a.path)))) {
       console.warn('[CoworkPromptInput] handleSubmit: has image-like attachments but imageAtts is EMPTY — images will NOT be sent as base64', {
-        imageAttachments: attachments.filter(a => a.isImage || isImagePath(a.path)).map(a => ({
+        imageAttachments: attachments.filter(a => a.isImage || (!isHttpUrl(a.path) && isImagePath(a.path))).map(a => ({
           path: a.path,
           isImage: a.isImage,
           hasDataUrl: !!a.dataUrl,
@@ -1171,7 +1182,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [activeSkillIds, closeSlashSkillPalette, dispatch, draftKey, slashSkillStart, value]);
 
   const applyFileMention = useCallback(async (artifact: Artifact) => {
-    if (fileMentionStart === null || !artifact.filePath) return;
+    const reference = getArtifactMentionReference(artifact);
+    if (fileMentionStart === null || !reference) return;
     const textarea = textareaRef.current;
     const cursor = textarea?.selectionStart ?? value.length;
     const beforeMention = value.slice(0, fileMentionStart);
@@ -1180,13 +1192,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       ? `${beforeMention}${afterMentionToken.replace(/^\s+/, '')}`
       : `${beforeMention}${afterMentionToken}`;
     const nextCursor = fileMentionStart;
-    const filePath = artifact.filePath;
-    const fileIsImage = isImagePath(filePath);
+    const fileIsImage = !isHttpUrl(reference) && isImagePath(reference);
     let dataUrl: string | undefined;
 
     if (fileIsImage && modelSupportsImage) {
       try {
-        const readResult = await window.electron.dialog.readFileAsDataUrl(filePath);
+        const readResult = await window.electron.dialog.readFileAsDataUrl(reference);
         if (readResult.success && readResult.dataUrl) {
           dataUrl = readResult.dataUrl;
         }
@@ -1200,7 +1211,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(addDraftAttachment({
       draftKey,
       attachment: {
-        path: filePath,
+        path: reference,
         name: getArtifactAttachmentName(artifact),
         isImage: fileIsImage,
         ...(dataUrl ? { dataUrl } : {}),
@@ -2669,7 +2680,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           fileMentionArtifacts.map((artifact, index) => {
             const isHighlighted = index === fileMentionHighlightIndex;
             const fileName = getArtifactAttachmentName(artifact);
-            const filePath = artifact.filePath || '';
+            const reference = getArtifactMentionReference(artifact);
             return (
               <button
                 key={artifact.id}
@@ -2694,7 +2705,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                     {fileName}
                   </div>
                   <div className="mt-0.5 truncate text-xs text-secondary">
-                    {getShortArtifactPath(filePath)}
+                    {getShortArtifactPath(reference)}
                   </div>
                 </div>
               </button>
