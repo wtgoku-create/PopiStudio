@@ -703,57 +703,59 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto min-h-0 relative">
-        <div className="relative flex min-h-full w-full min-w-[320px] flex-col items-center px-4 pt-[clamp(88px,19vh,140px)] pb-8">
-          {/* Welcome Section - staggered entrance animation */}
-          <div className="w-full max-w-3xl text-center">
-            <img
-              src="popi_home_logo.png"
-              alt="Popiai"
-              className="mx-auto h-9 w-auto animate-fade-in-up"
-            />
-            <p
-              className="mt-4 text-[15px] font-normal leading-6 text-secondary animate-fade-in-up"
-              style={{ animationDelay: '120ms', animationFillMode: 'both' }}
-            >
-              {i18nService.t('coworkDescription')}
-            </p>
-          </div>
-
-          {/* Prompt Input Area - Large version with folder selector */}
-          <div
-            className="mt-9 w-full max-w-3xl animate-fade-in-up"
-            style={{ animationDelay: '180ms', animationFillMode: 'both' }}
-          >
-            <CoworkPromptInput
-              ref={promptInputRef}
-              onSubmit={handleHomeSubmit}
-              onGoalCommand={handleHomeGoalCommand}
-              onStop={handleStopSession}
-              isStreaming={isStreaming}
-              disabled={!isEngineReady}
-              placeholder={i18nService.t('coworkPlaceholder')}
-              size="large"
-              workingDirectory={currentAgentWorkingDirectory}
-              showFolderSelector={true}
-              showModelSelector={true}
-              showAgentSelector={true}
-              onManageSkills={() => onShowSkills?.()}
-            />
-          </div>
-
-          {/* Quick Actions */}
-          <div
-            className="mt-8 w-full max-w-3xl space-y-4 animate-fade-in-up"
-            style={{ animationDelay: '260ms', animationFillMode: 'both' }}
-          >
-            {selectedAction ? (
-              <PromptPanel
-                action={selectedAction}
-                onPromptSelect={handleQuickActionPromptSelect}
+        <div className="relative flex min-h-full w-full min-w-[320px] flex-col px-4 py-[clamp(32px,8vh,80px)]">
+          <div className="my-auto flex w-full flex-col items-center">
+            {/* Welcome Section - staggered entrance animation */}
+            <div className="w-full max-w-3xl text-center">
+              <img
+                src="popi_home_logo.png"
+                alt="Popiai"
+                className="mx-auto h-9 w-auto animate-fade-in-up"
               />
-            ) : (
-              <QuickActionBar actions={quickActions} onActionSelect={handleActionSelect} />
-            )}
+              <p
+                className="mt-4 text-[15px] font-normal leading-6 text-secondary animate-fade-in-up"
+                style={{ animationDelay: '120ms', animationFillMode: 'both' }}
+              >
+                {i18nService.t('coworkDescription')}
+              </p>
+            </div>
+
+            {/* Prompt Input Area - Large version with folder selector */}
+            <div
+              className="mt-9 w-full max-w-3xl animate-fade-in-up"
+              style={{ animationDelay: '180ms', animationFillMode: 'both' }}
+            >
+              <CoworkPromptInput
+                ref={promptInputRef}
+                onSubmit={handleHomeSubmit}
+                onGoalCommand={handleHomeGoalCommand}
+                onStop={handleStopSession}
+                isStreaming={isStreaming}
+                disabled={!isEngineReady}
+                placeholder={i18nService.t('coworkPlaceholder')}
+                size="large"
+                workingDirectory={currentAgentWorkingDirectory}
+                showFolderSelector={true}
+                showModelSelector={true}
+                showAgentSelector={true}
+                onManageSkills={() => onShowSkills?.()}
+              />
+            </div>
+
+            {/* Quick Actions */}
+            <div
+              className="mt-8 w-full max-w-3xl space-y-4 animate-fade-in-up"
+              style={{ animationDelay: '260ms', animationFillMode: 'both' }}
+            >
+              {selectedAction ? (
+                <PromptPanel
+                  action={selectedAction}
+                  onPromptSelect={handleQuickActionPromptSelect}
+                />
+              ) : (
+                <QuickActionBar actions={quickActions} onActionSelect={handleActionSelect} />
+              )}
+            </div>
           </div>
         </div>
       </div>
