@@ -1,6 +1,6 @@
 import { ExclamationTriangleIcon, PauseCircleIcon, PlayCircleIcon } from '@heroicons/react/24/outline';
 import { ArrowUpIcon, FolderIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
@@ -44,7 +44,7 @@ import {
   updateCurrentSessionModelOverride,
 } from '../../store/slices/coworkSlice';
 import type { Model } from '../../store/slices/modelSlice';
-import { setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
+import { setActiveSkillIds, setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
 import { CoworkImageAttachment } from '../../types/cowork';
 import { Skill } from '../../types/skill';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
@@ -213,6 +213,13 @@ const isMacPlatform = navigator.platform.includes('Mac');
 const ContextLabelMaxLength = {
   Folder: 12,
   DefaultFolder: 30,
+} as const;
+
+const SlashSkillPalette = {
+  RowHeight: 56,
+  ListPadding: 6,
+  ListboxId: 'cowork-slash-skill-listbox',
+  OptionIdPrefix: 'cowork-slash-skill-option',
 } as const;
 
 const truncateDisplayText = (value: string, maxLength: number): string => {
@@ -390,8 +397,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [isLoadingKnowledgeBases, setIsLoadingKnowledgeBases] = useState(false);
     const [knowledgeBases, setKnowledgeBases] = useState<RemoteKnowledgeBase[]>([]);
     const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
+    const [slashSkillStart, setSlashSkillStart] = useState<number | null>(null);
+    const [slashSkillHighlightIndex, setSlashSkillHighlightIndex] = useState(0);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const slashSkillPaletteRef = useRef<HTMLDivElement>(null);
+    const slashSkillListRef = useRef<HTMLDivElement>(null);
     const addMenuButtonRef = useRef<HTMLButtonElement>(null);
     const addMenuRef = useRef<HTMLDivElement>(null);
     const knowledgeMenuItemRef = useRef<HTMLButtonElement>(null);
@@ -438,12 +449,35 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);
+  const slashSkillQuery = slashSkillStart === null ? '' : value.slice(slashSkillStart + 1, textareaRef.current?.selectionStart ?? value.length);
+  const filteredSlashSkills = useMemo(() => {
+    if (steerInputActive || goalInputActive) return [];
+    const query = slashSkillQuery.trim().toLowerCase();
+    return skills
+      .filter(skill => skill.enabled)
+      .filter((skill) => {
+        if (!query) return true;
+        const localizedName = skillService.getLocalizedSkillName(skill);
+        const localizedDescription = skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill);
+        return localizedName.toLowerCase().includes(query)
+          || skill.name.toLowerCase().includes(query)
+          || skill.id.toLowerCase().includes(query)
+          || localizedDescription.toLowerCase().includes(query);
+      });
+  }, [goalInputActive, skills, slashSkillQuery, steerInputActive]);
+  const showSlashSkillPalette = slashSkillStart !== null && !disabled && !remoteManaged && !steerInputActive && !goalInputActive;
   const hasActiveSkills = activeSkillIds.some(id => skills.some(skill => skill.id === id));
   const selectedKnowledgeBases = selectedKnowledgeBaseIds
     .map(id => knowledgeBases.find(base => base.id === id))
     .filter((base): base is RemoteKnowledgeBase => Boolean(base));
   const hasSelectedKnowledge = selectedKnowledgeBases.length > 0;
   const hasContextBadges = hasActiveSkills || hasSelectedKnowledge;
+
+  useEffect(() => {
+    if (!showSlashSkillPalette) return;
+    setSlashSkillHighlightIndex(index => Math.min(index, Math.max(filteredSlashSkills.length - 1, 0)));
+  }, [filteredSlashSkills.length, showSlashSkillPalette]);
+
   const modelTargetAgentId = currentSession && currentSession.id === sessionId
     ? currentSession.agentId
     : currentAgentId;
@@ -577,6 +611,29 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       }
     }
   }, [showAddMenu]);
+
+  useEffect(() => {
+    if (!showSlashSkillPalette) return undefined;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (textareaRef.current?.contains(target) || slashSkillPaletteRef.current?.contains(target)) {
+        return;
+      }
+      setSlashSkillStart(null);
+      setSlashSkillHighlightIndex(0);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, [showSlashSkillPalette]);
+
+  useEffect(() => {
+    setSlashSkillStart(null);
+    setSlashSkillHighlightIndex(0);
+  }, [draftKey]);
 
   useEffect(() => {
     modelPatchRequestIdRef.current += 1;
@@ -872,6 +929,116 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     dispatch(toggleActiveSkill(skill.id));
   }, [dispatch]);
 
+  const updateSlashSkillState = useCallback((nextValue: string, cursorPosition: number | null, resetHighlight: boolean) => {
+    if (steerInputActive || goalInputActive || remoteManaged || disabled) {
+      setSlashSkillStart(null);
+      return;
+    }
+
+    const cursor = cursorPosition ?? nextValue.length;
+    const beforeCursor = nextValue.slice(0, cursor);
+    const match = /(^|\s)\/([^\s/]*)$/.exec(beforeCursor);
+    if (!match) {
+      setSlashSkillStart(null);
+      setSlashSkillHighlightIndex(0);
+      return;
+    }
+
+    const nextSlashSkillStart = beforeCursor.length - match[2].length - 1;
+    setSlashSkillStart(nextSlashSkillStart);
+    if (resetHighlight || nextSlashSkillStart !== slashSkillStart) {
+      setSlashSkillHighlightIndex(0);
+    }
+  }, [disabled, goalInputActive, remoteManaged, slashSkillStart, steerInputActive]);
+
+  const handleTextareaChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const nextValue = event.target.value;
+    if (steerInputActive) {
+      setSteerValue(nextValue);
+      setSlashSkillStart(null);
+      return;
+    }
+    setValue(nextValue);
+    updateSlashSkillState(nextValue, event.target.selectionStart, true);
+  }, [steerInputActive, updateSlashSkillState]);
+
+  const closeSlashSkillPalette = useCallback(() => {
+    setSlashSkillStart(null);
+    setSlashSkillHighlightIndex(0);
+  }, []);
+
+  const scrollSlashSkillOptionIntoView = useCallback((index: number, direction: number) => {
+    const list = slashSkillListRef.current;
+    if (!list) return;
+
+    const rowHeight = SlashSkillPalette.RowHeight;
+    const listPadding = SlashSkillPalette.ListPadding;
+    const itemTop = listPadding + index * rowHeight;
+    const itemBottom = itemTop + rowHeight;
+    const visibleTop = list.scrollTop;
+    const visibleBottom = visibleTop + list.clientHeight;
+    const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+
+    let nextScrollTop = list.scrollTop;
+    if (direction < 0 && itemTop < visibleTop + listPadding) {
+      nextScrollTop = itemTop - listPadding;
+    } else if (direction > 0 && itemBottom > visibleBottom - listPadding) {
+      nextScrollTop = itemBottom + listPadding - list.clientHeight;
+    } else if (itemTop < visibleTop) {
+      nextScrollTop = itemTop - listPadding;
+    } else if (itemBottom > visibleBottom) {
+      nextScrollTop = itemBottom + listPadding - list.clientHeight;
+    }
+
+    list.scrollTop = Math.min(Math.max(0, nextScrollTop), maxScrollTop);
+  }, []);
+
+  const moveSlashSkillHighlight = useCallback((delta: number) => {
+    const lastIndex = filteredSlashSkills.length - 1;
+    if (lastIndex < 0) return;
+    const nextIndex = Math.min(Math.max(slashSkillHighlightIndex + delta, 0), lastIndex);
+    if (nextIndex === slashSkillHighlightIndex) {
+      scrollSlashSkillOptionIntoView(nextIndex, delta);
+      return;
+    }
+
+    scrollSlashSkillOptionIntoView(nextIndex, delta);
+    setSlashSkillHighlightIndex(nextIndex);
+  }, [filteredSlashSkills.length, scrollSlashSkillOptionIntoView, slashSkillHighlightIndex]);
+
+  const applySlashSkill = useCallback((skill: Skill) => {
+    if (slashSkillStart === null) return;
+    const textarea = textareaRef.current;
+    const cursor = textarea?.selectionStart ?? value.length;
+    const beforeSlash = value.slice(0, slashSkillStart);
+    const afterSlashToken = value.slice(cursor);
+    const nextValue = /\s$/.test(beforeSlash) && /^\s/.test(afterSlashToken)
+      ? `${beforeSlash}${afterSlashToken.replace(/^\s+/, '')}`
+      : `${beforeSlash}${afterSlashToken}`;
+    const nextCursor = slashSkillStart;
+
+    if (!activeSkillIds.includes(skill.id)) {
+      dispatch(setActiveSkillIds([...activeSkillIds, skill.id]));
+    }
+    setValue(nextValue);
+    dispatch(setDraftPrompt({ sessionId: draftKey, draft: nextValue }));
+    closeSlashSkillPalette();
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [activeSkillIds, closeSlashSkillPalette, dispatch, draftKey, slashSkillStart, value]);
+
+  const handleTextareaSelect = useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    if (steerInputActive) return;
+    const textarea = event.currentTarget;
+    if (textarea.selectionStart !== textarea.selectionEnd) {
+      closeSlashSkillPalette();
+      return;
+    }
+    updateSlashSkillState(value, textarea.selectionStart, false);
+  }, [closeSlashSkillPalette, steerInputActive, updateSlashSkillState, value]);
+
   const handleManageSkills = useCallback(() => {
     if (onManageSkills) {
       onManageSkills();
@@ -991,6 +1158,34 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isComposing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+    if (!isComposing && showSlashSkillPalette) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveSlashSkillHighlight(1);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveSlashSkillHighlight(-1);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const selectedSkill = filteredSlashSkills[slashSkillHighlightIndex] ?? filteredSlashSkills[0];
+        if (selectedSkill) {
+          applySlashSkill(selectedSkill);
+        } else {
+          closeSlashSkillPalette();
+        }
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeSlashSkillPalette();
+        return;
+      }
+    }
+
     if (event.key !== 'Enter' || isComposing) return;
 
     // Use synced state (kept up-to-date via config-updated event) so that
@@ -2136,6 +2331,21 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const textareaPlaceholder = goalInputActive
     ? i18nService.t('coworkGoalInputPlaceholder')
     : steerInputActive ? i18nService.t('coworkSteerPlaceholder') : placeholder;
+  const activeSlashSkillOptionId = showSlashSkillPalette && filteredSlashSkills.length > 0
+    ? `${SlashSkillPalette.OptionIdPrefix}-${slashSkillHighlightIndex}`
+    : undefined;
+  const slashSkillComboboxProps: React.TextareaHTMLAttributes<HTMLTextAreaElement> = showSlashSkillPalette
+    ? {
+      role: 'combobox',
+      'aria-autocomplete': 'list',
+      'aria-controls': SlashSkillPalette.ListboxId,
+      'aria-expanded': true,
+      'aria-haspopup': 'listbox',
+      'aria-activedescendant': activeSlashSkillOptionId,
+    }
+    : {
+      'aria-expanded': false,
+    };
 
   const readOnlyContextRow = isLarge && showReadOnlyContext && !useHomeContextLayout ? (
     <div className="my-2 grid min-h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4">
@@ -2146,6 +2356,76 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         </span>
       )}
       <div aria-hidden="true" />
+    </div>
+  ) : null;
+
+  const slashSkillPalette = showSlashSkillPalette ? (
+    <div
+      ref={slashSkillPaletteRef}
+      className="absolute inset-x-0 bottom-full z-[70] mb-2 overflow-hidden rounded-xl border border-border bg-surface shadow-popover"
+      role="listbox"
+      id={SlashSkillPalette.ListboxId}
+      aria-label={i18nService.t('searchSkills')}
+    >
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[12px] text-secondary">
+        <SkillIcon className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 truncate">{i18nService.t('slashSkillPaletteHint')}</span>
+      </div>
+      <div ref={slashSkillListRef} className="max-h-[292px] overflow-y-auto p-1.5">
+        {filteredSlashSkills.length === 0 ? (
+          <div className="px-3 py-4 text-center text-sm text-secondary">
+            {i18nService.t('slashSkillNoMatches')}
+          </div>
+        ) : (
+          filteredSlashSkills.map((skill, index) => {
+            const isHighlighted = index === slashSkillHighlightIndex;
+            const isActive = activeSkillIds.includes(skill.id);
+            const skillName = skillService.getLocalizedSkillName(skill);
+            return (
+              <button
+                key={skill.id}
+                id={`${SlashSkillPalette.OptionIdPrefix}-${index}`}
+                type="button"
+                data-slash-skill-index={index}
+                tabIndex={-1}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  applySlashSkill(skill);
+                }}
+                onMouseMove={() => setSlashSkillHighlightIndex(index)}
+                className={`flex h-[56px] w-full items-start gap-2.5 overflow-hidden rounded-lg px-2.5 py-2 text-left ${
+                  isHighlighted ? 'bg-surface-raised' : 'hover:bg-surface-raised'
+                }`}
+                role="option"
+                aria-selected={isHighlighted}
+              >
+                <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                  isActive ? 'bg-primary/10 text-primary' : 'bg-surface-raised text-secondary'
+                }`}>
+                  <SkillIcon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className={`min-w-0 truncate text-sm font-medium ${
+                      isActive ? 'text-primary' : 'text-foreground'
+                    }`}>
+                      {skillName}
+                    </span>
+                    {skill.isOfficial && (
+                      <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary">
+                        {i18nService.t('official')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-secondary">
+                    {skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill)}
+                  </p>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
     </div>
   ) : null;
 
@@ -2171,6 +2451,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           </button>
         </div>
       )}
+      {slashSkillPalette}
       <div
         className={enhancedContainerClass}
         onDragEnter={handleDragEnter}
@@ -2195,13 +2476,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 <textarea
                   ref={textareaRef}
                   value={activeTextareaValue}
-                  onChange={(e) => {
-                    if (steerInputActive) {
-                      setSteerValue(e.target.value);
-                    } else {
-                      setValue(e.target.value);
-                    }
-                  }}
+                  onChange={handleTextareaChange}
+                  onSelect={handleTextareaSelect}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder={textareaPlaceholder}
@@ -2209,6 +2485,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                   rows={2}
                   className={textareaClass}
                   style={{ minHeight: `${minHeight}px` }}
+                  {...slashSkillComboboxProps}
                 />
                 <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-1">
                   <div className="flex min-w-0 items-center gap-2">
@@ -2233,13 +2510,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
               <textarea
                 ref={textareaRef}
                 value={activeTextareaValue}
-                onChange={(e) => {
-                  if (steerInputActive) {
-                    setSteerValue(e.target.value);
-                  } else {
-                    setValue(e.target.value);
-                  }
-                }}
+                onChange={handleTextareaChange}
+                onSelect={handleTextareaSelect}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 placeholder={textareaPlaceholder}
@@ -2247,6 +2519,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 rows={2}
                 className={textareaClass}
                 style={{ minHeight: `${minHeight}px` }}
+                {...slashSkillComboboxProps}
               />
               <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-1.5">
                 <div className="flex min-w-0 items-center">
@@ -2269,19 +2542,15 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             <textarea
               ref={textareaRef}
               value={activeTextareaValue}
-              onChange={(e) => {
-                if (steerInputActive) {
-                  setSteerValue(e.target.value);
-                } else {
-                  setValue(e.target.value);
-                }
-              }}
+              onChange={handleTextareaChange}
+              onSelect={handleTextareaSelect}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder={textareaPlaceholder}
               disabled={disabled}
               rows={1}
               className={textareaClass}
+              {...slashSkillComboboxProps}
             />
 
             {!remoteManaged && (
