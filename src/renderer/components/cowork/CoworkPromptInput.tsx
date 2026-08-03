@@ -43,6 +43,8 @@ import {
   setSteerDraft,
   updateCurrentSessionModelOverride,
 } from '../../store/slices/coworkSlice';
+import { selectSessionArtifacts } from '../../store/slices/artifactSlice';
+import type { Artifact } from '../../types/artifact';
 import type { Model } from '../../store/slices/modelSlice';
 import { setActiveSkillIds, setSkills, toggleActiveSkill } from '../../store/slices/skillSlice';
 import { CoworkImageAttachment } from '../../types/cowork';
@@ -58,6 +60,7 @@ import PromptAddIcon from '../icons/PromptAddIcon';
 import SkillIcon from '../icons/SkillIcon';
 import TaskPauseIcon from '../icons/TaskPauseIcon';
 import XMarkIcon from '../icons/XMarkIcon';
+import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
 import ModelSelector from '../ModelSelector';
 import { ActiveSkillBadge, SkillsPopover } from '../skills';
 import { resolveAgentModelSelection, resolveEffectiveModel, useAgentSelectedModel } from './agentModelSelection';
@@ -201,6 +204,17 @@ const getFileNameFromPath = (path: string): string => {
   return parts[parts.length - 1] || path;
 };
 
+const getShortArtifactPath = (filePath: string): string => {
+  const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean);
+  return parts.length > 2
+    ? `.../${parts.slice(-2).join('/')}`
+    : filePath;
+};
+
+const getArtifactAttachmentName = (artifact: Artifact): string => (
+  artifact.fileName || getFileNameFromPath(artifact.filePath || artifact.title) || artifact.title
+);
+
 const SEND_SHORTCUT_OPTIONS = [
   { value: 'Enter', label: 'Enter', labelMac: 'Enter' },
   { value: 'Shift+Enter', label: 'Shift+Enter', labelMac: 'Shift+Enter' },
@@ -220,6 +234,13 @@ const SlashSkillPalette = {
   ListPadding: 6,
   ListboxId: 'cowork-slash-skill-listbox',
   OptionIdPrefix: 'cowork-slash-skill-option',
+} as const;
+
+const FileMentionPalette = {
+  RowHeight: 48,
+  ListPadding: 6,
+  ListboxId: 'cowork-file-mention-listbox',
+  OptionIdPrefix: 'cowork-file-mention-option',
 } as const;
 
 const truncateDisplayText = (value: string, maxLength: number): string => {
@@ -382,6 +403,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const coworkAgentEngine = useSelector((state: RootState) => state.cowork.config.agentEngine);
     const availableModels = useSelector((state: RootState) => state.model.availableModels);
     const currentSession = useSelector((state: RootState) => state.cowork.currentSession);
+    const sessionArtifacts = useSelector((state: RootState) => (
+      sessionId ? selectSessionArtifacts(state, sessionId) : []
+    ));
     const [value, setValue] = useState(draftPrompt);
     const [steerValue, setSteerValue] = useState(steerDraft);
     const [steerInputActive, setSteerInputActive] = useState(false);
@@ -399,10 +423,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
     const [slashSkillStart, setSlashSkillStart] = useState<number | null>(null);
     const [slashSkillHighlightIndex, setSlashSkillHighlightIndex] = useState(0);
+    const [fileMentionStart, setFileMentionStart] = useState<number | null>(null);
+    const [fileMentionHighlightIndex, setFileMentionHighlightIndex] = useState(0);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const slashSkillPaletteRef = useRef<HTMLDivElement>(null);
     const slashSkillListRef = useRef<HTMLDivElement>(null);
+    const fileMentionPaletteRef = useRef<HTMLDivElement>(null);
+    const fileMentionListRef = useRef<HTMLDivElement>(null);
     const addMenuButtonRef = useRef<HTMLButtonElement>(null);
     const addMenuRef = useRef<HTMLDivElement>(null);
     const knowledgeMenuItemRef = useRef<HTMLButtonElement>(null);
@@ -450,6 +478,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);
   const slashSkillQuery = slashSkillStart === null ? '' : value.slice(slashSkillStart + 1, textareaRef.current?.selectionStart ?? value.length);
+  const fileMentionQuery = fileMentionStart === null ? '' : value.slice(fileMentionStart + 1, textareaRef.current?.selectionStart ?? value.length);
   const filteredSlashSkills = useMemo(() => {
     if (steerInputActive || goalInputActive) return [];
     const query = slashSkillQuery.trim().toLowerCase();
@@ -465,7 +494,27 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           || localizedDescription.toLowerCase().includes(query);
       });
   }, [goalInputActive, skills, slashSkillQuery, steerInputActive]);
+  const fileMentionArtifacts = useMemo(() => {
+    if (steerInputActive || goalInputActive) return [];
+    const query = fileMentionQuery.trim().toLowerCase();
+    const attachedPaths = new Set(attachments.map(attachment => attachment.path));
+    return sessionArtifacts
+      .filter((artifact) => Boolean(artifact.filePath?.trim()))
+      .filter((artifact) => !attachedPaths.has(artifact.filePath || ''))
+      .filter((artifact) => {
+        if (!query) return true;
+        const searchable = [
+          getArtifactAttachmentName(artifact),
+          artifact.title,
+          artifact.filePath,
+          artifact.remoteUrl,
+        ].filter(Boolean).join(' ').toLowerCase();
+        return searchable.includes(query);
+      })
+      .slice(0, 20);
+  }, [attachments, fileMentionQuery, goalInputActive, sessionArtifacts, steerInputActive]);
   const showSlashSkillPalette = slashSkillStart !== null && !disabled && !remoteManaged && !steerInputActive && !goalInputActive;
+  const showFileMentionPalette = fileMentionStart !== null && !disabled && !remoteManaged && !steerInputActive && !goalInputActive;
   const hasActiveSkills = activeSkillIds.some(id => skills.some(skill => skill.id === id));
   const selectedKnowledgeBases = selectedKnowledgeBaseIds
     .map(id => knowledgeBases.find(base => base.id === id))
@@ -631,8 +680,28 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [showSlashSkillPalette]);
 
   useEffect(() => {
+    if (!showFileMentionPalette) return undefined;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (textareaRef.current?.contains(target) || fileMentionPaletteRef.current?.contains(target)) {
+        return;
+      }
+      setFileMentionStart(null);
+      setFileMentionHighlightIndex(0);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, [showFileMentionPalette]);
+
+  useEffect(() => {
     setSlashSkillStart(null);
     setSlashSkillHighlightIndex(0);
+    setFileMentionStart(null);
+    setFileMentionHighlightIndex(0);
   }, [draftKey]);
 
   useEffect(() => {
@@ -946,25 +1015,58 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
     const nextSlashSkillStart = beforeCursor.length - match[2].length - 1;
     setSlashSkillStart(nextSlashSkillStart);
+    setFileMentionStart(null);
+    setFileMentionHighlightIndex(0);
     if (resetHighlight || nextSlashSkillStart !== slashSkillStart) {
       setSlashSkillHighlightIndex(0);
     }
   }, [disabled, goalInputActive, remoteManaged, slashSkillStart, steerInputActive]);
+
+  const updateFileMentionState = useCallback((nextValue: string, cursorPosition: number | null, resetHighlight: boolean) => {
+    if (steerInputActive || goalInputActive || remoteManaged || disabled) {
+      setFileMentionStart(null);
+      return;
+    }
+
+    const cursor = cursorPosition ?? nextValue.length;
+    const beforeCursor = nextValue.slice(0, cursor);
+    const match = /(^|\s)@([^\s@]*)$/.exec(beforeCursor);
+    if (!match) {
+      setFileMentionStart(null);
+      setFileMentionHighlightIndex(0);
+      return;
+    }
+
+    const nextFileMentionStart = beforeCursor.length - match[2].length - 1;
+    setFileMentionStart(nextFileMentionStart);
+    setSlashSkillStart(null);
+    setSlashSkillHighlightIndex(0);
+    if (resetHighlight || nextFileMentionStart !== fileMentionStart) {
+      setFileMentionHighlightIndex(0);
+    }
+  }, [disabled, fileMentionStart, goalInputActive, remoteManaged, steerInputActive]);
 
   const handleTextareaChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const nextValue = event.target.value;
     if (steerInputActive) {
       setSteerValue(nextValue);
       setSlashSkillStart(null);
+      setFileMentionStart(null);
       return;
     }
     setValue(nextValue);
     updateSlashSkillState(nextValue, event.target.selectionStart, true);
-  }, [steerInputActive, updateSlashSkillState]);
+    updateFileMentionState(nextValue, event.target.selectionStart, true);
+  }, [steerInputActive, updateFileMentionState, updateSlashSkillState]);
 
   const closeSlashSkillPalette = useCallback(() => {
     setSlashSkillStart(null);
     setSlashSkillHighlightIndex(0);
+  }, []);
+
+  const closeFileMentionPalette = useCallback(() => {
+    setFileMentionStart(null);
+    setFileMentionHighlightIndex(0);
   }, []);
 
   const scrollSlashSkillOptionIntoView = useCallback((index: number, direction: number) => {
@@ -1006,6 +1108,45 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setSlashSkillHighlightIndex(nextIndex);
   }, [filteredSlashSkills.length, scrollSlashSkillOptionIntoView, slashSkillHighlightIndex]);
 
+  const scrollFileMentionOptionIntoView = useCallback((index: number, direction: number) => {
+    const list = fileMentionListRef.current;
+    if (!list) return;
+
+    const rowHeight = FileMentionPalette.RowHeight;
+    const listPadding = FileMentionPalette.ListPadding;
+    const itemTop = listPadding + index * rowHeight;
+    const itemBottom = itemTop + rowHeight;
+    const visibleTop = list.scrollTop;
+    const visibleBottom = visibleTop + list.clientHeight;
+    const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+
+    let nextScrollTop = list.scrollTop;
+    if (direction < 0 && itemTop < visibleTop + listPadding) {
+      nextScrollTop = itemTop - listPadding;
+    } else if (direction > 0 && itemBottom > visibleBottom - listPadding) {
+      nextScrollTop = itemBottom + listPadding - list.clientHeight;
+    } else if (itemTop < visibleTop) {
+      nextScrollTop = itemTop - listPadding;
+    } else if (itemBottom > visibleBottom) {
+      nextScrollTop = itemBottom + listPadding - list.clientHeight;
+    }
+
+    list.scrollTop = Math.min(Math.max(0, nextScrollTop), maxScrollTop);
+  }, []);
+
+  const moveFileMentionHighlight = useCallback((delta: number) => {
+    const lastIndex = fileMentionArtifacts.length - 1;
+    if (lastIndex < 0) return;
+    const nextIndex = Math.min(Math.max(fileMentionHighlightIndex + delta, 0), lastIndex);
+    if (nextIndex === fileMentionHighlightIndex) {
+      scrollFileMentionOptionIntoView(nextIndex, delta);
+      return;
+    }
+
+    scrollFileMentionOptionIntoView(nextIndex, delta);
+    setFileMentionHighlightIndex(nextIndex);
+  }, [fileMentionArtifacts.length, fileMentionHighlightIndex, scrollFileMentionOptionIntoView]);
+
   const applySlashSkill = useCallback((skill: Skill) => {
     if (slashSkillStart === null) return;
     const textarea = textareaRef.current;
@@ -1029,15 +1170,62 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     });
   }, [activeSkillIds, closeSlashSkillPalette, dispatch, draftKey, slashSkillStart, value]);
 
+  const applyFileMention = useCallback(async (artifact: Artifact) => {
+    if (fileMentionStart === null || !artifact.filePath) return;
+    const textarea = textareaRef.current;
+    const cursor = textarea?.selectionStart ?? value.length;
+    const beforeMention = value.slice(0, fileMentionStart);
+    const afterMentionToken = value.slice(cursor);
+    const nextValue = /\s$/.test(beforeMention) && /^\s/.test(afterMentionToken)
+      ? `${beforeMention}${afterMentionToken.replace(/^\s+/, '')}`
+      : `${beforeMention}${afterMentionToken}`;
+    const nextCursor = fileMentionStart;
+    const filePath = artifact.filePath;
+    const fileIsImage = isImagePath(filePath);
+    let dataUrl: string | undefined;
+
+    if (fileIsImage && modelSupportsImage) {
+      try {
+        const readResult = await window.electron.dialog.readFileAsDataUrl(filePath);
+        if (readResult.success && readResult.dataUrl) {
+          dataUrl = readResult.dataUrl;
+        }
+      } catch (error) {
+        console.error('[CoworkPromptInput] failed to read mentioned image as data URL:', error);
+      }
+    } else if (fileIsImage) {
+      setImageVisionHint(true);
+    }
+
+    dispatch(addDraftAttachment({
+      draftKey,
+      attachment: {
+        path: filePath,
+        name: getArtifactAttachmentName(artifact),
+        isImage: fileIsImage,
+        ...(dataUrl ? { dataUrl } : {}),
+      },
+    }));
+    setValue(nextValue);
+    dispatch(setDraftPrompt({ sessionId: draftKey, draft: nextValue }));
+    closeFileMentionPalette();
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [closeFileMentionPalette, dispatch, draftKey, fileMentionStart, modelSupportsImage, value]);
+
   const handleTextareaSelect = useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
     if (steerInputActive) return;
     const textarea = event.currentTarget;
     if (textarea.selectionStart !== textarea.selectionEnd) {
       closeSlashSkillPalette();
+      closeFileMentionPalette();
       return;
     }
     updateSlashSkillState(value, textarea.selectionStart, false);
-  }, [closeSlashSkillPalette, steerInputActive, updateSlashSkillState, value]);
+    updateFileMentionState(value, textarea.selectionStart, false);
+  }, [closeFileMentionPalette, closeSlashSkillPalette, steerInputActive, updateFileMentionState, updateSlashSkillState, value]);
 
   const handleManageSkills = useCallback(() => {
     if (onManageSkills) {
@@ -1158,6 +1346,34 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isComposing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+    if (!isComposing && showFileMentionPalette) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveFileMentionHighlight(1);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveFileMentionHighlight(-1);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const selectedArtifact = fileMentionArtifacts[fileMentionHighlightIndex] ?? fileMentionArtifacts[0];
+        if (selectedArtifact) {
+          void applyFileMention(selectedArtifact);
+        } else {
+          closeFileMentionPalette();
+        }
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeFileMentionPalette();
+        return;
+      }
+    }
+
     if (!isComposing && showSlashSkillPalette) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -2334,14 +2550,17 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const activeSlashSkillOptionId = showSlashSkillPalette && filteredSlashSkills.length > 0
     ? `${SlashSkillPalette.OptionIdPrefix}-${slashSkillHighlightIndex}`
     : undefined;
-  const slashSkillComboboxProps: React.TextareaHTMLAttributes<HTMLTextAreaElement> = showSlashSkillPalette
+  const activeFileMentionOptionId = showFileMentionPalette && fileMentionArtifacts.length > 0
+    ? `${FileMentionPalette.OptionIdPrefix}-${fileMentionHighlightIndex}`
+    : undefined;
+  const promptComboboxProps: React.TextareaHTMLAttributes<HTMLTextAreaElement> = showSlashSkillPalette || showFileMentionPalette
     ? {
       role: 'combobox',
       'aria-autocomplete': 'list',
-      'aria-controls': SlashSkillPalette.ListboxId,
+      'aria-controls': showFileMentionPalette ? FileMentionPalette.ListboxId : SlashSkillPalette.ListboxId,
       'aria-expanded': true,
       'aria-haspopup': 'listbox',
-      'aria-activedescendant': activeSlashSkillOptionId,
+      'aria-activedescendant': showFileMentionPalette ? activeFileMentionOptionId : activeSlashSkillOptionId,
     }
     : {
       'aria-expanded': false,
@@ -2429,6 +2648,63 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </div>
   ) : null;
 
+  const fileMentionPalette = showFileMentionPalette ? (
+    <div
+      ref={fileMentionPaletteRef}
+      className="absolute inset-x-0 bottom-full z-[70] mb-2 overflow-hidden rounded-xl border border-border bg-surface shadow-popover"
+      role="listbox"
+      id={FileMentionPalette.ListboxId}
+      aria-label={i18nService.t('fileMentionPaletteLabel')}
+    >
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[12px] text-secondary">
+        <PaperClipIcon className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 truncate">{i18nService.t('fileMentionPaletteHint')}</span>
+      </div>
+      <div ref={fileMentionListRef} className="max-h-[292px] overflow-y-auto p-1.5">
+        {fileMentionArtifacts.length === 0 ? (
+          <div className="px-3 py-4 text-center text-sm text-secondary">
+            {i18nService.t('fileMentionNoMatches')}
+          </div>
+        ) : (
+          fileMentionArtifacts.map((artifact, index) => {
+            const isHighlighted = index === fileMentionHighlightIndex;
+            const fileName = getArtifactAttachmentName(artifact);
+            const filePath = artifact.filePath || '';
+            return (
+              <button
+                key={artifact.id}
+                id={`${FileMentionPalette.OptionIdPrefix}-${index}`}
+                type="button"
+                data-file-mention-index={index}
+                tabIndex={-1}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  void applyFileMention(artifact);
+                }}
+                onMouseMove={() => setFileMentionHighlightIndex(index)}
+                className={`flex h-[48px] w-full items-center gap-2.5 overflow-hidden rounded-lg px-2.5 py-1.5 text-left ${
+                  isHighlighted ? 'bg-surface-raised' : 'hover:bg-surface-raised'
+                }`}
+                role="option"
+                aria-selected={isHighlighted}
+              >
+                <FileTypeIcon fileName={fileName} className="h-4 w-4 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-foreground">
+                    {fileName}
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-secondary">
+                    {getShortArtifactPath(filePath)}
+                  </div>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="relative">
       {queuedFollowUpList}
@@ -2452,6 +2728,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         </div>
       )}
       {slashSkillPalette}
+      {fileMentionPalette}
       <div
         className={enhancedContainerClass}
         onDragEnter={handleDragEnter}
@@ -2485,7 +2762,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                   rows={2}
                   className={textareaClass}
                   style={{ minHeight: `${minHeight}px` }}
-                  {...slashSkillComboboxProps}
+                  {...promptComboboxProps}
                 />
                 <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-1">
                   <div className="flex min-w-0 items-center gap-2">
@@ -2519,7 +2796,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 rows={2}
                 className={textareaClass}
                 style={{ minHeight: `${minHeight}px` }}
-                {...slashSkillComboboxProps}
+                {...promptComboboxProps}
               />
               <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-1.5">
                 <div className="flex min-w-0 items-center">
@@ -2550,7 +2827,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
               disabled={disabled}
               rows={1}
               className={textareaClass}
-              {...slashSkillComboboxProps}
+              {...promptComboboxProps}
             />
 
             {!remoteManaged && (
