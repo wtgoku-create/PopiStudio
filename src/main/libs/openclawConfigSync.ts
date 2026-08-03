@@ -15,14 +15,14 @@ import {
 import {
   AuthType,
   getModelRuntimeProfileDefinition,
+  ModelRuntimeProfile,
+  ModelRuntimeProfileSource,
+  type ModelRuntimeProfileType,
   OpenClawApi as OpenClawApiConst,
   OpenClawProviderId,
   ProviderName,
   ProviderRegistry,
   resolveModelRuntimeProfile,
-  ModelRuntimeProfile,
-  ModelRuntimeProfileSource,
-  type ModelRuntimeProfileType,
 } from '../../shared/providers';
 import type { Agent, CoworkConfig, CoworkExecutionMode } from '../coworkStore';
 import type { DiscordInstanceConfig, IMSettings, TelegramInstanceConfig } from '../im/types';
@@ -64,6 +64,10 @@ const gwDiagTs = (): string => {
 import { findBundledExtensionsDir, findThirdPartyExtensionsDir, hasBundledOpenClawExtension, resolveOpenClawExtensionPluginId } from './openclawLocalExtensions';
 import { getOpenClawTokenProxyPort } from './openclawTokenProxy';
 import { isSystemProxyEnabled } from './systemProxy';
+
+const isPlainRecord = (value: unknown): value is Record<string, unknown> => (
+  Boolean(value && typeof value === 'object' && !Array.isArray(value))
+);
 
 export type AskUserCallbackConfig = {
   callbackUrl: string;
@@ -1582,6 +1586,23 @@ export class OpenClawConfigSync {
     const coworkConfig = this.getCoworkConfig();
     const browserWebAccess = normalizeBrowserWebAccessConfig(this.getBrowserWebAccessConfig());
     const apiResolution = resolveRawApiConfig();
+    let cachedServerProviderModels: OpenClawProviderSelection['providerConfig']['models'] = [];
+    try {
+      const existingConfig = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+      const existingModels = isPlainRecord(existingConfig.models) ? existingConfig.models : {};
+      const existingProviders = isPlainRecord(existingModels.providers) ? existingModels.providers : {};
+      const existingServerProviderValue = existingProviders[OpenClawProviderId.PopiaiServer];
+      const existingServerProvider = isPlainRecord(existingServerProviderValue)
+        ? existingServerProviderValue
+        : {};
+      if (Array.isArray(existingServerProvider.models)) {
+        cachedServerProviderModels = existingServerProvider.models
+          .filter(isPlainRecord)
+          .map(model => ({ ...model })) as OpenClawProviderSelection['providerConfig']['models'];
+      }
+    } catch {
+      // First run or invalid config has no model catalog to preserve.
+    }
 
     if (!apiResolution.config) {
       // Enterprise mode: proceed with full config generation even without a
@@ -1706,7 +1727,7 @@ export class OpenClawConfigSync {
       if (serverModels.length > 0 || apiResolution.providerMetadata?.providerName === ProviderName.PopiaiServer) {
         const providerId = OpenClawProviderId.PopiaiServer;
 
-        if (serverModels.length > 0 || !allProvidersMap[providerId]) {
+        if (serverModels.length > 0 || cachedServerProviderModels.length > 0 || !allProvidersMap[providerId]) {
           const firstServerModelId = serverModels[0]?.modelId || modelId;
           const firstServerSel = buildProviderSelection({
             apiKey,
@@ -1729,7 +1750,14 @@ export class OpenClawConfigSync {
           allProvidersMap[providerId] = popiaiProviderConfig;
 
           if (serverModels.length === 0) {
-            upsertProviderModel(popiaiProviderConfig, firstServerSel.providerConfig.models[0]);
+            if (cachedServerProviderModels.length > 0) {
+              popiaiProviderConfig.models = [];
+              for (const cachedModel of cachedServerProviderModels) {
+                upsertProviderModel(popiaiProviderConfig, cachedModel);
+              }
+            } else {
+              upsertProviderModel(popiaiProviderConfig, firstServerSel.providerConfig.models[0]);
+            }
           } else {
             for (const sm of serverModels) {
               const serverSel = buildProviderSelection({

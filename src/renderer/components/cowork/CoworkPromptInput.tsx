@@ -21,6 +21,7 @@ import {
 import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import { CoworkSteerStatus } from '../../../shared/cowork/steer';
 import { KnowledgeSkill, type RemoteKnowledgeBase } from '../../../shared/knowledge/constants';
+import { ProviderName, ProviderRegistry } from '../../../shared/providers';
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
 import { configService } from '../../services/config';
 import { coworkService } from '../../services/cowork';
@@ -1540,7 +1541,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           if (isPatchingModel) return;
           if (!nextModel) return;
           const modelRef = toOpenClawModelRef(nextModel);
-          const supportsThinking = nextModel.supportsThinking === true;
+          const supportsThinking = ProviderRegistry.resolveModelSupportsThinking(
+            nextModel.providerKey ?? ProviderName.PopiaiServer,
+            nextModel.id,
+            nextModel.supportsThinking,
+          );
           if (sessionId) {
             const requestId = modelPatchRequestIdRef.current + 1;
             modelPatchRequestIdRef.current = requestId;

@@ -328,6 +328,41 @@ test('gateway history is prefixed with spawn task when it omits the user message
   ]);
 });
 
+test('terminal lifecycle received before spawn result is applied after session mapping', () => {
+  const { runs, runStore, messageStore } = createStores();
+  const materialized = vi.fn();
+  const tracker = new SubagentTracker(
+    runStore as never,
+    messageStore as never,
+    () => null,
+    materialized,
+  );
+  const childSessionKey = 'agent:main:subagent:run-1';
+
+  expect(tracker.tryMarkTerminalFromSessionKey(childSessionKey, 'done')).toBe(false);
+  tracker.onToolStart('run-1', {
+    agentId: 'worker',
+    task: 'inspect image style',
+  }, 'parent-1');
+  tracker.onSpawnResult('run-1', JSON.stringify({
+    status: 'accepted',
+    childSessionKey,
+  }), {});
+
+  expect(runs.get('run-1')).toMatchObject({
+    sessionKey: childSessionKey,
+    status: 'done',
+  });
+  expect(runStore.insertSubagentRun).toHaveBeenCalledWith(expect.objectContaining({
+    endedAt: expect.any(Number),
+  }));
+  expect(materialized).toHaveBeenCalledWith(expect.objectContaining({
+    runId: 'run-1',
+    childSessionKey,
+    status: 'done',
+  }));
+});
+
 test('gateway subagent wrapper prompt is normalized after restart', async () => {
   const { runs, runStore, messageStore } = createStores();
   const gatewayClient: GatewayClientLike = {

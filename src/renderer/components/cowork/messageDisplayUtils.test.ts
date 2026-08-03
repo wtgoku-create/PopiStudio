@@ -38,6 +38,22 @@ test('buildConversationTurns preserves persisted thinking insertion order', () =
   ))).toEqual(['thinking-1', 'assistant-1', 'tool_group']);
 });
 
+test('buildDisplayItems pairs a tool result that was persisted before its tool use', () => {
+  const result = message('tool-result-1', 'tool_result', 'accepted', { toolUseId: 'call-1' });
+  const toolUse = message('tool-use-1', 'tool_use', 'Using sessions_spawn', {
+    toolName: 'sessions_spawn',
+    toolUseId: 'call-1',
+  });
+
+  const items = buildDisplayItems([result, toolUse]);
+
+  expect(items).toEqual([expect.objectContaining({
+    type: 'tool_group',
+    toolUse,
+    toolResult: result,
+  })]);
+});
+
 test('getToolResultCollapsedDisplay summarizes small tool output by lines', () => {
   const result = getToolResultCollapsedDisplay(
     message('tool-result-1', 'tool_result', 'first\nsecond\nthird'),

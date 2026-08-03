@@ -473,6 +473,19 @@ export const hasRenderableAssistantContent = (turn: ConversationTurn): boolean =
 export const buildDisplayItems = (messages: CoworkMessage[]): DisplayItem[] => {
   const items: DisplayItem[] = [];
   const groupsByToolUseId = new Map<string, ToolGroupItem>();
+  const knownToolUseIds = new Set<string>();
+  const toolResultsByToolUseId = new Map<string, CoworkMessage>();
+  for (const message of messages) {
+    const toolUseId = typeof message.metadata?.toolUseId === 'string'
+      ? message.metadata.toolUseId.trim()
+      : '';
+    if (!toolUseId) continue;
+    if (message.type === 'tool_use') {
+      knownToolUseIds.add(toolUseId);
+    } else if (message.type === 'tool_result') {
+      toolResultsByToolUseId.set(toolUseId, message);
+    }
+  }
   let pendingAdjacentGroup: ToolGroupItem | null = null;
 
   for (const message of messages) {
@@ -484,11 +497,19 @@ export const buildDisplayItems = (messages: CoworkMessage[]): DisplayItem[] => {
     }
 
     if (message.type === 'tool_use') {
-      const group: ToolGroupItem = { type: 'tool_group', toolUse: message };
+      const toolUseId = typeof message.metadata?.toolUseId === 'string'
+        ? message.metadata.toolUseId.trim()
+        : '';
+      const group: ToolGroupItem = {
+        type: 'tool_group',
+        toolUse: message,
+        ...(toolUseId && toolResultsByToolUseId.has(toolUseId)
+          ? { toolResult: toolResultsByToolUseId.get(toolUseId) }
+          : {}),
+      };
       items.push(group);
 
-      const toolUseId = message.metadata?.toolUseId;
-      if (typeof toolUseId === 'string' && toolUseId.trim()) {
+      if (toolUseId) {
         groupsByToolUseId.set(toolUseId, group);
       }
       pendingAdjacentGroup = group;
@@ -504,6 +525,8 @@ export const buildDisplayItems = (messages: CoworkMessage[]): DisplayItem[] => {
           group.toolResult = message;
           matched = true;
         }
+      } else if (typeof toolUseId === 'string' && knownToolUseIds.has(toolUseId.trim())) {
+        matched = true;
       } else if (pendingAdjacentGroup && !pendingAdjacentGroup.toolResult) {
         pendingAdjacentGroup.toolResult = message;
         matched = true;

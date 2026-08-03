@@ -129,6 +129,8 @@ const GATEWAY_SESSION_DELETE_CONCURRENCY = 2;
 const GATEWAY_SESSION_DELETE_MAX_ATTEMPTS = 3;
 const GATEWAY_SESSION_DELETE_BASE_DELAY_MS = 5_000;
 const GATEWAY_SESSION_DELETE_MAX_DELAY_MS = 20_000;
+const PENDING_TERMINAL_STATUS_MAX_ENTRIES = 256;
+const PENDING_TERMINAL_STATUS_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Encapsulates all subagent (child session) tracking logic:
@@ -170,6 +172,10 @@ export class SubagentTracker {
     previousStatus: 'running' | 'done' | 'error';
     appendedMessageId: string | null;
     wasMessagesPersisted: boolean;
+  }>();
+  private readonly pendingTerminalStatusBySessionKey = new Map<string, {
+    status: 'done' | 'error';
+    recordedAt: number;
   }>();
 
   constructor(
@@ -458,6 +464,7 @@ export class SubagentTracker {
       }
       return true;
     }
+    this.rememberPendingTerminalStatus(sessionKey, status);
     return false;
   }
 
@@ -884,7 +891,12 @@ export class SubagentTracker {
     const childSessionKey = typeof parsed?.childSessionKey === 'string' ? parsed.childSessionKey : '';
     const isAccepted = parsed?.status === 'accepted' && Boolean(childSessionKey);
     const isError = !isAccepted;
-    const status: SubagentChildSessionCandidateParams['status'] = isError ? 'error' : 'running';
+    const pendingTerminalStatus = childSessionKey
+      ? this.consumePendingTerminalStatus(childSessionKey)
+      : null;
+    const status: SubagentChildSessionCandidateParams['status'] = isError
+      ? 'error'
+      : pendingTerminalStatus ?? 'running';
 
     // Store session key in memory
     const hadSessionKey = this.subagentSessionKeys.has(toolCallId);
@@ -902,6 +914,9 @@ export class SubagentTracker {
       if (isError && this.subagentStatus.get(toolCallId) !== 'error') {
         this.subagentStatus.set(toolCallId, 'error');
         this.store.updateSubagentRunStatus(toolCallId, 'error', Date.now());
+      } else if (pendingTerminalStatus && this.subagentStatus.get(toolCallId) !== pendingTerminalStatus) {
+        this.subagentStatus.set(toolCallId, pendingTerminalStatus);
+        this.store.updateSubagentRunStatus(toolCallId, pendingTerminalStatus, Date.now());
       }
       return;
     }
@@ -910,7 +925,9 @@ export class SubagentTracker {
       ? this.store.getSubagentRun(toolCallId)
       : null;
     if (existingRun) {
-      const nextStatus = isError && existingRun.status !== 'done' ? 'error' : existingRun.status;
+      const nextStatus = isError && existingRun.status !== 'done'
+        ? 'error'
+        : pendingTerminalStatus ?? existingRun.status;
       this.subagentStatus.set(toolCallId, nextStatus);
       if (nextStatus !== existingRun.status) {
         this.store.updateSubagentRunStatus(toolCallId, nextStatus, Date.now());
@@ -983,7 +1000,7 @@ export class SubagentTracker {
         label: displayLabel,
         status,
         createdAt: pending.createdAt,
-        endedAt: isError ? Date.now() : null,
+        endedAt: status === 'running' ? null : Date.now(),
       });
       this.appendInitialTaskMessage(toolCallId, pending.task, pending.createdAt);
       if (shouldMaterialize && childCoworkSessionId) {
@@ -1095,6 +1112,35 @@ export class SubagentTracker {
       parentSessionId,
       createdAt,
     });
+  }
+
+  private rememberPendingTerminalStatus(sessionKey: string, status: 'done' | 'error'): void {
+    const now = Date.now();
+    for (const [key, pending] of this.pendingTerminalStatusBySessionKey) {
+      if (now - pending.recordedAt > PENDING_TERMINAL_STATUS_TTL_MS) {
+        this.pendingTerminalStatusBySessionKey.delete(key);
+      }
+    }
+    const existing = this.pendingTerminalStatusBySessionKey.get(sessionKey);
+    if (!existing && this.pendingTerminalStatusBySessionKey.size >= PENDING_TERMINAL_STATUS_MAX_ENTRIES) {
+      const oldestSessionKey = this.pendingTerminalStatusBySessionKey.keys().next().value;
+      if (typeof oldestSessionKey === 'string') {
+        this.pendingTerminalStatusBySessionKey.delete(oldestSessionKey);
+      }
+    }
+    this.pendingTerminalStatusBySessionKey.set(sessionKey, {
+      status: existing?.status === 'done' ? 'done' : status,
+      recordedAt: now,
+    });
+  }
+
+  private consumePendingTerminalStatus(sessionKey: string): 'done' | 'error' | null {
+    const pending = this.pendingTerminalStatusBySessionKey.get(sessionKey);
+    this.pendingTerminalStatusBySessionKey.delete(sessionKey);
+    if (!pending || Date.now() - pending.recordedAt > PENDING_TERMINAL_STATUS_TTL_MS) {
+      return null;
+    }
+    return pending.status;
   }
 
   private clearSubagentMemory(runId: string): void {

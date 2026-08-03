@@ -82,6 +82,27 @@ describe('subagent history backfill parsing', () => {
     ]);
   });
 
+  test('does not backfill orphaned sessions_spawn calls without results', () => {
+    const entries = collectBackfillableHistoryToolEntries([
+      { role: 'user', content: 'coordinate implementation' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'toolCall', id: 'call-finished', name: 'sessions_spawn', arguments: { agentId: 'worker' } },
+          { type: 'toolCall', id: 'call-orphaned', name: 'sessions_spawn', arguments: { agentId: 'stale' } },
+        ],
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'call-finished',
+        content: '{"status":"accepted","childSessionKey":"agent:worker:subagent:one"}',
+      },
+      { role: 'assistant', content: 'All experts completed.' },
+    ]);
+
+    expect(entries.map(entry => entry.toolCallId)).toEqual(['call-finished']);
+  });
+
   test('reconstructs ordinary tool calls after the last user message', () => {
     const entries = collectBackfillableHistoryToolEntries([
       { role: 'user', content: 'previous turn' },

@@ -2,11 +2,11 @@ import type {
   CoworkSessionStatus,
   CoworkStore,
 } from '../../../coworkStore';
-import { parseAgentIdFromSubagentSessionKey } from './sessionKeys';
 import type {
   SubagentChildSessionCandidateParams,
   SubagentChildSessionMaterializeParams,
 } from '../subagentTracker';
+import { parseAgentIdFromSubagentSessionKey } from './sessionKeys';
 
 type SubagentSessionMaterializerStore = Pick<CoworkStore, 'getSession' | 'updateSession'>
   & Partial<Pick<CoworkStore, 'getAgent' | 'upsertSubagentChildSession'>>;
@@ -31,7 +31,11 @@ export class SubagentSessionMaterializer {
     if (!params.childSessionKey.trim() || !params.childCoworkSessionId.trim()) return;
     const title = this.buildTitle(params);
     try {
-      const status: CoworkSessionStatus = params.status === 'error' ? 'error' : 'running';
+      const status: CoworkSessionStatus = params.status === 'error'
+        ? 'error'
+        : params.status === 'done'
+          ? 'completed'
+          : 'running';
       if (typeof this.deps.store.upsertSubagentChildSession !== 'function') {
         return;
       }

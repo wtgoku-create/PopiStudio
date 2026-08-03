@@ -524,6 +524,50 @@ describe('OpenClawConfigSync runtime config output', () => {
     });
   });
 
+  test('preserves the existing server model catalog until authoritative metadata loads', async () => {
+    mockRuntimeState.proxyPort = 56646;
+    mockRuntimeState.serverModels = [];
+    mockRuntimeState.rawApiConfig = {
+      config: {
+        baseURL: 'https://popiai-server.youdao.com/api/proxy/v1',
+        apiKey: 'access-token',
+        model: 'doubao-seed-2-0-lite-260428',
+        apiType: 'openai',
+      },
+      providerMetadata: {
+        providerName: 'popiai-server',
+        codingPlanEnabled: false,
+        supportsImage: true,
+        modelName: 'Doubao Seed Lite',
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify({
+      models: {
+        providers: {
+          'popiai-server': {
+            baseUrl: 'http://127.0.0.1:50000/v1',
+            api: 'openai-completions',
+            models: [
+              { id: 'doubao-seed-2-0-lite-260428', name: 'Doubao Seed Lite', reasoning: true },
+              { id: 'kimi-k2.6', name: 'Kimi K2.6', reasoning: true },
+            ],
+          },
+        },
+      },
+    }), 'utf8');
+
+    const sync = await createSync();
+    const result = sync.sync('startup');
+
+    expect(result.ok).toBe(true);
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.models.providers['popiai-server'].models.map((model: { id: string }) => model.id)).toEqual([
+      'doubao-seed-2-0-lite-260428',
+      'kimi-k2.6',
+    ]);
+    expect(config.models.providers['popiai-server'].baseUrl).toBe('http://127.0.0.1:56646/v1');
+  });
+
   test('writes a complete agent model allowlist when any model has custom params', async () => {
     const { ProviderName } = await import('../../shared/providers');
 
