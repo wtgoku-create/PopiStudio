@@ -1505,6 +1505,15 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         : `${hasContextBadges ? 'py-2' : 'py-2.5'} text-[15px] leading-[23px]`
     }`
     : 'flex-1 resize-none bg-transparent py-1 text-sm leading-5 text-foreground placeholder:dark:text-foregroundSecondary/40 placeholder:text-secondary/40 focus:outline-none min-h-[28px] max-h-[200px]';
+  const editorPlaceholderClass = isCompact
+    ? 'px-4 py-[5px] text-[14px] leading-[22px]'
+    : isLarge
+    ? `px-4 ${
+      useHomeContextLayout
+        ? `${hasContextBadges ? 'py-2' : 'py-3'} text-[14px] leading-[22px]`
+        : `${hasContextBadges ? 'py-2' : 'py-2.5'} text-[15px] leading-[23px]`
+    }`
+    : 'py-1 text-sm leading-5';
 
   const truncatePath = (path: string, maxLength: number = ContextLabelMaxLength.DefaultFolder): string => {
     if (!path) return i18nService.t('noFolderSelected');
@@ -2697,6 +2706,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         minHeight={minHeight}
         maxHeight={maxHeight}
         className={editorClass}
+        placeholderClassName={editorPlaceholderClass}
         onChange={handleEditorChange}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}

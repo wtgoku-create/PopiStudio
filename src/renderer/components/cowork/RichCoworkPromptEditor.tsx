@@ -59,6 +59,7 @@ interface RichCoworkPromptEditorProps {
   placeholder: string;
   disabled?: boolean;
   className?: string;
+  placeholderClassName?: string;
   minHeight?: number;
   maxHeight?: number;
   autoFocus?: boolean;
@@ -749,6 +750,7 @@ const RichCoworkPromptEditor = React.forwardRef<RichCoworkPromptEditorRef, RichC
     placeholder,
     disabled = false,
     className = '',
+    placeholderClassName = '',
     minHeight = 48,
     maxHeight = 200,
     autoFocus = false,
@@ -819,7 +821,7 @@ const RichCoworkPromptEditor = React.forwardRef<RichCoworkPromptEditorRef, RichC
             />
           )}
           placeholder={(
-            <div className="pointer-events-none absolute left-4 top-2.5 select-none text-secondary/60 dark:text-foregroundSecondary/60">
+            <div className={`pointer-events-none absolute inset-x-0 top-0 select-none text-secondary/60 dark:text-foregroundSecondary/60 ${placeholderClassName}`}>
               {placeholder}
             </div>
           )}

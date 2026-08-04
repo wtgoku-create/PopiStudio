@@ -13,7 +13,11 @@ import {
   normalizeBrowserAnnotationBatches,
 } from '@shared/cowork/browserAnnotations';
 import { CoworkSessionSourceKind } from '@shared/cowork/constants';
-import { normalizeCoworkPromptDocument } from '@shared/cowork/promptDocument';
+import {
+  type CoworkPromptDocument,
+  CoworkPromptSegmentKind,
+  normalizeCoworkPromptDocument,
+} from '@shared/cowork/promptDocument';
 import {
   COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
   type CoworkMessageRailIndexItem,
@@ -363,6 +367,7 @@ type ExpandedConversationPreviewItem = {
   role: 'user' | 'assistant';
   content: string;
   summary: string;
+  promptDocument?: CoworkPromptDocument;
 };
 
 type ExpandedConversationPreview = {
@@ -565,13 +570,27 @@ function getExpandedConversationPreview(messages: CoworkMessage[]): ExpandedConv
       ? parseUserMessageForDisplay(message.content || '')
       : message.content;
     const text = normalizeExpandedConversationPreviewText(content);
-    if (!text) continue;
+    const promptDocument = message.type === 'user'
+      ? normalizeCoworkPromptDocument(message.metadata?.promptDocument)
+      : undefined;
+    const inlineLabelText = promptDocument?.segments.map((segment) => {
+      if (segment.kind === CoworkPromptSegmentKind.Resource) {
+        return promptDocument.resources.find(resource => resource.id === segment.resourceId)?.name ?? '';
+      }
+      if (segment.kind === CoworkPromptSegmentKind.Skill) {
+        return promptDocument.skills?.find(skill => skill.id === segment.skillId)?.name ?? '';
+      }
+      return '';
+    }).filter(Boolean).join(' ') ?? '';
+    const summaryText = text || inlineLabelText;
+    if (!summaryText) continue;
 
     items.push({
       id: message.id,
       role: message.type,
       content,
-      summary: truncateExpandedConversationPreviewText(text, EXPANDED_CONVERSATION_PREVIEW_ITEM_MAX_LENGTH),
+      summary: truncateExpandedConversationPreviewText(summaryText, EXPANDED_CONVERSATION_PREVIEW_ITEM_MAX_LENGTH),
+      ...(promptDocument ? { promptDocument } : {}),
     });
 
     if (items.length >= EXPANDED_CONVERSATION_PREVIEW_ITEM_LIMIT) break;
@@ -4751,6 +4770,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                           {item.role === 'user' ? (
                             <UserMessageContent
                               content={item.content}
+                              promptDocument={item.promptDocument}
                               className="max-w-none text-xs leading-5"
                             />
                           ) : (
