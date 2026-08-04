@@ -62,7 +62,6 @@ import {
   updateSubagentRunStatus,
   upsertSessionSummary,
 } from '../store/slices/coworkSlice';
-import { clearActiveSkills, setActiveSkillIds } from '../store/slices/skillSlice';
 import type { Artifact } from '../types/artifact';
 import type {
   CoworkApiConfig,
@@ -113,16 +112,6 @@ const CONTEXT_USAGE_REFRESH_DELAY_MS = 800;
 const FINAL_CONTEXT_USAGE_REFRESH_DELAYS_MS = [800, 2500, 6000, 12000] as const;
 const SESSION_ENTRY_CONTEXT_USAGE_REFRESH_COOLDOWN_MS = 1500;
 const MANUAL_CONTEXT_COMPACTION_WATCHDOG_MS = 310_000;
-
-const restoreCurrentAgentDefaultSkills = (): void => {
-  const state = store.getState();
-  const currentAgent = state.agent.agents.find((agent) => agent.id === state.agent.currentAgentId);
-  if (currentAgent?.skillIds?.length) {
-    store.dispatch(setActiveSkillIds(currentAgent.skillIds));
-  } else {
-    store.dispatch(clearActiveSkills());
-  }
-};
 
 const resolveCurrentAgentId = (): string => {
   return store.getState().agent.currentAgentId?.trim() || AgentId.Main;
@@ -908,6 +897,7 @@ class CoworkService {
       knowledgeFiles: options.knowledgeFiles,
       selectedTextSnippets: options.selectedTextSnippets,
       browserAnnotations: options.browserAnnotations,
+      promptDocument: options.promptDocument,
       systemPrompt: options.systemPrompt,
       activeSkillIds: options.activeSkillIds,
       imageAttachments: options.imageAttachments,
@@ -1839,12 +1829,9 @@ class CoworkService {
     return window.electron.getRecentCwds(limit);
   }
 
-  clearSession(options: { restoreAgentSkills?: boolean } = {}): void {
+  clearSession(): void {
     this.latestLoadSessionRequestId += 1;
     store.dispatch(clearCurrentSession());
-    if (options.restoreAgentSkills) {
-      restoreCurrentAgentDefaultSkills();
-    }
   }
 
   destroy(): void {

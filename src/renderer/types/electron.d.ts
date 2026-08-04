@@ -13,6 +13,7 @@ import type {
 } from '../../shared/cowork/constants';
 import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import type { CoworkGoal } from '../../shared/cowork/goal';
+import type { CoworkPromptDocument } from '../../shared/cowork/promptDocument';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
 import type {
@@ -545,6 +546,7 @@ interface IElectronAPI {
   cowork: {
     startSession: (options: {
       prompt: string;
+      promptDocument?: CoworkPromptDocument;
       knowledgeBases?: Array<{ id: string; name: string }>;
       knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
       selectedTextSnippets?: CoworkSelectedTextSnippetPayload[];
@@ -565,6 +567,7 @@ interface IElectronAPI {
     continueSession: (options: {
       sessionId: string;
       prompt: string;
+      promptDocument?: CoworkPromptDocument;
       knowledgeBases?: Array<{ id: string; name: string }>;
       knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
       selectedTextSnippets?: CoworkSelectedTextSnippetPayload[];

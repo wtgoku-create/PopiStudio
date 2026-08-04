@@ -13,6 +13,7 @@ import {
   normalizeBrowserAnnotationBatches,
 } from '@shared/cowork/browserAnnotations';
 import { CoworkSessionSourceKind } from '@shared/cowork/constants';
+import { normalizeCoworkPromptDocument } from '@shared/cowork/promptDocument';
 import {
   COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
   type CoworkMessageRailIndexItem,
@@ -60,7 +61,6 @@ import {
   togglePanel,
 } from '../../store/slices/artifactSlice';
 import { addDraftSelectedTextSnippet } from '../../store/slices/coworkSlice';
-import { setActiveSkillIds } from '../../store/slices/skillSlice';
 import type { Artifact } from '../../types/artifact';
 import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata, CoworkPermissionRequest, CoworkPermissionResult, SubagentSessionSummary } from '../../types/cowork';
@@ -107,7 +107,7 @@ import UserMessageContent from './UserMessageContent';
 import UserMessageItem from './UserMessageItem';
 interface CoworkSessionDetailProps {
   onManageSkills?: () => void;
-  onContinue: (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions) => boolean | void | Promise<boolean | void>;
+  onContinue: (prompt: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions) => boolean | void | Promise<boolean | void>;
   onStop: () => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -1223,7 +1223,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const lastMessageContent = useSelector(selectLastMessageContent);
   const messagesLength = useSelector(selectCurrentMessagesLength);
   const sessionId = currentSession?.id;
-  const skills = useSelector((state: RootState) => state.skill.skills);
   const agents = useSelector((state: RootState) => state.agent.agents);
   const minimizedPermissionPreview = minimizedPermission
     ? getPermissionPreviewText(minimizedPermission)
@@ -3541,27 +3540,25 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const ref = promptInputRef.current;
     if (!ref) return;
     const metadata = message.metadata as CoworkMessageMetadata | undefined;
-    // Set text content
-    if (message.content?.trim()) {
-      ref.setValue(message.content);
-    }
-    // Restore image attachments (always call to clear previous attachments)
     const imageAttachments = (metadata?.imageAttachments ?? []) as CoworkImageAttachment[];
-    ref.setImageAttachments(imageAttachments);
+    const promptDocument = normalizeCoworkPromptDocument(metadata?.promptDocument);
+    if (promptDocument) {
+      ref.setPromptDocument(promptDocument, imageAttachments);
+    } else {
+      if (message.content?.trim()) {
+        ref.setValue(message.content);
+      }
+      ref.setImageAttachments(imageAttachments);
+    }
     ref.setSelectedTextSnippets((metadata?.selectedTextSnippets ?? []) as CoworkSelectedTextSnippet[]);
     ref.setBrowserAnnotationBatches(
       normalizeBrowserAnnotationBatches(
         (metadata?.browserAnnotations ?? []) as CoworkBrowserAnnotationMessageBatch[],
       ),
     );
-    // Restore active skills
-    const skillIds = metadata?.skillIds;
-    if (skillIds && skillIds.length > 0) {
-      dispatch(setActiveSkillIds(skillIds));
-    }
     // Focus the input
     ref.focus();
-  }, [dispatch]);
+  }, []);
 
   const messages = currentSession?.messages;
   const displayItems = useMemo(() => messages ? buildDisplayItems(messages) : [], [messages]);
@@ -3939,7 +3936,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             >
               <UserMessageItem
                 message={turn.userMessage}
-                skills={skills}
                 sessionId={currentSession.id}
                 onReEdit={remoteManaged ? undefined : handleReEdit}
               />

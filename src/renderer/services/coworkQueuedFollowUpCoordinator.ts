@@ -148,6 +148,7 @@ export class CoworkQueuedFollowUpCoordinator {
       const sent = await this.dependencies.continueSession({
         sessionId,
         prompt: this.buildPrompt(queuedSteer),
+        promptDocument: queuedSteer.promptDocument,
         ...(imageAttachments.length > 0 ? { imageAttachments } : {}),
         browserAnnotations: queuedSteer.browserAnnotations,
       });
@@ -204,13 +205,7 @@ export class CoworkQueuedFollowUpCoordinator {
   }
 
   private buildPrompt(queuedSteer: CoworkPendingSteer): string {
-    const attachmentLines = (queuedSteer.attachments ?? [])
-      .filter(attachment => !attachment.path.startsWith('inline:'))
-      .map(attachment => `${i18nService.t('inputFileLabel')}: ${attachment.path}`)
-      .join('\n');
-    const text = queuedSteer.text.trim();
-    if (!text) return attachmentLines;
-    return attachmentLines ? `${text}\n\n${attachmentLines}` : text;
+    return queuedSteer.text.trim();
   }
 
   private async buildImageAttachments(queuedSteer: CoworkPendingSteer): Promise<CoworkImageAttachment[]> {

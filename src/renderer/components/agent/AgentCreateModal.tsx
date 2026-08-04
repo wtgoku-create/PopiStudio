@@ -179,7 +179,7 @@ const AgentCreateModal: React.FC<AgentCreateModalProps> = ({
         }
         agentService.switchAgent(agent.id);
         await coworkService.loadSessions(agent.id);
-        coworkService.clearSession({ restoreAgentSkills: true });
+        coworkService.clearSession();
         onClose();
         resetForm();
       } else {

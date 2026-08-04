@@ -357,7 +357,7 @@ const App: React.FC = () => {
   const handleNewChat = useCallback(() => {
     // Only clear when already on home (no session) — preserve __home__ draft when returning from a session
     const shouldClearInput = mainView === MainView.Cowork && !currentSessionId;
-    coworkService.clearSession({ restoreAgentSkills: true });
+    coworkService.clearSession();
     dispatch(clearSelection());
     setMainView(MainView.Cowork);
     setIsAgentPanelCollapsed(false);
@@ -671,7 +671,7 @@ const App: React.FC = () => {
         // Logging must not block navigation.
       }
 
-      coworkService.clearSession({ restoreAgentSkills: true });
+      coworkService.clearSession();
       dispatch(clearSelection());
       dispatch(setDraftPrompt({ sessionId: '__home__', draft: text }));
       dispatch(clearDraftAttachments('__home__'));

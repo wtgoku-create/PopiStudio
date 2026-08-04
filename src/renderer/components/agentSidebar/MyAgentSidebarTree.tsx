@@ -174,7 +174,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
       agentService.switchAgent(agent.id);
       await coworkService.loadSessions(agent.id);
     }
-    coworkService.clearSession({ restoreAgentSkills: true });
+    coworkService.clearSession();
     onShowCowork();
     window.setTimeout(() => {
       window.dispatchEvent(new CustomEvent('cowork:focus-input', {
@@ -225,7 +225,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     }
 
     await coworkService.loadSessions(AgentId.Main);
-    coworkService.clearSession({ restoreAgentSkills: true });
+    coworkService.clearSession();
   };
 
   const handleDeleteSession = async (task: AgentSidebarTaskNode) => {

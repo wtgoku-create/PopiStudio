@@ -1,4 +1,5 @@
 import type { CoworkBrowserAnnotationMessageBatch } from './browserAnnotations';
+import type { CoworkPromptDocument, CoworkPromptResourceSource } from './promptDocument';
 
 export const CoworkSteerStatus = {
   Pending: 'pending',
@@ -39,6 +40,7 @@ export interface CoworkPendingSteer {
   text: string;
   attachments?: CoworkSteerAttachment[];
   browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
+  promptDocument?: CoworkPromptDocument;
   status: CoworkSteerStatus;
   createdAt: number;
   updatedAt: number;
@@ -52,4 +54,5 @@ export interface CoworkSteerAttachment {
   isImage?: boolean;
   isDirectory?: boolean;
   dataUrl?: string;
+  source?: CoworkPromptResourceSource;
 }

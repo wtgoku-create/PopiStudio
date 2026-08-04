@@ -1408,6 +1408,13 @@ const translations: Record<LanguageType, Record<string, string>> = {
     clearSkill: '清除技能',
     clearAll: '全部清除',
     clearAllSkills: '清除所有已选技能',
+    coworkMentionResources: '选择资源',
+    coworkCommandSkillsTitle: '技能',
+    coworkCommandSourcePersonal: '个人',
+    coworkCommandSourceSystem: '系统',
+    coworkCommandSourceSession: '会话',
+    coworkMentionSessionResources: '本会话资源',
+    coworkMentionNoResources: '暂无可用资源',
 
     // MCP 服务
     mcpServers: 'MCP',
@@ -3860,6 +3867,13 @@ const translations: Record<LanguageType, Record<string, string>> = {
     clearSkill: 'Clear Skill',
     clearAll: 'Clear All',
     clearAllSkills: 'Clear all selected skills',
+    coworkMentionResources: 'Select resource',
+    coworkCommandSkillsTitle: 'Skills',
+    coworkCommandSourcePersonal: 'Personal',
+    coworkCommandSourceSystem: 'System',
+    coworkCommandSourceSession: 'Session',
+    coworkMentionSessionResources: 'Session resources',
+    coworkMentionNoResources: 'No resources available',
 
     // MCP Servers
     mcpServers: 'MCP',

@@ -4,6 +4,7 @@ import { useDispatch,useSelector } from 'react-redux';
 
 import { buildSessionTitleFromInput } from '../../../common/sessionTitle';
 import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
+import { type CoworkPromptDocument, CoworkPromptSegmentKind } from '../../../shared/cowork/promptDocument';
 import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -18,7 +19,6 @@ import {
 } from '../../store/selectors/coworkSelectors';
 import { addMessage, setCurrentSession, setStreaming, updateSessionStatus } from '../../store/slices/coworkSlice';
 import { clearSelection,selectAction, setActions } from '../../store/slices/quickActionSlice';
-import { clearActiveSkills, setActiveSkillIds } from '../../store/slices/skillSlice';
 import type { CoworkImageAttachment, CoworkPermissionRequest, CoworkPermissionResult, CoworkSession, OpenClawEngineStatus, SubagentSessionSummary } from '../../types/cowork';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { PromptPanel,QuickActionBar } from '../quick-actions';
@@ -27,10 +27,21 @@ import { useAgentSelectedModel } from './agentModelSelection';
 import { CoworkUiEvent } from './constants';
 import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
 import CoworkSessionDetail from './CoworkSessionDetail';
-import { buildCoworkContinuationSystemPrompt, buildCoworkSystemPrompt } from './skillSystemPrompt';
 import SubagentSessionDetail from './SubagentSessionDetail';
 
 const POPITV_SKILL_ID = 'popitv';
+
+const getTurnSkillIds = (promptDocument?: CoworkPromptDocument): string[] => {
+  const inlineSkillIds = promptDocument?.segments
+    .filter(segment => segment.kind === CoworkPromptSegmentKind.Skill)
+    .map(segment => segment.skillId) ?? [];
+  return Array.from(new Set(inlineSkillIds));
+};
+
+const buildSessionSystemPrompt = (baseSystemPrompt?: string, tailPrompt?: string): string | undefined => {
+  const combined = [baseSystemPrompt?.trim(), tailPrompt?.trim()].filter(Boolean).join('\n\n');
+  return combined || undefined;
+};
 
 const isPopiTVSession = (session: CoworkSession | null | undefined): boolean => {
   if (!session) return false;
@@ -105,7 +116,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     setViewingSubagent(null);
   }, [currentSession?.id]);
 
-  const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
   const skills = useSelector((state: RootState) => state.skill.skills);
   const quickActions = useSelector((state: RootState) => state.quickAction.actions);
   const selectedActionId = useSelector((state: RootState) => state.quickAction.selectedActionId);
@@ -233,7 +243,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     });
   }, []);
 
-  const handleStartSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions): Promise<boolean | void> => {
+  const handleStartSession = async (prompt: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions): Promise<boolean | void> => {
     console.log('[CoworkView] handleStartSession: imageAttachments diagnosis', {
       hasImageAttachments: !!imageAttachments,
       count: imageAttachments?.length ?? 0,
@@ -279,7 +289,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       }
 
       // Capture active skill IDs before clearing them
-      const sessionSkillIds = [...activeSkillIds];
+      const promptDocument = options?.promptDocument;
+      const sessionSkillIds = getTurnSkillIds(promptDocument);
       const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
       const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
       const selectedTextSnippets = options?.selectedTextSnippets;
@@ -313,13 +324,14 @@ const CoworkView: React.FC<CoworkViewProps> = ({
             type: 'user',
             content: prompt,
             timestamp: now,
-            metadata: (sessionSkillIds.length > 0 || knowledgeBases?.length || knowledgeFiles?.length || selectedTextSnippets?.length || browserAnnotations?.length || (imageAttachments && imageAttachments.length > 0))
+            metadata: (sessionSkillIds.length > 0 || knowledgeBases?.length || knowledgeFiles?.length || selectedTextSnippets?.length || browserAnnotations?.length || promptDocument || (imageAttachments && imageAttachments.length > 0))
               ? {
                 ...(sessionSkillIds.length > 0 ? { skillIds: sessionSkillIds } : {}),
                 ...(knowledgeBases?.length ? { knowledgeBases } : {}),
                 ...(knowledgeFiles?.length ? { knowledgeFiles } : {}),
                 ...(selectedTextSnippets?.length ? { selectedTextSnippets } : {}),
                 ...(browserAnnotations?.length ? { browserAnnotations } : {}),
+                ...(promptDocument ? { promptDocument } : {}),
                 ...(imageAttachments && imageAttachments.length > 0 ? { imageAttachments } : {}),
               }
               : undefined,
@@ -333,9 +345,6 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       dispatch(setCurrentSession(tempSession));
       dispatch(setStreaming(true));
 
-      // Clear active skills and quick action selection after starting session
-      // so they don't persist to next session
-      dispatch(clearActiveSkills());
       dispatch(clearSelection());
 
       // Combine skill prompt with system prompt.
@@ -346,7 +355,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
         shouldInclude: sessionSkillIds.includes(POPITV_SKILL_ID),
       });
-      const combinedSystemPrompt = buildCoworkSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
+      const combinedSystemPrompt = buildSessionSystemPrompt(config.systemPrompt, popitvCanvasContext);
 
       // Start the actual session immediately with fallback title
       const sessionModelOverride = currentAgentSelectedModel ? toOpenClawModelRef(currentAgentSelectedModel) : '';
@@ -357,6 +366,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         knowledgeFiles,
         selectedTextSnippets,
         browserAnnotations,
+        promptDocument,
         title: fallbackTitle,
         cwd: sessionCreationWorkingDirectory || undefined,
         systemPrompt: combinedSystemPrompt,
@@ -396,7 +406,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     }
   };
 
-  const handleContinueSession = async (prompt: string, skillPrompt?: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions) => {
+  const handleContinueSession = async (prompt: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions) => {
     if (!currentSession) return false;
     // Prevent duplicate submissions
     if (isContinuingRef.current) return false;
@@ -414,23 +424,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         imageAttachmentsBase64Lengths: imageAttachments?.map(a => a.base64Data.length),
       });
 
-      // Capture active skill IDs before clearing
-      const sessionSkillIds = [...activeSkillIds];
+      const promptDocument = options?.promptDocument;
+      const sessionSkillIds = getTurnSkillIds(promptDocument);
       const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
       const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
       const selectedTextSnippets = options?.selectedTextSnippets;
       const browserAnnotations = options?.browserAnnotations;
-
-      // Only send a continuation system prompt when this turn selects new skills.
-      // Otherwise the main process falls back to the session prompt created on the first turn.
-      const popitvContextSkillIds = sessionSkillIds.length > 0
-        ? sessionSkillIds
-        : currentSession.activeSkillIds;
-      const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
-        shouldInclude: popitvContextSkillIds.includes(POPITV_SKILL_ID),
-        sessionId: currentSession.id,
-      });
-      const combinedSystemPrompt = buildCoworkContinuationSystemPrompt(skillPrompt, config.systemPrompt, popitvCanvasContext);
 
       const sent = await coworkService.continueSession({
         sessionId: currentSession.id,
@@ -439,13 +438,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         knowledgeFiles,
         selectedTextSnippets,
         browserAnnotations,
-        systemPrompt: combinedSystemPrompt,
+        promptDocument,
+        systemPrompt: undefined,
         activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
         imageAttachments,
       });
-      if (sent && sessionSkillIds.length > 0) {
-        dispatch(clearActiveSkills());
-      }
       return sent;
     } finally {
       isContinuingRef.current = false;
@@ -454,14 +451,13 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
   const handleHomeSubmit = async (
     prompt: string,
-    skillPrompt?: string,
     imageAttachments?: CoworkImageAttachment[],
     options?: CoworkPromptSubmitOptions,
   ): Promise<boolean | void> => {
     if (currentSession && !hasCurrentSessionMessages) {
-      return handleContinueSession(prompt, skillPrompt, imageAttachments, options);
+      return handleContinueSession(prompt, imageAttachments, options);
     }
-    return handleStartSession(prompt, skillPrompt, imageAttachments, options);
+    return handleStartSession(prompt, imageAttachments, options);
   };
 
   const handleHomeGoalCommand = async (command: string): Promise<boolean | void> => {
@@ -485,42 +481,28 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     return quickActions.find(action => action.id === selectedActionId);
   }, [quickActions, selectedActionId]);
 
-  // Handle quick action button click: select action + activate skill in one batch
+  // Handle quick action button click.
   const handleActionSelect = (actionId: string) => {
     dispatch(selectAction(actionId));
-    const action = quickActions.find(a => a.id === actionId);
-    if (action) {
-      const targetSkill = skills.find(s => s.id === action.skillMapping);
-      if (targetSkill) {
-        dispatch(setActiveSkillIds([targetSkill.id]));
-      }
-    }
   };
-
-  // When the mapped skill is deactivated from input area, restore the QuickActionBar
-  useEffect(() => {
-    if (!selectedActionId) return;
-    const action = quickActions.find(a => a.id === selectedActionId);
-    if (action) {
-      const skillStillActive = activeSkillIds.includes(action.skillMapping);
-      if (!skillStillActive) {
-        dispatch(clearSelection());
-      }
-    }
-  }, [activeSkillIds, dispatch, quickActions, selectedActionId]);
 
   // Handle prompt selection from QuickAction
   const handleQuickActionPromptSelect = (prompt: string) => {
-    // Fill the prompt into input
     promptInputRef.current?.setValue(prompt);
-    promptInputRef.current?.focus();
+    const targetSkill = selectedAction
+      ? skills.find(skill => skill.id === selectedAction.skillMapping)
+      : undefined;
+    requestAnimationFrame(() => {
+      if (targetSkill) promptInputRef.current?.insertSkill(targetSkill);
+      promptInputRef.current?.focus();
+    });
   };
 
   useEffect(() => {
     const handleNewSession = () => {
       // Only clear when already on home (no session) — preserve __home__ draft when returning from a session
       const shouldClear = !currentSession;
-      coworkService.clearSession({ restoreAgentSkills: true });
+      coworkService.clearSession();
       dispatch(clearSelection());
       window.dispatchEvent(new CustomEvent('cowork:focus-input', {
         detail: { clear: shouldClear },
@@ -695,7 +677,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
           {/* Prompt Input Area - Large version with folder selector */}
           <div
-            className="mt-9 w-full max-w-3xl animate-fade-in-up"
+            className="relative z-20 mt-9 w-full max-w-3xl animate-fade-in-up"
             style={{ animationDelay: '180ms', animationFillMode: 'both' }}
           >
             <CoworkPromptInput
@@ -712,13 +694,14 @@ const CoworkView: React.FC<CoworkViewProps> = ({
               showFolderSelector={true}
               showModelSelector={true}
               showAgentSelector={true}
+              commandMenuPlacement="bottom"
               onManageSkills={() => onShowSkills?.()}
             />
           </div>
 
           {/* Quick Actions */}
           <div
-            className="mt-8 w-full max-w-3xl space-y-4 animate-fade-in-up"
+            className="relative z-0 mt-8 w-full max-w-3xl space-y-4 animate-fade-in-up"
             style={{ animationDelay: '260ms', animationFillMode: 'both' }}
           >
             {selectedAction ? (

@@ -111,7 +111,7 @@ const ContactsView: React.FC<ContactsViewProps> = ({ onShowCowork }) => {
       agentService.switchAgent(agent.id);
       onShowCowork();
       await coworkService.loadSessions(agent.id);
-      coworkService.clearSession({ restoreAgentSkills: true });
+      coworkService.clearSession();
     },
     [onShowCowork],
   );

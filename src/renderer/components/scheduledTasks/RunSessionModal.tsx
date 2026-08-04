@@ -292,7 +292,7 @@ const RunSessionModal: React.FC<RunSessionModalProps> = ({
                 return (
                   <React.Fragment key={turn.id}>
                     {turn.userMessage && (
-                      <UserMessageItem message={turn.userMessage} skills={[]} />
+                      <UserMessageItem message={turn.userMessage} />
                     )}
                     {showAssistantBlock && (
                       <AssistantTurnBlock

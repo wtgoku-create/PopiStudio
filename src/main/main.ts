@@ -30,6 +30,12 @@ import {
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import {
+  type CoworkPromptDocument,
+  CoworkPromptSegmentKind,
+  normalizeCoworkPromptDocument,
+  serializeCoworkPromptDocumentForOpenClaw,
+} from '../shared/cowork/promptDocument';
+import {
   type CoworkSelectedTextSnippet,
   normalizeCoworkSelectedTextSnippets,
 } from '../shared/cowork/selectedText';
@@ -1045,10 +1051,16 @@ const normalizeSelectedTextSnippetsForIpc = (value: unknown): CoworkSelectedText
 
 const resolveRuntimeSkillIds = (options: {
   activeSkillIds?: string[];
+  promptDocument?: CoworkPromptDocument;
   knowledgeBases?: Array<{ id: string }>;
   knowledgeFiles?: Array<{ id: string }>;
 }): string[] | undefined => {
   const nextSkillIds = options.activeSkillIds ? [...options.activeSkillIds] : [];
+  for (const segment of options.promptDocument?.segments ?? []) {
+    if (segment.kind === CoworkPromptSegmentKind.Skill && !nextSkillIds.includes(segment.skillId)) {
+      nextSkillIds.push(segment.skillId);
+    }
+  }
   const hasSelectedKnowledge = Boolean(options.knowledgeBases?.some(item => item.id))
     || Boolean(options.knowledgeFiles?.some(item => item.id));
   if (hasSelectedKnowledge && !nextSkillIds.includes(KnowledgeSkill.Base)) {
@@ -3279,6 +3291,7 @@ if (!gotTheLock) {
   // Cowork IPC handlers
   ipcMain.handle('cowork:session:start', async (_event, options: {
     prompt: string;
+    promptDocument?: CoworkPromptDocument;
     knowledgeBases?: Array<{ id: string; name: string }>;
     knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
     selectedTextSnippets?: CoworkSelectedTextSnippet[];
@@ -3315,6 +3328,8 @@ if (!gotTheLock) {
       }
 
       const prompt = stripNullChars(options.prompt);
+      const promptDocument = normalizeCoworkPromptDocument(options.promptDocument);
+      const runtimeSkillIds = resolveRuntimeSkillIds({ ...options, promptDocument });
       const selectedTextSnippets = normalizeSelectedTextSnippetsForIpc(options.selectedTextSnippets);
       const normalizedBrowserAnnotations = normalizeBrowserAnnotationBatches(options.browserAnnotations);
       const browserAnnotationPayload = mergeBrowserAnnotationImageAttachments({
@@ -3335,7 +3350,7 @@ if (!gotTheLock) {
         taskWorkingDirectory,
         systemPrompt,
         config.executionMode || 'local',
-        options.activeSkillIds || [],
+        runtimeSkillIds || [],
         options.agentId || 'main',
         options.modelOverride || ''
       );
@@ -3350,8 +3365,8 @@ if (!gotTheLock) {
 
       // Build metadata, include imageAttachments if present
       const messageMetadata: Record<string, unknown> = {};
-      if (options.activeSkillIds?.length) {
-        messageMetadata.skillIds = options.activeSkillIds;
+      if (runtimeSkillIds?.length) {
+        messageMetadata.skillIds = runtimeSkillIds;
       }
       if (options.knowledgeBases?.length) {
         messageMetadata.knowledgeBases = options.knowledgeBases;
@@ -3364,6 +3379,9 @@ if (!gotTheLock) {
       }
       if (browserAnnotations.length) {
         messageMetadata.browserAnnotations = browserAnnotations;
+      }
+      if (promptDocument) {
+        messageMetadata.promptDocument = promptDocument;
       }
       if (browserAnnotationPayload.imageAttachments?.length) {
         console.log('[Cowork:StartSession] imageAttachments received via IPC:', {
@@ -3386,9 +3404,11 @@ if (!gotTheLock) {
 
       // Start the session asynchronously (skip initial user message since we already added it)
       const runtime = getCoworkEngineRouter();
-      const runtimeSkillIds = resolveRuntimeSkillIds(options);
       (async () => {
-        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
+        const openClawPrompt = promptDocument
+          ? serializeCoworkPromptDocumentForOpenClaw(promptDocument, prompt)
+          : prompt;
+        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt: openClawPrompt });
         await runtime.startSession(session.id, baseRuntimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt,
@@ -3435,6 +3455,7 @@ if (!gotTheLock) {
   ipcMain.handle('cowork:session:continue', async (_event, options: {
     sessionId: string;
     prompt: string;
+    promptDocument?: CoworkPromptDocument;
     knowledgeBases?: Array<{ id: string; name: string }>;
     knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
     selectedTextSnippets?: CoworkSelectedTextSnippet[];
@@ -3475,6 +3496,8 @@ if (!gotTheLock) {
       }
 
       const prompt = stripNullChars(options.prompt);
+      const promptDocument = normalizeCoworkPromptDocument(options.promptDocument);
+      const runtimeSkillIds = resolveRuntimeSkillIds({ ...options, promptDocument });
       const selectedTextSnippets = normalizeSelectedTextSnippetsForIpc(options.selectedTextSnippets);
       const normalizedBrowserAnnotations = normalizeBrowserAnnotationBatches(options.browserAnnotations);
       const browserAnnotationPayload = mergeBrowserAnnotationImageAttachments({
@@ -3484,8 +3507,8 @@ if (!gotTheLock) {
       });
       const { browserAnnotations } = browserAnnotationPayload;
       const messageMetadata: Record<string, unknown> = {};
-      if (options.activeSkillIds?.length) {
-        messageMetadata.skillIds = options.activeSkillIds;
+      if (runtimeSkillIds?.length) {
+        messageMetadata.skillIds = runtimeSkillIds;
       }
       if (options.knowledgeBases?.length) {
         messageMetadata.knowledgeBases = options.knowledgeBases;
@@ -3498,6 +3521,9 @@ if (!gotTheLock) {
       }
       if (browserAnnotations.length) {
         messageMetadata.browserAnnotations = browserAnnotations;
+      }
+      if (promptDocument) {
+        messageMetadata.promptDocument = promptDocument;
       }
       if (options.imageAttachments?.length) {
         messageMetadata.imageAttachments = options.imageAttachments;
@@ -3520,8 +3546,10 @@ if (!gotTheLock) {
         });
       }
       (async () => {
-        const runtimeSkillIds = resolveRuntimeSkillIds(options);
-        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt });
+        const openClawPrompt = promptDocument
+          ? serializeCoworkPromptDocumentForOpenClaw(promptDocument, prompt)
+          : prompt;
+        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt: openClawPrompt });
         await runtime.continueSession(options.sessionId, baseRuntimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt: mergeCoworkSystemPrompt(

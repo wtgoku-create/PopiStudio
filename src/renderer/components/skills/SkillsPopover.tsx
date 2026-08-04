@@ -1,4 +1,3 @@
-import { CheckIcon } from '@heroicons/react/24/outline';
 import React, { useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 
@@ -38,7 +37,6 @@ const SkillsPopover: React.FC<SkillsPopoverProps> = ({
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const skills = useSelector((state: RootState) => state.skill.skills);
-  const activeSkillIds = useSelector((state: RootState) => state.skill.activeSkillIds);
 
   // Filter enabled skills based on search query
   const filteredSkills = skills
@@ -171,43 +169,26 @@ const SkillsPopover: React.FC<SkillsPopoverProps> = ({
           </div>
         ) : (
           filteredSkills.map((skill) => {
-            const isActive = activeSkillIds.includes(skill.id);
             const skillName = skillService.getLocalizedSkillName(skill);
             return (
               <button
                 key={skill.id}
                 onClick={() => handleSelectSkill(skill)}
                 className={asSubmenu
-                  ? `w-full flex items-start gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
-                    isActive ? 'bg-surface-raised' : 'hover:bg-surface-raised'
-                  }`
-                  : `w-full flex items-start gap-3 px-3 py-2.5 text-left transition-colors ${
-                    isActive
-                      ? 'dark:bg-primary/10 bg-primary/10'
-                      : 'hover:bg-surface-raised'
-                  }`}
+                  ? 'w-full flex items-start gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-raised'
+                  : 'w-full flex items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-raised'}
               >
                 <div className={asSubmenu
-                  ? `mt-[3px] flex h-5 w-5 flex-shrink-0 items-center justify-center ${
-                    isActive ? 'text-foreground' : 'text-secondary'
-                  }`
-                  : `mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                    isActive
-                      ? 'bg-primary/10 text-primary'
-                      : 'bg-surface-raised'
-                  }`}
+                  ? 'mt-[3px] flex h-5 w-5 flex-shrink-0 items-center justify-center text-secondary'
+                  : 'mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-surface-raised'}
                 >
-                  <SkillIcon className={asSubmenu ? 'h-[18px] w-[18px]' : `h-4 w-4 ${isActive ? '' : 'text-secondary'}`} />
+                  <SkillIcon className={asSubmenu ? 'h-[18px] w-[18px]' : 'h-4 w-4 text-secondary'} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className={asSubmenu ? 'flex min-w-0 items-center gap-1.5' : 'flex items-center gap-2'}>
                     <span className={asSubmenu
                       ? 'min-w-0 truncate text-[13px] font-semibold leading-5 text-foreground'
-                      : `text-sm font-medium truncate ${
-                        isActive
-                          ? 'text-primary'
-                          : 'text-foreground'
-                      }`}
+                      : 'text-sm font-medium truncate text-foreground'}
                     >
                       {skillName}
                     </span>
@@ -224,9 +205,6 @@ const SkillsPopover: React.FC<SkillsPopoverProps> = ({
                     {skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill)}
                   </p>
                 </div>
-                {isActive && (
-                  <CheckIcon className={asSubmenu ? 'mt-1 h-3.5 w-3.5 flex-shrink-0 text-primary' : 'mt-1 h-4 w-4 flex-shrink-0 text-primary'} />
-                )}
               </button>
             );
           })

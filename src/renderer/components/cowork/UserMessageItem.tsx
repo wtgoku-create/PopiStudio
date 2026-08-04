@@ -3,18 +3,16 @@ import type { CoworkBrowserAnnotationMessageBatch } from '@shared/cowork/browser
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { hasGoalSettingMessageMetadata } from '../../../common/goalCommandDisplay';
+import { normalizeCoworkPromptDocument } from '../../../shared/cowork/promptDocument';
 import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import { i18nService } from '../../services/i18n';
-import { skillService } from '../../services/skill';
 import type { CoworkImageAttachment, CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
-import type { Skill } from '../../types/skill';
 import { formatMessageDateTime } from '../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
 import AcademicCapIcon from '../icons/AcademicCapIcon';
 import EditIcon from '../icons/EditIcon';
 import GoalIcon from '../icons/GoalIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
-import SkillIcon from '../icons/SkillIcon';
 import BrowserAnnotationAttachmentBadge from './BrowserAnnotationAttachmentBadge';
 import ImagePreviewModal, { type ImagePreviewSource } from './ImagePreviewModal';
 import { MessageCopyButton } from './MessageActionButton';
@@ -49,29 +47,6 @@ const ReEditButton: React.FC<{
     >
       <EditIcon className="w-4 h-4 text-[var(--icon-secondary)]" />
     </button>
-  );
-};
-
-// ── UserMessageSkillBadges ───────────────────────────────────────────────────
-
-const UserMessageSkillBadges: React.FC<{ skills: Skill[] }> = ({ skills }) => {
-  if (skills.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {skills.map(skill => (
-        <div
-          key={skill.id}
-          className="inline-flex h-7 max-w-[240px] items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-[13px] font-normal leading-5 text-foreground"
-          title={skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill)}
-        >
-          <SkillIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
-          <span className="min-w-0 truncate">
-            {skillService.getLocalizedSkillName(skill)}
-          </span>
-        </div>
-      ))}
-    </div>
   );
 };
 
@@ -111,10 +86,9 @@ const UserMessageKnowledgeBadges: React.FC<{
 
 const UserMessageItem: React.FC<{
   message: CoworkMessage;
-  skills: Skill[];
   sessionId?: string;
   onReEdit?: (message: CoworkMessage) => void;
-}> = React.memo(({ message, skills, sessionId = '', onReEdit }) => {
+}> = React.memo(({ message, sessionId = '', onReEdit }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
   const modelLabel = getMessageModelLabel(message.metadata);
@@ -131,6 +105,7 @@ const UserMessageItem: React.FC<{
   }, []);
 
   const metadata = message.metadata as CoworkMessageMetadata | undefined;
+  const promptDocument = normalizeCoworkPromptDocument(metadata?.promptDocument);
   const isGoalSettingMessage = hasGoalSettingMessageMetadata(metadata);
   const displayContent = useMemo(
     () => parseUserMessageForDisplay(message.content || '', {
@@ -141,15 +116,12 @@ const UserMessageItem: React.FC<{
     [message.content, metadata?.localMediaAttachments]
   );
 
-  const messageSkillIds = metadata?.skillIds || [];
-  const messageSkills = messageSkillIds
-    .map(id => skills.find(s => s.id === id))
-    .filter((s): s is NonNullable<typeof s> => s !== undefined);
   const messageKnowledgeBases = (metadata?.knowledgeBases ?? [])
     .filter((base): base is { id: string; name: string } => Boolean(base?.id));
   const messageKnowledgeFiles = (metadata?.knowledgeFiles ?? [])
     .filter((file): file is { id: string; title: string; knowledgeBaseName?: string; fileType?: string } => Boolean(file?.id));
-  const hasContextBadges = messageSkills.length > 0 || messageKnowledgeBases.length > 0 || messageKnowledgeFiles.length > 0;
+  const hasContextBadges = messageKnowledgeBases.length > 0 || messageKnowledgeFiles.length > 0;
+  const hasPromptContent = !!promptDocument?.segments.length || !!displayContent?.trim();
   const selectedTextSnippets = (metadata?.selectedTextSnippets ?? []) as CoworkSelectedTextSnippet[];
 
   const browserAnnotations = (metadata?.browserAnnotations ?? []) as CoworkBrowserAnnotationMessageBatch[];
@@ -174,7 +146,7 @@ const UserMessageItem: React.FC<{
             <div className="w-full min-w-0 flex flex-col items-end">
               <div className="w-fit max-w-full rounded-2xl px-4 py-2.5 bg-surface text-foreground shadow-subtle">
                 {browserAnnotationCount > 0 && (
-                  <div className={(selectedTextSnippets.length > 0 || hasContextBadges || displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
+                  <div className={(selectedTextSnippets.length > 0 || hasContextBadges || hasPromptContent || imageAttachments.length > 0) ? 'mb-2' : ''}>
                     <BrowserAnnotationAttachmentBadge
                       draftKey={sessionId}
                       batches={browserAnnotations}
@@ -183,7 +155,7 @@ const UserMessageItem: React.FC<{
                   </div>
                 )}
                 {selectedTextSnippets.length > 0 && (
-                  <div className={(hasContextBadges || displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
+                  <div className={(hasContextBadges || hasPromptContent || imageAttachments.length > 0) ? 'mb-2' : ''}>
                     <SelectedTextSnippetBadge
                       snippets={selectedTextSnippets}
                       align="right"
@@ -191,22 +163,22 @@ const UserMessageItem: React.FC<{
                   </div>
                 )}
                 {hasContextBadges && (
-                  <div className={(displayContent?.trim() || imageAttachments.length > 0) ? 'mb-2' : ''}>
+                  <div className={(hasPromptContent || imageAttachments.length > 0) ? 'mb-2' : ''}>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <UserMessageSkillBadges skills={messageSkills} />
                       <UserMessageKnowledgeBadges bases={messageKnowledgeBases} files={messageKnowledgeFiles} />
                     </div>
                   </div>
                 )}
-                {displayContent?.trim() && (
+                {hasPromptContent && (
                   <UserMessageContent
                     content={displayContent}
+                    promptDocument={promptDocument}
                     className="max-w-none"
                     onImageClick={setExpandedImage}
                   />
                 )}
                 {imageAttachments.length > 0 && (
-                  <div className={`flex flex-wrap gap-2 ${displayContent?.trim() ? 'mt-2' : ''}`}>
+                  <div className={`flex flex-wrap gap-2 ${hasPromptContent ? 'mt-2' : ''}`}>
                     {imageAttachments.map((img, idx) => (
                       <div key={idx} className="relative group">
                         <img

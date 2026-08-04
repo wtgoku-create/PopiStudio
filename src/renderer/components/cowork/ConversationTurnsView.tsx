@@ -7,7 +7,6 @@ import React, { useMemo } from 'react';
 import type { Artifact } from '../../types/artifact';
 import { PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkMessage } from '../../types/cowork';
-import type { Skill } from '../../types/skill';
 import AssistantTurnBlock from './AssistantTurnBlock';
 import LazyRenderTurn from './LazyRenderTurn';
 import {
@@ -20,7 +19,6 @@ import UserMessageItem from './UserMessageItem';
 export interface ConversationTurnsViewProps {
   messages: CoworkMessage[];
   isStreaming?: boolean;
-  skills?: Skill[];
   artifacts?: Artifact[];
   resolveLocalFilePath?: (href: string, text: string) => string | null;
   mapDisplayText?: (value: string) => string;
@@ -39,13 +37,11 @@ export interface ConversationTurnsViewProps {
   }) => React.ReactNode;
 }
 
-const EMPTY_SKILLS: Skill[] = [];
 const EMPTY_ARTIFACTS: Artifact[] = [];
 
 const ConversationTurnsView: React.FC<ConversationTurnsViewProps> = ({
   messages,
   isStreaming = false,
-  skills = EMPTY_SKILLS,
   artifacts = EMPTY_ARTIFACTS,
   resolveLocalFilePath,
   mapDisplayText,
@@ -107,7 +103,6 @@ const ConversationTurnsView: React.FC<ConversationTurnsViewProps> = ({
               <div data-export-role="user-message" className={isLastTurn ? 'animate-message-in' : undefined}>
                 <UserMessageItem
                   message={turn.userMessage}
-                  skills={skills}
                   onReEdit={readOnly ? undefined : onReEdit}
                 />
               </div>

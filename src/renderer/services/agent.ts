@@ -11,20 +11,7 @@ import {
 } from '../store/slices/agentSlice';
 import { clearCurrentSession } from '../store/slices/coworkSlice';
 import { clearAgentSelectedModel } from '../store/slices/modelSlice';
-import { clearActiveSkills, setActiveSkillIds } from '../store/slices/skillSlice';
 import type { Agent, PresetAgent } from '../types/agent';
-
-const syncActiveSkillsForCurrentAgent = (agentId: string, skillIds: string[]): void => {
-  if (store.getState().agent.currentAgentId !== agentId) {
-    return;
-  }
-
-  if (skillIds.length > 0) {
-    store.dispatch(setActiveSkillIds(skillIds));
-  } else {
-    store.dispatch(clearActiveSkills());
-  }
-};
 
 class AgentService {
   async loadAgents(): Promise<void> {
@@ -121,7 +108,6 @@ class AgentService {
             skillIds,
           },
         }));
-        syncActiveSkillsForCurrentAgent(agent.id, skillIds);
         return agent;
       }
       return null;
@@ -149,7 +135,7 @@ class AgentService {
         if (boundSession) {
           await coworkService.loadSession(boundSession.id);
         } else {
-          coworkService.clearSession({ restoreAgentSkills: true });
+          coworkService.clearSession();
         }
       }
       return true;
@@ -209,12 +195,6 @@ class AgentService {
   switchAgent(agentId: string): void {
     store.dispatch(setCurrentAgentId(agentId));
     store.dispatch(clearCurrentSession());
-    const agent = store.getState().agent.agents.find((a) => a.id === agentId);
-    if (agent?.skillIds?.length) {
-      store.dispatch(setActiveSkillIds(agent.skillIds));
-    } else {
-      store.dispatch(clearActiveSkills());
-    }
   }
 }
 

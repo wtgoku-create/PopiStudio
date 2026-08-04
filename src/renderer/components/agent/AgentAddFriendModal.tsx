@@ -61,7 +61,7 @@ const AgentAddFriendModal: React.FC<AgentAddFriendModalProps> = ({
     agentService.switchAgent(agent.id);
     onShowCowork();
     await coworkService.loadSessions(agent.id);
-    coworkService.clearSession({ restoreAgentSkills: true });
+    coworkService.clearSession();
   };
 
   const handleAddSelectedTemplates = async () => {

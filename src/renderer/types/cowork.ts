@@ -1,6 +1,7 @@
-import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import type { CoworkBrowserAnnotationMessageBatch } from '../../shared/cowork/browserAnnotations';
+import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import type { CoworkGoal } from '../../shared/cowork/goal';
+import type { CoworkPromptDocument } from '../../shared/cowork/promptDocument';
 import type { CoworkSelectedTextSnippet } from '../../shared/cowork/selectedText';
 
 // Cowork image attachment for vision-capable models
@@ -58,6 +59,7 @@ export interface CoworkMessageMetadata {
   knowledgeBases?: Array<{ id: string; name: string }>;
   knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
+  promptDocument?: CoworkPromptDocument;
   usage?: {
     inputTokens?: number;
     outputTokens?: number;
@@ -286,6 +288,7 @@ export interface CoworkStartOptions {
   imageAttachments?: CoworkImageAttachment[];
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
   browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
+  promptDocument?: CoworkPromptDocument;
 }
 
 // Continue session options
@@ -299,6 +302,7 @@ export interface CoworkContinueOptions {
   imageAttachments?: CoworkImageAttachment[];
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
   browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
+  promptDocument?: CoworkPromptDocument;
 }
 
 // IPC result types

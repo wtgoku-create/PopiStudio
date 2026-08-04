@@ -25,6 +25,7 @@ import {
   type CoworkGoal,
   normalizeCoworkGoal,
 } from '../shared/cowork/goal';
+import type { CoworkPromptDocument } from '../shared/cowork/promptDocument';
 import {
   COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
   type CoworkMessageRailIndexItem,
@@ -415,6 +416,7 @@ export interface CoworkMessageMetadata {
   isStreaming?: boolean;
   isFinal?: boolean;
   skillIds?: string[];
+  promptDocument?: CoworkPromptDocument;
   usage?: {
     inputTokens?: number;
     outputTokens?: number;

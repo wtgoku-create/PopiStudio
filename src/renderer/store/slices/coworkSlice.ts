@@ -6,12 +6,13 @@ import {
   type CoworkMessageRailIndexItem,
   getCoworkRailPreview,
 } from '../../../shared/cowork/rail';
+import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import {
   type CoworkPendingSteer,
   CoworkSteerStatus,
   type CoworkSteerStatus as CoworkSteerStatusType,
 } from '../../../shared/cowork/steer';
-import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
+import type { CoworkPromptResourceSource } from '../../../shared/cowork/promptDocument';
 import {
   type CoworkConfig,
   type CoworkContextUsage,
@@ -31,6 +32,8 @@ export interface DraftAttachment {
   isImage?: boolean;
   isDirectory?: boolean;
   dataUrl?: string;
+  hideInEditor?: boolean;
+  source?: CoworkPromptResourceSource;
 }
 
 interface CoworkState {
@@ -872,6 +875,17 @@ const coworkSlice = createSlice({
       state.draftAttachments[draftKey] = [...existing, attachment];
     },
 
+    removeDraftAttachment(state, action: PayloadAction<{ draftKey: string; path: string }>) {
+      const { draftKey, path } = action.payload;
+      const remaining = (state.draftAttachments[draftKey] || [])
+        .filter(attachment => attachment.path !== path);
+      if (remaining.length === 0) {
+        delete state.draftAttachments[draftKey];
+      } else {
+        state.draftAttachments[draftKey] = remaining;
+      }
+    },
+
     clearDraftAttachments(state, action: PayloadAction<string>) {
       delete state.draftAttachments[action.payload];
     },
@@ -967,6 +981,7 @@ export const {
   clearSteerQueue,
   setDraftAttachments,
   addDraftAttachment,
+  removeDraftAttachment,
   clearDraftAttachments,
   setDraftSelectedTextSnippets,
   addDraftSelectedTextSnippet,

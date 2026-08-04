@@ -1,6 +1,12 @@
 import React from 'react';
 
+import {
+  type CoworkPromptDocument,
+  CoworkPromptSegmentKind,
+} from '../../../shared/cowork/promptDocument';
 import MarkdownContent from '../MarkdownContent';
+import CoworkResourceChip from './CoworkResourceChip';
+import CoworkSkillChip from './CoworkSkillChip';
 
 const MARKDOWN_IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\((?:file|localfile|https?|data|blob):[^)]+\)\s*$/i;
 const USER_MESSAGE_IMAGE_CLASS_NAME = 'my-2 h-32 w-32 shrink-0 rounded-lg border border-border object-cover';
@@ -56,18 +62,48 @@ const renderUserMessageParts = (
 
 interface UserMessageContentProps {
   content: string;
+  promptDocument?: CoworkPromptDocument;
   className?: string;
   onImageClick?: (image: { src: string; alt?: string | null }) => void;
 }
 
 const UserMessageContent: React.FC<UserMessageContentProps> = ({
   content,
+  promptDocument,
   className = '',
   onImageClick,
 }) => {
   return (
     <div className={`min-w-0 max-w-full text-[15px] leading-[23px] ${className}`}>
-      {renderUserMessageParts(content, onImageClick)}
+      {promptDocument ? (
+        <div className="whitespace-pre-wrap break-words text-foreground/90">
+          {promptDocument.segments.map((segment, index) => {
+            if (segment.kind === CoworkPromptSegmentKind.Text) {
+              return <React.Fragment key={`text-${index}`}>{segment.text}</React.Fragment>;
+            }
+            if (segment.kind === CoworkPromptSegmentKind.Resource) {
+              const resource = promptDocument.resources.find(item => item.id === segment.resourceId);
+              if (!resource) return null;
+              return (
+                <CoworkResourceChip
+                  key={`resource-${segment.resourceId}-${index}`}
+                  name={resource.name}
+                  path={resource.path}
+                />
+              );
+            }
+            const skill = promptDocument.skills?.find(item => item.id === segment.skillId);
+            if (!skill) return null;
+            return (
+              <CoworkSkillChip
+                key={`skill-${segment.skillId}-${index}`}
+                name={skill.name}
+                description={skill.description}
+              />
+            );
+          })}
+        </div>
+      ) : renderUserMessageParts(content, onImageClick)}
     </div>
   );
 };
