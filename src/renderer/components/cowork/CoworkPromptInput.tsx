@@ -698,11 +698,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     : currentAgentId;
   const currentAgent = agents.find((agent) => agent.id === modelTargetAgentId);
   const configuredInlineSkills = useMemo(() => (
-    (currentAgent?.skillIds ?? [])
+    sessionId ? [] : (currentAgent?.skillIds ?? [])
       .map(skillId => skills.find(skill => skill.id === skillId))
       .filter((skill): skill is Skill => Boolean(skill?.skillPath.trim()))
       .map(getInlinePromptSkill)
-  ), [currentAgent?.skillIds, skills]);
+  ), [currentAgent?.skillIds, sessionId, skills]);
   const currentAgentSelectedModel = useAgentSelectedModel(modelTargetAgentId, currentAgent?.model ?? '');
   const {
     selectedModel: agentSelectedModel,
@@ -724,7 +724,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     : isLarge
     ? useHomeContextLayout
       ? hasContextBadges ? 36 : 52
-      : hasContextBadges ? 44 : 60
+      : hasContextBadges ? 44 : showReadOnlyContext ? 52 : 60
     : 24;
   const maxHeight = isLarge ? 200 : 200;
 
@@ -925,8 +925,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         if (!accepted) return;
         resetGoalInput(false);
         setValue('');
-        editorRef.current?.setText('');
-        editorRef.current?.setConfiguredSkills(configuredInlineSkills);
+        editorRef.current?.setTextWithConfiguredSkills('', configuredInlineSkills);
         dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
         return;
       }
@@ -934,8 +933,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       if (result === false) return;
       resetGoalInput(false);
       setValue('');
-      editorRef.current?.setText('');
-      editorRef.current?.setConfiguredSkills(configuredInlineSkills);
+      editorRef.current?.setTextWithConfiguredSkills('', configuredInlineSkills);
       dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
       return;
     }
@@ -1021,8 +1019,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         dispatch(setSteerDraft({ sessionId, draft: '' }));
       } else {
         setValue('');
-        editorRef.current?.setText('');
-        editorRef.current?.setConfiguredSkills(configuredInlineSkills);
+        editorRef.current?.setTextWithConfiguredSkills('', configuredInlineSkills);
         dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
       }
       dispatch(clearDraftAttachments(draftKey));
@@ -1140,17 +1137,47 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         ...((promptDocument?.resources.length || promptDocument?.skills?.length) ? { promptDocument } : {}),
       }
       : undefined;
-    const result = await onSubmit(finalPrompt, imageAtts.length > 0 ? imageAtts : undefined, submitOptions);
-    if (result === false) return;
+    const submittedAttachments = attachments;
+    const submittedSelectedTextSnippets = selectedTextSnippets;
+    const submittedBrowserAnnotationBatches = browserAnnotationBatches;
+    const submittedKnowledgeFiles = selectedKnowledgeFiles;
+
+    // Clear optimistically so renderer feedback does not wait for session startup or IPC.
     setValue('');
     editorRef.current?.setText('');
-    editorRef.current?.setConfiguredSkills(configuredInlineSkills);
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: '' }));
     dispatch(clearDraftAttachments(draftKey));
     dispatch(clearDraftSelectedTextSnippets(draftKey));
     dispatch(clearDraftBrowserAnnotationBatches(draftKey));
     setSelectedKnowledgeFiles([]);
     setImageVisionHint(false);
+    try {
+      const result = await onSubmit(finalPrompt, imageAtts.length > 0 ? imageAtts : undefined, submitOptions);
+      if (result !== false) return;
+    } catch (error) {
+      restoreSubmittedDraft();
+      throw error;
+    }
+
+    restoreSubmittedDraft();
+
+    function restoreSubmittedDraft() {
+      setValue(finalPrompt);
+      dispatch(setDraftPrompt({ sessionId: draftKey, draft: finalPrompt }));
+      dispatch(setDraftAttachments({ draftKey, attachments: submittedAttachments }));
+      dispatch(setDraftSelectedTextSnippets({ draftKey, snippets: submittedSelectedTextSnippets }));
+      dispatch(setDraftBrowserAnnotationBatches({ draftKey, batches: submittedBrowserAnnotationBatches }));
+      setSelectedKnowledgeFiles(submittedKnowledgeFiles);
+      setImageVisionHint(!modelSupportsImage && submittedAttachments.some(a => a.isImage || isImagePath(a.path)));
+      requestAnimationFrame(() => {
+        if (promptDocument) {
+          editorRef.current?.setDocument(promptDocument);
+        } else {
+          editorRef.current?.setText(finalPrompt);
+        }
+        editorRef.current?.focus();
+      });
+    }
   }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, browserAnnotationBatches, pendingSteers.length, dispatch, draftKey, onSubmit, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseOptions, selectedKnowledgeFiles, configuredInlineSkills]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
@@ -1391,11 +1418,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
     if (isSendCombo && isStreaming && !streamingSubmitCanRun) {
       event.preventDefault();
+      event.stopPropagation();
       window.dispatchEvent(new CustomEvent('app:showToast', {
         detail: i18nService.t('coworkSessionStillRunning'),
       }));
     } else if (isSendCombo && !disabled && !isPatchingModel) {
       event.preventDefault();
+      event.stopPropagation();
       handleSubmit();
     } else {
       // Any non-send Enter combo inserts a newline.

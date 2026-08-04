@@ -44,6 +44,7 @@ import CoworkSkillChip from './CoworkSkillChip';
 export interface RichCoworkPromptEditorRef {
   focus: () => void;
   setText: (text: string) => void;
+  setTextWithConfiguredSkills: (text: string, skills: CoworkPromptSkill[]) => void;
   setDocument: (document: CoworkPromptDocument) => void;
   setConfiguredSkills: (skills: CoworkPromptSkill[]) => void;
   getDocument: () => CoworkPromptDocument;
@@ -209,6 +210,7 @@ class CoworkSkillNode extends DecoratorNode<React.ReactNode> {
     return (
       <CoworkSkillChip
         name={this.__skill.name}
+        path={this.__skill.location}
         description={this.__skill.description}
         onRemove={() => dispatchRemoveSkill(this.getKey())}
       />
@@ -311,14 +313,19 @@ const $getPlainTextCaretIndex = (): number => {
   return found ? index : $getRoot().getTextContent().length;
 };
 
-const $setRootText = (text: string) => {
+const $resetRootWithParagraph = () => {
   const root = $getRoot();
   root.clear();
   const paragraph = $createParagraphNode();
+  root.append(paragraph);
+  return paragraph;
+};
+
+const $setRootText = (text: string) => {
+  const paragraph = $resetRootWithParagraph();
   if (text) {
     paragraph.append($createTextNode(text));
   }
-  root.append(paragraph);
   paragraph.selectEnd();
 };
 
@@ -383,9 +390,7 @@ const $getPromptDocument = (): CoworkPromptDocument => {
 };
 
 const $setRootDocument = (document: CoworkPromptDocument) => {
-  const root = $getRoot();
-  root.clear();
-  const paragraph = $createParagraphNode();
+  const paragraph = $resetRootWithParagraph();
   const resourcesById = new Map(document.resources.map(resource => [resource.id, resource]));
   const skillsById = new Map((document.skills ?? []).map(skill => [skill.id, skill]));
   for (const segment of document.segments) {
@@ -406,7 +411,6 @@ const $setRootDocument = (document: CoworkPromptDocument) => {
     const skill = skillsById.get(segment.skillId);
     if (skill) paragraph.append($createCoworkSkillNode(skill));
   }
-  root.append(paragraph);
   paragraph.selectEnd();
 };
 
@@ -521,7 +525,7 @@ const EditorBridgePlugin = React.forwardRef<RichCoworkPromptEditorRef, {
   const [editor] = useLexicalComposerContext();
   const configuredSkillGeneratedNodeKeysRef = useRef<Set<NodeKey>>(new Set());
 
-  const $appendConfiguredSkills = (skills: CoworkPromptSkill[]) => {
+  const $appendConfiguredSkills = useCallback((skills: CoworkPromptSkill[]) => {
     if (skills.length === 0) return;
     const root = $getRoot();
     const lastChild = root.getLastChild();
@@ -544,7 +548,14 @@ const EditorBridgePlugin = React.forwardRef<RichCoworkPromptEditorRef, {
     paragraph.append(trailingSeparator);
     generatedNodeKeys.add(trailingSeparator.getKey());
     paragraph.selectEnd();
-  };
+  }, []);
+
+  const $setRootTextWithConfiguredSkills = useCallback((text: string, skills: CoworkPromptSkill[]) => {
+    const paragraph = $resetRootWithParagraph();
+    if (text) paragraph.append($createTextNode(text));
+    configuredSkillGeneratedNodeKeysRef.current.clear();
+    $appendConfiguredSkills(skills);
+  }, [$appendConfiguredSkills]);
 
   useImperativeHandle(ref, () => ({
     focus: () => {
@@ -553,6 +564,12 @@ const EditorBridgePlugin = React.forwardRef<RichCoworkPromptEditorRef, {
     setText: (text: string) => {
       editorTextRef.current = text;
       editor.update(() => $setRootText(text), { tag: ProgrammaticEditorUpdateTag });
+    },
+    setTextWithConfiguredSkills: (text: string, skills: CoworkPromptSkill[]) => {
+      editorTextRef.current = text;
+      editor.update(() => {
+        $setRootTextWithConfiguredSkills(text, skills);
+      }, { tag: ProgrammaticEditorUpdateTag });
     },
     setDocument: (document: CoworkPromptDocument) => {
       configuredSkillGeneratedNodeKeysRef.current.clear();
@@ -564,6 +581,13 @@ const EditorBridgePlugin = React.forwardRef<RichCoworkPromptEditorRef, {
         const generatedNodeKeys = configuredSkillGeneratedNodeKeysRef.current;
         Array.from(generatedNodeKeys).forEach(nodeKey => $getNodeByKey(nodeKey)?.remove());
         generatedNodeKeys.clear();
+        if (
+          !$getRoot().getTextContent().trim()
+          && $getAttachmentNodes().length === 0
+          && $getSkillNodes().length === 0
+        ) {
+          $resetRootWithParagraph();
+        }
         $appendConfiguredSkills(skills);
       }, { tag: ProgrammaticEditorUpdateTag });
     },
@@ -603,7 +627,7 @@ const EditorBridgePlugin = React.forwardRef<RichCoworkPromptEditorRef, {
       editor.update(() => $insertSkillAtSelection(skill));
       editor.focus();
     },
-  }), [editor, editorTextRef]);
+  }), [$appendConfiguredSkills, $setRootTextWithConfiguredSkills, editor, editorTextRef]);
 
   useEffect(() => {
     if (value === editorTextRef.current) return;
@@ -755,7 +779,7 @@ const RichCoworkPromptEditor = React.forwardRef<RichCoworkPromptEditorRef, RichC
     },
     editorState: () => $setRootText(value),
     theme: {
-      paragraph: 'm-0 min-h-[inherit]',
+      paragraph: 'm-0',
     },
   }), [disabled, value]);
 

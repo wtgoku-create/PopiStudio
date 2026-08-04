@@ -98,6 +98,7 @@ const UserMessageContent: React.FC<UserMessageContentProps> = ({
               <CoworkSkillChip
                 key={`skill-${segment.skillId}-${index}`}
                 name={skill.name}
+                path={skill.location}
                 description={skill.description}
               />
             );
