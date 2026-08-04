@@ -64,11 +64,18 @@ import {
   selectSessionArtifacts,
   togglePanel,
 } from '../../store/slices/artifactSlice';
-import { addDraftSelectedTextSnippet } from '../../store/slices/coworkSlice';
+import {
+  addDraftSelectedTextSnippet,
+  PlanConfirmationState,
+  setDraftCollaborationMode,
+  setPlanConfirmationAdjusting,
+  setPlanConfirmationAwaiting,
+  setPlanConfirmationHandled,
+} from '../../store/slices/coworkSlice';
 import type { Artifact } from '../../types/artifact';
 import { ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import type { CoworkImageAttachment,CoworkMessage, CoworkMessageMetadata, CoworkPermissionRequest, CoworkPermissionResult, SubagentSessionSummary } from '../../types/cowork';
-import { CoworkSessionStatusValue } from '../../types/cowork';
+import { CoworkCollaborationMode, CoworkSessionStatusValue } from '../../types/cowork';
 import { type SourceReference,SourceReferenceKind } from '../../types/sourceReference';
 import { getAgentDisplayName, shouldUseDefaultAgentIcon } from '../../utils/agentDisplay';
 import { mergeCoworkTextExportMessages, sanitizeExportFileName, sessionToJSON, sessionToMarkdown } from '../../utils/coworkSessionExport';
@@ -106,6 +113,7 @@ import {
   type ToolGroupItem,
 } from './messageDisplayUtils';
 import PopiTVCanvasWorkspace from './PopiTVCanvasWorkspace';
+import { parseProposedPlanBlock } from './proposedPlanParser';
 import SubagentTurnLinks from './SubagentTurnLinks';
 import UserMessageContent from './UserMessageContent';
 import UserMessageItem from './UserMessageItem';
@@ -142,6 +150,33 @@ const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
 const AUTO_PREVIEW_ARTIFACT_SETTLE_MS = 600;
 const EXPANDED_CONVERSATION_PREVIEW_ITEM_LIMIT = 6;
 const EXPANDED_CONVERSATION_PREVIEW_ITEM_MAX_LENGTH = 140;
+
+interface LatestProposedPlan {
+  messageId: string;
+  planTextHash: string;
+}
+
+const hashProposedPlanText = (value: string): string => {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
+  }
+  return `${value.length}:${(hash >>> 0).toString(36)}`;
+};
+
+const findLatestProposedPlan = (messages: CoworkMessage[]): LatestProposedPlan | null => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.type !== 'assistant' || !message.content.trim()) continue;
+    const proposedPlan = parseProposedPlanBlock(message.content);
+    if (!proposedPlan.planText?.trim()) continue;
+    return {
+      messageId: message.id,
+      planTextHash: hashProposedPlanText(proposedPlan.planText),
+    };
+  }
+  return null;
+};
 const EXPANDED_CONVERSATION_PREVIEW_COLLAPSED_MAX_LENGTH = 90;
 const SELECTED_TEXT_ACTION_HALF_WIDTH = 72;
 const SELECTED_TEXT_ACTION_SUPPRESS_MS = 250;
@@ -1270,6 +1305,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   );
   const isContextBusy = isContextCompacting || isContextMaintenance;
   const isSessionBusy = isStreaming || isContextMaintenance;
+  const draftCollaborationMode = useSelector((state: RootState) => (
+    currentSession?.id
+      ? state.cowork.draftCollaborationModes[currentSession.id] || CoworkCollaborationMode.Default
+      : CoworkCollaborationMode.Default
+  ));
+  const planConfirmation = useSelector((state: RootState) => (
+    currentSession?.id ? state.cowork.planConfirmations[currentSession.id] : undefined
+  ));
   const queuedSteerCount = useSelector((state: RootState) => (
     currentSession?.id
       ? (state.cowork.pendingSteers[currentSession.id]?.length ?? 0)
@@ -1620,6 +1663,77 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     if (!currentSession?.id) return false;
     return coworkService.runGoalCommand(currentSession.id, command);
   }, [currentSession?.id]);
+
+  const latestProposedPlan = useMemo(
+    () => currentSession ? findLatestProposedPlan(currentSession.messages) : null,
+    [currentSession],
+  );
+
+  useEffect(() => {
+    if (!sessionId || !latestProposedPlan) return;
+    if (draftCollaborationMode !== CoworkCollaborationMode.Plan) return;
+    if (isSessionBusy || currentSession?.status === CoworkSessionStatusValue.Running) return;
+    const isSamePlan = planConfirmation?.messageId === latestProposedPlan.messageId
+      && planConfirmation.planTextHash === latestProposedPlan.planTextHash;
+    if (isSamePlan) return;
+    dispatch(setPlanConfirmationAwaiting({
+      sessionId,
+      messageId: latestProposedPlan.messageId,
+      planTextHash: latestProposedPlan.planTextHash,
+    }));
+  }, [
+    currentSession?.status,
+    dispatch,
+    draftCollaborationMode,
+    isSessionBusy,
+    latestProposedPlan,
+    planConfirmation?.messageId,
+    planConfirmation?.planTextHash,
+    sessionId,
+  ]);
+
+  const handleConfirmPlan = useCallback(async (messageId: string) => {
+    if (!currentSession?.id || !latestProposedPlan || latestProposedPlan.messageId !== messageId) return;
+    if (isSessionBusy || currentSession.status === CoworkSessionStatusValue.Running) {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkSessionStillRunning'),
+      }));
+      return;
+    }
+    dispatch(setDraftCollaborationMode({
+      draftKey: currentSession.id,
+      mode: CoworkCollaborationMode.Default,
+    }));
+    const result = await onContinue(
+      i18nService.t('coworkPlanConfirmExecutionPrompt'),
+      undefined,
+      { collaborationMode: CoworkCollaborationMode.Default },
+    );
+    if (result === false) {
+      dispatch(setDraftCollaborationMode({
+        draftKey: currentSession.id,
+        mode: CoworkCollaborationMode.Plan,
+      }));
+      return;
+    }
+    dispatch(setPlanConfirmationHandled({
+      sessionId: currentSession.id,
+      messageId,
+    }));
+  }, [currentSession?.id, currentSession?.status, dispatch, isSessionBusy, latestProposedPlan, onContinue]);
+
+  const handleAdjustPlan = useCallback((messageId: string) => {
+    if (!currentSession?.id || !latestProposedPlan || latestProposedPlan.messageId !== messageId) return;
+    dispatch(setPlanConfirmationAdjusting({
+      sessionId: currentSession.id,
+      messageId,
+    }));
+    dispatch(setDraftCollaborationMode({
+      draftKey: currentSession.id,
+      mode: CoworkCollaborationMode.Plan,
+    }));
+    promptInputRef.current?.focus();
+  }, [currentSession?.id, dispatch, latestProposedPlan]);
 
   const handleAssistantTextSelection = useCallback(() => {
     if (remoteManaged) return;
@@ -3888,6 +4002,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       return Array.isArray(skillIds) && skillIds.includes('popitv');
     });
   const expandedConversationPreview = getExpandedConversationPreview(currentSession.messages);
+  const planConfirmationMessageId = (
+    latestProposedPlan
+    && draftCollaborationMode === CoworkCollaborationMode.Plan
+    && !isSessionBusy
+    && planConfirmation?.state === PlanConfirmationState.Awaiting
+    && planConfirmation.messageId === latestProposedPlan.messageId
+    && planConfirmation.planTextHash === latestProposedPlan.planTextHash
+  )
+    ? latestProposedPlan.messageId
+    : null;
 
   const renderConversationTurns = () => {
     let railCounter = 0;
@@ -3978,6 +4102,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 showTypingIndicator={showTypingIndicator}
                 showCopyButtons={!isStreaming || !isLastTurn}
                 alwaysShowLastAssistantMeta={!isStreaming && isLastTurn}
+                planConfirmationMessageId={planConfirmationMessageId}
+                onConfirmPlan={handleConfirmPlan}
+                onAdjustPlan={handleAdjustPlan}
                 renderToolGroupFooter={(group) => {
                   const groupSubagents = getToolGroupSubagents(group);
                   if (groupSubagents.length === 0) return null;

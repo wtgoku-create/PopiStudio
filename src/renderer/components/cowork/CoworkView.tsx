@@ -4,7 +4,11 @@ import { useDispatch,useSelector } from 'react-redux';
 
 import { buildSessionTitleFromInput } from '../../../common/sessionTitle';
 import { CoworkSessionSourceKind } from '../../../shared/cowork/constants';
-import { type CoworkPromptDocument, CoworkPromptSegmentKind } from '../../../shared/cowork/promptDocument';
+import {
+  type CoworkPromptDocument,
+  CoworkPromptSegmentKind,
+  stripCoworkPromptDocumentSkills,
+} from '../../../shared/cowork/promptDocument';
 import { authService } from '../../services/auth';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -17,9 +21,16 @@ import {
   selectCurrentSession,
   selectIsStreaming,
 } from '../../store/selectors/coworkSelectors';
-import { addMessage, setCurrentSession, setStreaming, updateSessionStatus } from '../../store/slices/coworkSlice';
+import {
+  addMessage,
+  getCoworkHomeDraftKey,
+  setCurrentSession,
+  setDraftCollaborationMode,
+  setStreaming,
+  updateSessionStatus,
+} from '../../store/slices/coworkSlice';
 import { clearSelection,selectAction, setActions } from '../../store/slices/quickActionSlice';
-import type { CoworkImageAttachment, CoworkPermissionRequest, CoworkPermissionResult, CoworkSession, OpenClawEngineStatus, SubagentSessionSummary } from '../../types/cowork';
+import { CoworkCollaborationMode, type CoworkImageAttachment, type CoworkPermissionRequest, type CoworkPermissionResult, type CoworkSession, type OpenClawEngineStatus, type SubagentSessionSummary } from '../../types/cowork';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { PromptPanel,QuickActionBar } from '../quick-actions';
 import type { SettingsOpenOptions } from '../Settings';
@@ -27,6 +38,7 @@ import { useAgentSelectedModel } from './agentModelSelection';
 import { CoworkUiEvent } from './constants';
 import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
 import CoworkSessionDetail from './CoworkSessionDetail';
+import { buildCoworkSystemPrompt } from './skillSystemPrompt';
 import SubagentSessionDetail from './SubagentSessionDetail';
 
 const POPITV_SKILL_ID = 'popitv';
@@ -289,8 +301,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       }
 
       // Capture active skill IDs before clearing them
-      const promptDocument = options?.promptDocument;
-      const sessionSkillIds = getTurnSkillIds(promptDocument);
+      const isPlanMode = options?.collaborationMode === CoworkCollaborationMode.Plan;
+      const promptDocument = isPlanMode && options?.promptDocument
+        ? stripCoworkPromptDocumentSkills(options.promptDocument)
+        : options?.promptDocument;
+      const sessionSkillIds = isPlanMode ? [] : getTurnSkillIds(promptDocument);
       const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
       const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
       const selectedTextSnippets = options?.selectedTextSnippets;
@@ -355,7 +370,8 @@ const CoworkView: React.FC<CoworkViewProps> = ({
       const popitvCanvasContext = buildOptionalPopiTVCanvasContext({
         shouldInclude: sessionSkillIds.includes(POPITV_SKILL_ID),
       });
-      const combinedSystemPrompt = buildSessionSystemPrompt(config.systemPrompt, popitvCanvasContext);
+      const baseSystemPrompt = buildSessionSystemPrompt(config.systemPrompt, popitvCanvasContext);
+      const combinedSystemPrompt = buildCoworkSystemPrompt(options?.skillPrompt, baseSystemPrompt);
 
       // Start the actual session immediately with fallback title
       const sessionModelOverride = currentAgentSelectedModel ? toOpenClawModelRef(currentAgentSelectedModel) : '';
@@ -375,6 +391,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         modelOverride: sessionModelOverride,
         imageAttachments,
       });
+      if (isPlanMode && startedSession) {
+        dispatch(setDraftCollaborationMode({
+          draftKey: startedSession.id,
+          mode: CoworkCollaborationMode.Plan,
+        }));
+      }
 
       if (!startedSession && startError) {
         // Show the error as a system message in the temp session
@@ -424,8 +446,11 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         imageAttachmentsBase64Lengths: imageAttachments?.map(a => a.base64Data.length),
       });
 
-      const promptDocument = options?.promptDocument;
-      const sessionSkillIds = getTurnSkillIds(promptDocument);
+      const isPlanMode = options?.collaborationMode === CoworkCollaborationMode.Plan;
+      const promptDocument = isPlanMode && options?.promptDocument
+        ? stripCoworkPromptDocumentSkills(options.promptDocument)
+        : options?.promptDocument;
+      const sessionSkillIds = isPlanMode ? [] : getTurnSkillIds(promptDocument);
       const knowledgeBases = options?.knowledgeBases?.filter(item => item.id);
       const knowledgeFiles = options?.knowledgeFiles?.filter(item => item.id);
       const selectedTextSnippets = options?.selectedTextSnippets;
@@ -439,10 +464,16 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         selectedTextSnippets,
         browserAnnotations,
         promptDocument,
-        systemPrompt: undefined,
+        systemPrompt: options?.skillPrompt,
         activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
         imageAttachments,
       });
+      if (sent) {
+        dispatch(setDraftCollaborationMode({
+          draftKey: currentSession.id,
+          mode: options?.collaborationMode ?? CoworkCollaborationMode.Default,
+        }));
+      }
       return sent;
     } finally {
       isContinuingRef.current = false;
@@ -500,10 +531,14 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
   useEffect(() => {
     const handleNewSession = () => {
-      // Only clear when already on home (no session) — preserve __home__ draft when returning from a session
+      // Only clear when already on home (no session) — preserve the home draft when returning from a session
       const shouldClear = !currentSession;
       coworkService.clearSession();
       dispatch(clearSelection());
+      dispatch(setDraftCollaborationMode({
+        draftKey: getCoworkHomeDraftKey(currentAgentId),
+        mode: CoworkCollaborationMode.Default,
+      }));
       window.dispatchEvent(new CustomEvent('cowork:focus-input', {
         detail: { clear: shouldClear },
       }));
@@ -512,7 +547,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     return () => {
       window.removeEventListener('cowork:shortcut:new-session', handleNewSession);
     };
-  }, [dispatch, currentSession]);
+  }, [currentAgentId, dispatch, currentSession]);
 
   useEffect(() => {
     if (!currentSession || currentSession.status !== 'running') return;

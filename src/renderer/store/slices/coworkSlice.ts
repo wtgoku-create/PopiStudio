@@ -14,6 +14,8 @@ import {
 } from '../../../shared/cowork/steer';
 import type { CoworkPromptResourceSource } from '../../../shared/cowork/promptDocument';
 import {
+  CoworkCollaborationMode,
+  type CoworkCollaborationMode as CoworkCollaborationModeType,
   type CoworkConfig,
   type CoworkContextUsage,
   type CoworkMessage,
@@ -36,6 +38,23 @@ export interface DraftAttachment {
   source?: CoworkPromptResourceSource;
 }
 
+export const getCoworkHomeDraftKey = (agentId: string): string => `__home__:${agentId || 'main'}`;
+
+export const PlanConfirmationState = {
+  Awaiting: 'awaiting',
+  Adjusting: 'adjusting',
+  Handled: 'handled',
+} as const;
+export type PlanConfirmationState = typeof PlanConfirmationState[keyof typeof PlanConfirmationState];
+
+export interface PlanConfirmationStatus {
+  sessionId: string;
+  messageId: string;
+  planTextHash: string;
+  state: PlanConfirmationState;
+  updatedAt: number;
+}
+
 interface CoworkState {
   sessions: CoworkSessionSummary[];
   /** Whether more sessions exist on the server beyond what is currently loaded. */
@@ -53,6 +72,10 @@ interface CoworkState {
   draftSelectedTextSnippets: Record<string, CoworkSelectedTextSnippet[]>;
   /** Keyed by draftKey; screenshots are referenced by assetId and live in main. */
   draftBrowserAnnotationBatches: Record<string, CoworkBrowserAnnotationBatch[]>;
+  /** Keyed by draftKey, stores the active collaboration mode for the draft/session. */
+  draftCollaborationModes: Record<string, CoworkCollaborationModeType>;
+  /** Keyed by sessionId, stores the latest proposed plan confirmation UI state. */
+  planConfirmations: Record<string, PlanConfirmationStatus>;
   /** Keyed by sessionId, stores steer drafts separately from normal drafts. */
   steerDrafts: Record<string, string>;
   /** Keyed by sessionId, stores follow-up inputs queued while a turn is active. */
@@ -88,6 +111,8 @@ const initialState: CoworkState = {
   draftAttachments: {},
   draftSelectedTextSnippets: {},
   draftBrowserAnnotationBatches: {},
+  draftCollaborationModes: {},
+  planConfirmations: {},
   steerDrafts: {},
   pendingSteers: {},
   rejectedSteers: {},
@@ -526,6 +551,8 @@ const coworkSlice = createSlice({
       delete state.steerDrafts[action.payload];
       delete state.pendingSteers[action.payload];
       delete state.rejectedSteers[action.payload];
+      delete state.planConfirmations[action.payload];
+      delete state.draftCollaborationModes[action.payload];
       delete state.messageRailIndexBySessionId[action.payload];
       delete state.messageRailIndexLoadingBySessionId[action.payload];
       for (const run of state.subagentRunsByParentSessionId[action.payload] ?? []) {
@@ -543,6 +570,8 @@ const coworkSlice = createSlice({
         delete state.steerDrafts[sessionId];
         delete state.pendingSteers[sessionId];
         delete state.rejectedSteers[sessionId];
+        delete state.planConfirmations[sessionId];
+        delete state.draftCollaborationModes[sessionId];
         delete state.messageRailIndexBySessionId[sessionId];
         delete state.messageRailIndexLoadingBySessionId[sessionId];
         for (const run of state.subagentRunsByParentSessionId[sessionId] ?? []) {
@@ -859,6 +888,62 @@ const coworkSlice = createSlice({
       state.remoteManaged = false;
     },
 
+    setPlanConfirmationAwaiting(
+      state,
+      action: PayloadAction<{ sessionId: string; messageId: string; planTextHash: string }>,
+    ) {
+      const { sessionId, messageId, planTextHash } = action.payload;
+      const existing = state.planConfirmations[sessionId];
+      if (
+        existing?.messageId === messageId
+        && existing.planTextHash === planTextHash
+        && existing.state === PlanConfirmationState.Awaiting
+      ) {
+        return;
+      }
+      state.planConfirmations[sessionId] = {
+        sessionId,
+        messageId,
+        planTextHash,
+        state: PlanConfirmationState.Awaiting,
+        updatedAt: Date.now(),
+      };
+    },
+
+    setPlanConfirmationHandled(
+      state,
+      action: PayloadAction<{ sessionId: string; messageId?: string; planTextHash?: string }>,
+    ) {
+      const { sessionId, messageId, planTextHash } = action.payload;
+      const existing = state.planConfirmations[sessionId];
+      if (!existing) return;
+      if (messageId && existing.messageId !== messageId) return;
+      state.planConfirmations[sessionId] = {
+        ...existing,
+        ...(planTextHash ? { planTextHash } : {}),
+        state: PlanConfirmationState.Handled,
+        updatedAt: Date.now(),
+      };
+    },
+
+    setPlanConfirmationAdjusting(
+      state,
+      action: PayloadAction<{ sessionId: string; messageId: string }>,
+    ) {
+      const { sessionId, messageId } = action.payload;
+      const existing = state.planConfirmations[sessionId];
+      if (!existing || existing.messageId !== messageId) return;
+      state.planConfirmations[sessionId] = {
+        ...existing,
+        state: PlanConfirmationState.Adjusting,
+        updatedAt: Date.now(),
+      };
+    },
+
+    clearPlanConfirmation(state, action: PayloadAction<string>) {
+      delete state.planConfirmations[action.payload];
+    },
+
     setDraftAttachments(state, action: PayloadAction<{ draftKey: string; attachments: DraftAttachment[] }>) {
       const { draftKey, attachments } = action.payload;
       if (attachments.length === 0) {
@@ -961,6 +1046,15 @@ const coworkSlice = createSlice({
     clearDraftBrowserAnnotationBatches(state, action: PayloadAction<string>) {
       delete state.draftBrowserAnnotationBatches[action.payload];
     },
+
+    setDraftCollaborationMode(state, action: PayloadAction<{ draftKey: string; mode: CoworkCollaborationModeType }>) {
+      const { draftKey, mode } = action.payload;
+      if (mode === CoworkCollaborationMode.Default) {
+        delete state.draftCollaborationModes[draftKey];
+      } else {
+        state.draftCollaborationModes[draftKey] = mode;
+      }
+    },
   },
 });
 
@@ -1024,6 +1118,11 @@ export const {
   setConfig,
   updateConfig,
   clearCurrentSession,
+  setPlanConfirmationAwaiting,
+  setPlanConfirmationAdjusting,
+  setPlanConfirmationHandled,
+  clearPlanConfirmation,
+  setDraftCollaborationMode,
 } = coworkSlice.actions;
 
 export default coworkSlice.reducer;

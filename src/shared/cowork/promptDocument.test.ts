@@ -8,6 +8,7 @@ import {
   getCoworkPromptDocumentText,
   normalizeCoworkPromptDocument,
   serializeCoworkPromptDocumentForOpenClaw,
+  stripCoworkPromptDocumentSkills,
 } from './promptDocument';
 
 const document = {
@@ -158,4 +159,52 @@ test('rejects skill segments that reference missing skills', () => {
     resources: [],
     skills: [],
   })).toBeUndefined();
+});
+
+test('strips inline skills while preserving text and resource references', () => {
+  const stripped = stripCoworkPromptDocumentSkills({
+    version: CoworkPromptDocumentVersion.V1,
+    segments: [
+      { kind: CoworkPromptSegmentKind.Text, text: '先计划 ' },
+      { kind: CoworkPromptSegmentKind.Skill, skillId: 'docx' },
+      { kind: CoworkPromptSegmentKind.Text, text: ' 再参考 ' },
+      { kind: CoworkPromptSegmentKind.Resource, resourceId: 'file' },
+    ],
+    resources: [{
+      id: 'file',
+      name: 'brief.md',
+      path: './brief.md',
+      source: CoworkPromptResourceSource.Mention,
+      transport: CoworkPromptResourceTransport.Reference,
+    }],
+    skills: [{
+      id: 'docx',
+      name: 'Word',
+      description: 'Create documents',
+      location: '/tmp/docx/SKILL.md',
+      directory: '/tmp/docx',
+    }],
+  });
+
+  expect(stripped).toEqual({
+    version: CoworkPromptDocumentVersion.V1,
+    segments: [
+      { kind: CoworkPromptSegmentKind.Text, text: '先计划 ' },
+      { kind: CoworkPromptSegmentKind.Text, text: ' 再参考 ' },
+      { kind: CoworkPromptSegmentKind.Resource, resourceId: 'file' },
+    ],
+    resources: [{
+      id: 'file',
+      name: 'brief.md',
+      path: './brief.md',
+      source: CoworkPromptResourceSource.Mention,
+      transport: CoworkPromptResourceTransport.Reference,
+    }],
+  });
+  expect(serializeCoworkPromptDocumentForOpenClaw(stripped)).toBe(
+    '<resources>\n'
+      + '  <resource id="r1" label="brief.md" path="./brief.md" />\n'
+      + '</resources>\n\n'
+      + '先计划  再参考 {{resource:r1}}',
+  );
 });

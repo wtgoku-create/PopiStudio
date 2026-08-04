@@ -178,6 +178,9 @@ const AssistantTurnBlock: React.FC<{
   showTypingIndicator?: boolean;
   showCopyButtons?: boolean;
   alwaysShowLastAssistantMeta?: boolean;
+  planConfirmationMessageId?: string | null;
+  onConfirmPlan?: (messageId: string) => void;
+  onAdjustPlan?: (messageId: string) => void;
   renderToolGroupFooter?: (group: ToolGroupItem) => React.ReactNode;
 }> = ({
   turn,
@@ -189,6 +192,9 @@ const AssistantTurnBlock: React.FC<{
   showTypingIndicator = false,
   showCopyButtons = true,
   alwaysShowLastAssistantMeta = false,
+  planConfirmationMessageId,
+  onConfirmPlan,
+  onAdjustPlan,
   renderToolGroupFooter,
 }) => {
   const [artifactCardsExpanded, setArtifactCardsExpanded] = useState(false);
@@ -336,6 +342,9 @@ const AssistantTurnBlock: React.FC<{
                     showCopyButton={isLastAssistant}
                     alwaysShowMeta={alwaysShowLastAssistantMeta && isLastAssistant}
                     turnMetadata={isLastAssistant ? (item.message.metadata as CoworkMessageMetadata) : undefined}
+                    planConfirmationMessageId={planConfirmationMessageId}
+                    onConfirmPlan={onConfirmPlan}
+                    onAdjustPlan={onAdjustPlan}
                   />
                 );
               }

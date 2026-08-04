@@ -10,6 +10,8 @@ import {
   MEDIA_TOKEN_DISPLAY_RE,
   messageMetaClassName,
 } from './messageDisplayUtils';
+import ProposedPlanBlock from './ProposedPlanBlock';
+import { parseProposedPlanBlock } from './proposedPlanParser';
 
 export { MessageCopyButton as CopyButton } from './MessageActionButton';
 
@@ -22,6 +24,9 @@ const AssistantMessageItem: React.FC<{
   showCopyButton?: boolean;
   alwaysShowMeta?: boolean;
   turnMetadata?: CoworkMessageMetadata | null;
+  planConfirmationMessageId?: string | null;
+  onConfirmPlan?: (messageId: string) => void;
+  onAdjustPlan?: (messageId: string) => void;
 }> = ({
   message,
   resolveLocalFilePath,
@@ -29,11 +34,17 @@ const AssistantMessageItem: React.FC<{
   showCopyButton = false,
   alwaysShowMeta = false,
   turnMetadata,
+  planConfirmationMessageId,
+  onConfirmPlan,
+  onAdjustPlan,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
   const rawContent = mapDisplayText ? mapDisplayText(message.content) : message.content;
-  const displayContent = rawContent.replace(MEDIA_TOKEN_DISPLAY_RE, '').trimEnd();
+  const parsedPlan = parseProposedPlanBlock(rawContent);
+  const displayContent = parsedPlan.visibleText.replace(MEDIA_TOKEN_DISPLAY_RE, '').trimEnd();
+  const copyContent = rawContent.replace(MEDIA_TOKEN_DISPLAY_RE, '').trimEnd();
+  const showPlanConfirmationActions = planConfirmationMessageId === message.id;
   const modelLabel = getMessageModelLabel(turnMetadata);
   const metaVisible = alwaysShowMeta || isHovered;
   const handleBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
@@ -58,20 +69,34 @@ const AssistantMessageItem: React.FC<{
       onBlur={handleBlur}
     >
       <div className="text-foreground">
-        <MarkdownContent
-          content={displayContent}
-          className="prose dark:prose-invert max-w-none"
-          resolveLocalFilePath={resolveLocalFilePath}
-          showRevealInFolderAction
-          onImageClick={setExpandedImage}
-        />
+        <div className="space-y-3">
+          {displayContent && (
+            <MarkdownContent
+              content={displayContent}
+              className="prose dark:prose-invert max-w-none"
+              resolveLocalFilePath={resolveLocalFilePath}
+              showRevealInFolderAction
+              onImageClick={setExpandedImage}
+            />
+          )}
+          {parsedPlan.planText && (
+            <ProposedPlanBlock
+              content={parsedPlan.planText}
+              resolveLocalFilePath={resolveLocalFilePath}
+              onImageClick={setExpandedImage}
+              showConfirmationActions={showPlanConfirmationActions}
+              onConfirmExecution={showPlanConfirmationActions ? () => onConfirmPlan?.(message.id) : undefined}
+              onAdjustPlan={showPlanConfirmationActions ? () => onAdjustPlan?.(message.id) : undefined}
+            />
+          )}
+        </div>
       </div>
       {showCopyButton && (
         <div className={messageMetaClassName(metaVisible)} aria-hidden={!metaVisible}>
           <span>{formatMessageDateTime(message.timestamp)}</span>
           {modelLabel && <span>{modelLabel}</span>}
           <MessageCopyButton
-            content={displayContent}
+            content={copyContent}
             visible={metaVisible}
           />
         </div>

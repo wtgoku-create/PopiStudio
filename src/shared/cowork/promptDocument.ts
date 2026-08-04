@@ -158,6 +158,14 @@ export const getCoworkPromptDocumentText = (document: CoworkPromptDocument): str
     .join('')
 );
 
+export const stripCoworkPromptDocumentSkills = (
+  document: CoworkPromptDocument,
+): CoworkPromptDocument => ({
+  version: document.version,
+  segments: document.segments.filter(segment => segment.kind !== CoworkPromptSegmentKind.Skill),
+  resources: document.resources,
+});
+
 const escapeXmlAttribute = (value: string): string => value
   .replace(/&/g, '&amp;')
   .replace(/"/g, '&quot;')

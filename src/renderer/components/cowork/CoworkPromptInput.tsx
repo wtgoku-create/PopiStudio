@@ -19,11 +19,13 @@ import {
   CoworkGoalStatus,
   formatCoworkGoalUsage,
 } from '../../../shared/cowork/goal';
+import { isPlanImplementationApproval } from '../../../shared/cowork/planMode';
 import {
   type CoworkPromptDocument,
   CoworkPromptResourceSource,
   type CoworkPromptSkill,
   getCoworkPromptDocumentText,
+  stripCoworkPromptDocumentSkills,
 } from '../../../shared/cowork/promptDocument';
 import { type CoworkSelectedTextSnippet, CoworkSelectedTextSource } from '../../../shared/cowork/selectedText';
 import { CoworkSteerStatus } from '../../../shared/cowork/steer';
@@ -46,14 +48,18 @@ import {
   clearDraftSelectedTextSnippets,
   COWORK_STEER_QUEUE_LIMIT,
   type DraftAttachment,
+  getCoworkHomeDraftKey,
   removeDraftAttachment,
   removeDraftSelectedTextSnippet,
   removePendingSteer,
   removeRejectedSteer,
   setDraftAttachments,
   setDraftBrowserAnnotationBatches,
+  setDraftCollaborationMode,
   setDraftPrompt,
   setDraftSelectedTextSnippets,
+  PlanConfirmationState,
+  setPlanConfirmationHandled,
   setSteerDraft,
   updateCurrentSessionModelOverride,
 } from '../../store/slices/coworkSlice';
@@ -61,7 +67,7 @@ import type { Model } from '../../store/slices/modelSlice';
 import { setSelectedModel } from '../../store/slices/modelSlice';
 import { setSkills } from '../../store/slices/skillSlice';
 import { Artifact, ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
-import { CoworkImageAttachment } from '../../types/cowork';
+import { CoworkCollaborationMode, CoworkImageAttachment } from '../../types/cowork';
 import { Skill } from '../../types/skill';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
@@ -71,6 +77,7 @@ import EditIcon from '../icons/EditIcon';
 import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
 import GoalIcon from '../icons/GoalIcon';
 import PaperClipIcon from '../icons/PaperClipIcon';
+import PlanModeIcon from '../icons/PlanModeIcon';
 import PromptAddIcon from '../icons/PromptAddIcon';
 import SkillIcon from '../icons/SkillIcon';
 import TaskPauseIcon from '../icons/TaskPauseIcon';
@@ -84,6 +91,7 @@ import { getClipboardAttachmentFiles } from './clipboardAttachments';
 import FolderSelectorPopover from './FolderSelectorPopover';
 import RichCoworkPromptEditor, { type RichCoworkPromptEditorRef } from './RichCoworkPromptEditor';
 import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
+import { buildPlanAdjustmentSystemPrompt, buildPlanModeSystemPrompt } from './skillSystemPrompt';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
 // so that attachment state survives view switches (cowork ↔ skills, etc.)
@@ -118,6 +126,8 @@ export interface CoworkPromptSubmitOptions {
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
   browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
   promptDocument?: CoworkPromptDocument;
+  skillPrompt?: string;
+  collaborationMode?: CoworkCollaborationMode;
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.tiff', '.tif', '.ico', '.avif']);
@@ -503,7 +513,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       remoteManaged = false,
     } = props;
     const dispatch = useDispatch();
-    const draftKey = sessionId || '__home__';
+    const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
+    const draftKey = sessionId || getCoworkHomeDraftKey(currentAgentId);
     const draftPrompt = useSelector((state: RootState) => selectDraftPrompts(state)[draftKey] || '');
     const steerDraft = useSelector((state: RootState) => (
       sessionId ? state.cowork.steerDrafts[sessionId] || '' : ''
@@ -516,13 +527,19 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         || EMPTY_BROWSER_ANNOTATION_BATCHES
       ),
     );
+    const draftCollaborationMode = useSelector(
+      (state: RootState) => state.cowork.draftCollaborationModes[draftKey] || CoworkCollaborationMode.Default,
+    );
+    const planConfirmation = useSelector(
+      (state: RootState) => state.cowork.planConfirmations[draftKey],
+    );
+    const isPlanMode = draftCollaborationMode === CoworkCollaborationMode.Plan;
     const pendingSteers = useSelector((state: RootState) => (
       sessionId ? state.cowork.pendingSteers[sessionId] || [] : []
     ));
     const rejectedSteers = useSelector((state: RootState) => (
       sessionId ? state.cowork.rejectedSteers[sessionId] || [] : []
     ));
-    const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
     const agents = useSelector((state: RootState) => state.agent.agents);
     const coworkAgentEngine = useSelector((state: RootState) => state.cowork.config.agentEngine);
     const availableModels = useSelector((state: RootState) => state.model.availableModels);
@@ -876,6 +893,21 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [draftKey]); // intentionally omit other deps to only trigger on session switch
 
   useEffect(() => {
+    if (!sessionId || draftCollaborationMode !== CoworkCollaborationMode.Plan) return;
+    if (
+      planConfirmation?.state === PlanConfirmationState.Awaiting
+      || planConfirmation?.state === PlanConfirmationState.Adjusting
+    ) {
+      return;
+    }
+    dispatch(setDraftCollaborationMode({
+      draftKey,
+      mode: CoworkCollaborationMode.Default,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  useEffect(() => {
     if (value !== draftPrompt) {
       const timer = setTimeout(() => {
         dispatch(setDraftPrompt({ sessionId: draftKey, draft: value }));
@@ -908,6 +940,19 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const activeValue = steerInputActive ? steerValue : value;
     const trimmedValue = activeValue.trim();
     const currentPromptDocument = editorRef.current?.getDocument();
+    const exitsPlanModeForImplementation = isPlanMode
+      && !goalInputActive
+      && isPlanImplementationApproval(trimmedValue);
+    const pendingPlanFeedback = (
+      planConfirmation?.state === PlanConfirmationState.Awaiting
+      || planConfirmation?.state === PlanConfirmationState.Adjusting
+    )
+      ? planConfirmation
+      : undefined;
+    const effectivePlanMode = isPlanMode && !goalInputActive && !exitsPlanModeForImplementation;
+    const effectiveCollaborationMode = effectivePlanMode
+      ? CoworkCollaborationMode.Plan
+      : CoworkCollaborationMode.Default;
     if (goalInputActive) {
       if (!trimmedValue || disabled || isPatchingModel) return;
       if (goalInputMode === 'set' && goalInputBaselineRef.current !== null && trimmedValue === goalInputBaselineRef.current) {
@@ -990,7 +1035,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         return;
       }
       const queuedSteerId = `steer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const queuedPromptDocument = currentPromptDocument;
+      const queuedPromptDocument = isPlanMode && currentPromptDocument
+        ? stripCoworkPromptDocumentSkills(currentPromptDocument)
+        : currentPromptDocument;
       dispatch(addPendingSteer({
         id: queuedSteerId,
         sessionId,
@@ -1103,7 +1150,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
 
     // Keep display content separate from the OpenClaw resource protocol. The main process
     // serializes promptDocument immediately before chat.send.
-    const promptDocument = currentPromptDocument;
+    const promptDocument = effectivePlanMode && currentPromptDocument
+      ? stripCoworkPromptDocumentSkills(currentPromptDocument)
+      : currentPromptDocument;
     const finalPrompt = trimmedValue;
 
     if (imageAtts.length > 0) {
@@ -1122,6 +1171,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       });
     }
     const normalizedBrowserAnnotations = normalizeBrowserAnnotationBatches(browserAnnotationBatches);
+    const skillPrompt = effectivePlanMode
+      ? (pendingPlanFeedback ? buildPlanAdjustmentSystemPrompt() : buildPlanModeSystemPrompt())
+      : undefined;
     const submitOptions: CoworkPromptSubmitOptions | undefined =
       hasSelectedKnowledgeBases
       || hasSelectedKnowledgeFiles
@@ -1129,12 +1181,16 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       || normalizedBrowserAnnotations.length > 0
       || !!promptDocument?.resources.length
       || !!promptDocument?.skills?.length
+      || !!skillPrompt
+      || effectiveCollaborationMode !== CoworkCollaborationMode.Default
       ? {
         ...(hasSelectedKnowledgeBases ? { knowledgeBases } : {}),
         ...(hasSelectedKnowledgeFiles ? { knowledgeFiles } : {}),
         ...(selectedTextSnippets.length > 0 ? { selectedTextSnippets } : {}),
         ...(normalizedBrowserAnnotations.length > 0 ? { browserAnnotations: normalizedBrowserAnnotations } : {}),
         ...((promptDocument?.resources.length || promptDocument?.skills?.length) ? { promptDocument } : {}),
+        ...(skillPrompt ? { skillPrompt } : {}),
+        ...(effectiveCollaborationMode !== CoworkCollaborationMode.Default ? { collaborationMode: effectiveCollaborationMode } : {}),
       }
       : undefined;
     const submittedAttachments = attachments;
@@ -1153,7 +1209,20 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setImageVisionHint(false);
     try {
       const result = await onSubmit(finalPrompt, imageAtts.length > 0 ? imageAtts : undefined, submitOptions);
-      if (result !== false) return;
+      if (result !== false) {
+        if (pendingPlanFeedback) {
+          dispatch(setPlanConfirmationHandled({
+            sessionId: draftKey,
+            messageId: pendingPlanFeedback.messageId,
+          }));
+        }
+        if (exitsPlanModeForImplementation) {
+          dispatch(setDraftCollaborationMode({ draftKey, mode: CoworkCollaborationMode.Default }));
+        } else if (effectivePlanMode) {
+          dispatch(setDraftCollaborationMode({ draftKey, mode: CoworkCollaborationMode.Plan }));
+        }
+        return;
+      }
     } catch (error) {
       restoreSubmittedDraft();
       throw error;
@@ -1178,7 +1247,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         editorRef.current?.focus();
       });
     }
-  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, browserAnnotationBatches, pendingSteers.length, dispatch, draftKey, onSubmit, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseOptions, selectedKnowledgeFiles, configuredInlineSkills]);
+  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, browserAnnotationBatches, pendingSteers.length, dispatch, draftKey, onSubmit, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseOptions, selectedKnowledgeFiles, configuredInlineSkills, isPlanMode, planConfirmation]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     if (!skill.skillPath.trim()) return;
@@ -1461,11 +1530,42 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     requestAnimationFrame(() => editorRef.current?.focus());
   }, [disabled, dispatch, draftKey, goalInputActive, isStreaming, remoteManaged, resetGoalInput, sessionId, steerDraft, steerInputActive, value]);
 
+  const handleTogglePlanMode = useCallback(() => {
+    if (remoteManaged || disabled || isPatchingModel) return;
+    const nextMode = isPlanMode ? CoworkCollaborationMode.Default : CoworkCollaborationMode.Plan;
+    if (nextMode === CoworkCollaborationMode.Plan && goalInputActive) {
+      resetGoalInput(true);
+    }
+    dispatch(setDraftCollaborationMode({ draftKey, mode: nextMode }));
+    if (
+      nextMode === CoworkCollaborationMode.Default
+      && planConfirmation
+      && planConfirmation.state !== PlanConfirmationState.Handled
+    ) {
+      dispatch(setPlanConfirmationHandled({
+        sessionId: draftKey,
+        messageId: planConfirmation.messageId,
+      }));
+    }
+    setShowAddMenu(false);
+    handleCloseSkillsPopover();
+    requestAnimationFrame(() => editorRef.current?.focus());
+  }, [disabled, dispatch, draftKey, goalInputActive, handleCloseSkillsPopover, isPatchingModel, isPlanMode, planConfirmation?.messageId, planConfirmation?.state, remoteManaged, resetGoalInput]);
+
   const handleEnableGoalInput = useCallback((mode: GoalInputMode = 'start', initialValue?: string) => {
     if (disabled || remoteManaged || isPatchingModel) return;
     if (!onGoalCommand && sessionId) return;
     setShowAddMenu(false);
     handleCloseSkillsPopover();
+    if (isPlanMode) {
+      dispatch(setDraftCollaborationMode({ draftKey, mode: CoworkCollaborationMode.Default }));
+      if (planConfirmation && planConfirmation.state !== PlanConfirmationState.Handled) {
+        dispatch(setPlanConfirmationHandled({
+          sessionId: draftKey,
+          messageId: planConfirmation.messageId,
+        }));
+      }
+    }
     if (steerInputActive) {
       setSteerInputActive(false);
       if (sessionId) {
@@ -1479,7 +1579,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setValue(initialValue ?? '');
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: initialValue ?? '' }));
     requestAnimationFrame(() => editorRef.current?.focus());
-  }, [disabled, dispatch, draftKey, handleCloseSkillsPopover, isPatchingModel, onGoalCommand, remoteManaged, sessionId, steerInputActive, steerValue, value]);
+  }, [disabled, dispatch, draftKey, handleCloseSkillsPopover, isPatchingModel, isPlanMode, onGoalCommand, planConfirmation?.messageId, planConfirmation?.state, remoteManaged, sessionId, steerInputActive, steerValue, value]);
 
   const handleGoalCommandClick = useCallback((command: string) => {
     if (disabled || remoteManaged || isPatchingModel || !onGoalCommand) return;
@@ -2279,6 +2379,28 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           </button>
           <button
             type="button"
+            onClick={handleTogglePlanMode}
+            onMouseEnter={() => {
+              handleCloseSkillsPopover();
+              handleCloseKnowledgeSubmenu();
+            }}
+            onFocus={() => {
+              handleCloseSkillsPopover();
+              handleCloseKnowledgeSubmenu();
+            }}
+            disabled={disabled || isPatchingModel || remoteManaged}
+            className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              isPlanMode ? 'bg-surface-raised text-foreground' : 'text-foreground hover:bg-surface-raised'
+            }`}
+            role="menuitemcheckbox"
+            aria-checked={isPlanMode}
+          >
+            <PlanModeIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <span className="min-w-0 flex-1 truncate">{i18nService.t('coworkPlanMode')}</span>
+            {isPlanMode && <XMarkIcon className="h-3.5 w-3.5 shrink-0 text-secondary" />}
+          </button>
+          <button
+            type="button"
             onClick={() => handleEnableGoalInput(goal ? 'set' : 'start', goal?.objective)}
             onMouseEnter={() => {
               handleCloseSkillsPopover();
@@ -2632,6 +2754,25 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </div>
   ) : null;
 
+  const planModeBadge = isPlanMode ? (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        handleTogglePlanMode();
+      }}
+      className="group inline-flex h-[34px] max-w-[220px] items-center gap-1.5 rounded-lg px-2 text-[13px] font-normal leading-none text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+      title={i18nService.t('coworkClearPlanMode')}
+      aria-label={i18nService.t('coworkClearPlanMode')}
+    >
+      <span className="relative flex h-4 w-4 shrink-0 items-center justify-center">
+        <PlanModeIcon className="h-4 w-4 transition-opacity group-hover:opacity-0" />
+        <XMarkIcon className="absolute h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+      </span>
+      <span className="min-w-0 truncate">{i18nService.t('coworkPlanMode')}</span>
+    </button>
+  ) : null;
+
   const activeContextRow = isLarge && hasContextBadges ? (
     <div
       className="flex cursor-text flex-wrap items-center gap-x-2 gap-y-1 px-4 pt-4"
@@ -2680,6 +2821,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         <span className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
       )}
       {goalModeBadge}
+    </div>
+  ) : null;
+  const planModeToolbarControl = planModeBadge ? (
+    <div className="flex min-w-0 items-center gap-2">
+      {largeWorkingDirectoryControl && (
+        <span className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+      )}
+      {planModeBadge}
     </div>
   ) : null;
   const activeModeRow = isLarge && steerModeBadge ? (
@@ -2902,6 +3051,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                   <div className="flex min-w-0 items-center gap-2">
                     {largeInputActions}
                     {largeWorkingDirectoryControl}
+                    {planModeToolbarControl}
                     {goalModeToolbarControl}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -2924,6 +3074,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 <div className="flex min-w-0 items-center gap-2">
                   {largeInputActions}
                   {largeWorkingDirectoryControl}
+                  {planModeToolbarControl}
                   {goalModeToolbarControl}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
