@@ -1,5 +1,6 @@
 import { DocumentTextIcon, ExclamationTriangleIcon, PauseCircleIcon, PlayCircleIcon } from '@heroicons/react/24/outline';
 import { ArrowUpIcon, FolderIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
+import * as Popover from '@radix-ui/react-popover';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
@@ -806,22 +807,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [showAddMenu]);
 
   useEffect(() => {
-    if (!commandTrigger) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!editorContainerRef.current?.contains(target) && !commandPopoverRef.current?.contains(target)) {
-        setCommandTrigger(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside, true);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside, true);
-    };
-  }, [commandTrigger]);
-
-  useEffect(() => {
     setCommandHighlightedIndex(0);
   }, [commandTrigger?.kind, commandTrigger?.query]);
 
@@ -1174,13 +1159,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, []);
 
   const updateCommandTrigger = useCallback((nextValue: string, caretIndex: number) => {
-    if (disabled || remoteManaged || goalInputActive || steerInputActive) {
+    if (disabled || remoteManaged || steerInputActive) {
       setCommandTrigger(null);
       return;
     }
     setShowAddMenu(false);
     setCommandTrigger(findCommandTrigger(nextValue, caretIndex));
-  }, [disabled, goalInputActive, remoteManaged, steerInputActive]);
+  }, [disabled, remoteManaged, steerInputActive]);
 
   const handleEditorChange = useCallback((nextValue: string, caretIndex: number) => {
     if (steerInputActive) {
@@ -1483,14 +1468,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     : 'relative flex items-end gap-2 p-3 rounded-xl border border-border bg-surface';
 
   const editorClass = isCompact
-    ? `w-full resize-none bg-transparent px-4 py-[5px] text-[14px] leading-[22px] text-foreground placeholder:dark:text-foregroundSecondary/60 placeholder:text-secondary/60 focus:outline-none min-h-[${minHeight}px] max-h-[${maxHeight}px]`
+    ? `w-full resize-none bg-transparent px-4 py-[5px] text-[14px] leading-[22px] text-foreground placeholder:dark:text-foregroundSecondary/40 placeholder:text-secondary/40 focus:outline-none min-h-[${minHeight}px] max-h-[${maxHeight}px]`
     : isLarge
-    ? `w-full resize-none bg-transparent px-4 text-foreground placeholder:dark:text-foregroundSecondary/60 placeholder:text-secondary/60 focus:outline-none min-h-[${minHeight}px] max-h-[${maxHeight}px] ${
+    ? `w-full resize-none bg-transparent px-4 text-foreground placeholder:dark:text-foregroundSecondary/40 placeholder:text-secondary/40 focus:outline-none min-h-[${minHeight}px] max-h-[${maxHeight}px] ${
       useHomeContextLayout
         ? `${hasContextBadges ? 'py-2' : 'py-3'} text-[14px] leading-[22px]`
         : `${hasContextBadges ? 'py-2' : 'py-2.5'} text-[15px] leading-[23px]`
     }`
-    : 'flex-1 resize-none bg-transparent py-1 text-sm leading-5 text-foreground placeholder:placeholder:text-secondary focus:outline-none min-h-[28px] max-h-[200px]';
+    : 'flex-1 resize-none bg-transparent py-1 text-sm leading-5 text-foreground placeholder:dark:text-foregroundSecondary/40 placeholder:text-secondary/40 focus:outline-none min-h-[28px] max-h-[200px]';
 
   const truncatePath = (path: string, maxLength: number = ContextLabelMaxLength.DefaultFolder): string => {
     if (!path) return i18nService.t('noFolderSelected');
@@ -2702,125 +2687,142 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       <div aria-hidden="true" />
     </div>
   ) : null;
-  const commandMenuPositionClass = commandMenuPlacement === 'bottom'
-    ? 'top-full mt-2'
-    : 'bottom-full mb-2';
+  const commandPopoverSide = commandMenuPlacement === 'bottom' ? 'bottom' : 'top';
+  const commandOptionsStyle: React.CSSProperties = {
+    maxHeight: 'min(420px, calc(var(--radix-popover-content-available-height) - 42px))',
+  };
   const commandPopover = commandTrigger ? (
-    <div
-      ref={commandPopoverRef}
-      className={`absolute left-0 z-[70] w-full max-w-[760px] overflow-hidden rounded-lg border border-border bg-surface shadow-popover ${commandMenuPositionClass}`}
-      role="dialog"
-      aria-label={commandTrigger.kind === CommandTriggerKind.Skill ? i18nService.t('useSkill') : i18nService.t('coworkMentionResources')}
-      onMouseDown={(event) => event.preventDefault()}
-    >
-      <div className="px-3 pb-1 pt-2.5 text-xs font-medium text-secondary">
-        {commandTrigger.kind === CommandTriggerKind.Skill
-          ? i18nService.t('coworkCommandSkillsTitle')
-          : i18nService.t('coworkMentionResources')}
-      </div>
-      {commandTrigger.kind === CommandTriggerKind.Skill ? (
-        <div ref={commandOptionsScrollRef} className="max-h-[min(420px,calc(100vh-220px))] overflow-y-auto px-1 pb-1.5">
-          {slashSkillOptions.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-secondary">
-              {i18nService.t('noSkillsAvailable')}
-            </div>
-          ) : (
-            slashSkillOptions.map((skill, index) => {
-              const isHighlighted = index === commandHighlightedIndex;
-              const skillName = skillService.getLocalizedSkillName(skill);
-              const description = skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill);
-              const sourceLabel = skill.isOfficial || skill.isBuiltIn
-                ? i18nService.t('coworkCommandSourceSystem')
-                : i18nService.t('coworkCommandSourcePersonal');
-              return (
-                <button
-                  key={skill.id}
-                  type="button"
-                  role="option"
-                  aria-selected={isHighlighted}
-                  data-command-option-index={index}
-                  onMouseEnter={() => setCommandHighlightedIndex(index)}
-                  onClick={() => handleApplySlashSkill(skill)}
-                  className={`grid min-h-8 w-full grid-cols-[18px_minmax(0,0.85fr)_minmax(0,1.35fr)_auto] items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
-                    isHighlighted ? 'bg-surface-raised' : 'hover:bg-surface-raised/70'
-                  }`}
-                >
-                  <SkillIcon className="h-4 w-4 text-secondary" />
-                  <span className="min-w-0 truncate text-[13px] text-foreground">
-                    {skillName}
-                  </span>
-                  <span className="min-w-0 truncate text-xs text-secondary" title={description}>
-                    {description}
-                  </span>
-                  <div className="flex min-w-[52px] items-center justify-end gap-1.5 pl-1 text-xs text-muted">
-                    <span className="truncate">{sourceLabel}</span>
-                  </div>
-                </button>
-              );
-            })
-          )}
+    <Popover.Portal>
+      <Popover.Content
+        ref={commandPopoverRef}
+        side={commandPopoverSide}
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
+        avoidCollisions
+        className="z-[70] w-[min(760px,var(--radix-popover-trigger-width))] overflow-hidden rounded-lg border border-border bg-surface shadow-popover"
+        role="dialog"
+        aria-label={commandTrigger.kind === CommandTriggerKind.Skill ? i18nService.t('useSkill') : i18nService.t('coworkMentionResources')}
+        onMouseDown={(event) => event.preventDefault()}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      >
+        <div className="px-3 pb-1 pt-2.5 text-xs font-medium text-secondary">
+          {commandTrigger.kind === CommandTriggerKind.Skill
+            ? i18nService.t('coworkCommandSkillsTitle')
+            : i18nService.t('coworkMentionResources')}
         </div>
-      ) : (
-        <div ref={commandOptionsScrollRef} className="max-h-[min(420px,calc(100vh-220px))] overflow-y-auto px-1 pb-1.5">
-          {mentionResourceOptions.length === 0 ? (
-          <div className="px-4 py-6 text-center text-sm text-secondary">
-            {i18nService.t('coworkMentionNoResources')}
+        {commandTrigger.kind === CommandTriggerKind.Skill ? (
+          <div ref={commandOptionsScrollRef} className="overflow-y-auto px-1 pb-1.5" style={commandOptionsStyle}>
+            {slashSkillOptions.length === 0 ? (
+              <div className="px-4 py-6 text-center text-sm text-secondary">
+                {i18nService.t('noSkillsAvailable')}
+              </div>
+            ) : (
+              slashSkillOptions.map((skill, index) => {
+                const isHighlighted = index === commandHighlightedIndex;
+                const skillName = skillService.getLocalizedSkillName(skill);
+                const description = skillService.getLocalizedSkillDescription(skill.id, skill.name, skill.description, skill);
+                const sourceLabel = skill.isOfficial || skill.isBuiltIn
+                  ? i18nService.t('coworkCommandSourceSystem')
+                  : i18nService.t('coworkCommandSourcePersonal');
+                return (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isHighlighted}
+                    data-command-option-index={index}
+                    onMouseEnter={() => setCommandHighlightedIndex(index)}
+                    onClick={() => handleApplySlashSkill(skill)}
+                    className={`grid min-h-8 w-full grid-cols-[18px_minmax(0,0.85fr)_minmax(0,1.35fr)_auto] items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
+                      isHighlighted ? 'bg-surface-raised' : 'hover:bg-surface-raised/70'
+                    }`}
+                  >
+                    <SkillIcon className="h-4 w-4 text-secondary" />
+                    <span className="min-w-0 truncate text-[13px] text-foreground">
+                      {skillName}
+                    </span>
+                    <span className="min-w-0 truncate text-xs text-secondary" title={description}>
+                      {description}
+                    </span>
+                    <div className="flex min-w-[52px] items-center justify-end gap-1.5 pl-1 text-xs text-muted">
+                      <span className="truncate">{sourceLabel}</span>
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
         ) : (
-          (() => {
-            let optionIndex = 0;
-            return mentionResourceGroups.map(group => (
-              <div key={group.key} className="pb-1 first:pt-0">
-                <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-muted">
-                  {group.title}
+          <div ref={commandOptionsScrollRef} className="overflow-y-auto px-1 pb-1.5" style={commandOptionsStyle}>
+            {mentionResourceOptions.length === 0 ? (
+            <div className="px-4 py-6 text-center text-sm text-secondary">
+              {i18nService.t('coworkMentionNoResources')}
+            </div>
+          ) : (
+            (() => {
+              let optionIndex = 0;
+              return mentionResourceGroups.map(group => (
+                <div key={group.key} className="pb-1 first:pt-0">
+                  <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-muted">
+                    {group.title}
+                  </div>
+                  {group.options.map((option) => {
+                    const index = optionIndex;
+                    optionIndex += 1;
+                    const isHighlighted = index === commandHighlightedIndex;
+                    const artifact = option.payload;
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        role="option"
+                        aria-selected={isHighlighted}
+                        data-command-option-index={index}
+                        onMouseEnter={() => setCommandHighlightedIndex(index)}
+                        onClick={() => handleApplyMentionResource(option)}
+                        className={`grid min-h-8 w-full grid-cols-[18px_minmax(0,0.85fr)_minmax(0,1.35fr)_auto] items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
+                          isHighlighted ? 'bg-surface-raised' : 'hover:bg-surface-raised/70'
+                        }`}
+                      >
+                        <FileTypeIcon fileName={artifact.fileName || artifact.title} className="h-4 w-4 text-secondary" />
+                        <span className="min-w-0 truncate text-[13px] text-foreground">{option.title}</span>
+                        <span className="min-w-0 truncate text-xs text-secondary" title={option.description}>
+                          {option.description}
+                        </span>
+                        <span className="min-w-[52px] truncate pl-1 text-right text-xs text-muted">
+                          {i18nService.t('coworkCommandSourceSession')}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-                {group.options.map((option) => {
-                  const index = optionIndex;
-                  optionIndex += 1;
-                  const isHighlighted = index === commandHighlightedIndex;
-                  const artifact = option.payload;
-                  return (
-                    <button
-                      key={option.key}
-                      type="button"
-                      role="option"
-                      aria-selected={isHighlighted}
-                      data-command-option-index={index}
-                      onMouseEnter={() => setCommandHighlightedIndex(index)}
-                      onClick={() => handleApplyMentionResource(option)}
-                      className={`grid min-h-8 w-full grid-cols-[18px_minmax(0,0.85fr)_minmax(0,1.35fr)_auto] items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
-                        isHighlighted ? 'bg-surface-raised' : 'hover:bg-surface-raised/70'
-                      }`}
-                    >
-                      <FileTypeIcon fileName={artifact.fileName || artifact.title} className="h-4 w-4 text-secondary" />
-                      <span className="min-w-0 truncate text-[13px] text-foreground">{option.title}</span>
-                      <span className="min-w-0 truncate text-xs text-secondary" title={option.description}>
-                        {option.description}
-                      </span>
-                      <span className="min-w-[52px] truncate pl-1 text-right text-xs text-muted">
-                        {i18nService.t('coworkCommandSourceSession')}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ));
-          })()
+              ));
+            })()
+          )}
+          </div>
         )}
-        </div>
-      )}
-    </div>
+      </Popover.Content>
+    </Popover.Portal>
   ) : null;
 
   return (
-    <div className="relative">
-      {commandPopover}
-      {queuedFollowUpList}
-      {sessionGoalStatusBar}
-      {!isLarge && !isCompact && selectedTextSnippetPreview}
-      {!isLarge && !isCompact && imageAttachmentPreview}
-      {!isLarge && !isCompact && browserAnnotationPreview}
-      {imageVisionHint && (
+    <Popover.Root
+      open={Boolean(commandTrigger)}
+      onOpenChange={(open) => {
+        if (!open) setCommandTrigger(null);
+      }}
+      modal={false}
+    >
+      <Popover.Anchor asChild>
+        <div className="relative">
+          {queuedFollowUpList}
+          {sessionGoalStatusBar}
+          {!isLarge && !isCompact && selectedTextSnippetPreview}
+          {!isLarge && !isCompact && imageAttachmentPreview}
+          {!isLarge && !isCompact && browserAnnotationPreview}
+          {imageVisionHint && (
         <div className="mb-2 flex items-start gap-1.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
           <ExclamationTriangleIcon className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
           <span>
@@ -2940,6 +2942,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       </div>
       {readOnlyContextRow}
     </div>
+      </Popover.Anchor>
+      {commandPopover}
+    </Popover.Root>
   );
   }
 );
