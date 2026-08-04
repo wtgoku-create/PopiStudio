@@ -13,6 +13,7 @@ import {
   collectSessionArtifacts,
   type CoworkArtifactResourceSession,
   getArtifactStorageIdentity,
+  normalizeArtifactFilePath,
 } from '../shared/cowork/artifacts';
 import {
   COWORK_MESSAGE_PAGE_SIZE,
@@ -39,6 +40,7 @@ const getDefaultWorkingDirectory = (): string => {
 };
 
 const TASK_WORKSPACE_CONTAINER_DIR = '.popiai-tasks';
+const URL_PROTOCOL_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
 
 const normalizeRecentWorkspacePath = (cwd: string): string => {
   const resolved = path.resolve(cwd);
@@ -48,6 +50,16 @@ const normalizeRecentWorkspacePath = (cwd: string): string => {
     return resolved.slice(0, markerIndex);
   }
   return resolved;
+};
+
+const isLocalFileArtifact = (artifact: Artifact): boolean => {
+  if (!artifact.filePath?.trim()) return false;
+  return !URL_PROTOCOL_RE.test(normalizeArtifactFilePath(artifact.filePath));
+};
+
+const localArtifactFileExists = (artifact: Artifact): boolean => {
+  if (!isLocalFileArtifact(artifact)) return true;
+  return fs.existsSync(normalizeArtifactFilePath(artifact.filePath!));
 };
 
 const DEFAULT_MEMORY_ENABLED = true;
@@ -1734,7 +1746,8 @@ export class CoworkStore {
     if (!sessionRow) return [];
 
     const messages = this.getSessionMessages(sessionId) as ArtifactMessage[];
-    const detected = collectSessionArtifacts(messages, sessionId, sessionRow.cwd);
+    const detected = collectSessionArtifacts(messages, sessionId, sessionRow.cwd)
+      .filter(localArtifactFileExists);
     const now = Date.now();
     const artifactByIdentityKey = new Map<string, Artifact>();
     for (const artifact of detected) {

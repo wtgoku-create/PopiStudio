@@ -208,6 +208,13 @@ function insertMessage(
   ).run(id, sessionId, type, content, metadata, createdAt, sequence);
 }
 
+function createArtifactFile(projectRoot: string, relativePath: string): string {
+  const filePath = path.join(projectRoot, relativePath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, 'artifact');
+  return filePath;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -311,10 +318,12 @@ test('updateMessage refreshes the cached session preview', () => {
 
 test('addMessage syncs detected artifacts into the resource table', () => {
   const sid = 'sess-artifact-add';
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-artifact-project-'));
+  const filePath = createArtifactFile(projectRoot, 'output/report.pdf');
   insertSession(sid, 'main', 1000);
-  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run('/repo', sid);
+  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run(projectRoot, sid);
 
-  store.addMessage(sid, { type: 'assistant', content: 'created /repo/output/report.pdf' });
+  store.addMessage(sid, { type: 'assistant', content: `created ${filePath}` });
 
   const artifacts = store.listArtifacts(sid);
   expect(artifacts).toHaveLength(1);
@@ -322,34 +331,50 @@ test('addMessage syncs detected artifacts into the resource table', () => {
     sessionId: sid,
     type: 'document',
     fileName: 'report.pdf',
-    filePath: '/repo/output/report.pdf',
+    filePath,
     content: '',
   });
 });
 
+test('addMessage skips missing local file artifacts', () => {
+  const sid = 'sess-artifact-missing-local-file';
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-artifact-project-'));
+  const missingFilePath = path.join(projectRoot, 'output/missing.pdf');
+  insertSession(sid, 'main', 1000);
+  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run(projectRoot, sid);
+
+  store.addMessage(sid, { type: 'assistant', content: `created ${missingFilePath}` });
+
+  expect(store.listArtifacts(sid)).toEqual([]);
+});
+
 test('updateMessage syncs artifacts discovered in finalized long messages', () => {
   const sid = 'sess-artifact-update';
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-artifact-project-'));
+  const filePath = createArtifactFile(projectRoot, 'output/final.html');
   insertSession(sid, 'main', 1000);
-  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run('/repo', sid);
+  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run(projectRoot, sid);
   const message = store.addMessage(sid, { type: 'assistant', content: 'streaming...' });
 
   expect(store.listArtifacts(sid)).toEqual([]);
 
   store.updateMessage(sid, message.id, {
-    content: 'final output at /repo/output/final.html',
+    content: `final output at ${filePath}`,
     metadata: { isFinal: true },
   });
 
   expect(store.listArtifacts(sid).map(artifact => artifact.filePath)).toEqual([
-    '/repo/output/final.html',
+    filePath,
   ]);
 });
 
 test('deleteSession clears persisted artifacts', () => {
   const sid = 'sess-artifact-delete';
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-artifact-project-'));
+  const filePath = createArtifactFile(projectRoot, 'output/report.pdf');
   insertSession(sid, 'main', 1000);
-  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run('/repo', sid);
-  store.addMessage(sid, { type: 'assistant', content: 'created /repo/output/report.pdf' });
+  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id = ?').run(projectRoot, sid);
+  store.addMessage(sid, { type: 'assistant', content: `created ${filePath}` });
 
   expect(store.listArtifacts(sid)).toHaveLength(1);
 
