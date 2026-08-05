@@ -2412,11 +2412,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           >
             <GoalIcon className={addMenuItemIconClass} />
             <span className="shrink-0 text-foreground">{i18nService.t('coworkGoal')}</span>
-            {goal?.objective && (
-              <span className="min-w-0 flex-1 truncate text-secondary">
-                {goal.objective}
-              </span>
-            )}
           </button>
 
           <SkillsPopover
