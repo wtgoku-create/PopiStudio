@@ -278,6 +278,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(CoworkIpcChannel.SubmitSteer, options),
     runGoalCommand: (options: { sessionId: string; command: string }) =>
       ipcRenderer.invoke(CoworkIpcChannel.GoalCommand, options),
+    forkSession: (options: { sessionId: string; forkedFromMessageId?: string | null }) =>
+      ipcRenderer.invoke(CoworkIpcChannel.ForkSession, options),
     stopSession: (sessionId: string) =>
       ipcRenderer.invoke('cowork:session:stop', sessionId),
     deleteSession: (sessionId: string) =>

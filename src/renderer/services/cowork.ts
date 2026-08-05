@@ -68,6 +68,7 @@ import type {
   CoworkConfigUpdate,
   CoworkContextUsage,
   CoworkContinueOptions,
+  CoworkForkSessionOptions,
   CoworkMemoryStats,
   CoworkMessage,
   CoworkPermissionResult,
@@ -933,6 +934,36 @@ class CoworkService {
     }
 
     return true;
+  }
+
+  async forkSession(options: CoworkForkSessionOptions): Promise<CoworkSession | null> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.forkSession) {
+      console.error('Cowork fork API not available');
+      return null;
+    }
+
+    const result = await cowork.forkSession(options);
+    if (result.success && result.session) {
+      store.dispatch(addSession(result.session));
+      store.dispatch(setCurrentSession(result.session));
+      store.dispatch(setCurrentSessionId(result.session.id));
+      store.dispatch(setStreaming(false));
+      void this.loadSessionArtifacts(result.session.id, { resyncIfEmpty: true });
+      void this.loadSessionMessageRailIndex(result.session.id);
+      void this.refreshContextUsageForSessionEntry(result.session.id);
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkForkCreated'),
+      }));
+      return result.session;
+    }
+
+    const error = result.error || i18nService.t('coworkForkFailed');
+    window.dispatchEvent(new CustomEvent('app:showToast', {
+      detail: error,
+    }));
+    console.error('Failed to fork session:', result.error);
+    return null;
   }
 
   async submitSteer(options: CoworkSteerRequest): Promise<boolean> {

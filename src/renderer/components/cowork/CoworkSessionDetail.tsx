@@ -1659,6 +1659,20 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     void coworkService.compactContext(currentSession.id);
   }, [currentSession?.id]);
 
+  const handleForkMessage = useCallback((messageId: string) => {
+    if (!currentSession?.id) return;
+    if (isSessionBusy || currentSession.status === CoworkSessionStatusValue.Running) {
+      window.dispatchEvent(new CustomEvent('app:showToast', {
+        detail: i18nService.t('coworkForkRunningBlocked'),
+      }));
+      return;
+    }
+    void coworkService.forkSession({
+      sessionId: currentSession.id,
+      forkedFromMessageId: messageId,
+    });
+  }, [currentSession?.id, currentSession?.status, isSessionBusy]);
+
   const handleGoalCommand = useCallback((command: string) => {
     if (!currentSession?.id) return false;
     return coworkService.runGoalCommand(currentSession.id, command);
@@ -4105,6 +4119,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 planConfirmationMessageId={planConfirmationMessageId}
                 onConfirmPlan={handleConfirmPlan}
                 onAdjustPlan={handleAdjustPlan}
+                onForkMessage={remoteManaged ? undefined : handleForkMessage}
                 renderToolGroupFooter={(group) => {
                   const groupSubagents = getToolGroupSubagents(group);
                   if (groupSubagents.length === 0) return null;

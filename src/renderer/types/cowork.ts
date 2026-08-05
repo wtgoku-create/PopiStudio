@@ -1,4 +1,5 @@
 import type { CoworkBrowserAnnotationMessageBatch } from '../../shared/cowork/browserAnnotations';
+import type { CoworkForkMode } from '../../shared/cowork/constants';
 import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import type { CoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkPromptDocument } from '../../shared/cowork/promptDocument';
@@ -126,6 +127,13 @@ export interface CoworkSession {
   executionMode: CoworkExecutionMode;
   activeSkillIds: string[];
   agentId: string;
+  parentSessionId?: string | null;
+  forkedFromMessageId?: string | null;
+  forkedAt?: number | null;
+  forkMode?: CoworkForkMode;
+  forkWorkspacePath?: string | null;
+  forkGitBranch?: string | null;
+  forkGitBaseRef?: string | null;
   goal?: CoworkGoal | null;
   messages: CoworkMessage[];
   /** Offset of the first loaded message in the full message history. 0 means loaded from the beginning. */
@@ -262,6 +270,9 @@ export interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId?: string;
+  parentSessionId?: string | null;
+  forkedAt?: number | null;
+  forkMode?: CoworkForkMode;
   goal?: CoworkGoal | null;
   source?: CoworkSessionSource;
   createdAt: number;
@@ -335,6 +346,11 @@ export interface CoworkSessionListResult {
   /** Whether more sessions exist beyond the currently loaded set. */
   hasMore?: boolean;
   error?: string;
+}
+
+export interface CoworkForkSessionOptions {
+  sessionId: string;
+  forkedFromMessageId?: string | null;
 }
 
 export interface CoworkAgentSidebarSessionListResult {

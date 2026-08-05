@@ -181,6 +181,7 @@ const AssistantTurnBlock: React.FC<{
   planConfirmationMessageId?: string | null;
   onConfirmPlan?: (messageId: string) => void;
   onAdjustPlan?: (messageId: string) => void;
+  onForkMessage?: (messageId: string) => void;
   renderToolGroupFooter?: (group: ToolGroupItem) => React.ReactNode;
 }> = ({
   turn,
@@ -195,6 +196,7 @@ const AssistantTurnBlock: React.FC<{
   planConfirmationMessageId,
   onConfirmPlan,
   onAdjustPlan,
+  onForkMessage,
   renderToolGroupFooter,
 }) => {
   const [artifactCardsExpanded, setArtifactCardsExpanded] = useState(false);
@@ -345,6 +347,7 @@ const AssistantTurnBlock: React.FC<{
                     planConfirmationMessageId={planConfirmationMessageId}
                     onConfirmPlan={onConfirmPlan}
                     onAdjustPlan={onAdjustPlan}
+                    onFork={isLastAssistant ? onForkMessage : undefined}
                   />
                 );
               }

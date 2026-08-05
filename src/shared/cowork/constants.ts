@@ -23,6 +23,7 @@ export type CoworkSessionSourceKind =
 
 export const CoworkIpcChannel = {
   SessionsChanged: 'cowork:sessions:changed',
+  ForkSession: 'cowork:session:fork',
   ListAgentSidebarSessions: 'cowork:session:listAgentSidebar',
   GetMessageRailIndex: 'cowork:session:getMessageRailIndex',
   GetMessages: 'cowork:session:getMessages',
@@ -42,6 +43,15 @@ export const CoworkIpcChannel = {
 
 export type CoworkIpcChannel =
   typeof CoworkIpcChannel[keyof typeof CoworkIpcChannel];
+
+export const CoworkForkMode = {
+  None: 'none',
+  Conversation: 'conversation',
+  Worktree: 'worktree',
+} as const;
+
+export type CoworkForkMode =
+  typeof CoworkForkMode[keyof typeof CoworkForkMode];
 
 export interface CoworkSessionsChangedPayload {
   sessionIds: string[];

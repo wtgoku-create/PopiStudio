@@ -88,6 +88,12 @@ export class SqliteStore {
         model_override TEXT NOT NULL DEFAULT '',
         execution_mode TEXT,
         parent_session_id TEXT,
+        forked_from_message_id TEXT,
+        forked_at INTEGER,
+        fork_mode TEXT NOT NULL DEFAULT 'none',
+        fork_workspace_path TEXT,
+        fork_git_branch TEXT,
+        fork_git_base_ref TEXT,
         goal_json TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
@@ -365,6 +371,36 @@ export class SqliteStore {
 
       if (!colNames.includes('parent_session_id')) {
         this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN parent_session_id TEXT;');
+        this.didRunMigration = true;
+      }
+
+      if (!colNames.includes('forked_from_message_id')) {
+        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN forked_from_message_id TEXT;');
+        this.didRunMigration = true;
+      }
+
+      if (!colNames.includes('forked_at')) {
+        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN forked_at INTEGER;');
+        this.didRunMigration = true;
+      }
+
+      if (!colNames.includes('fork_mode')) {
+        this.db.exec("ALTER TABLE cowork_sessions ADD COLUMN fork_mode TEXT NOT NULL DEFAULT 'none';");
+        this.didRunMigration = true;
+      }
+
+      if (!colNames.includes('fork_workspace_path')) {
+        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN fork_workspace_path TEXT;');
+        this.didRunMigration = true;
+      }
+
+      if (!colNames.includes('fork_git_branch')) {
+        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN fork_git_branch TEXT;');
+        this.didRunMigration = true;
+      }
+
+      if (!colNames.includes('fork_git_base_ref')) {
+        this.db.exec('ALTER TABLE cowork_sessions ADD COLUMN fork_git_base_ref TEXT;');
         this.didRunMigration = true;
       }
 

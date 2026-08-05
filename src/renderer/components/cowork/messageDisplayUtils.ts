@@ -436,6 +436,9 @@ export const isLegacyInternalCompactionSystemMessage = (message: CoworkMessage):
 );
 
 const isRenderableAssistantOrSystemMessage = (message: CoworkMessage): boolean => {
+  if (message.metadata?.hidden === true) {
+    return false;
+  }
   if (isSilentAssistantMessage(message)) {
     return false;
   }
@@ -489,6 +492,9 @@ export const buildDisplayItems = (messages: CoworkMessage[]): DisplayItem[] => {
   let pendingAdjacentGroup: ToolGroupItem | null = null;
 
   for (const message of messages) {
+    if (message.metadata?.hidden === true) {
+      continue;
+    }
     if (isSilentAssistantMessage(message)) {
       continue;
     }

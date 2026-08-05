@@ -23,8 +23,9 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { CoworkSystemMessageKind } from '../common/coworkSystemMessages';
 import { AgentAvatarSvg, DefaultAgentAvatarIcon, encodeAgentAvatarIcon } from '../shared/agent/avatar';
-import { CoworkSessionSourceKind } from '../shared/cowork/constants';
+import { CoworkForkMode, CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { CoworkStore } from './coworkStore';
 
 // ---------------------------------------------------------------------------
@@ -54,6 +55,12 @@ function setupDb(): void {
       active_skill_ids TEXT,
       agent_id TEXT NOT NULL DEFAULT 'main',
       parent_session_id TEXT,
+      forked_from_message_id TEXT,
+      forked_at INTEGER,
+      fork_mode TEXT NOT NULL DEFAULT 'none',
+      fork_workspace_path TEXT,
+      fork_git_branch TEXT,
+      fork_git_base_ref TEXT,
       goal_json TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -274,6 +281,81 @@ test('listAgentSidebarSessions returns cached last message previews from session
   const sessions = store.listAgentSidebarSessions();
 
   expect(sessions[0]?.lastMessagePreview).toBe('cached preview');
+});
+
+test('forkSession copies visible history through the selected message', () => {
+  insertSession('source-session', 'main', 1000);
+  insertMessage('user-1', 'source-session', 'user', 'first request', null, 1, 1000);
+  insertMessage('assistant-1', 'source-session', 'assistant', 'first answer', null, 2, 1100);
+  insertMessage('user-2', 'source-session', 'user', 'second request', null, 3, 1200);
+  insertMessage(
+    'assistant-2',
+    'source-session',
+    'assistant',
+    'second answer',
+    JSON.stringify({ isStreaming: true, runId: 'stale-run' }),
+    4,
+    1300,
+  );
+  insertMessage('user-3', 'source-session', 'user', 'after fork point', null, 5, 1400);
+
+  const fork = store.forkSession({
+    sourceSessionId: 'source-session',
+    forkMode: CoworkForkMode.Conversation,
+    forkedFromMessageId: 'assistant-2',
+  });
+
+  expect(fork.parentSessionId).toBe('source-session');
+  expect(fork.forkedFromMessageId).toBe('assistant-2');
+  expect(fork.forkMode).toBe(CoworkForkMode.Conversation);
+  expect(fork.messages.map(message => message.content)).toEqual([
+    'first request',
+    'first answer',
+    'second request',
+    'second answer',
+  ]);
+  expect(fork.messages.at(-1)?.metadata?.isStreaming).toBeUndefined();
+  expect(fork.messages.at(-1)?.metadata?.isFinal).toBe(true);
+  expect(fork.messages.at(-1)?.metadata?.runId).toBeUndefined();
+});
+
+test('forkSession stores a provided compaction summary as a hidden system context message', () => {
+  insertSession('source-session', 'main', 1000);
+  insertMessage('user-1', 'source-session', 'user', 'request before compaction', null, 1, 1000);
+  insertMessage('assistant-1', 'source-session', 'assistant', 'answer before compaction', null, 2, 1100);
+  insertMessage(
+    'old-summary',
+    'source-session',
+    'system',
+    'old summary',
+    JSON.stringify({
+      hidden: true,
+      kind: CoworkSystemMessageKind.ForkCompactionSummary,
+      checkpointCreatedAt: 900,
+    }),
+    3,
+    1200,
+  );
+
+  const fork = store.forkSession({
+    sourceSessionId: 'source-session',
+    forkedFromMessageId: 'assistant-1',
+    contextMessages: [{
+      content: 'fresh summary',
+      metadata: {
+        kind: CoworkSystemMessageKind.ForkCompactionSummary,
+        checkpointCreatedAt: 1050,
+      },
+    }],
+  });
+
+  const summaryMessages = fork.messages.filter(
+    message => message.metadata?.kind === CoworkSystemMessageKind.ForkCompactionSummary,
+  );
+  expect(summaryMessages).toHaveLength(1);
+  expect(summaryMessages[0]?.content).toBe('fresh summary');
+  expect(summaryMessages[0]?.metadata?.hidden).toBe(true);
+  expect(fork.messages.some(message => message.content === 'old summary')).toBe(false);
 });
 
 test('searchSessions returns matching plain sessions and escapes LIKE wildcards', () => {

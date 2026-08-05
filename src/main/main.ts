@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 
 import type { OpenClawSessionPatch } from '../common/openclawSession';
+import { CoworkSystemMessageKind } from '../common/coworkSystemMessages';
 import { buildSessionTitleFromInput } from '../common/sessionTitle';
 import { BindingKind } from '../scheduledTask/constants';
 import { buildScheduledTaskEnginePrompt } from '../scheduledTask/enginePrompt';
@@ -27,7 +28,7 @@ import {
   type CoworkBrowserAnnotationMessageBatch,
   normalizeBrowserAnnotationBatches,
 } from '../shared/cowork/browserAnnotations';
-import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkIpcChannel } from '../shared/cowork/constants';
+import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkForkMode, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import {
   type CoworkPromptDocument,
@@ -3714,6 +3715,89 @@ if (!gotTheLock) {
       desktopNotificationManager.markSessionViewed(sessionId);
     }
     return { success: true };
+  });
+
+  ipcMain.handle(CoworkIpcChannel.ForkSession, async (_event, options: {
+    sessionId: string;
+    forkedFromMessageId?: string | null;
+  }) => {
+    try {
+      const sessionId = typeof options?.sessionId === 'string' ? options.sessionId.trim() : '';
+      if (!sessionId) {
+        return {
+          success: false,
+          error: 'Session id is required.',
+        };
+      }
+
+      const runtime = getCoworkEngineRouter();
+      if (runtime.isSessionActive(sessionId)) {
+        return {
+          success: false,
+          error: 'Cannot fork a running session.',
+        };
+      }
+
+      const coworkStoreInstance = getCoworkStore();
+      const sourceSession = coworkStoreInstance.getSession(sessionId, 0);
+      if (!sourceSession) {
+        return {
+          success: false,
+          error: 'Session not found',
+        };
+      }
+      if (sourceSession.status === 'running') {
+        return {
+          success: false,
+          error: 'Cannot fork a running session.',
+        };
+      }
+
+      const forkedFromMessageId = typeof options?.forkedFromMessageId === 'string' && options.forkedFromMessageId.trim()
+        ? options.forkedFromMessageId.trim()
+        : null;
+      const forkedFromTimestamp = forkedFromMessageId
+        ? coworkStoreInstance.getMessageTimestamp(sessionId, forkedFromMessageId)
+        : null;
+      const compactionSummary = await runtime.getForkCompactionSummary?.(
+        sessionId,
+        forkedFromTimestamp ?? undefined,
+      );
+      const contextMessages = compactionSummary?.summary
+        ? [{
+          content: compactionSummary.summary,
+          metadata: {
+            kind: CoworkSystemMessageKind.ForkCompactionSummary,
+            sourceSessionId: sessionId,
+            sessionKey: compactionSummary.sessionKey,
+            ...(compactionSummary.checkpointId ? { checkpointId: compactionSummary.checkpointId } : {}),
+            ...(compactionSummary.reason ? { reason: compactionSummary.reason } : {}),
+            ...(typeof compactionSummary.createdAt === 'number' ? { checkpointCreatedAt: compactionSummary.createdAt } : {}),
+            ...(typeof compactionSummary.tokensBefore === 'number' ? { tokensBefore: compactionSummary.tokensBefore } : {}),
+            ...(typeof compactionSummary.tokensAfter === 'number' ? { tokensAfter: compactionSummary.tokensAfter } : {}),
+            ...(compactionSummary.truncated ? { truncated: true } : {}),
+          },
+        }]
+        : [];
+
+      const session = coworkStoreInstance.forkSession({
+        sourceSessionId: sessionId,
+        forkMode: CoworkForkMode.Conversation,
+        forkedFromMessageId,
+        contextMessages,
+      });
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (win.isDestroyed()) return;
+        win.webContents.send(CoworkIpcChannel.SessionsChanged, { sessionIds: [sessionId, session.id] });
+      });
+      return { success: true, session };
+    } catch (error) {
+      console.warn('[CoworkFork] failed to fork session:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fork session',
+      };
+    }
   });
 
   ipcMain.handle('cowork:session:stop', async (_event, sessionId: string) => {

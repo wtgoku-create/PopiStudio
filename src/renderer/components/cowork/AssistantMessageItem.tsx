@@ -1,10 +1,12 @@
 import React, { useCallback, useState } from 'react';
 
+import { i18nService } from '../../services/i18n';
 import type { CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import { formatMessageDateTime } from '../../utils/tokenFormat';
+import MessageForkIcon from '../icons/MessageForkIcon';
 import MarkdownContent from '../MarkdownContent';
 import ImagePreviewModal, { type ImagePreviewSource } from './ImagePreviewModal';
-import { MessageCopyButton } from './MessageActionButton';
+import { MessageActionButton, MessageCopyButton } from './MessageActionButton';
 import {
   getMessageModelLabel,
   MEDIA_TOKEN_DISPLAY_RE,
@@ -27,6 +29,7 @@ const AssistantMessageItem: React.FC<{
   planConfirmationMessageId?: string | null;
   onConfirmPlan?: (messageId: string) => void;
   onAdjustPlan?: (messageId: string) => void;
+  onFork?: (messageId: string) => void;
 }> = ({
   message,
   resolveLocalFilePath,
@@ -37,6 +40,7 @@ const AssistantMessageItem: React.FC<{
   planConfirmationMessageId,
   onConfirmPlan,
   onAdjustPlan,
+  onFork,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
@@ -95,6 +99,18 @@ const AssistantMessageItem: React.FC<{
         <div className={messageMetaClassName(metaVisible)} aria-hidden={!metaVisible}>
           <span>{formatMessageDateTime(message.timestamp)}</span>
           {modelLabel && <span>{modelLabel}</span>}
+          {onFork && (
+            <MessageActionButton
+              label={i18nService.t('coworkForkFromMessage')}
+              visible={metaVisible}
+              onClick={(event) => {
+                event.stopPropagation();
+                onFork(message.id);
+              }}
+            >
+              <MessageForkIcon className="h-4 w-4" />
+            </MessageActionButton>
+          )}
           <MessageCopyButton
             content={copyContent}
             visible={metaVisible}

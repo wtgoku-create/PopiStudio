@@ -63,6 +63,13 @@ interface CoworkSession {
   executionMode: 'auto' | 'local' | 'sandbox';
   activeSkillIds: string[];
   agentId: string;
+  parentSessionId?: string | null;
+  forkedFromMessageId?: string | null;
+  forkedAt?: number | null;
+  forkMode?: 'none' | 'conversation' | 'worktree';
+  forkWorkspacePath?: string | null;
+  forkGitBranch?: string | null;
+  forkGitBaseRef?: string | null;
   messages: CoworkMessage[];
   messagesOffset: number;
   totalMessages: number;
@@ -87,6 +94,9 @@ interface CoworkSessionSummary {
   pinned: boolean;
   pinOrder?: number | null;
   agentId?: string;
+  parentSessionId?: string | null;
+  forkedAt?: number | null;
+  forkMode?: 'none' | 'conversation' | 'worktree';
   source?: {
     kind: 'agentHome' | 'scheduledTask' | 'im';
     label?: string;
@@ -597,6 +607,10 @@ interface IElectronAPI {
         | 'empty_input'
         | 'unknown';
     }>;
+    forkSession: (options: {
+      sessionId: string;
+      forkedFromMessageId?: string | null;
+    }) => Promise<{ success: boolean; session?: CoworkSession; error?: string }>;
     stopSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
     deleteSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
     deleteSessions: (sessionIds: string[]) => Promise<{ success: boolean; error?: string }>;
