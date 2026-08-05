@@ -20,6 +20,7 @@ import {
 } from '../../../common/coworkSystemMessages';
 import {
   OpenClawSessionReasoningLevel,
+  OpenClawSessionThinkingLevel,
 } from '../../../common/openclawSession';
 import {
   isSignificantAssistantStreamReset,
@@ -518,6 +519,33 @@ test('continueSession patches a session override before chat.send even when the 
     key: 'agent:main:popiai:session-1',
     model,
     reasoningLevel: OpenClawSessionReasoningLevel.Stream,
+    thinkingLevel: OpenClawSessionThinkingLevel.Medium,
+  });
+});
+
+test('runGoalCommand ensures the OpenClaw session exists before sessions.goal', async () => {
+  const model = 'popiai-server/qwen3.5-plus-YoudaoInner';
+  const { adapter, requests } = createRunTurnAdapter({
+    agentModel: model,
+    cachedModel: model,
+  });
+
+  await adapter.runGoalCommand('session-1', '/goal status');
+
+  expect(requests.map((request) => request.method).slice(0, 2)).toEqual([
+    'sessions.patch',
+    'sessions.goal',
+  ]);
+  expect(requests[0].params).toEqual({
+    key: 'agent:main:popiai:session-1',
+    model,
+    reasoningLevel: OpenClawSessionReasoningLevel.Stream,
+    thinkingLevel: OpenClawSessionThinkingLevel.Medium,
+  });
+  expect(requests[1].params).toEqual({
+    key: 'agent:main:popiai:session-1',
+    action: 'status',
+    text: '',
   });
 });
 

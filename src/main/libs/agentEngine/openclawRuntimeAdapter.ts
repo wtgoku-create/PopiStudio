@@ -3055,6 +3055,11 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       `Action ${parsed.action}.`,
     );
     await this.ensureGatewayClientReady();
+    await this.ensureSessionForGoalCommand({
+      session,
+      sessionId,
+      sessionKey,
+    });
     const client = this.requireGatewayClient();
     const response = await client.request<{ ok?: boolean; goal?: unknown }>('sessions.goal', {
       key: sessionKey,
@@ -3314,6 +3319,50 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         throw error;
       }
     }
+  }
+
+  private async ensureSessionForGoalCommand(options: {
+    session: CoworkSession;
+    sessionId: string;
+    sessionKey: string;
+  }): Promise<void> {
+    const { session, sessionId, sessionKey } = options;
+    const agentId = session.agentId || 'main';
+    const agent = this.store.getAgent(agentId);
+    const rawCurrentModel = session.modelOverride || agent?.model || '';
+    const currentModel = session.modelOverride
+      ? rawCurrentModel
+      : (rawCurrentModel ? this.normalizeModelRef(rawCurrentModel) : '');
+    const patch: OpenClawSessionPatch = {
+      ...(currentModel ? { model: currentModel } : {}),
+      ...(isManagedSessionKey(sessionKey)
+        ? {
+          reasoningLevel: OpenClawSessionReasoningLevel.Stream,
+          thinkingLevel: OpenClawSessionThinkingLevel.Medium,
+        }
+        : {}),
+    };
+
+    if (Object.keys(patch).length === 0) {
+      return;
+    }
+
+    await this.enqueueSessionModelPatch(sessionId, async () => {
+      const client = this.requireGatewayClient();
+      console.debug(
+        '[OpenClawRuntime] ensuring session before goal command.',
+        `Session ${sessionId}.`,
+        `OpenClaw key ${sessionKey}.`,
+        currentModel ? `Model ${currentModel}.` : 'Model default.',
+      );
+      await client.request('sessions.patch', {
+        key: sessionKey,
+        ...patch,
+      }, { timeoutMs: OpenClawRuntimeAdapter.SESSION_PATCH_TIMEOUT_MS });
+      if (currentModel) {
+        this.lastPatchedModelBySession.set(sessionId, currentModel);
+      }
+    });
   }
 
   private async runTurn(
@@ -4142,6 +4191,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     this.channelLifecycleRunBySessionKey.clear();
     this.stoppedSessions.clear();
     this.recentlyClosedRunIds.clear();
+    this.lastPatchedModelBySession.clear();
     this.browserPrewarmAttempted = false;
     this.lastTickTimestamp = 0;
     // Clear messageUpdate throttle state
