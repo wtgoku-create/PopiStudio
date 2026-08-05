@@ -10,6 +10,7 @@ import CoworkSkillChip from './CoworkSkillChip';
 
 const MARKDOWN_IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\((?:file|localfile|https?|data|blob):[^)]+\)\s*$/i;
 const USER_MESSAGE_IMAGE_CLASS_NAME = 'my-2 h-32 w-32 shrink-0 rounded-lg border border-border object-cover';
+const USER_MESSAGE_TEXT_CLASS_NAME = 'whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-foreground/90';
 
 const flushText = (
   nodes: React.ReactNode[],
@@ -23,7 +24,7 @@ const flushText = (
   nodes.push(
     <div
       key={`${keyPrefix}-${nodes.length}`}
-      className="whitespace-pre-wrap break-words text-foreground/90"
+      className={USER_MESSAGE_TEXT_CLASS_NAME}
     >
       {text}
     </div>
@@ -76,7 +77,7 @@ const UserMessageContent: React.FC<UserMessageContentProps> = ({
   return (
     <div className={`min-w-0 max-w-full text-[15px] leading-[23px] ${className}`}>
       {promptDocument ? (
-        <div className="whitespace-pre-wrap break-words text-foreground/90">
+        <div className={USER_MESSAGE_TEXT_CLASS_NAME}>
           {promptDocument.segments.map((segment, index) => {
             if (segment.kind === CoworkPromptSegmentKind.Text) {
               return <React.Fragment key={`text-${index}`}>{segment.text}</React.Fragment>;

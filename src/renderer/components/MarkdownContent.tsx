@@ -18,6 +18,7 @@ import CodeBlock from './CodeBlock';
 
 const SAFE_URL_PROTOCOLS = new Set(['http', 'https', 'mailto', 'tel', 'file', 'localfile', 'popiai-source-ref']);
 const LINK_CLASS_NAME = 'text-primary hover:text-primary-hover underline decoration-primary/50 hover:decoration-primary transition-colors break-words [overflow-wrap:anywhere]';
+const MARKDOWN_WRAP_CLASS_NAME = 'break-words [overflow-wrap:anywhere]';
 const LARGE_MARKDOWN_RENDER_THRESHOLD = 8 * 1024;
 const LARGE_MARKDOWN_PREVIEW_HEAD_LENGTH = 4 * 1024;
 const LARGE_MARKDOWN_PREVIEW_TAIL_LENGTH = 8 * 1024;
@@ -381,12 +382,12 @@ const createMarkdownComponents = (
   imageClassName?: string,
 ) => ({
   p: ({ node: _node, className: _className, children, ...props }: any) => (
-    <p className="my-1 first:mt-0 last:mb-0 text-markdown-body-compact text-foreground/90" {...props}>
+    <p className={`my-1 first:mt-0 last:mb-0 text-markdown-body-compact text-foreground/90 ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
       {children}
     </p>
   ),
   strong: ({ node: _node, className: _className, children, ...props }: any) => (
-    <strong className="font-semibold text-foreground" {...props}>
+    <strong className={`font-semibold text-foreground ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
       {children}
     </strong>
   ),
@@ -416,12 +417,12 @@ const createMarkdownComponents = (
     </ol>
   ),
   li: ({ node: _node, className: _className, children, ...props }: any) => (
-    <li className="my-0.5 text-markdown-body-compact text-foreground/90" {...props}>
+    <li className={`my-0.5 text-markdown-body-compact text-foreground/90 ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
       {children}
     </li>
   ),
   blockquote: ({ node: _node, className: _className, children, ...props }: any) => (
-    <blockquote className={`border-l-4 border-primary pl-4 py-1 ${spacing === 'compact' ? 'my-1.5' : 'my-2'} bg-surface-raised/30 rounded-r-lg text-foreground/90 overflow-x-auto`} {...props}>
+    <blockquote className={`border-l-4 border-primary pl-4 py-1 ${spacing === 'compact' ? 'my-1.5' : 'my-2'} bg-surface-raised/30 rounded-r-lg text-foreground/90 ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
       {children}
     </blockquote>
   ),
@@ -452,12 +453,12 @@ const createMarkdownComponents = (
     </tr>
   ),
   th: ({ node: _node, className: _className, children, ...props }: any) => (
-    <th className="px-4 py-2 text-left font-semibold text-foreground" {...props}>
+    <th className={`px-4 py-2 text-left font-semibold text-foreground ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
       {children}
     </th>
   ),
   td: ({ node: _node, className: _className, children, ...props }: any) => (
-    <td className="px-4 py-2 text-foreground/90" {...props}>
+    <td className={`px-4 py-2 text-foreground/90 ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
       {children}
     </td>
   ),
