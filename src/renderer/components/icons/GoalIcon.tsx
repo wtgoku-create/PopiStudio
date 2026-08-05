@@ -2,7 +2,7 @@ import React from 'react';
 
 const GoalIcon: React.FC<{ className?: string }> = ({ className }) => {
   return (
-    <svg className={className} viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg className={className} viewBox="4 4 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M24.5 9.5L18.5 15.5M24.5 9.5H19.5M24.5 9.5V14.5"
         stroke="currentColor"

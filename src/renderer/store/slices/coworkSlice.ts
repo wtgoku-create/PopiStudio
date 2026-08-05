@@ -18,6 +18,7 @@ import {
   type CoworkCollaborationMode as CoworkCollaborationModeType,
   type CoworkConfig,
   type CoworkContextUsage,
+  type CoworkGoalInputMode,
   type CoworkMessage,
   type CoworkPermissionRequest,
   type CoworkSession,
@@ -55,6 +56,12 @@ export interface PlanConfirmationStatus {
   updatedAt: number;
 }
 
+export interface DraftGoalInput {
+  mode: CoworkGoalInputMode;
+  baseline: string | null;
+  returnDraft: string | null;
+}
+
 interface CoworkState {
   sessions: CoworkSessionSummary[];
   /** Whether more sessions exist on the server beyond what is currently loaded. */
@@ -74,6 +81,8 @@ interface CoworkState {
   draftBrowserAnnotationBatches: Record<string, CoworkBrowserAnnotationBatch[]>;
   /** Keyed by draftKey, stores the active collaboration mode for the draft/session. */
   draftCollaborationModes: Record<string, CoworkCollaborationModeType>;
+  /** Keyed by draftKey, stores active goal input draft state across session switches. */
+  draftGoalInputs: Record<string, DraftGoalInput>;
   /** Keyed by sessionId, stores the latest proposed plan confirmation UI state. */
   planConfirmations: Record<string, PlanConfirmationStatus>;
   /** Keyed by sessionId, stores steer drafts separately from normal drafts. */
@@ -112,6 +121,7 @@ const initialState: CoworkState = {
   draftSelectedTextSnippets: {},
   draftBrowserAnnotationBatches: {},
   draftCollaborationModes: {},
+  draftGoalInputs: {},
   planConfirmations: {},
   steerDrafts: {},
   pendingSteers: {},
@@ -553,6 +563,7 @@ const coworkSlice = createSlice({
       delete state.rejectedSteers[action.payload];
       delete state.planConfirmations[action.payload];
       delete state.draftCollaborationModes[action.payload];
+      delete state.draftGoalInputs[action.payload];
       delete state.messageRailIndexBySessionId[action.payload];
       delete state.messageRailIndexLoadingBySessionId[action.payload];
       for (const run of state.subagentRunsByParentSessionId[action.payload] ?? []) {
@@ -572,6 +583,7 @@ const coworkSlice = createSlice({
         delete state.rejectedSteers[sessionId];
         delete state.planConfirmations[sessionId];
         delete state.draftCollaborationModes[sessionId];
+        delete state.draftGoalInputs[sessionId];
         delete state.messageRailIndexBySessionId[sessionId];
         delete state.messageRailIndexLoadingBySessionId[sessionId];
         for (const run of state.subagentRunsByParentSessionId[sessionId] ?? []) {
@@ -1055,6 +1067,14 @@ const coworkSlice = createSlice({
         state.draftCollaborationModes[draftKey] = mode;
       }
     },
+
+    setDraftGoalInput(state, action: PayloadAction<{ draftKey: string; goalInput: DraftGoalInput }>) {
+      state.draftGoalInputs[action.payload.draftKey] = action.payload.goalInput;
+    },
+
+    clearDraftGoalInput(state, action: PayloadAction<string>) {
+      delete state.draftGoalInputs[action.payload];
+    },
   },
 });
 
@@ -1085,6 +1105,8 @@ export const {
   upsertDraftBrowserAnnotationBatch,
   removeDraftBrowserAnnotationBatch,
   clearDraftBrowserAnnotationBatches,
+  setDraftGoalInput,
+  clearDraftGoalInput,
   addSession,
   updateSessionStatus,
   deleteSession,

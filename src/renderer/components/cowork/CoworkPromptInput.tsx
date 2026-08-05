@@ -45,6 +45,7 @@ import {
   addPendingSteer,
   clearDraftAttachments,
   clearDraftBrowserAnnotationBatches,
+  clearDraftGoalInput,
   clearDraftSelectedTextSnippets,
   COWORK_STEER_QUEUE_LIMIT,
   type DraftAttachment,
@@ -56,6 +57,7 @@ import {
   setDraftAttachments,
   setDraftBrowserAnnotationBatches,
   setDraftCollaborationMode,
+  setDraftGoalInput,
   setDraftPrompt,
   setDraftSelectedTextSnippets,
   PlanConfirmationState,
@@ -67,7 +69,7 @@ import type { Model } from '../../store/slices/modelSlice';
 import { setSelectedModel } from '../../store/slices/modelSlice';
 import { setSkills } from '../../store/slices/skillSlice';
 import { Artifact, ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
-import { CoworkCollaborationMode, CoworkImageAttachment } from '../../types/cowork';
+import { CoworkCollaborationMode, CoworkGoalInputMode, CoworkImageAttachment } from '../../types/cowork';
 import { Skill } from '../../types/skill';
 import { toOpenClawModelRef } from '../../utils/openclawModelRef';
 import { getCompactFolderName } from '../../utils/path';
@@ -96,7 +98,6 @@ import { buildPlanAdjustmentSystemPrompt, buildPlanModeSystemPrompt } from './sk
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
 // so that attachment state survives view switches (cowork ↔ skills, etc.)
 type CoworkAttachment = DraftAttachment;
-type GoalInputMode = 'start' | 'set';
 
 const getGoalStatusLabel = (goal: CoworkGoal): string => {
   switch (goal.status) {
@@ -530,10 +531,15 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const draftCollaborationMode = useSelector(
       (state: RootState) => state.cowork.draftCollaborationModes[draftKey] || CoworkCollaborationMode.Default,
     );
+    const draftGoalInput = useSelector(
+      (state: RootState) => state.cowork.draftGoalInputs[draftKey],
+    );
     const planConfirmation = useSelector(
       (state: RootState) => state.cowork.planConfirmations[draftKey],
     );
     const isPlanMode = draftCollaborationMode === CoworkCollaborationMode.Plan;
+    const goalInputActive = Boolean(draftGoalInput);
+    const goalInputMode = draftGoalInput?.mode ?? CoworkGoalInputMode.Start;
     const pendingSteers = useSelector((state: RootState) => (
       sessionId ? state.cowork.pendingSteers[sessionId] || [] : []
     ));
@@ -550,8 +556,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const [value, setValue] = useState(draftPrompt);
     const [steerValue, setSteerValue] = useState(steerDraft);
     const [steerInputActive, setSteerInputActive] = useState(false);
-    const [goalInputActive, setGoalInputActive] = useState(false);
-    const [goalInputMode, setGoalInputMode] = useState<GoalInputMode>('start');
     const [showAddMenu, setShowAddMenu] = useState(false);
     const [showFolderMenu, setShowFolderMenu] = useState(false);
     const [showSkillsPopover, setShowSkillsPopover] = useState(false);
@@ -580,8 +584,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     const modelPatchRequestIdRef = useRef(0);
     const skillSubmenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const knowledgeSubmenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const goalInputBaselineRef = useRef<string | null>(null);
-    const goalInputReturnDraftRef = useRef<string | null>(null);
 
   // 暴露方法给父组件
   React.useImperativeHandle(ref, () => ({
@@ -781,10 +783,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       if (detail?.text !== undefined) {
         setValue(detail.text);
         dispatch(clearDraftAttachments(draftKey));
+        dispatch(clearDraftGoalInput(draftKey));
         setImageVisionHint(false);
       } else if (shouldClear) {
         setValue('');
         dispatch(clearDraftAttachments(draftKey));
+        dispatch(clearDraftGoalInput(draftKey));
         setImageVisionHint(false);
       }
       requestAnimationFrame(() => {
@@ -882,30 +886,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setValue(draftPrompt);
     setSteerValue(steerDraft);
     setSteerInputActive(false);
-    setGoalInputActive(false);
-    setGoalInputMode('start');
-    goalInputBaselineRef.current = null;
-    goalInputReturnDraftRef.current = null;
     // Re-derive imageVisionHint from the new session's draft attachments
     const hasImageWithoutVision = !modelSupportsImage && attachments.some(a => a.isImage || isImagePath(a.path));
     setImageVisionHint(hasImageWithoutVision);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey]); // intentionally omit other deps to only trigger on session switch
-
-  useEffect(() => {
-    if (!sessionId || draftCollaborationMode !== CoworkCollaborationMode.Plan) return;
-    if (
-      planConfirmation?.state === PlanConfirmationState.Awaiting
-      || planConfirmation?.state === PlanConfirmationState.Adjusting
-    ) {
-      return;
-    }
-    dispatch(setDraftCollaborationMode({
-      draftKey,
-      mode: CoworkCollaborationMode.Default,
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftKey]);
 
   useEffect(() => {
     if (value !== draftPrompt) {
@@ -925,16 +910,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [dispatch, sessionId, steerDraft, steerValue]);
 
   const resetGoalInput = useCallback((restoreDraft = false) => {
-    const restoredDraft = restoreDraft ? goalInputReturnDraftRef.current : null;
-    goalInputBaselineRef.current = null;
-    goalInputReturnDraftRef.current = null;
-    setGoalInputActive(false);
-    setGoalInputMode('start');
+    const restoredDraft = restoreDraft ? draftGoalInput?.returnDraft ?? '' : null;
+    dispatch(clearDraftGoalInput(draftKey));
     if (restoredDraft !== null) {
       setValue(restoredDraft);
       dispatch(setDraftPrompt({ sessionId: draftKey, draft: restoredDraft }));
     }
-  }, [dispatch, draftKey]);
+  }, [dispatch, draftGoalInput?.returnDraft, draftKey]);
 
   const handleSubmit = useCallback(async () => {
     const activeValue = steerInputActive ? steerValue : value;
@@ -955,7 +937,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       : CoworkCollaborationMode.Default;
     if (goalInputActive) {
       if (!trimmedValue || disabled || isPatchingModel) return;
-      if (goalInputMode === 'set' && goalInputBaselineRef.current !== null && trimmedValue === goalInputBaselineRef.current) {
+      if (
+        goalInputMode === CoworkGoalInputMode.Set
+        && draftGoalInput?.baseline !== null
+        && draftGoalInput?.baseline !== undefined
+        && trimmedValue === draftGoalInput.baseline
+      ) {
         resetGoalInput(true);
         return;
       }
@@ -1247,7 +1234,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         editorRef.current?.focus();
       });
     }
-  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, browserAnnotationBatches, pendingSteers.length, dispatch, draftKey, onSubmit, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseOptions, selectedKnowledgeFiles, configuredInlineSkills, isPlanMode, planConfirmation]);
+  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, draftGoalInput?.baseline, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, browserAnnotationBatches, pendingSteers.length, dispatch, draftKey, onSubmit, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseOptions, selectedKnowledgeFiles, configuredInlineSkills, isPlanMode, planConfirmation]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     if (!skill.skillPath.trim()) return;
@@ -1552,7 +1539,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     requestAnimationFrame(() => editorRef.current?.focus());
   }, [disabled, dispatch, draftKey, goalInputActive, handleCloseSkillsPopover, isPatchingModel, isPlanMode, planConfirmation?.messageId, planConfirmation?.state, remoteManaged, resetGoalInput]);
 
-  const handleEnableGoalInput = useCallback((mode: GoalInputMode = 'start', initialValue?: string) => {
+  const handleEnableGoalInput = useCallback((mode: CoworkGoalInputMode = CoworkGoalInputMode.Start, initialValue?: string) => {
     if (disabled || remoteManaged || isPatchingModel) return;
     if (!onGoalCommand && sessionId) return;
     setShowAddMenu(false);
@@ -1572,10 +1559,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         dispatch(setSteerDraft({ sessionId, draft: steerValue }));
       }
     }
-    goalInputReturnDraftRef.current = value;
-    goalInputBaselineRef.current = mode === 'set' && initialValue !== undefined ? initialValue : null;
-    setGoalInputMode(mode);
-    setGoalInputActive(true);
+    dispatch(setDraftGoalInput({
+      draftKey,
+      goalInput: {
+        mode,
+        baseline: mode === CoworkGoalInputMode.Set && initialValue !== undefined ? initialValue : null,
+        returnDraft: value,
+      },
+    }));
     setValue(initialValue ?? '');
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: initialValue ?? '' }));
     requestAnimationFrame(() => editorRef.current?.focus());
@@ -2293,20 +2284,24 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     </div>
   );
 
+  const addMenuButtonSizeClass = isLarge || isCompact ? 'h-[34px] w-[34px]' : 'h-7 w-7';
+  const addMenuIconSizeClass = isLarge || isCompact ? 'h-5 w-5' : 'h-4 w-4';
+  const addMenuItemIconClass = 'h-[18px] w-[18px] shrink-0 text-secondary';
+
   const addMenuAction = !remoteManaged ? (
     <div className="relative">
       <button
         ref={addMenuButtonRef}
         type="button"
         onClick={handleOpenAddMenu}
-        className="flex h-[34px] w-[34px] items-center justify-center rounded-lg text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+        className={`flex ${addMenuButtonSizeClass} flex-shrink-0 items-center justify-center rounded-lg text-secondary transition-colors hover:bg-surface-raised hover:text-foreground`}
         title={i18nService.t('add')}
         aria-label={i18nService.t('add')}
         aria-haspopup="menu"
         aria-expanded={showAddMenu || showSkillsPopover}
         disabled={disabled}
       >
-        <PromptAddIcon className="h-5 w-5" />
+        <PromptAddIcon className={addMenuIconSizeClass} />
       </button>
 
       {showAddMenu && (
@@ -2332,7 +2327,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
             role="menuitem"
           >
-            <PaperClipIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <PaperClipIcon className={addMenuItemIconClass} />
             <span className="min-w-0 truncate">{i18nService.t('coworkAddFile')}</span>
           </button>
           <button
@@ -2351,14 +2346,14 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             aria-haspopup="menu"
             aria-expanded={showKnowledgeSubmenu}
           >
-            <AcademicCapIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <AcademicCapIcon className={addMenuItemIconClass} />
             <span className="min-w-0 flex-1 truncate">{i18nService.t('knowledgeBase')}</span>
             {selectedKnowledgeBases.length > 0 && (
               <span className="max-w-[72px] truncate text-xs text-secondary">
                 {selectedKnowledgeBases.length}
               </span>
             )}
-            <ChevronRightIcon className="h-4 w-4 shrink-0 text-secondary" />
+            <ChevronRightIcon className={addMenuItemIconClass} />
           </button>
           <button
             ref={skillMenuItemRef}
@@ -2373,9 +2368,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             aria-haspopup="menu"
             aria-expanded={showSkillsPopover}
           >
-            <SkillIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <SkillIcon className={addMenuItemIconClass} />
             <span className="min-w-0 flex-1 truncate">{i18nService.t('useSkill')}</span>
-            <ChevronRightIcon className="h-4 w-4 shrink-0 text-secondary" />
+            <ChevronRightIcon className={addMenuItemIconClass} />
           </button>
           <button
             type="button"
@@ -2391,17 +2386,16 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             disabled={disabled || isPatchingModel || remoteManaged}
             className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               isPlanMode ? 'bg-surface-raised text-foreground' : 'text-foreground hover:bg-surface-raised'
-            }`}
+            } focus:outline-none focus-visible:ring-1 focus-visible:ring-border-subtle`}
             role="menuitemcheckbox"
             aria-checked={isPlanMode}
           >
-            <PlanModeIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <PlanModeIcon className={addMenuItemIconClass} />
             <span className="min-w-0 flex-1 truncate">{i18nService.t('coworkPlanMode')}</span>
-            {isPlanMode && <XMarkIcon className="h-3.5 w-3.5 shrink-0 text-secondary" />}
           </button>
           <button
             type="button"
-            onClick={() => handleEnableGoalInput(goal ? 'set' : 'start', goal?.objective)}
+            onClick={() => handleEnableGoalInput(goal ? CoworkGoalInputMode.Set : CoworkGoalInputMode.Start, goal?.objective)}
             onMouseEnter={() => {
               handleCloseSkillsPopover();
               handleCloseKnowledgeSubmenu();
@@ -2416,7 +2410,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             }`}
             role="menuitem"
           >
-            <GoalIcon className="h-5 w-5 shrink-0 text-secondary" />
+            <GoalIcon className={addMenuItemIconClass} />
             <span className="shrink-0 text-foreground">{i18nService.t('coworkGoal')}</span>
             {goal?.objective && (
               <span className="min-w-0 flex-1 truncate text-secondary">
@@ -2631,7 +2625,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           <div className="flex shrink-0 items-center gap-0.5">
             <button
               type="button"
-              onClick={() => handleEnableGoalInput('set', goal.objective)}
+              onClick={() => handleEnableGoalInput(CoworkGoalInputMode.Set, goal.objective)}
               disabled={goalActionsDisabled}
               className="rounded-md p-1 text-secondary transition-colors hover:bg-surface hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               title={i18nService.t('coworkGoalEdit')}
@@ -2761,7 +2755,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         event.stopPropagation();
         handleTogglePlanMode();
       }}
-      className="group inline-flex h-[34px] max-w-[220px] items-center gap-1.5 rounded-lg px-2 text-[13px] font-normal leading-none text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+      className="group inline-flex h-[34px] max-w-[220px] items-center gap-1.5 rounded-lg px-2 text-[13px] font-normal leading-none text-secondary transition-colors hover:bg-surface-raised hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-border-subtle"
       title={i18nService.t('coworkClearPlanMode')}
       aria-label={i18nService.t('coworkClearPlanMode')}
     >

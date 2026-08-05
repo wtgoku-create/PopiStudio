@@ -464,7 +464,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         selectedTextSnippets,
         browserAnnotations,
         promptDocument,
-        systemPrompt: options?.skillPrompt,
+        turnInstructions: options?.skillPrompt,
         activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
         imageAttachments,
       });

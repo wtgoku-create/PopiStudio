@@ -37,6 +37,14 @@ export const CoworkCollaborationMode = {
 export type CoworkCollaborationMode =
   typeof CoworkCollaborationMode[keyof typeof CoworkCollaborationMode];
 
+export const CoworkGoalInputMode = {
+  Start: 'start',
+  Set: 'set',
+} as const;
+
+export type CoworkGoalInputMode =
+  typeof CoworkGoalInputMode[keyof typeof CoworkGoalInputMode];
+
 export const OpenClawSessionKeepAlive = {
   OneDay: '1d',
   SevenDays: '7d',
@@ -306,6 +314,7 @@ export interface CoworkContinueOptions {
   knowledgeBases?: Array<{ id: string; name: string }>;
   knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
   systemPrompt?: string;
+  turnInstructions?: string;
   activeSkillIds?: string[];
   imageAttachments?: CoworkImageAttachment[];
   selectedTextSnippets?: CoworkSelectedTextSnippet[];

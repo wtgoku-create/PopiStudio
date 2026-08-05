@@ -35,6 +35,7 @@ import {
   normalizeCoworkPromptDocument,
   serializeCoworkPromptDocumentForOpenClaw,
 } from '../shared/cowork/promptDocument';
+import { containsPlanModePrompt } from '../shared/cowork/planMode';
 import {
   type CoworkSelectedTextSnippet,
   normalizeCoworkSelectedTextSnippets,
@@ -3315,6 +3316,9 @@ if (!gotTheLock) {
       const systemPrompt = mergeCoworkSystemPrompt(
         options.systemPrompt ?? config.systemPrompt,
       );
+      const persistedSystemPrompt = containsPlanModePrompt(systemPrompt)
+        ? mergeCoworkSystemPrompt(config.systemPrompt)
+        : systemPrompt;
       const selectedTaskDirectory = resolveSessionWorkingDirectory({
         cwd: options.cwd,
         agentId: options.agentId,
@@ -3348,7 +3352,7 @@ if (!gotTheLock) {
       const session = coworkStoreInstance.createSession(
         title,
         taskWorkingDirectory,
-        systemPrompt,
+        persistedSystemPrompt,
         config.executionMode || 'local',
         runtimeSkillIds || [],
         options.agentId || 'main',
@@ -3461,6 +3465,7 @@ if (!gotTheLock) {
     selectedTextSnippets?: CoworkSelectedTextSnippet[];
     browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
     systemPrompt?: string;
+    turnInstructions?: string;
     activeSkillIds?: string[];
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
   }) => {
@@ -3473,6 +3478,7 @@ if (!gotTheLock) {
       const runtime = getCoworkEngineRouter();
       const coworkStoreInstance = getCoworkStore();
       const existingSession = coworkStoreInstance.getSession(options.sessionId);
+      const config = coworkStoreInstance.getConfig();
       if (!existingSession) {
         return {
           success: false,
@@ -3549,12 +3555,30 @@ if (!gotTheLock) {
         const openClawPrompt = promptDocument
           ? serializeCoworkPromptDocumentForOpenClaw(promptDocument, prompt)
           : prompt;
-        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt: openClawPrompt });
+        const hasLegacyPersistedPlanMode = containsPlanModePrompt(existingSession.systemPrompt);
+        const continuationSystemPrompt = mergeCoworkSystemPrompt(
+          hasLegacyPersistedPlanMode ? config.systemPrompt : existingSession.systemPrompt,
+        );
+        if (hasLegacyPersistedPlanMode) {
+          coworkStoreInstance.updateSession(options.sessionId, {
+            systemPrompt: mergeCoworkSystemPrompt(config.systemPrompt) ?? '',
+          });
+          console.log(`[Cowork] removed a legacy persisted plan mode prompt from session ${options.sessionId}.`);
+        }
+        const turnInstructions = options.turnInstructions?.trim();
+        const runtimePrompt = turnInstructions
+          ? [
+            '[Popiai turn instructions]',
+            turnInstructions,
+            '',
+            '[User request]',
+            openClawPrompt,
+          ].join('\n')
+          : openClawPrompt;
+        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt: runtimePrompt });
         await runtime.continueSession(options.sessionId, baseRuntimePrompt, {
           skipInitialUserMessage: true,
-          systemPrompt: mergeCoworkSystemPrompt(
-            options.systemPrompt ?? existingSession?.systemPrompt,
-          ),
+          systemPrompt: continuationSystemPrompt,
           skillIds: runtimeSkillIds,
           imageAttachments: browserAnnotationPayload.imageAttachments,
           selectedTextSnippets,

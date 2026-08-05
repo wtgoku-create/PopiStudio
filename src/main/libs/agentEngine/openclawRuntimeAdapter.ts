@@ -26,6 +26,11 @@ import {
   normalizeCoworkGoal,
 } from '../../../shared/cowork/goal';
 import {
+  containsPlanModePrompt,
+  isPlanImplementationApproval,
+  PLAN_MODE_EXECUTION_OVERRIDE_MARKER,
+} from '../../../shared/cowork/planMode';
+import {
   buildSelectedTextPromptSection,
   type CoworkSelectedTextSnippet,
 } from '../../../shared/cowork/selectedText';
@@ -377,6 +382,39 @@ function formatGoalResumeContinuationPrompt(note: string): string {
     : `Continue pursuing the current goal. Note: ${trimmed}`;
 }
 
+function isPlanModeSystemPrompt(systemPrompt: string): boolean {
+  return containsPlanModePrompt(systemPrompt)
+    && !systemPrompt.includes(PLAN_MODE_EXECUTION_OVERRIDE_MARKER);
+}
+
+function sessionHasProposedPlan(messages: CoworkMessage[]): boolean {
+  return messages.some((message) => (
+    message.type === 'assistant'
+    && /<proposed_plan\b[^>]*>[\s\S]*<\/proposed_plan\s*>/i.test(message.content)
+  ));
+}
+
+function buildPlanModeExecutionOverridePrompt(): string {
+  return [
+    PLAN_MODE_EXECUTION_OVERRIDE_MARKER,
+    '',
+    'The user explicitly approved the existing proposed plan and asked you to implement it.',
+    'For this turn, Plan Mode is disabled. Ignore earlier Plan Mode restrictions and do not output another proposed plan.',
+    'Implement the approved plan now, including file changes and validation requested by the plan.',
+  ].join('\n');
+}
+
+function buildPlanModeOutboundReminder(): string {
+  return [
+    '[Plan Mode reminder]',
+    'Plan Mode is active for this turn.',
+    'Only use read-only exploration when needed; do not implement, create, modify, write, edit, or run shell commands that can change files or system state.',
+    'Write the plan in the same language as the user request.',
+    'Return one complete proposed plan wrapped in <proposed_plan> and </proposed_plan> tags.',
+    'Do not stop after a preface; include Summary, Implementation Approach, Key Changes, Validation, and Assumptions or Questions.',
+  ].join('\n');
+}
+
 function shouldBootstrapGoalFromPrompt(
   command: { action: OpenClawGoalCommandAction; text: string } | null,
 ): command is { action: 'create' | 'set' | 'start'; text: string } {
@@ -511,6 +549,7 @@ type ActiveTurn = {
   sessionKey: string;
   runId: string;
   turnToken: number;
+  planMode: boolean;
   /** Timestamp when this turn was created (for abort diagnostics). */
   startedAtMs: number;
   firstResponseTiming?: FirstResponseTiming;
@@ -3326,10 +3365,32 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       );
     }
 
+    const systemPromptText = options.systemPrompt ?? session.systemPrompt ?? '';
+    const planModeExecutionApproved = (
+      containsPlanModePrompt(systemPromptText)
+      || containsPlanModePrompt(promptWithBrowserAnnotations)
+    )
+      && isPlanImplementationApproval(effectivePrompt)
+      && sessionHasProposedPlan(session.messages);
+    const outboundSystemPrompt = [
+      systemPromptText,
+      planModeExecutionApproved ? buildPlanModeExecutionOverridePrompt() : '',
+    ].filter(p => p?.trim()).join('\n\n');
+    const planMode = isPlanModeSystemPrompt(outboundSystemPrompt)
+      || (
+        containsPlanModePrompt(promptWithBrowserAnnotations)
+        && !planModeExecutionApproved
+      );
+    if (planModeExecutionApproved) {
+      console.log(
+        `[OpenClawRuntime] exited plan mode for an approved implementation in session ${sessionId}.`,
+      );
+    }
+
     const outboundMessage = stripNullChars(await this.buildOutboundPrompt(
       sessionId,
       promptWithBrowserAnnotations,
-      options.systemPrompt ?? session.systemPrompt,
+      outboundSystemPrompt,
       agentId,
     ));
     if (this.cancelTurnStartupIfStopped(sessionId, 'outbound prompt built')) {
@@ -3345,6 +3406,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       sessionKey,
       runId,
       turnToken,
+      planMode,
       knownRunIds: new Set([runId]),
       assistantMessageId: null,
       committedAssistantText: '',
@@ -3438,6 +3500,11 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     agentId?: string,
   ): Promise<string> {
     const normalizedSystemPrompt = (systemPrompt ?? '').trim();
+    const planMode = isPlanModeSystemPrompt(normalizedSystemPrompt)
+      || (
+        containsPlanModePrompt(prompt)
+        && !normalizedSystemPrompt.includes(PLAN_MODE_EXECUTION_OVERRIDE_MARKER)
+      );
     const previousSystemPrompt = this.lastSystemPromptBySession.get(sessionId) ?? '';
     const shouldInjectSystemPrompt = Boolean(
       normalizedSystemPrompt
@@ -3480,6 +3547,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       if (prompt.trim()) {
         sections.push(`[Current user request]\n${prompt}`);
       }
+      if (planMode) {
+        sections.push(buildPlanModeOutboundReminder());
+      }
       return sections.join('\n\n');
     }
 
@@ -3518,6 +3588,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
     if (prompt.trim()) {
       sections.push(`[Current user request]\n${prompt}`);
+    }
+    if (planMode) {
+      sections.push(buildPlanModeOutboundReminder());
     }
     return sections.join('\n\n');
   }
@@ -9059,6 +9132,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       sessionKey,
       runId: turnRunId,
       turnToken,
+      planMode: false,
       knownRunIds: new Set(runId ? [runId] : [turnRunId]),
       assistantMessageId: null,
       committedAssistantText: '',

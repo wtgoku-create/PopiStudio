@@ -573,6 +573,7 @@ interface IElectronAPI {
       selectedTextSnippets?: CoworkSelectedTextSnippetPayload[];
       browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
       systemPrompt?: string;
+      turnInstructions?: string;
       activeSkillIds?: string[];
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
     }) => Promise<{

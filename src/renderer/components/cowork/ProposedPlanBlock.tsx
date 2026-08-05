@@ -77,10 +77,10 @@ const ProposedPlanBlock: React.FC<ProposedPlanBlockProps> = ({
 
   return (
     <section
-      className="overflow-hidden rounded-lg border border-primary/20 bg-primary/5"
+      className="overflow-hidden rounded-lg border border-primary/20 bg-primary/5 dark:border-primary/10"
       aria-label={i18nService.t('coworkProposedPlanTitle')}
     >
-      <header className="flex min-h-12 items-center justify-between gap-3 border-b border-primary/10 px-4 py-2">
+      <header className="flex min-h-12 items-center justify-between gap-3 border-b border-primary/10 px-4 py-2 dark:border-primary/5">
         <div className="min-w-0 text-sm font-medium text-primary">
           {i18nService.t('coworkProposedPlanTitle')}
         </div>
@@ -127,7 +127,7 @@ const ProposedPlanBlock: React.FC<ProposedPlanBlockProps> = ({
         </div>
       )}
       {showConfirmationActions && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-primary/10 px-4 py-3 sm:px-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-primary/10 px-4 py-3 dark:border-primary/5 sm:px-5">
           <div className="text-sm font-medium text-secondary">
             {i18nService.t('coworkPlanConfirmationReady')}
           </div>

@@ -899,6 +899,7 @@ class CoworkService {
       browserAnnotations: options.browserAnnotations,
       promptDocument: options.promptDocument,
       systemPrompt: options.systemPrompt,
+      turnInstructions: options.turnInstructions,
       activeSkillIds: options.activeSkillIds,
       imageAttachments: options.imageAttachments,
     });
