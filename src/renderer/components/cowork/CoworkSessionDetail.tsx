@@ -12,7 +12,6 @@ import {
   type CoworkBrowserAnnotationMessageBatch,
   normalizeBrowserAnnotationBatches,
 } from '@shared/cowork/browserAnnotations';
-import { CoworkSessionSourceKind } from '@shared/cowork/constants';
 import {
   type CoworkPromptDocument,
   CoworkPromptSegmentKind,
@@ -1327,7 +1326,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       icon: '',
     };
   }, [agents, currentSession?.agentId]);
-  const headerAgentName = getAgentDisplayName(headerAgent);
   const detailRootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollContentRef = useRef<HTMLDivElement>(null);
@@ -4175,7 +4173,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             </span>
             <div className="min-w-0">
               <div className="truncate text-sm font-medium leading-4 text-foreground max-w-[360px]">
-                {currentSession.source?.kind === CoworkSessionSourceKind.ScheduledTask ? currentSession.source.label || currentSession.title || i18nService.t('coworkNewSession') : headerAgentName}
+                {currentSession.title || currentSession.source?.label || i18nService.t('coworkNewSession')}
               </div>
             </div>
           </div>
