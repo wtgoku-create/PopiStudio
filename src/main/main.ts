@@ -3786,6 +3786,18 @@ if (!gotTheLock) {
         forkedFromMessageId,
         contextMessages,
       });
+      const forkModel = session.modelOverride
+        || coworkStoreInstance.getAgent(session.agentId || DEFAULT_MANAGED_AGENT_ID)?.model
+        || '';
+      try {
+        await runtime.createSession(session.id, {
+          agentId: session.agentId || DEFAULT_MANAGED_AGENT_ID,
+          model: forkModel,
+        });
+      } catch (error) {
+        coworkStoreInstance.deleteSession(session.id);
+        throw error;
+      }
       BrowserWindow.getAllWindows().forEach((win) => {
         if (win.isDestroyed()) return;
         win.webContents.send(CoworkIpcChannel.SessionsChanged, { sessionIds: [sessionId, session.id] });

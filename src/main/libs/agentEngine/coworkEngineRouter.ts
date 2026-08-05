@@ -5,6 +5,7 @@ import type { CoworkGoal } from '../../../shared/cowork/goal';
 import type { CoworkSteerResponse } from '../../../shared/cowork/steer';
 import type {
   CoworkAgentEngine,
+  CoworkCreateRuntimeSessionOptions,
   CoworkContextUsage,
   CoworkContinueOptions,
   CoworkForkCompactionSummary,
@@ -73,6 +74,15 @@ export class CoworkEngineRouter extends EventEmitter implements CoworkRuntime {
       this.clearRequestEngineBySession(sessionId);
       throw error;
     }
+  }
+
+  async createSession(sessionId: string, options: CoworkCreateRuntimeSessionOptions = {}): Promise<void> {
+    const engine = this.safeResolveEngine();
+    this.sessionEngine.set(sessionId, engine);
+    if (!this.runtime.createSession) {
+      throw new Error(`Session creation is not supported by engine: ${engine}`);
+    }
+    await this.runtime.createSession(sessionId, options);
   }
 
   async submitSteer(sessionId: string, text: string, clientSteerId: string): Promise<CoworkSteerResponse> {

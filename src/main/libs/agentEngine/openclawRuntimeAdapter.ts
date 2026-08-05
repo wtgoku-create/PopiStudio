@@ -49,6 +49,7 @@ import { setCoworkProxySessionId } from '../coworkOpenAICompatProxy';
 import { extractOpenClawAssistantStreamParts,extractOpenClawAssistantStreamText } from '../openclawAssistantText';
 import {
   buildManagedSessionKey,
+  DEFAULT_MANAGED_AGENT_ID,
   extractCronJobIdFromSessionKey,
   isCronSessionKey,
   isManagedSessionKey,
@@ -129,6 +130,7 @@ import { reconcileOpenClawThinkingBlocks } from './thinking/reconciliation';
 import type {
   CoworkContextUsage,
   CoworkContinueOptions,
+  CoworkCreateRuntimeSessionOptions,
   CoworkForkCompactionSummary,
   CoworkRuntime,
   CoworkRuntimeEvents,
@@ -2904,6 +2906,42 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       selectedTextSnippets: options.selectedTextSnippets,
       browserAnnotations: options.browserAnnotations,
     });
+  }
+
+  async createSession(sessionId: string, options: CoworkCreateRuntimeSessionOptions = {}): Promise<void> {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      throw new Error('Session id is required.');
+    }
+
+    const session = this.store.getSession(normalizedSessionId, 0);
+    if (!session) {
+      throw new Error(`Session ${normalizedSessionId} not found`);
+    }
+
+    const agentId = options.agentId?.trim() || session.agentId || DEFAULT_MANAGED_AGENT_ID;
+    const sessionKey = this.toSessionKey(normalizedSessionId, agentId);
+    const model = session.modelOverride
+      ? session.modelOverride.trim()
+      : this.normalizeModelRef((options.model ?? '').trim());
+
+    await this.ensureGatewayClientReady();
+    const client = this.requireGatewayClient();
+    const response = await client.request<{ ok?: boolean; key?: unknown }>('sessions.create', {
+      agentId,
+      key: sessionKey,
+      ...(model ? { model } : {}),
+    }, { timeoutMs: OpenClawRuntimeAdapter.SESSION_PATCH_TIMEOUT_MS });
+    const createdKey = typeof response?.key === 'string' && response.key.trim()
+      ? response.key.trim()
+      : sessionKey;
+    this.rememberSessionKey(normalizedSessionId, createdKey);
+    console.debug(
+      '[OpenClawRuntime] created gateway session.',
+      `Session ${normalizedSessionId}.`,
+      `OpenClaw key ${createdKey}.`,
+      `Agent ${agentId}.`,
+    );
   }
 
   async submitSteer(

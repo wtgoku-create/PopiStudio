@@ -76,6 +76,11 @@ export type CoworkImageAttachment = {
   base64Data: string;
 };
 
+export type CoworkCreateRuntimeSessionOptions = {
+  agentId?: string;
+  model?: string;
+};
+
 export type CoworkStartOptions = {
   skipInitialUserMessage?: boolean;
   skillIds?: string[];
@@ -110,6 +115,7 @@ export interface CoworkRuntime {
   ): this;
   startSession(sessionId: string, prompt: string, options?: CoworkStartOptions): Promise<void>;
   continueSession(sessionId: string, prompt: string, options?: CoworkContinueOptions): Promise<void>;
+  createSession?(sessionId: string, options?: CoworkCreateRuntimeSessionOptions): Promise<void>;
   patchSession?(sessionId: string, patch: OpenClawSessionPatch): Promise<void>;
   getContextUsage?(sessionId: string): Promise<CoworkContextUsage | null>;
   compactContext?(sessionId: string): Promise<{ compacted: boolean; reason?: string; usage?: CoworkContextUsage | null }>;
