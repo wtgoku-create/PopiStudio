@@ -67,7 +67,6 @@ import {
   updateCurrentSessionModelOverride,
 } from '../../store/slices/coworkSlice';
 import type { Model } from '../../store/slices/modelSlice';
-import { setSelectedModel } from '../../store/slices/modelSlice';
 import { setSkills } from '../../store/slices/skillSlice';
 import { Artifact, ArtifactTypeValue, PREVIEWABLE_ARTIFACT_TYPES } from '../../types/artifact';
 import { CoworkCollaborationMode, CoworkGoalInputMode, CoworkImageAttachment } from '../../types/cowork';
@@ -95,6 +94,7 @@ import FolderSelectorPopover from './FolderSelectorPopover';
 import RichCoworkPromptEditor, { type RichCoworkPromptEditorRef } from './RichCoworkPromptEditor';
 import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
 import { buildPlanAdjustmentSystemPrompt, buildPlanModeSystemPrompt } from './skillSystemPrompt';
+import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
 // so that attachment state survives view switches (cowork ↔ skills, etc.)
@@ -726,6 +726,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       .map(getInlinePromptSkill)
   ), [currentAgent?.skillIds, sessionId, skills]);
   const currentAgentSelectedModel = useAgentSelectedModel(modelTargetAgentId, currentAgent?.model ?? '');
+  const {
+    isPersistingAgentModel,
+    persistAgentModelSelection,
+  } = usePersistAgentModelSelection({
+    agentId: modelTargetAgentId,
+    syncDefaultModel: false,
+  });
   const {
     selectedModel: agentSelectedModel,
     hasInvalidExplicitModel: agentModelIsInvalid,
@@ -2124,12 +2131,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         compact={useHomeContextLayout}
         dropdownDirection="up"
         alignDropdownToTriggerEnd={useHomeContextLayout}
-        disabled={isPatchingModel}
+        disabled={isPatchingModel || isPersistingAgentModel}
         value={agentModelIsInvalid && currentSession?.modelOverride
           ? { id: '__invalid__', name: currentSession.modelOverride.split('/').pop() || currentSession.modelOverride } as Model
           : agentSelectedModel}
         onChange={async (nextModel) => {
-          if (isPatchingModel) return;
+          if (isPatchingModel || isPersistingAgentModel) return;
           if (!nextModel) return;
           const modelRef = toOpenClawModelRef(nextModel);
           const supportsThinking = ProviderRegistry.resolveModelSupportsThinking(
@@ -2187,7 +2194,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             }
             return;
           }
-          dispatch(setSelectedModel({ agentId: modelTargetAgentId, model: nextModel }));
+          await persistAgentModelSelection(nextModel);
         }}
       />
       {agentModelIsInvalid && (
