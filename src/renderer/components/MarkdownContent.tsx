@@ -382,7 +382,7 @@ const createMarkdownComponents = (
   imageClassName?: string,
 ) => ({
   p: ({ node: _node, className: _className, children, ...props }: any) => (
-    <p className={`my-1 first:mt-0 last:mb-0 text-markdown-body-compact text-foreground/90 ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
+    <p className={`my-2 first:mt-0 last:mb-0 text-markdown-body-compact text-foreground/90 ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
       {children}
     </p>
   ),
@@ -407,17 +407,17 @@ const createMarkdownComponents = (
     </h3>
   ),
   ul: ({ node: _node, className: _className, children, ...props }: any) => (
-    <ul className="list-disc pl-5 my-1.5 text-foreground/90" {...props}>
+    <ul className="list-disc pl-5 my-2.5 text-foreground/90" {...props}>
       {children}
     </ul>
   ),
   ol: ({ node: _node, className: _className, children, ...props }: any) => (
-    <ol className="list-decimal pl-6 my-1.5 text-foreground/90" {...props}>
+    <ol className="list-decimal pl-6 my-2.5 text-foreground/90" {...props}>
       {children}
     </ol>
   ),
   li: ({ node: _node, className: _className, children, ...props }: any) => (
-    <li className={`my-0.5 text-markdown-body-compact text-foreground/90 ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
+    <li className={`my-2 text-markdown-body-compact text-foreground/90 ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
       {children}
     </li>
   ),

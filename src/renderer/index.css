@@ -115,7 +115,7 @@ blockquote {
   --lobster-leading-markdownH1: 28px;
   --lobster-leading-markdownH2: 24px;
   --lobster-leading-markdownH3: 23px;
-  --lobster-leading-markdownCompact: 20px;
+  --lobster-leading-markdownCompact: 23px;
   --lobster-leading-prompt: 22px;
   --lobster-leading-promptLarge: 23px;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Helvetica Neue', 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;

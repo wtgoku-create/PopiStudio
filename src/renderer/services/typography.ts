@@ -17,8 +17,8 @@ const TEXT_SIZE_BASE = {
   '4xl': 36,
   markdown: 15,
   markdownH1: 18,
-  markdownH2: 16,
-  markdownH3: 15,
+  markdownH2: 17,
+  markdownH3: 16,
   promptLarge: 15,
   sidebarCompact: 13,
 } as const;
@@ -36,7 +36,7 @@ const LINE_HEIGHT_BASE = {
   markdownH1: 28,
   markdownH2: 24,
   markdownH3: 23,
-  markdownCompact: 20,
+  markdownCompact: 23,
   prompt: 22,
   promptLarge: 23,
 } as const;
