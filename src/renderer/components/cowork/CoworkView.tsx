@@ -131,6 +131,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
   const skills = useSelector((state: RootState) => state.skill.skills);
   const quickActions = useSelector((state: RootState) => state.quickAction.actions);
   const selectedActionId = useSelector((state: RootState) => state.quickAction.selectedActionId);
+  const selectedPromptId = useSelector((state: RootState) => state.quickAction.selectedPromptId);
   const currentAgentId = useSelector((state: RootState) => state.agent.currentAgentId);
   const agents = useSelector((state: RootState) => state.agent.agents);
   const currentAgent = agents.find((agent) => agent.id === currentAgentId);
@@ -529,6 +530,12 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     });
   };
 
+  const handlePromptSkillIdsChange = React.useCallback((skillIds: string[]) => {
+    if (!selectedAction || !selectedPromptId) return;
+    if (skillIds.includes(selectedAction.skillMapping)) return;
+    dispatch(clearSelection());
+  }, [dispatch, selectedAction, selectedPromptId]);
+
   useEffect(() => {
     const handleNewSession = () => {
       // Only clear when already on home (no session) — preserve the home draft when returning from a session
@@ -731,6 +738,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
               showAgentSelector={true}
               commandMenuPlacement="bottom"
               onManageSkills={() => onShowSkills?.()}
+              onPromptSkillIdsChange={handlePromptSkillIdsChange}
             />
           </div>
 

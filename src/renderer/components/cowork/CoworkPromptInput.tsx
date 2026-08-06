@@ -23,6 +23,7 @@ import { isPlanImplementationApproval } from '../../../shared/cowork/planMode';
 import {
   type CoworkPromptDocument,
   CoworkPromptResourceSource,
+  CoworkPromptSegmentKind,
   type CoworkPromptSkill,
   getCoworkPromptDocumentText,
   stripCoworkPromptDocumentSkills,
@@ -371,6 +372,7 @@ interface CoworkPromptInputProps {
   canSteer?: boolean;
   contextUsageControl?: React.ReactNode;
   commandMenuPlacement?: 'top' | 'bottom';
+  onPromptSkillIdsChange?: (skillIds: string[]) => void;
   /** When true, hides attachment/skill buttons but keeps the input box visible (disabled) */
   remoteManaged?: boolean;
 }
@@ -511,6 +513,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       canSteer = false,
       contextUsageControl,
       commandMenuPlacement = 'top',
+      onPromptSkillIdsChange,
       remoteManaged = false,
     } = props;
     const dispatch = useDispatch();
@@ -1251,6 +1254,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [disabled, remoteManaged, steerInputActive]);
 
   const handleEditorChange = useCallback((nextValue: string, caretIndex: number) => {
+    onPromptSkillIdsChange?.(
+      editorRef.current?.getDocument().segments
+        .filter(segment => segment.kind === CoworkPromptSegmentKind.Skill)
+        .map(segment => segment.skillId) ?? [],
+    );
     if (steerInputActive) {
       setSteerValue(nextValue);
       setCommandTrigger(null);
@@ -1258,7 +1266,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     }
     setValue(nextValue);
     updateCommandTrigger(nextValue, caretIndex);
-  }, [steerInputActive, updateCommandTrigger]);
+  }, [onPromptSkillIdsChange, steerInputActive, updateCommandTrigger]);
 
   const removeCommandText = useCallback((replacement = '', afterSync?: () => void) => {
     if (!commandTrigger) return;
