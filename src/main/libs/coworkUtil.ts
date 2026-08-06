@@ -723,6 +723,12 @@ const WINDOWS_SYSTEM_PATH_ENTRIES = [
   'System32\\OpenSSH',
 ];
 
+const WINDOWS_POWERSHELL_CORE_PATH_ENTRIES = [
+  'C:\\Program Files\\PowerShell\\7',
+  'C:\\Program Files\\PowerShell\\7-preview',
+  'C:\\Program Files (x86)\\PowerShell\\7',
+];
+
 /**
  * Critical Windows environment variables that some system commands and DLLs depend on.
  * Without these, commands like ipconfig may fail even if System32 is in PATH.
@@ -802,6 +808,31 @@ function ensureWindowsSystemPathEntries(env: Record<string, string | undefined>)
     env.PATH = currentPath ? `${currentPath}${delimiter}${missingDirs.join(delimiter)}` : missingDirs.join(delimiter);
     coworkLog('INFO', 'ensureWindowsSystemPathEntries', `Appended missing Windows system PATH entries: ${missingDirs.join(', ')}`);
   }
+}
+
+function ensureWindowsPowerShellCorePathEntries(env: Record<string, string | undefined>): void {
+  const currentPath = env.PATH || env.Path || '';
+  const currentEntries = new Set(
+    currentPath
+      .split(delimiter)
+      .map((entry) => entry.trim().toLowerCase().replace(/\\$/, ''))
+      .filter(Boolean)
+  );
+
+  const missingDirs: string[] = [];
+  for (const candidate of WINDOWS_POWERSHELL_CORE_PATH_ENTRIES) {
+    const normalized = candidate.toLowerCase().replace(/\\$/, '');
+    if (!currentEntries.has(normalized) && existsSync(join(candidate, 'pwsh.exe'))) {
+      missingDirs.push(candidate);
+    }
+  }
+
+  if (missingDirs.length === 0) {
+    return;
+  }
+
+  env.PATH = currentPath ? `${missingDirs.join(delimiter)}${delimiter}${currentPath}` : missingDirs.join(delimiter);
+  coworkLog('INFO', 'ensureWindowsPowerShellCorePathEntries', `Prepended PowerShell Core PATH entries: ${missingDirs.join(', ')}`);
 }
 
 /**
@@ -967,141 +998,7 @@ function applyPackagedEnvOverrides(env: Record<string, string | undefined>): voi
 
   // On Windows, resolve git-bash and ensure Git toolchain directories are available in PATH.
   if (process.platform === 'win32') {
-    env.POPIAI_ELECTRON_PATH = electronNodeRuntimePath;
-
-    // Force UTF-8 encoding for MSYS2/git-bash.
-    //
-    // On Chinese (and other non-Latin) Windows systems, the default system locale
-    // uses GBK (code page 936) or similar legacy encodings. Without explicit locale
-    // settings, MSYS2 tools and the git-bash environment may output text in the
-    // system's legacy encoding, which the Claude Agent SDK misinterprets as UTF-8,
-    // producing garbled characters.
-    //
-    // Setting LANG and LC_ALL to C.UTF-8 tells the MSYS2 runtime to use UTF-8 for
-    // all text I/O, including output from coreutils (ls, cat, grep, etc.).
-    if (!env.LANG) {
-      env.LANG = 'C.UTF-8';
-    }
-    if (!env.LC_ALL) {
-      env.LC_ALL = 'C.UTF-8';
-    }
-
-    // Force Python to use UTF-8 mode (PEP 540, Python 3.7+).
-    // Without this, Python on Chinese Windows defaults to GBK for stdin/stdout/stderr
-    // and file I/O, causing garbled output when the SDK reads it as UTF-8.
-    if (!env.PYTHONUTF8) {
-      env.PYTHONUTF8 = '1';
-    }
-    if (!env.PYTHONIOENCODING) {
-      env.PYTHONIOENCODING = 'utf-8';
-    }
-
-    // Force `less` and `git` pager output to use UTF-8.
-    if (!env.LESSCHARSET) {
-      env.LESSCHARSET = 'utf-8';
-    }
-
-    // Create a bash init script that switches the Windows console code page to
-    // UTF-8 (65001). By setting BASH_ENV, every non-interactive bash session
-    // spawned by the Claude Agent SDK will source this script before executing
-    // commands, ensuring Windows native commands (dir, ipconfig, systeminfo,
-    // type, etc.) output UTF-8 instead of GBK.
-    if (!env.BASH_ENV) {
-      const initScript = ensureWindowsBashUtf8InitScript();
-      if (initScript) {
-        // Convert to MSYS2 POSIX format to avoid encoding issues when the
-        // path contains non-ASCII characters (e.g. Chinese Windows username).
-        // MSYS2's automatic Windows→POSIX conversion can corrupt non-ASCII
-        // chars if it runs before LANG=C.UTF-8 takes effect during DLL init.
-        env.BASH_ENV = singleWindowsPathToPosix(initScript);
-        coworkLog('INFO', 'applyPackagedEnvOverrides', `Set BASH_ENV for UTF-8 console code page: ${env.BASH_ENV}`);
-      }
-    }
-
-    // Ensure critical Windows system environment variables are always present.
-    // Packaged Electron apps or certain launch contexts may lack these variables,
-    // which causes Windows built-in commands (ipconfig, systeminfo, netstat, etc.)
-    // to fail when executed inside git-bash via the Claude Agent SDK.
-    ensureWindowsSystemEnvVars(env);
-
-    // Ensure Windows system directories (System32, etc.) are always in PATH.
-    // The Claude Agent SDK's shell snapshot mechanism captures PATH and may lose
-    // system directories if they were missing from the inherited environment.
-    ensureWindowsSystemPathEntries(env);
-
-    // Merge the latest PATH entries from the Windows registry (Machine + User).
-    // When the Electron app is launched from Explorer/Start Menu, process.env.PATH
-    // may be stale and missing tools installed after Explorer started (e.g. Python,
-    // Node.js, npm). Reading from the registry ensures we get the latest values,
-    // similar to how a freshly opened terminal would.
-    ensureWindowsRegistryPathEntries(env);
-
-    const configuredBashPath = normalizeWindowsPath(env.CLAUDE_CODE_GIT_BASH_PATH);
-    let bashPath = configuredBashPath && existsSync(configuredBashPath)
-      ? configuredBashPath
-      : resolveWindowsGitBashPath();
-
-    if (configuredBashPath && bashPath === configuredBashPath) {
-      const configuredHealth = checkWindowsGitBashHealth(configuredBashPath);
-      if (!configuredHealth.ok) {
-        const fallbackPath = resolveWindowsGitBashPath();
-        if (fallbackPath && fallbackPath !== configuredBashPath) {
-          coworkLog(
-            'WARN',
-            'resolveGitBash',
-            `Configured bash is unhealthy (${configuredBashPath}): ${configuredHealth.reason || 'unknown reason'}. Falling back to: ${fallbackPath}`
-          );
-          bashPath = fallbackPath;
-        } else {
-          const diagnostic = truncateDiagnostic(
-            `Configured bash is unhealthy (${configuredBashPath}): ${configuredHealth.reason || 'unknown reason'}`
-          );
-          env.POPIAI_GIT_BASH_RESOLUTION_ERROR = diagnostic;
-          coworkLog('WARN', 'resolveGitBash', diagnostic);
-          bashPath = null;
-        }
-      }
-    }
-
-    if (bashPath) {
-      env.CLAUDE_CODE_GIT_BASH_PATH = bashPath;
-      delete env.POPIAI_GIT_BASH_RESOLUTION_ERROR;
-      coworkLog('INFO', 'resolveGitBash', `Using Windows git-bash: ${bashPath}`);
-      const gitToolDirs = getWindowsGitToolDirs(bashPath);
-      env.PATH = appendEnvPath(env.PATH, gitToolDirs);
-      coworkLog('INFO', 'resolveGitBash', `Injected Windows Git toolchain PATH entries: ${gitToolDirs.join(', ')}`);
-      ensureWindowsBashBootstrapPath(env);
-    } else {
-      const diagnostic = cachedGitBashResolutionError || 'git-bash not found or failed health checks';
-      env.POPIAI_GIT_BASH_RESOLUTION_ERROR = truncateDiagnostic(diagnostic);
-    }
-
-    appendPythonRuntimeToEnv(env);
-
-    // Tell git-bash to inherit the PATH from the parent process instead of
-    // rebuilding it from scratch. Without this, git-bash's /etc/profile (login
-    // shell) defaults to constructing a minimal PATH containing only Windows
-    // system directories + MSYS2 tools, discarding user-installed tool paths
-    // like Python, Node.js, npm, pip, etc. Setting MSYS2_PATH_TYPE=inherit
-    // makes git-bash preserve the full PATH we've carefully constructed above.
-    if (!env.MSYS2_PATH_TYPE) {
-      env.MSYS2_PATH_TYPE = 'inherit';
-      coworkLog('INFO', 'applyPackagedEnvOverrides', 'Set MSYS2_PATH_TYPE=inherit to preserve PATH in git-bash');
-    }
-
-    // Pre-set ORIGINAL_PATH in POSIX format so git-bash's /etc/profile can use it.
-    //
-    // ROOT CAUSE: Node.js env PATH on Windows uses semicolons (;) and backslash
-    // paths (C:\...). When the Claude Agent SDK's CLI spawns git-bash with this env,
-    // /etc/profile reads ORIGINAL_PATH="${ORIGINAL_PATH:-${PATH}}" and appends it
-    // with a colon. But the semicolons in the Windows PATH are NOT converted to
-    // colons, so "C:\nodejs;C:\python" becomes one giant invalid entry instead of
-    // two separate paths. This causes `npm`, `python`, `pip` etc. to be unfindable.
-    //
-    // By pre-setting ORIGINAL_PATH to the POSIX-converted version (/c/nodejs:/c/python),
-    // /etc/profile uses it directly and bash can correctly parse all PATH entries.
-    // This MUST be done AFTER all PATH modifications above so the full PATH is captured.
-    ensureWindowsOriginalPath(env);
+    applyWindowsSubprocessEnvOverrides(env);
   }
 
   if (!app.isPackaged) {
@@ -1215,6 +1112,158 @@ function applyPackagedEnvOverrides(env: Record<string, string | undefined>): voi
 
   // Verify node/npx resolution in the constructed environment
   verifyNodeEnvironment(env);
+}
+
+export function applyWindowsSubprocessEnvOverrides(env: Record<string, string | undefined>): void {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  const electronNodeRuntimePath = getElectronNodeRuntimePath();
+
+  // On Windows, resolve git-bash and ensure Git toolchain directories are available in PATH.
+  {
+    env.POPIAI_ELECTRON_PATH = electronNodeRuntimePath;
+
+    // Force UTF-8 encoding for MSYS2/git-bash.
+    //
+    // On Chinese (and other non-Latin) Windows systems, the default system locale
+    // uses GBK (code page 936) or similar legacy encodings. Without explicit locale
+    // settings, MSYS2 tools and the git-bash environment may output text in the
+    // system's legacy encoding, which the Claude Agent SDK misinterprets as UTF-8,
+    // producing garbled characters.
+    //
+    // Setting LANG and LC_ALL to C.UTF-8 tells the MSYS2 runtime to use UTF-8 for
+    // all text I/O, including output from coreutils (ls, cat, grep, etc.).
+    if (!env.LANG) {
+      env.LANG = 'C.UTF-8';
+    }
+    if (!env.LC_ALL) {
+      env.LC_ALL = 'C.UTF-8';
+    }
+
+    // Force Python to use UTF-8 mode (PEP 540, Python 3.7+).
+    // Without this, Python on Chinese Windows defaults to GBK for stdin/stdout/stderr
+    // and file I/O, causing garbled output when the SDK reads it as UTF-8.
+    if (!env.PYTHONUTF8) {
+      env.PYTHONUTF8 = '1';
+    }
+    if (!env.PYTHONIOENCODING) {
+      env.PYTHONIOENCODING = 'utf-8';
+    }
+
+    // Force `less` and `git` pager output to use UTF-8.
+    if (!env.LESSCHARSET) {
+      env.LESSCHARSET = 'utf-8';
+    }
+
+    // Create a bash init script that switches the Windows console code page to
+    // UTF-8 (65001). By setting BASH_ENV, every non-interactive bash session
+    // spawned by the Claude Agent SDK will source this script before executing
+    // commands, ensuring Windows native commands (dir, ipconfig, systeminfo,
+    // type, etc.) output UTF-8 instead of GBK.
+    if (!env.BASH_ENV) {
+      const initScript = ensureWindowsBashUtf8InitScript();
+      if (initScript) {
+        // Convert to MSYS2 POSIX format to avoid encoding issues when the
+        // path contains non-ASCII characters (e.g. Chinese Windows username).
+        // MSYS2's automatic Windows→POSIX conversion can corrupt non-ASCII
+        // chars if it runs before LANG=C.UTF-8 takes effect during DLL init.
+        env.BASH_ENV = singleWindowsPathToPosix(initScript);
+        coworkLog('INFO', 'applyPackagedEnvOverrides', `Set BASH_ENV for UTF-8 console code page: ${env.BASH_ENV}`);
+      }
+    }
+
+    // Ensure critical Windows system environment variables are always present.
+    // Packaged Electron apps or certain launch contexts may lack these variables,
+    // which causes Windows built-in commands (ipconfig, systeminfo, netstat, etc.)
+    // to fail when executed inside git-bash via the Claude Agent SDK.
+    ensureWindowsSystemEnvVars(env);
+
+    // Ensure Windows system directories (System32, etc.) are always in PATH.
+    // The Claude Agent SDK's shell snapshot mechanism captures PATH and may lose
+    // system directories if they were missing from the inherited environment.
+    ensureWindowsSystemPathEntries(env);
+
+    // Merge the latest PATH entries from the Windows registry (Machine + User).
+    // When the Electron app is launched from Explorer/Start Menu, process.env.PATH
+    // may be stale and missing tools installed after Explorer started (e.g. Python,
+    // Node.js, npm). Reading from the registry ensures we get the latest values,
+    // similar to how a freshly opened terminal would.
+    ensureWindowsRegistryPathEntries(env);
+
+    // PowerShell 7 is installed as pwsh.exe, not powershell.exe. Make the
+    // default installation locations visible before WindowsPowerShell\v1.0 so
+    // tool execution can resolve pwsh even when Explorer inherited a stale PATH.
+    ensureWindowsPowerShellCorePathEntries(env);
+
+    const configuredBashPath = normalizeWindowsPath(env.CLAUDE_CODE_GIT_BASH_PATH);
+    let bashPath = configuredBashPath && existsSync(configuredBashPath)
+      ? configuredBashPath
+      : resolveWindowsGitBashPath();
+
+    if (configuredBashPath && bashPath === configuredBashPath) {
+      const configuredHealth = checkWindowsGitBashHealth(configuredBashPath);
+      if (!configuredHealth.ok) {
+        const fallbackPath = resolveWindowsGitBashPath();
+        if (fallbackPath && fallbackPath !== configuredBashPath) {
+          coworkLog(
+            'WARN',
+            'resolveGitBash',
+            `Configured bash is unhealthy (${configuredBashPath}): ${configuredHealth.reason || 'unknown reason'}. Falling back to: ${fallbackPath}`
+          );
+          bashPath = fallbackPath;
+        } else {
+          const diagnostic = truncateDiagnostic(
+            `Configured bash is unhealthy (${configuredBashPath}): ${configuredHealth.reason || 'unknown reason'}`
+          );
+          env.POPIAI_GIT_BASH_RESOLUTION_ERROR = diagnostic;
+          coworkLog('WARN', 'resolveGitBash', diagnostic);
+          bashPath = null;
+        }
+      }
+    }
+
+    if (bashPath) {
+      env.CLAUDE_CODE_GIT_BASH_PATH = bashPath;
+      delete env.POPIAI_GIT_BASH_RESOLUTION_ERROR;
+      coworkLog('INFO', 'resolveGitBash', `Using Windows git-bash: ${bashPath}`);
+      const gitToolDirs = getWindowsGitToolDirs(bashPath);
+      env.PATH = appendEnvPath(env.PATH, gitToolDirs);
+      coworkLog('INFO', 'resolveGitBash', `Injected Windows Git toolchain PATH entries: ${gitToolDirs.join(', ')}`);
+      ensureWindowsBashBootstrapPath(env);
+    } else {
+      const diagnostic = cachedGitBashResolutionError || 'git-bash not found or failed health checks';
+      env.POPIAI_GIT_BASH_RESOLUTION_ERROR = truncateDiagnostic(diagnostic);
+    }
+
+    appendPythonRuntimeToEnv(env);
+
+    // Tell git-bash to inherit the PATH from the parent process instead of
+    // rebuilding it from scratch. Without this, git-bash's /etc/profile (login
+    // shell) defaults to constructing a minimal PATH containing only Windows
+    // system directories + MSYS2 tools, discarding user-installed tool paths
+    // like Python, Node.js, npm, pip, etc. Setting MSYS2_PATH_TYPE=inherit
+    // makes git-bash preserve the full PATH we've carefully constructed above.
+    if (!env.MSYS2_PATH_TYPE) {
+      env.MSYS2_PATH_TYPE = 'inherit';
+      coworkLog('INFO', 'applyPackagedEnvOverrides', 'Set MSYS2_PATH_TYPE=inherit to preserve PATH in git-bash');
+    }
+
+    // Pre-set ORIGINAL_PATH in POSIX format so git-bash's /etc/profile can use it.
+    //
+    // ROOT CAUSE: Node.js env PATH on Windows uses semicolons (;) and backslash
+    // paths (C:\...). When the Claude Agent SDK's CLI spawns git-bash with this env,
+    // /etc/profile reads ORIGINAL_PATH="${ORIGINAL_PATH:-${PATH}}" and appends it
+    // with a colon. But the semicolons in the Windows PATH are NOT converted to
+    // colons, so "C:\nodejs;C:\python" becomes one giant invalid entry instead of
+    // two separate paths. This causes `npm`, `python`, `pip` etc. to be unfindable.
+    //
+    // By pre-setting ORIGINAL_PATH to the POSIX-converted version (/c/nodejs:/c/python),
+    // /etc/profile uses it directly and bash can correctly parse all PATH entries.
+    // This MUST be done AFTER all PATH modifications above so the full PATH is captured.
+    ensureWindowsOriginalPath(env);
+  }
 }
 
 /**

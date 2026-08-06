@@ -7,7 +7,7 @@ import net from 'net';
 import os from 'os';
 import path from 'path';
 
-import { ensureElectronNodeShim, getElectronNodeRuntimePath, getSkillsRoot } from './coworkUtil';
+import { applyWindowsSubprocessEnvOverrides, ensureElectronNodeShim, getElectronNodeRuntimePath, getSkillsRoot } from './coworkUtil';
 import {
   formatGatewayLogDateKey,
   type GatewayLogEntry,
@@ -601,6 +601,8 @@ export class OpenClawEngineManager extends EventEmitter {
       const currentPath = env.PATH || env.Path || '';
       env.PATH = [cliShimDir, currentPath].filter(Boolean).join(path.delimiter);
     }
+
+    applyWindowsSubprocessEnvOverrides(env as Record<string, string | undefined>);
 
     // Prepend bundled/user Python runtime paths so gateway exec commands
     // find the Popiai-managed Python instead of the Windows Store stub.
