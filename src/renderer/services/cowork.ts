@@ -109,6 +109,20 @@ const classifyErrorWithDetail = (
   return classifyError(detailText || error);
 };
 
+const isSameCoworkErrorMessage = (
+  message: CoworkMessage | undefined,
+  error: string,
+  displayError: string,
+): boolean => (
+  message?.type === 'system'
+  && (
+    message.content === error
+    || message.content === displayError
+    || message.metadata?.error === error
+    || message.metadata?.error === displayError
+  )
+);
+
 const CONTEXT_USAGE_REFRESH_DELAY_MS = 800;
 const FINAL_CONTEXT_USAGE_REFRESH_DELAYS_MS = [800, 2500, 6000, 12000] as const;
 const SESSION_ENTRY_CONTEXT_USAGE_REFRESH_COOLDOWN_MS = 1500;
@@ -427,16 +441,8 @@ class CoworkService {
         const existingMessages = store.getState().cowork.currentSession?.id === sessionId
           ? store.getState().cowork.currentSession?.messages ?? []
           : [];
-        const hasExistingErrorMessage = existingMessages.some((message) => (
-          message.type === 'system'
-          && (
-            message.content === error
-            || message.content === displayError
-            || message.metadata?.error === error
-            || message.metadata?.error === displayError
-          )
-        ));
-        if (hasExistingErrorMessage) return;
+        const latestMessage = existingMessages[existingMessages.length - 1];
+        if (isSameCoworkErrorMessage(latestMessage, error, displayError)) return;
         const normalizedErrorDetail = buildCoworkErrorDetail({
           rawErrorMessage: error,
           displayMessage: displayError,

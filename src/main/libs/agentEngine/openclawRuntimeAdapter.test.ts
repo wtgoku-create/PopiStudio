@@ -23,6 +23,9 @@ import {
   OpenClawSessionThinkingLevel,
 } from '../../../common/openclawSession';
 import {
+  buildOpenClawChatSendPayloadTooLargeError,
+  estimateOpenClawChatSendFrameBytes,
+  OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES,
   isSignificantAssistantStreamReset,
   OpenClawRuntimeAdapter,
   pickPersistedAssistantSegment,
@@ -74,6 +77,44 @@ test('isSignificantAssistantStreamReset ignores tiny drops and accepts large res
   expect(isSignificantAssistantStreamReset(120, 90)).toBe(false);
   expect(isSignificantAssistantStreamReset(120, 70)).toBe(true);
   expect(isSignificantAssistantStreamReset(5, 1)).toBe(false);
+});
+
+test('estimateOpenClawChatSendFrameBytes measures the full RPC frame as UTF-8 JSON', () => {
+  const params = {
+    sessionKey: 'agent:main:popiai:session-1',
+    message: '分析这张图',
+    deliver: false,
+    idempotencyKey: 'run-1',
+    attachments: [{
+      type: 'image',
+      mimeType: 'image/png',
+      fileName: 'image.png',
+      content: 'A'.repeat(16),
+    }],
+  };
+
+  const expected = Buffer.byteLength(JSON.stringify({
+    id: 'estimate',
+    method: 'chat.send',
+    params,
+  }), 'utf8');
+
+  expect(estimateOpenClawChatSendFrameBytes(params)).toBe(expected);
+  expect(expected).toBeGreaterThan(params.attachments[0].content.length);
+});
+
+test('buildOpenClawChatSendPayloadTooLargeError includes a stable classification marker', () => {
+  const error = buildOpenClawChatSendPayloadTooLargeError({
+    estimatedFrameBytes: OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES + 1,
+    safeLimitBytes: OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES,
+    attachmentCount: 4,
+    attachmentBase64Bytes: 36_335_652,
+  });
+
+  expect(error.message).toContain('chat.send payload too large');
+  expect(error.message).toContain(String(OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES + 1));
+  expect(error.message).toContain('attachments 4');
+  expect(error.message).toContain('attachment base64 bytes 36335652');
 });
 
 test('context usage ignores non-checkpoint compactionCount', () => {
@@ -496,6 +537,7 @@ function createRunTurnAdapter(options: {
   return {
     adapter,
     requests,
+    session,
     releaseFirstModelPatch: () => firstModelPatchRelease?.(),
     firstModelPatchStarted,
   };
@@ -592,6 +634,30 @@ test('continueSession sends the session cwd to OpenClaw chat.send', async () => 
   const chatSend = requests.find((request) => request.method === 'chat.send');
   expect(chatSend?.params).toMatchObject({
     cwd: path.resolve('/tmp/popiai-selected-project'),
+  });
+});
+
+test('continueSession rejects oversized chat.send payloads before calling OpenClaw', async () => {
+  const { adapter, requests, session } = createRunTurnAdapter();
+  adapter.on('error', () => {});
+
+  await expect(adapter.continueSession('session-1', 'inspect', {
+    imageAttachments: [{
+      name: 'large.png',
+      mimeType: 'image/png',
+      base64Data: 'A'.repeat(OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES + 1),
+    }],
+  })).rejects.toThrow('chat.send payload too large');
+
+  expect(requests.some((request) => request.method === 'chat.send')).toBe(false);
+  expect(session.status).toBe('error');
+  expect(session.messages).toHaveLength(2);
+  expect(session.messages[session.messages.length - 1]).toMatchObject({
+    type: 'system',
+    content: expect.stringContaining('chat.send payload too large'),
+    metadata: {
+      error: expect.stringContaining('chat.send payload too large'),
+    },
   });
 });
 

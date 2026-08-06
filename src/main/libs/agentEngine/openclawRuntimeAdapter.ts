@@ -144,6 +144,7 @@ const OpenClawGatewayEvent = {
   SessionTool: 'session.tool',
 } as const;
 const OpenClawGatewayMethod = {
+  ChatSend: 'chat.send',
   SessionsSubscribe: 'sessions.subscribe',
   SessionsMessagesSubscribe: 'sessions.messages.subscribe',
 } as const;
@@ -161,6 +162,10 @@ const ASSISTANT_STREAM_RESET_RATIO = 0.7;
 const GATEWAY_READY_TIMEOUT_MS = 60_000;
 const FINAL_HISTORY_SYNC_LIMIT = 50;
 const CHANNEL_SESSION_DISCOVERY_LIMIT = 200;
+export const OPENCLAW_CHAT_SEND_PAYLOAD_LIMIT_BYTES = 30 * 1000 * 1000;
+export const OPENCLAW_CHAT_SEND_PAYLOAD_SAFETY_MARGIN_BYTES = 500 * 1000;
+export const OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES =
+  OPENCLAW_CHAT_SEND_PAYLOAD_LIMIT_BYTES - OPENCLAW_CHAT_SEND_PAYLOAD_SAFETY_MARGIN_BYTES;
 
 /**
  * 正则表达式，用于检测 Bash 命令中是否包含 popiart 调用。
@@ -346,6 +351,72 @@ type PendingGoalContinuation = {
   skipInitialUserMessage: boolean;
   systemPrompt?: string;
 };
+
+type OpenClawChatSendFrameEstimate = {
+  id: string;
+  method: string;
+  params: unknown;
+};
+
+type ChatSendAttachmentLike = {
+  content?: string;
+};
+
+export function estimateOpenClawChatSendFrameBytes(params: unknown): number {
+  const frame: OpenClawChatSendFrameEstimate = {
+    id: 'estimate',
+    method: OpenClawGatewayMethod.ChatSend,
+    params,
+  };
+  return Buffer.byteLength(JSON.stringify(frame), 'utf8');
+}
+
+function sumAttachmentBase64Bytes(attachments?: ChatSendAttachmentLike[]): number {
+  return (attachments ?? []).reduce((total, attachment) => (
+    total + (typeof attachment.content === 'string' ? attachment.content.length : 0)
+  ), 0);
+}
+
+export function buildOpenClawChatSendPayloadTooLargeError(options: {
+  estimatedFrameBytes: number;
+  safeLimitBytes: number;
+  attachmentCount: number;
+  attachmentBase64Bytes: number;
+}): Error {
+  return new Error(
+    `chat.send payload too large: estimated ${options.estimatedFrameBytes} bytes exceeds safe limit `
+    + `${options.safeLimitBytes} bytes; attachments ${options.attachmentCount}; attachment base64 bytes `
+    + `${options.attachmentBase64Bytes}`,
+  );
+}
+
+function assertOpenClawChatSendPayloadWithinLimit(
+  sessionId: string,
+  params: unknown,
+  attachments?: ChatSendAttachmentLike[],
+): void {
+  const estimatedFrameBytes = estimateOpenClawChatSendFrameBytes(params);
+  if (estimatedFrameBytes <= OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES) {
+    return;
+  }
+
+  const attachmentCount = attachments?.length ?? 0;
+  const attachmentBase64Bytes = sumAttachmentBase64Bytes(attachments);
+  console.warn(
+    '[OpenClawRuntime] chat.send payload exceeded safe limit.',
+    `Session ${sessionId}.`,
+    `Estimated ${estimatedFrameBytes} bytes.`,
+    `Safe limit ${OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES} bytes.`,
+    `Attachments ${attachmentCount}.`,
+    `Attachment base64 total ${attachmentBase64Bytes} bytes.`,
+  );
+  throw buildOpenClawChatSendPayloadTooLargeError({
+    estimatedFrameBytes,
+    safeLimitBytes: OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES,
+    attachmentCount,
+    attachmentBase64Bytes,
+  });
+}
 
 function parseOpenClawGoalCommand(raw: string): { action: OpenClawGoalCommandAction; text: string } | null {
   const trimmed = raw.trim();
@@ -3657,21 +3728,28 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         ? options.imageAttachments.map((img) => ({
           type: 'image',
           mimeType: img.mimeType,
+          fileName: img.name,
           content: img.base64Data,
         }))
         : undefined;
       if (attachments) {
         console.log('[OpenClawRuntime] chat.send with attachments:', attachments.length, 'images,', attachments.map(a => ({ type: a.type, mimeType: a.mimeType, contentLength: a.content?.length ?? 0 })));
       }
-      const chatSendStartMs = Date.now();
-      const sendResult = await client.request<Record<string, unknown>>('chat.send', {
+      const chatSendParams = {
         sessionKey,
         message: outboundMessage,
         deliver: false,
         idempotencyKey: runId,
         ...(runCwd ? { cwd: runCwd } : {}),
         ...(attachments ? { attachments } : {}),
-      }, { timeoutMs: 90_000 });
+      };
+      assertOpenClawChatSendPayloadWithinLimit(sessionId, chatSendParams, attachments);
+      const chatSendStartMs = Date.now();
+      const sendResult = await client.request<Record<string, unknown>>(
+        OpenClawGatewayMethod.ChatSend,
+        chatSendParams,
+        { timeoutMs: 90_000 },
+      );
       const chatSendElapsedMs = Date.now() - chatSendStartMs;
       if (chatSendElapsedMs > 10_000) {
         console.warn(`[OpenClawRuntime] chat.send took ${chatSendElapsedMs}ms — gateway may still be initializing`);
@@ -3684,8 +3762,17 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       this.cleanupSessionTurn(sessionId);
       this.store.updateSession(sessionId, { status: 'error' });
       const message = error instanceof Error ? error.message : String(error);
-      this.emit('error', sessionId, message);
-      this.rejectTurn(sessionId, new Error(message));
+      const errorDetail = buildCoworkErrorDetail({
+        rawErrorMessage: message,
+        displayMessage: message,
+      });
+      const errorMsg = this.store.addMessage(sessionId, {
+        type: 'system',
+        content: message,
+        metadata: { error: message, ...(errorDetail ? { errorDetail } : {}) },
+      });
+      this.emit('message', sessionId, errorMsg);
+      this.emit('error', sessionId, message, errorDetail);
       throw error;
     }
 
