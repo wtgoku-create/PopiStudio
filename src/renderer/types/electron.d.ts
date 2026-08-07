@@ -1257,7 +1257,16 @@ interface IElectronAPI {
     getKnowledgeToken: () => Promise<string | null>;
     getModels: () => Promise<{
       success: boolean;
-      models?: Array<{ modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean; supportsThinking?: boolean }>;
+      models?: Array<{
+        modelId: string;
+        modelName: string;
+        provider: string;
+        apiFormat: string;
+        context?: number;
+        contextWindow?: number;
+        supportsImage?: boolean;
+        supportsThinking?: boolean;
+      }>;
     }>;
     getProfileSummary: () => Promise<{ success: boolean; data?: ProfileSummaryData }>;
     onCallback: (callback: (data: { code: string }) => void) => () => void;

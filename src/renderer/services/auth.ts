@@ -5,6 +5,24 @@ import { clearServerModels, setDefaultSelectedModel, setServerModels } from '../
 import { ProviderName } from '@shared/providers';
 import { configService } from './config';
 
+type AvailableServerModelEntry = {
+  modelId: string;
+  modelName: string;
+  provider: string;
+  apiFormat: string;
+  context?: number;
+  contextWindow?: number;
+  supportsImage?: boolean;
+  supportsThinking?: boolean;
+};
+
+const readPositiveNumber = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return value;
+};
+
 class AuthService {
   private unsubCallback: (() => void) | null = null;
   private unsubQuotaChanged: (() => void) | null = null;
@@ -210,13 +228,14 @@ class AuthService {
     try {
       const modelsResult = await window.electron.auth.getModels();
       if (modelsResult.success && modelsResult.models) {
-        const serverModels: Model[] = modelsResult.models.map((m: { modelId: string; modelName: string; provider: string; apiFormat: string; supportsImage?: boolean; supportsThinking?: boolean }) => ({
+        const serverModels: Model[] = modelsResult.models.map((m: AvailableServerModelEntry) => ({
           id: m.modelId,
           name: m.modelName,
           provider: m.provider,
           providerKey: ProviderName.PopiaiServer,
           isServerModel: true,
           serverApiFormat: m.apiFormat,
+          contextWindow: readPositiveNumber(m.contextWindow) ?? readPositiveNumber(m.context),
           supportsImage: m.supportsImage ?? false,
           supportsThinking: m.supportsThinking ?? true,
         }));

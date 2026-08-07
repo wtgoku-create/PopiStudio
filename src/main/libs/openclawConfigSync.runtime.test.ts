@@ -16,7 +16,13 @@ vi.mock('electron', () => ({
 
 const mockRuntimeState = vi.hoisted(() => ({
   proxyPort: null as number | null,
-  serverModels: [] as Array<{ modelId: string; supportsImage?: boolean; supportsThinking?: boolean }>,
+  serverModels: [] as Array<{
+    modelId: string;
+    supportsImage?: boolean;
+    supportsThinking?: boolean;
+    context?: number | null;
+    contextWindow?: number | null;
+  }>,
   enabledProviders: [] as Array<{
     providerName: string;
     baseURL: string;
@@ -422,9 +428,9 @@ describe('OpenClawConfigSync runtime config output', () => {
   test('merges all server models into existing popiai provider and updates image input', async () => {
     mockRuntimeState.proxyPort = 56646;
     mockRuntimeState.serverModels = [
-      { modelId: 'qwen3.5-plus-YoudaoInner', supportsImage: true },
-      { modelId: 'qwen3.6-plus-YoudaoInner', supportsImage: true },
-      { modelId: 'deepseek-v3.2-YoudaoInner', supportsImage: false },
+      { modelId: 'qwen3.5-plus-YoudaoInner', supportsImage: true, context: 262144 },
+      { modelId: 'qwen3.6-plus-YoudaoInner', supportsImage: true, context: 524288 },
+      { modelId: 'deepseek-v3.2-YoudaoInner', supportsImage: false, context: 131072 },
     ];
     mockRuntimeState.rawApiConfig = {
       config: {
@@ -492,16 +498,19 @@ describe('OpenClawConfigSync runtime config output', () => {
         id: 'qwen3.5-plus-YoudaoInner',
         input: ['text', 'image'],
         reasoning: true,
+        contextWindow: 262144,
       }),
       expect.objectContaining({
         id: 'qwen3.6-plus-YoudaoInner',
         input: ['text', 'image'],
         reasoning: true,
+        contextWindow: 524288,
       }),
       expect.objectContaining({
         id: 'deepseek-v3.2-YoudaoInner',
         input: ['text'],
         reasoning: true,
+        contextWindow: 131072,
       }),
     ]));
     expect(provider.models).toHaveLength(3);
@@ -522,6 +531,41 @@ describe('OpenClawConfigSync runtime config output', () => {
       },
       'popiai-server/deepseek-v3.2-YoudaoInner': {},
     });
+  });
+
+  test('ignores empty server model context values when writing popiai provider models', async () => {
+    mockRuntimeState.proxyPort = 56646;
+    mockRuntimeState.serverModels = [
+      { modelId: 'zero-context-model', supportsImage: false, context: 0 },
+      { modelId: 'missing-context-model', supportsImage: false, context: null },
+    ];
+    mockRuntimeState.rawApiConfig = {
+      config: {
+        baseURL: 'https://popiai-server.youdao.com/api/proxy/v1',
+        apiKey: 'access-token',
+        model: 'zero-context-model',
+        apiType: 'openai',
+      },
+      providerMetadata: {
+        providerName: 'popiai-server',
+        codingPlanEnabled: false,
+        supportsImage: false,
+        modelName: 'Zero Context Model',
+      },
+    };
+
+    const sync = await createSync();
+    const result = sync.sync('server-models-updated');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const providerModels = config.models.providers['popiai-server'].models;
+    expect(providerModels).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'zero-context-model' }),
+      expect.objectContaining({ id: 'missing-context-model' }),
+    ]));
+    expect(providerModels.find((model: { id: string }) => model.id === 'zero-context-model')).not.toHaveProperty('contextWindow');
+    expect(providerModels.find((model: { id: string }) => model.id === 'missing-context-model')).not.toHaveProperty('contextWindow');
   });
 
   test('preserves the existing server model catalog until authoritative metadata loads', async () => {

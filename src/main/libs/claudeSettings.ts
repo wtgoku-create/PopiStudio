@@ -98,12 +98,17 @@ type ServerModelCapabilityMetadata = {
   supportsImage?: boolean;
   supportsVideo?: boolean;
   supportsThinking?: boolean;
+  context?: number;
   contextWindow?: number;
   maxTokens?: number;
   runtimeProfile?: string;
 };
 
 let serverModelMetadataCache: Map<string, ServerModelCapabilityMetadata> = new Map();
+
+const readPositiveNumber = (value: unknown): number | undefined => (
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+);
 
 const serializeServerModelMetadata = (
   models: Array<{ modelId: string } & ServerModelCapabilityMetadata>,
@@ -127,7 +132,7 @@ export function updateServerModelMetadata(models: readonly ({ modelId: string } 
     supportsImage: m.supportsImage,
     supportsVideo: m.supportsVideo,
     supportsThinking: m.supportsThinking,
-    contextWindow: m.contextWindow,
+    contextWindow: readPositiveNumber(m.contextWindow) ?? readPositiveNumber(m.context),
     maxTokens: m.maxTokens,
     runtimeProfile: m.runtimeProfile,
   }]));

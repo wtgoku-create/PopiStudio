@@ -700,6 +700,13 @@ const resolveDeepSeekModelReasoning = (modelId: string): boolean | undefined => 
 const isPositiveModelLimit = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0;
 
+const resolveServerModelContextWindow = (model?: { contextWindow?: unknown; context?: unknown }): number | undefined => {
+  if (!model) return undefined;
+  if (isPositiveModelLimit(model.contextWindow)) return model.contextWindow;
+  if (isPositiveModelLimit(model.context)) return model.context;
+  return undefined;
+};
+
 const clampModelMaxTokens = (rawMaxTokens: number | undefined, contextWindow: number | undefined): number | undefined => {
   if (!isPositiveModelLimit(rawMaxTokens)) {
     return undefined;
@@ -1738,6 +1745,7 @@ export class OpenClawConfigSync {
             supportsImage: serverModels[0]?.supportsImage,
             supportsVideo: serverModels[0]?.supportsVideo,
             supportsThinking: serverModels[0]?.supportsThinking,
+            contextWindow: resolveServerModelContextWindow(serverModels[0]),
             maxTokens: serverModels[0]?.maxTokens,
             runtimeProfile: serverModels[0]?.runtimeProfile,
           });
@@ -1770,7 +1778,7 @@ export class OpenClawConfigSync {
                 supportsVideo: sm.supportsVideo,
                 supportsThinking: sm.supportsThinking,
                 modelName: sm.modelId,
-                contextWindow: sm.contextWindow,
+                contextWindow: resolveServerModelContextWindow(sm),
                 maxTokens: sm.maxTokens,
                 runtimeProfile: sm.runtimeProfile,
               });

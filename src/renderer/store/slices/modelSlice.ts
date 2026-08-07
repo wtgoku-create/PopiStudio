@@ -12,6 +12,8 @@ export interface Model {
   openClawProviderId?: string;
   supportsImage?: boolean;
   supportsThinking?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
   isServerModel?: boolean;
   serverApiFormat?: string;
 }

@@ -17,6 +17,12 @@ test('formatTokenCount: values in thousands formatted as k', () => {
   expect(formatTokenCount(200000)).toBe('200k');
 });
 
+test('formatTokenCount: binary context window sizes use spec labels', () => {
+  expect(formatTokenCount(131072)).toBe('128k');
+  expect(formatTokenCount(262144)).toBe('256k');
+  expect(formatTokenCount(1048576)).toBe('1M');
+});
+
 test('formatTokenCount: values in millions formatted as M', () => {
   expect(formatTokenCount(1000000)).toBe('1M');
   expect(formatTokenCount(1500000)).toBe('1.5M');

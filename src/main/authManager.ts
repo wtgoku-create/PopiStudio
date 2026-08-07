@@ -47,6 +47,7 @@ type PopiModelListItem = {
   name: string;
   status: number;
   deleted: boolean;
+  context?: number | null;
   isSupportImages: boolean;
 };
 
@@ -54,14 +55,20 @@ export type ServerModelMetadata = {
   modelId: string;
   modelName: string;
   provider: string;
+  context?: number;
+  contextWindow?: number;
   apiFormat: string;
   supportsImage?: boolean;
   supportsThinking?: boolean;
 };
 
 export const POPI_DEFAULT_SERVER_MODELS = [
-  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: true, supportsThinking: true },
+  { modelId: 'doubao-seed-2-0-mini-260428', modelName: 'doubao-seed-2-0-mini-260428', context: 262144, provider: ProviderName.PopiaiServer, apiFormat: 'openai', supportsImage: true, supportsThinking: true },
 ] as const;
+
+const readPositiveNumber = (value: unknown): number | undefined => (
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+);
 
 export type SkillMarketplacePageOptions = {
   page?: number;
@@ -698,11 +705,13 @@ export class AuthManager {
       .map((item): ServerModelMetadata | null => {
         const modelId = item.code.trim();
         if (!modelId) return null;
+        const contextWindow = readPositiveNumber(item.context);
         return {
           modelId,
           modelName: item.name.trim() || modelId,
           provider: ProviderName.PopiaiServer,
           apiFormat: 'openai',
+          ...(contextWindow !== undefined ? { context: contextWindow, contextWindow } : {}),
           supportsImage: item.isSupportImages,
           supportsThinking: true,
         };
