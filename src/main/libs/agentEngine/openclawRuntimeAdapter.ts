@@ -5622,8 +5622,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         console.debug('[OpenClawRuntime] ignored a session tool event without an active turn.');
         return;
       }
-      if (this.manuallyStoppedSessions.has(sessionId) && isManagedSessionKey(sessionKey)) {
-        console.debug('[OpenClawRuntime] ignored a session tool event for a manually stopped session.');
+      // A desktop session creates its ActiveTurn before sending a new prompt.
+      // If the turn has already been cleaned up, a session.tool event is a
+      // late gateway delivery and must not recreate a ghost turn after the UI
+      // has received completion.
+      if (runId && this.isRecentlyClosedRunId(runId)) {
+        console.debug('[OpenClawRuntime] ignored a session tool event for a recently closed run.');
+        return;
+      }
+      if (isManagedSessionKey(sessionKey)) {
+        console.debug('[OpenClawRuntime] ignored a desktop session tool event without an active turn.');
         return;
       }
       this.ensureActiveTurn(sessionId, sessionKey, runId);
@@ -5819,29 +5827,29 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     const session = this.store.getSession(sessionId);
     const messages = session?.messages ?? [];
-    // Scan backward: in normal flow the assistant message is last; after a skill switch
-    // one user message may sit between the previous assistant reply and this sync (Bug 2).
-    // Allow at most one non-assistant message before giving up.
-    let nonAssistantCount = 0;
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
-      if (msg.type === 'assistant') {
-        if (msg.content.trim() !== normalizedContent) {
-          return null;
-        }
-        this.store.updateMessage(sessionId, msg.id, {
-          content,
-          metadata: {
-            isStreaming: false,
-            isFinal: true,
-          },
-        });
-        return msg.id;
-      }
-      nonAssistantCount++;
-      if (nonAssistantCount > 1) {
+      if (msg.type === 'user') {
         return null;
       }
+
+      if (msg.type !== 'assistant' || msg.metadata?.isThinking === true) {
+        continue;
+      }
+
+      if (msg.content.trim() !== normalizedContent) {
+        return null;
+      }
+
+      this.store.updateMessage(sessionId, msg.id, {
+        content,
+        metadata: {
+          ...msg.metadata,
+          isStreaming: false,
+          isFinal: true,
+        },
+      });
+      return msg.id;
     }
     return null;
   }

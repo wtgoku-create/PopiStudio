@@ -79,6 +79,87 @@ test('isSignificantAssistantStreamReset ignores tiny drops and accepts large res
   expect(isSignificantAssistantStreamReset(5, 1)).toBe(false);
 });
 
+test('final assistant reuse crosses tool messages in the current user turn', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'delegate this', timestamp: 1, metadata: {} },
+    {
+      id: 'msg-2',
+      type: 'assistant',
+      content: 'Waiting for results.',
+      timestamp: 2,
+      metadata: { isStreaming: false, isFinal: true, model: 'test-model' },
+    },
+    { id: 'msg-3', type: 'tool_use', content: 'Using sessions_yield', timestamp: 3, metadata: {} },
+    { id: 'msg-4', type: 'tool_result', content: 'yielded', timestamp: 4, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+
+  const reusedMessageId = (adapter as unknown as {
+    reuseFinalAssistantMessage: (sessionId: string, content: string) => string | null;
+  }).reuseFinalAssistantMessage(session.id, 'Waiting for results.');
+
+  expect(reusedMessageId).toBe('msg-2');
+  expect(session.messages).toHaveLength(4);
+  expect(session.messages[1].metadata).toEqual({
+    isStreaming: false,
+    isFinal: true,
+    model: 'test-model',
+  });
+});
+
+test('final assistant reuse ignores trailing thinking messages', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'delegate this', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'Waiting for results.', timestamp: 2, metadata: {} },
+    {
+      id: 'msg-3',
+      type: 'assistant',
+      content: 'One child finished, but more are running.',
+      timestamp: 3,
+      metadata: { isThinking: true },
+    },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+
+  const reusedMessageId = (adapter as unknown as {
+    reuseFinalAssistantMessage: (sessionId: string, content: string) => string | null;
+  }).reuseFinalAssistantMessage(session.id, 'Waiting for results.');
+
+  expect(reusedMessageId).toBe('msg-2');
+  expect(session.messages).toHaveLength(3);
+});
+
+test('final assistant reuse stops at another visible assistant message', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'delegate this', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'Waiting for results.', timestamp: 2, metadata: {} },
+    { id: 'msg-3', type: 'tool_result', content: 'progress', timestamp: 3, metadata: {} },
+    { id: 'msg-4', type: 'assistant', content: 'One result arrived.', timestamp: 4, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+
+  const reusedMessageId = (adapter as unknown as {
+    reuseFinalAssistantMessage: (sessionId: string, content: string) => string | null;
+  }).reuseFinalAssistantMessage(session.id, 'Waiting for results.');
+
+  expect(reusedMessageId).toBeNull();
+});
+
+test('final assistant reuse does not cross a user message', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'first request', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'Same answer.', timestamp: 2, metadata: {} },
+    { id: 'msg-3', type: 'user', content: 'repeat it', timestamp: 3, metadata: {} },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+
+  const reusedMessageId = (adapter as unknown as {
+    reuseFinalAssistantMessage: (sessionId: string, content: string) => string | null;
+  }).reuseFinalAssistantMessage(session.id, 'Same answer.');
+
+  expect(reusedMessageId).toBeNull();
+});
+
 test('estimateOpenClawChatSendFrameBytes measures the full RPC frame as UTF-8 JSON', () => {
   const params = {
     sessionKey: 'agent:main:popiai:session-1',
@@ -2733,6 +2814,49 @@ test('session.tool gateway events from stale runs do not attach to the active tu
   } finally {
     vi.useRealTimers();
   }
+});
+
+test('late session.tool events do not recreate a completed desktop turn', () => {
+  const { session, store } = createReconcileStore([
+    { id: 'msg-1', type: 'user', content: 'run the workflow', timestamp: 1, metadata: {} },
+    { id: 'msg-2', type: 'assistant', content: 'done', timestamp: 2, metadata: { isStreaming: false, isFinal: true } },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  const sessionKey = `agent:main:popiai:${session.id}`;
+
+  adapter.rememberSessionKey(session.id, sessionKey);
+  adapter.ensureActiveTurn(session.id, sessionKey, 'closed-run');
+  session.status = 'completed';
+  adapter.cleanupSessionTurn(session.id);
+
+  adapter.handleGatewayEvent({
+    event: 'session.tool',
+    seq: 2,
+    payload: {
+      sessionKey,
+      phase: 'start',
+      toolName: 'read',
+      toolCallId: 'late-read',
+      args: { path: '/tmp/late.md' },
+    },
+  });
+
+  adapter.handleGatewayEvent({
+    event: 'session.tool',
+    seq: 3,
+    payload: {
+      runId: 'closed-run',
+      sessionKey,
+      phase: 'start',
+      toolName: 'write',
+      toolCallId: 'late-write',
+      args: { path: '/tmp/late.md' },
+    },
+  });
+
+  expect(session.status).toBe('completed');
+  expect(session.messages).toHaveLength(2);
+  expect(adapter.activeTurns.has(session.id)).toBe(false);
 });
 
 test('tool-use lifecycle end waits for OpenClaw compaction retry', async () => {
