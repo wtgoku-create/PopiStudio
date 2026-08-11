@@ -3,6 +3,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nati
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { Readable } from 'stream';
 
 import type { OpenClawSessionPatch } from '../common/openclawSession';
 import { CoworkSystemMessageKind } from '../common/coworkSystemMessages';
@@ -211,6 +212,18 @@ if (process.platform === 'win32') {
   app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'localfile',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+]);
+
 const INVALID_FILE_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001F]/g;
 const MIN_MEMORY_USER_MEMORIES_MAX_ITEMS = 1;
 const MAX_MEMORY_USER_MEMORIES_MAX_ITEMS = 60;
@@ -218,6 +231,108 @@ const IPC_MESSAGE_CONTENT_MAX_CHARS = 120_000;
 const IPC_UPDATE_CONTENT_MAX_CHARS = 120_000;
 const IPC_STRING_MAX_CHARS = 4_000;
 const IPC_MAX_DEPTH = 10;
+
+const LOCALFILE_MIME_BY_EXT: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.avi': 'video/x-msvideo',
+  '.mkv': 'video/x-matroska',
+  '.wmv': 'video/x-ms-wmv',
+  '.flv': 'video/x-flv',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml',
+  '.avif': 'image/avif',
+};
+
+const getLocalFileMimeType = (filePath: string): string => {
+  return LOCALFILE_MIME_BY_EXT[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+};
+
+const normalizeLocalFileProtocolPath = (url: string): string => {
+  const parsed = new URL(url);
+  const hostPrefix = parsed.hostname ? `/${parsed.hostname}` : '';
+  let filePath = decodeURIComponent(`${hostPrefix}${parsed.pathname}`);
+  if (process.platform === 'win32' && /^\/[A-Za-z]:/.test(filePath)) {
+    filePath = filePath.slice(1);
+  }
+  return filePath;
+};
+
+const buildLocalFileProtocolResponse = async (request: Request): Promise<Response> => {
+  const filePath = normalizeLocalFileProtocolPath(request.url);
+  let stat: fs.Stats;
+  try {
+    stat = await fs.promises.stat(filePath);
+  } catch {
+    return new Response('File not found', { status: 404 });
+  }
+  if (!stat.isFile()) {
+    return new Response('Not a file', { status: 404 });
+  }
+
+  const fileSize = stat.size;
+  const mimeType = getLocalFileMimeType(filePath);
+  const rangeHeader = request.headers.get('range');
+
+  if (rangeHeader) {
+    const match = rangeHeader.match(/^bytes=(\d*)-(\d*)$/);
+    if (!match) {
+      return new Response('Invalid range', {
+        status: 416,
+        headers: {
+          'Content-Range': `bytes */${fileSize}`,
+          'Accept-Ranges': 'bytes',
+        },
+      });
+    }
+
+    const requestedStart = match[1] ? Number.parseInt(match[1], 10) : 0;
+    const requestedEnd = match[2] ? Number.parseInt(match[2], 10) : fileSize - 1;
+    const start = Math.max(0, requestedStart);
+    const end = Math.min(fileSize - 1, requestedEnd);
+
+    if (fileSize === 0 || start > end || start >= fileSize) {
+      return new Response('Range not satisfiable', {
+        status: 416,
+        headers: {
+          'Content-Range': `bytes */${fileSize}`,
+          'Accept-Ranges': 'bytes',
+        },
+      });
+    }
+
+    const stream = fs.createReadStream(filePath, { start, end });
+    return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, {
+      status: 206,
+      headers: {
+        'Content-Type': mimeType,
+        'Content-Length': String(end - start + 1),
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  }
+
+  const stream = fs.createReadStream(filePath);
+  return new Response(Readable.toWeb(stream) as ReadableStream<Uint8Array>, {
+    status: 200,
+    headers: {
+      'Content-Type': mimeType,
+      'Content-Length': String(fileSize),
+      'Accept-Ranges': 'bytes',
+    },
+  });
+};
 const IPC_MAX_KEYS = 80;
 const IPC_MAX_ITEMS = 40;
 const MAX_INLINE_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -7202,7 +7317,7 @@ end tell'`, { timeout: 5000 });
         // 允许连接到所有域名，不做限制
         "connect-src *",
         "font-src 'self' data: https:",
-        "media-src 'self'",
+        "media-src 'self' localfile:",
         "worker-src 'self' blob:",
         `frame-src ${frameSources}`
       ];
@@ -7630,11 +7745,9 @@ end tell'`, { timeout: 5000 });
     }
     console.log('[Main] initApp: default project dir ensured');
 
-    // 注册 localfile:// 自定义协议，用于安全加载本地文件（图片等）
+    // 注册 localfile:// 自定义协议，用于安全加载本地文件（图片和音视频等）
     protocol.handle('localfile', (request) => {
-      const url = new URL(request.url);
-      const filePath = decodeURIComponent(url.pathname);
-      return net.fetch(`file://${filePath}`);
+      return buildLocalFileProtocolResponse(request);
     });
 
     profiler.mark('initStore');
