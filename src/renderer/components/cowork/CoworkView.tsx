@@ -518,6 +518,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({
     dispatch(selectAction(actionId));
   };
 
+  const handleQuickActionBack = () => {
+    dispatch(clearSelection());
+  };
+
   // Handle prompt selection from QuickAction
   const handleQuickActionPromptSelect = (prompt: string) => {
     promptInputRef.current?.setValue(prompt);
@@ -751,6 +755,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
               <PromptPanel
                 action={selectedAction}
                 onPromptSelect={handleQuickActionPromptSelect}
+                onBack={handleQuickActionBack}
               />
             ) : (
               <QuickActionBar actions={quickActions} onActionSelect={handleActionSelect} />

@@ -1,7 +1,8 @@
-import { ArrowRightIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 import React from 'react';
 import { useDispatch,useSelector } from 'react-redux';
 
+import { i18nService } from '../../services/i18n';
 import { RootState } from '../../store';
 import { selectPrompt } from '../../store/slices/quickActionSlice';
 import type { LocalizedPrompt,LocalizedQuickAction } from '../../types/quickAction';
@@ -9,9 +10,10 @@ import type { LocalizedPrompt,LocalizedQuickAction } from '../../types/quickActi
 interface PromptPanelProps {
   action: LocalizedQuickAction;
   onPromptSelect: (prompt: string) => void;
+  onBack: () => void;
 }
 
-const PromptPanel: React.FC<PromptPanelProps> = ({ action, onPromptSelect }) => {
+const PromptPanel: React.FC<PromptPanelProps> = ({ action, onPromptSelect, onBack }) => {
   const dispatch = useDispatch();
   const selectedPromptId = useSelector(
     (state: RootState) => state.quickAction.selectedPromptId
@@ -29,10 +31,20 @@ const PromptPanel: React.FC<PromptPanelProps> = ({ action, onPromptSelect }) => 
   return (
     <div className="w-full animate-fade-in-up">
       {/* 标题 */}
-      <div className="mb-2.5 px-0.5">
-        <span className="text-xs font-medium text-secondary">
+      <div className="mb-3 flex items-center justify-between px-0.5">
+        <span className="text-xs font-semibold text-foreground">
           {action.label}
         </span>
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label={i18nService.t('back')}
+          title={i18nService.t('back')}
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+        >
+          <ArrowLeftIcon className="h-3 w-3" />
+          <span>{i18nService.t('back')}</span>
+        </button>
       </div>
 
       {/* 提示词卡片网格 */}
