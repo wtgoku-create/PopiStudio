@@ -1,8 +1,9 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import { ProviderName } from '@shared/providers';
+import { DEFAULT_MODEL_THINKING_CONFIG, type ModelThinkingConfig } from '@shared/providers/modelThinking';
 
 import { defaultConfig, getProviderDisplayName } from '../../config';
 import { resolveOpenClawModelRef } from '../../utils/openclawModelRef';
-import { ProviderName } from '@shared/providers';
 
 export interface Model {
   id: string;
@@ -16,6 +17,7 @@ export interface Model {
   maxTokens?: number;
   isServerModel?: boolean;
   serverApiFormat?: string;
+  thinkingConfig?: ModelThinkingConfig;
 }
 
 export function getModelIdentityKey(model: Pick<Model, 'id' | 'providerKey'>): string {
@@ -47,6 +49,7 @@ function buildInitialModels(): Model[] {
             provider: getProviderDisplayName(providerName, config),
             providerKey: providerName,
             supportsImage: model.supportsImage ?? false,
+            thinkingConfig: model.thinkingConfig ?? (model.supportsThinking ? DEFAULT_MODEL_THINKING_CONFIG : undefined),
           });
         });
       }

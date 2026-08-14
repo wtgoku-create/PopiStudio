@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { cpRecursiveSync } from '../fsCompat';
+import { repairPipShims } from './pythonPipShim';
 
 const PYTHON_RUNTIME_DIR_NAME = 'python-win';
 const PYTHON_RUNTIME_STATE_FILE = 'runtime.json';
@@ -115,6 +116,17 @@ function appendWindowsPath(current: string | undefined, entries: string[]): stri
   (current || '').split(delimiter).forEach(append);
 
   return merged.length > 0 ? merged.join(delimiter) : current;
+}
+
+function convergeUserPipShims(userRoot: string): void {
+  try {
+    const { changed } = repairPipShims(userRoot);
+    if (changed.length > 0) {
+      console.log(`[python-runtime] converged pip shim files: ${changed.join(', ')}`);
+    }
+  } catch (error) {
+    console.warn('[python-runtime] failed to converge pip shim files:', error);
+  }
 }
 
 function runtimeHealth(
@@ -258,6 +270,7 @@ export async function ensurePythonRuntimeReady(): Promise<{ success: boolean; er
       } catch (error) {
         console.warn('[python-runtime] Failed to normalize user runtime _pth:', error);
       }
+      convergeUserPipShims(userRoot);
     }
     const userHealth = runtimeHealth(userRoot);
     if (userHealth.ok) {
@@ -290,6 +303,7 @@ export async function ensurePythonRuntimeReady(): Promise<{ success: boolean; er
     fs.mkdirSync(path.dirname(userRoot), { recursive: true });
     cpRecursiveSync(bundledRoot, userRoot, { force: true, dereference: true });
     ensureEmbedSitePackages(userRoot);
+    convergeUserPipShims(userRoot);
 
     const syncedHealth = runtimeHealth(userRoot);
     if (!syncedHealth.ok) {

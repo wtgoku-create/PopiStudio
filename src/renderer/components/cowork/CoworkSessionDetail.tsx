@@ -5,6 +5,7 @@ import {
   ChevronUpIcon,
   DocumentArrowDownIcon,
   ExclamationTriangleIcon,
+  MagnifyingGlassIcon,
   PhotoIcon,
   QuestionMarkCircleIcon,
 } from '@heroicons/react/24/outline';
@@ -99,6 +100,7 @@ import {
   shouldAutoScrollForPosition,
   shouldShowScrollToBottomButton,
 } from './conversationScrollPolicy';
+import CoworkMessageSearch from './CoworkMessageSearch';
 import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
 import LazyRenderTurn from './LazyRenderTurn';
 import {
@@ -1271,11 +1273,28 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 }) => {
   const dispatch = useDispatch();
   const currentSession = useSelector(selectCurrentSession);
+  const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
   const isStreaming = useSelector(selectIsStreaming);
   const remoteManaged = useSelector(selectRemoteManaged);
   const lastMessageContent = useSelector(selectLastMessageContent);
   const messagesLength = useSelector(selectCurrentMessagesLength);
   const sessionId = currentSession?.id;
+
+  const selectSearchedMessage = useCallback((messageId: string) => {
+    const target = document.querySelector<HTMLElement>(`[data-rail-message-id="${CSS.escape(messageId)}"]`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        setIsMessageSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
   const agents = useSelector((state: RootState) => state.agent.agents);
   const minimizedPermissionPreview = minimizedPermission
     ? getPermissionPreviewText(minimizedPermission)
@@ -4138,7 +4157,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
+    <div className="relative flex-1 flex flex-col h-full overflow-hidden">
       {/* Header — spans full width */}
       <div className={`draggable flex h-12 items-center justify-between border-b border-border bg-background shrink-0 ${
         isArtifactPanelExpanded ? 'pl-0 pr-4' : 'px-4'
@@ -4167,7 +4186,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               {updateBadge}
             </div>
           )} */}
-          <div className="flex min-w-0 items-center gap-1">
+            <div className="flex min-w-0 items-center gap-1">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-transparent leading-none text-foreground">
               <HeaderAgentAvatar agent={headerAgent} />
             </span>
@@ -4176,8 +4195,25 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 {currentSession.title || currentSession.source?.label || i18nService.t('coworkNewSession')}
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsMessageSearchOpen(true)}
+              title={i18nService.t('coworkMessageSearch')}
+              aria-label={i18nService.t('coworkMessageSearch')}
+              className="non-draggable rounded-md p-1.5 text-secondary hover:bg-surface-raised hover:text-foreground"
+            >
+              <MagnifyingGlassIcon className="h-4 w-4" />
+            </button>
           </div>
         </div>
+
+        {isMessageSearchOpen && currentSession && (
+          <CoworkMessageSearch
+            messages={currentSession.messages}
+            onClose={() => setIsMessageSearchOpen(false)}
+            onSelectMessage={selectSearchedMessage}
+          />
+        )}
 
         {/* Right side: Artifact toggle */}
         <div

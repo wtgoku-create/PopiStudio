@@ -163,8 +163,12 @@ test('rate: too many requests', () => {
   expect(classifyError('Too many requests, please slow down')).toBe('coworkErrorRateLimit');
 });
 
-test('rate: Anthropic overloaded', () => {
-  expect(classifyError('overloaded_error: Overloaded')).toBe('coworkErrorRateLimit');
+test('capacity: Anthropic overloaded', () => {
+  expect(classifyError('overloaded_error: Overloaded')).toBe('coworkErrorModelOverloaded');
+});
+
+test('capacity: provider capacity wins over nested rate-limit wording', () => {
+  expect(classifyError('<503> system capacity limits: too many requests')).toBe('coworkErrorModelOverloaded');
 });
 
 test('rate: Gemini RESOURCE_EXHAUSTED', () => {

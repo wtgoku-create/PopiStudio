@@ -32,6 +32,7 @@ import { type CoworkSelectedTextSnippet, CoworkSelectedTextSource } from '../../
 import { CoworkSteerStatus } from '../../../shared/cowork/steer';
 import type { RemoteKnowledgeBase } from '../../../shared/knowledge/constants';
 import { ProviderName, ProviderRegistry } from '../../../shared/providers';
+import { type ModelThinkingLevel,resolveOpenClawThinkingLevel } from '../../../shared/providers/modelThinking';
 import sendIconUrl from '../../assets/agent-avatars/Send.png';
 import { configService } from '../../services/config';
 import { coworkService } from '../../services/cowork';
@@ -51,6 +52,7 @@ import {
   COWORK_STEER_QUEUE_LIMIT,
   type DraftAttachment,
   getCoworkHomeDraftKey,
+  PlanConfirmationState,
   removeDraftAttachment,
   removeDraftSelectedTextSnippet,
   removePendingSteer,
@@ -61,7 +63,6 @@ import {
   setDraftGoalInput,
   setDraftPrompt,
   setDraftSelectedTextSnippets,
-  PlanConfirmationState,
   setPlanConfirmationHandled,
   setSteerDraft,
   updateCurrentSessionModelOverride,
@@ -2132,10 +2133,11 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         dropdownDirection="up"
         alignDropdownToTriggerEnd={useHomeContextLayout}
         disabled={isPatchingModel || isPersistingAgentModel}
+        thinkingLevel={currentSession?.thinkingLevel as ModelThinkingLevel | null | undefined}
         value={agentModelIsInvalid && currentSession?.modelOverride
           ? { id: '__invalid__', name: currentSession.modelOverride.split('/').pop() || currentSession.modelOverride } as Model
           : agentSelectedModel}
-        onChange={async (nextModel) => {
+        onChange={async (nextModel, meta) => {
           if (isPatchingModel || isPersistingAgentModel) return;
           if (!nextModel) return;
           const modelRef = toOpenClawModelRef(nextModel);
@@ -2155,10 +2157,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             dispatch(updateCurrentSessionModelOverride({ sessionId, modelOverride: modelRef }));
 
             try {
+              const requestedThinkingLevel = meta?.thinkingLevel && nextModel.thinkingConfig
+                ? resolveOpenClawThinkingLevel(nextModel.thinkingConfig, meta.thinkingLevel)
+                : undefined;
               const patchedSession = await coworkService.patchSession(sessionId, {
                 model: modelRef,
                 thinkingLevel: supportsThinking
-                  ? OpenClawSessionThinkingLevel.Medium
+                  ? requestedThinkingLevel ?? OpenClawSessionThinkingLevel.Medium
                   : OpenClawSessionThinkingLevel.Off,
                 reasoningLevel: supportsThinking
                   ? OpenClawSessionReasoningLevel.Stream

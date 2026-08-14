@@ -1,8 +1,10 @@
+import { ProviderName } from '@shared/providers';
+import type { ModelThinkingConfig } from '@shared/providers/modelThinking';
+
 import { store } from '../store';
 import { setAuthLoading, setLoggedIn, setLoggedOut, setProfileSummary, updateQuota } from '../store/slices/authSlice';
 import type { Model } from '../store/slices/modelSlice';
 import { clearServerModels, setDefaultSelectedModel, setServerModels } from '../store/slices/modelSlice';
-import { ProviderName } from '@shared/providers';
 import { configService } from './config';
 
 type AvailableServerModelEntry = {
@@ -14,6 +16,7 @@ type AvailableServerModelEntry = {
   contextWindow?: number;
   supportsImage?: boolean;
   supportsThinking?: boolean;
+  thinkingConfig?: ModelThinkingConfig;
 };
 
 const readPositiveNumber = (value: unknown): number | undefined => {
@@ -238,6 +241,15 @@ class AuthService {
           contextWindow: readPositiveNumber(m.contextWindow) ?? readPositiveNumber(m.context),
           supportsImage: m.supportsImage ?? false,
           supportsThinking: m.supportsThinking ?? true,
+          thinkingConfig: m.thinkingConfig ?? (m.supportsThinking ? {
+            options: [
+              { level: 'off', openclawLevel: 'off' },
+              { level: 'low', openclawLevel: 'low' },
+              { level: 'medium', openclawLevel: 'medium' },
+              { level: 'high', openclawLevel: 'high' },
+            ],
+            defaultLevel: 'medium',
+          } : undefined),
         }));
         store.dispatch(setServerModels(serverModels));
         if (serverModels.length > 0) {

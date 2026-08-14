@@ -6,9 +6,12 @@
 const ERROR_RULES: Array<[RegExp, string]> = [
   // Auth: Anthropic, DeepSeek, OpenAI, Gemini, HTTP 401
   [/authentication[_ ](error|fails?)|api[_ ]key.*(invalid|expired|not[_ ]valid)|invalid.*api.*key|incorrect.*api.*key|unauthorized|PERMISSION_DENIED|\b401\b/i, 'coworkErrorAuthInvalid'],
-  // Rate limit: HTTP 429, Anthropic/DeepSeek overloaded, Gemini RESOURCE_EXHAUSTED
+  // Capacity errors need a distinct retry message and must win over nested
+  // "too many requests" wording from provider error payloads.
+  [/overloaded_error|\boverloaded\b|(?:selected\s+)?model\s+(?:is\s+)?at capacity|system capacity(?: limits?)?|(?:service|model).*(?:high demand|high load)|服务过载|当前负载过高|系统容量(?:不足|限制)?/i, 'coworkErrorModelOverloaded'],
+  // Rate limit: HTTP 429 and Gemini RESOURCE_EXHAUSTED
   // (must precede billing so "RESOURCE_EXHAUSTED: quota exceeded" maps to rate-limit)
-  [/\b429\b|rate[_ ]limit|too many requests|overloaded|RESOURCE_EXHAUSTED/i, 'coworkErrorRateLimit'],
+  [/\b429\b|rate[_ ]limit|too many requests|RESOURCE_EXHAUSTED/i, 'coworkErrorRateLimit'],
   // Billing: DeepSeek 402/403, OpenAI, OpenRouter, Qwen, StepFun
   [/insufficient.*(balance|quota|credits)|billing|quota[_ ]exceeded|Arrearage|account.*not.*in.*good.*standing|余额不足|\b40[23]\b/i, 'coworkErrorInsufficientBalance'],
   // Input too long: context length, HTTP 413, Qwen, payload too large

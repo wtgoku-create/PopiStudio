@@ -1,4 +1,5 @@
 import type { ApiFormat } from './constants';
+import type { ModelThinkingConfig } from './modelThinking';
 
 export interface ProviderConfig {
   enabled: boolean;
@@ -14,6 +15,7 @@ export interface ProviderConfig {
     contextWindow?: number;
     maxTokens?: number;
     runtimeProfile?: string;
+    thinkingConfig?: ModelThinkingConfig;
     customParams?: Record<string, unknown>;
   }>;
   displayName?: string;

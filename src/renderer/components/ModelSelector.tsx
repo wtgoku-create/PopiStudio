@@ -1,14 +1,19 @@
 import { CheckIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
-import { ProviderName } from '@shared/providers';
+import { getModelThinkingLevels, type ModelThinkingLevel, ProviderName } from '@shared/providers';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { getProviderIcon, ProviderIconId } from '../providers/uiRegistry';
 import { i18nService } from '../services/i18n';
+import {
+  readRememberedModelThinkingLevel,
+  rememberModelThinkingLevel,
+} from '../services/modelThinkingLevelMemory';
 import { RootState } from '../store';
 import type { Model } from '../store/slices/modelSlice';
 import { getModelIdentityKey, isSameModelIdentity, setSelectedModel } from '../store/slices/modelSlice';
+import ModelThinkingMenu from './modelSelector/ModelThinkingMenu';
 
 interface ModelSelectorProps {
   dropdownDirection?: 'up' | 'down' | 'auto';
@@ -18,7 +23,7 @@ interface ModelSelectorProps {
    */
   value?: Model | null;
   /** Controlled mode callback. `null` means the user picked "default". */
-  onChange?: (model: Model | null) => void;
+  onChange?: (model: Model | null, meta?: { thinkingLevel?: ModelThinkingLevel }) => void;
   /** Show a "default" option at the top of the dropdown (controlled mode only). */
   defaultLabel?: string;
   /** Disable interaction while the selected model is being persisted. */
@@ -29,6 +34,7 @@ interface ModelSelectorProps {
   portal?: boolean;
   /** Align the dropdown's trailing edge with the trigger's trailing edge. */
   alignDropdownToTriggerEnd?: boolean;
+  thinkingLevel?: ModelThinkingLevel | null;
 }
 
 const DROPDOWN_MAX_HEIGHT = 344; // list max-h-72 plus the tab area
@@ -57,6 +63,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   compact = false,
   portal = false,
   alignDropdownToTriggerEnd = false,
+  thinkingLevel = null,
 }) => {
   const dispatch = useDispatch();
   const [isOpen, setIsOpen] = React.useState(false);
@@ -66,6 +73,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const selectedItemRef = React.useRef<HTMLButtonElement>(null);
+  const [thinkingModelKey, setThinkingModelKey] = React.useState<string | null>(null);
 
   const controlled = onChange !== undefined;
   const globalSelectedModel = useSelector((state: RootState) => state.model.defaultSelectedModel);
@@ -172,15 +180,30 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     }
   };
 
-  const handleModelSelect = (model: Model | null) => {
+  const resolveThinkingLevel = (model: Model | null): ModelThinkingLevel | undefined => {
+    if (!model?.thinkingConfig) return undefined;
+    if (thinkingLevel && getModelThinkingLevels(model.thinkingConfig).includes(thinkingLevel)) return thinkingLevel;
+    const remembered = readRememberedModelThinkingLevel(getModelIdentityKey(model));
+    if (remembered && getModelThinkingLevels(model.thinkingConfig).includes(remembered)) return remembered;
+    return model.thinkingConfig.defaultLevel;
+  };
+
+  const handleModelSelect = (model: Model | null, nextThinkingLevel?: ModelThinkingLevel) => {
     if (disabled) return;
+    const resolvedThinkingLevel = nextThinkingLevel ?? resolveThinkingLevel(model);
+    if (model && resolvedThinkingLevel) {
+      rememberModelThinkingLevel(getModelIdentityKey(model), resolvedThinkingLevel);
+    }
     if (controlled) {
-      onChange(model);
+      onChange(model, resolvedThinkingLevel ? { thinkingLevel: resolvedThinkingLevel } : undefined);
     } else if (model) {
       dispatch(setSelectedModel({ agentId: currentAgentId, model }));
     }
     setIsOpen(false);
+    setThinkingModelKey(null);
   };
+
+  const thinkingModel = availableModels.find(model => getModelIdentityKey(model) === thinkingModelKey) ?? null;
 
   // 如果没有可用模型，显示提示
   if (availableModels.length === 0) {
@@ -245,6 +268,19 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         <span className="min-w-0 flex-1 truncate text-[13px] font-normal leading-5">
           {model.name}
         </span>
+        {model.thinkingConfig && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setThinkingModelKey(getModelIdentityKey(model));
+            }}
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-secondary hover:bg-surface-raised"
+            aria-label={i18nService.t('modelThinkingStrength')}
+          >
+            {resolveThinkingLevel(model)}
+          </button>
+        )}
         {model.supportsImage && (
           <span className="shrink-0 rounded-md bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium leading-none text-secondary">
             {i18nService.t('modelSupportsImageInputBadge')}
@@ -278,6 +314,16 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         )}
         {availableModels.map(renderModelItem)}
       </div>
+      {thinkingModel?.thinkingConfig && (
+        <div className="absolute left-full top-0 z-[10001] ml-2 w-52">
+          <ModelThinkingMenu
+            config={thinkingModel.thinkingConfig}
+            selectedLevel={resolveThinkingLevel(thinkingModel) ?? thinkingModel.thinkingConfig.defaultLevel}
+            onSelect={(level) => handleModelSelect(thinkingModel, level)}
+            onEscape={() => setThinkingModelKey(null)}
+          />
+        </div>
+      )}
     </div>
   ) : null;
 

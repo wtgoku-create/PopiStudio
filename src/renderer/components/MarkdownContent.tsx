@@ -15,6 +15,7 @@ import { i18nService } from '../services/i18n';
 import { type SourceReference,SourceReferenceKind } from '../types/sourceReference';
 import { decodeSourceReferenceHref, encodeSourceReferencesForMarkdown } from '../utils/sourceReferences';
 import CodeBlock from './CodeBlock';
+import LocalFileContextMenu from './common/LocalFileContextMenu';
 
 const SAFE_URL_PROTOCOLS = new Set(['http', 'https', 'mailto', 'tel', 'file', 'localfile', 'popiai-source-ref']);
 const LINK_CLASS_NAME = 'text-primary hover:text-primary-hover underline decoration-primary/50 hover:decoration-primary transition-colors break-words [overflow-wrap:anywhere]';
@@ -604,7 +605,8 @@ const createMarkdownComponents = (
       };
 
       return (
-        <span className="group inline-flex max-w-full items-center gap-1 align-baseline">
+        <LocalFileContextMenu filePath={filePath}>
+          <span className="group inline-flex max-w-full items-center gap-1 align-baseline">
           <a
             href={toFileHref(filePath)}
             onClick={handleClick}
@@ -630,7 +632,8 @@ const createMarkdownComponents = (
               <FolderIcon className="h-3.5 w-3.5" />
             </button>
           )}
-        </span>
+          </span>
+        </LocalFileContextMenu>
       );
     }
 

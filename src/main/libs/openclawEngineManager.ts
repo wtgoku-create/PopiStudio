@@ -23,6 +23,7 @@ import {
 import { mergeNoProxyValue } from './noProxyEnv';
 import { getCodexHomeDir } from './openaiCodexAuth';
 import { migrateLegacyCronStorageWithDoctor } from './openclawCronLegacyMigration';
+import { cleanupStaleGatewayLocks, GatewayLockCleanupAction } from './openclawGatewayLock';
 import { cleanupStaleThirdPartyPluginsFromBundledDir, listLocalOpenClawExtensionIds, syncLocalOpenClawExtensionsIntoRuntime } from './openclawLocalExtensions';
 import { migrateAllFtsOnlyMemoryIndexes } from './openclawMemoryIndexMigration';
 import { ensureOpenClawWorkerShims } from './openclawWorkerShims';
@@ -453,6 +454,24 @@ export class OpenClawEngineManager extends EventEmitter {
     return this.startGatewayPromise;
   }
 
+  /** Reclaim stale locks only after confirming this supervisor has no live child. */
+  private cleanupStaleGatewayLocksSafely(context: string): void {
+    if (isGatewayProcessAlive(this.gatewayProcess)) return;
+    try {
+      const results = cleanupStaleGatewayLocks({ configPath: this.configPath });
+      for (const result of results) {
+        if (result.action === GatewayLockCleanupAction.KeptAliveOwner) continue;
+        if (result.action === GatewayLockCleanupAction.RemoveFailed) {
+          console.warn(`[OpenClaw] failed to remove stale gateway lock during ${context}: ${result.lockPath}`);
+        } else {
+          console.log(`[OpenClaw] reclaimed stale gateway lock during ${context}: ${result.lockPath}`);
+        }
+      }
+    } catch (error) {
+      console.warn(`[OpenClaw] stale gateway lock cleanup failed during ${context}:`, error);
+    }
+  }
+
   private async doStartGateway(): Promise<OpenClawEngineStatus> {
     this.shutdownRequested = false;
     const t0 = Date.now();
@@ -532,6 +551,7 @@ export class OpenClawEngineManager extends EventEmitter {
     this.gatewayPort = port;
     this.writeGatewayPort(port);
     this.ensureConfigFile();
+    this.cleanupStaleGatewayLocksSafely('pre-spawn');
     console.log(`[OpenClaw] startGateway: pre-fork setup done (${elapsed()})`);
 
     this.setStatus({
@@ -741,6 +761,7 @@ export class OpenClawEngineManager extends EventEmitter {
       await this.stopGatewayProcess(this.gatewayProcess);
       console.log('[OpenClaw] gateway process stopped');
       this.gatewayProcess = null;
+      this.cleanupStaleGatewayLocksSafely('post-stop');
     }
 
     const runtime = this.resolveRuntimeMetadata();

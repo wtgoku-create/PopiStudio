@@ -8,6 +8,11 @@ export {
   ProviderName,
   ProviderRegistry,
 } from './constants';
+export type {
+  ModelRuntimeProfileDefinition,
+  ModelRuntimeProfileMetadata,
+  ModelRuntimeProfile as ModelRuntimeProfileType,
+} from './modelRuntimeProfiles';
 export {
   applyModelRuntimeProfileMetadata,
   getModelRuntimeProfileDefinition,
@@ -19,8 +24,18 @@ export {
   resolveModelRuntimeProfile,
 } from './modelRuntimeProfiles';
 export type {
-  ModelRuntimeProfile as ModelRuntimeProfileType,
-  ModelRuntimeProfileDefinition,
-  ModelRuntimeProfileMetadata,
-} from './modelRuntimeProfiles';
+  ModelThinkingConfig,
+  ModelThinkingOption,
+  OpenClawThinkingLevel,
+} from './modelThinking';
+export {
+  DEFAULT_MODEL_THINKING_CONFIG,
+  getModelThinkingLevels,
+  ModelThinkingLevel,
+  parseModelThinkingConfig,
+  parseModelThinkingLevel,
+  parseOpenClawThinkingLevel,
+  resolveOpenClawThinkingLevel,
+  resolveProductThinkingLevel,
+} from './modelThinking';
 export type { ProviderConfig } from './types';

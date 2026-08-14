@@ -31,23 +31,21 @@
   ; 2. node.exe whose binary lives inside the Popiai install tree
   ;    (Web Search bridge server, MCP servers spawned with detached:true)
   ;
-  ; Stop-Process -Force is equivalent to taskkill /F — the processes have no
-  ; chance to run before-quit cleanup, so file handles may linger briefly as
-  ; "ghost handles" in the Windows kernel. We poll until no matching process
-  ; remains before proceeding.
+  ; Stop-Process -Force is equivalent to taskkill /F. Re-issue the kill on
+  ; every poll round because Windows process teardown can outlive the first
+  ; observation and detached gateway/node children may appear between rounds.
 
   DetailPrint "[Installer] Stopping running Popiai processes"
   System::Call 'kernel32::GetTickCount()i .r7'
   nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "\
-    Stop-Process -Name Popiai -Force -ErrorAction SilentlyContinue;\
-    Get-Process node -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like \"*Popiai*\" } | Stop-Process -Force -ErrorAction SilentlyContinue;\
-    for ($$i = 0; $$i -lt 15; $$i++) {\
+    for ($$i = 0; $$i -lt 30; $$i++) {\
       $$procs = @();\
       $$procs += Get-Process -Name Popiai -ErrorAction SilentlyContinue;\
       $$procs += Get-Process node -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like \"*Popiai*\" };\
-      if ($$procs.Count -eq 0) { break };\
+      if ($$procs.Count -eq 0) { exit 0 };\
+      $$procs | Stop-Process -Force -ErrorAction SilentlyContinue;\
       Start-Sleep -Milliseconds 500;\
-    }"'
+    }; exit 3"'
   Pop $0
   System::Call 'kernel32::GetTickCount()i .r6'
   IntOp $5 $6 - $7
@@ -307,15 +305,14 @@
   ; where even "Retry" never succeeds — because the gateway has no UI window
   ; for the user to close.
   nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "\
-    Stop-Process -Name Popiai -Force -ErrorAction SilentlyContinue;\
-    Get-Process node -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like \"*Popiai*\" } | Stop-Process -Force -ErrorAction SilentlyContinue;\
-    for ($$i = 0; $$i -lt 15; $$i++) {\
+    for ($$i = 0; $$i -lt 30; $$i++) {\
       $$procs = @();\
       $$procs += Get-Process -Name Popiai -ErrorAction SilentlyContinue;\
       $$procs += Get-Process node -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like \"*Popiai*\" };\
-      if ($$procs.Count -eq 0) { break };\
+      if ($$procs.Count -eq 0) { exit 0 };\
+      $$procs | Stop-Process -Force -ErrorAction SilentlyContinue;\
       Start-Sleep -Milliseconds 500;\
-    }"'
+    }; exit 3"'
   Pop $0
 !macroend
 

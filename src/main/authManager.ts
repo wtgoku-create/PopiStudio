@@ -60,6 +60,7 @@ export type ServerModelMetadata = {
   apiFormat: string;
   supportsImage?: boolean;
   supportsThinking?: boolean;
+  thinkingConfig?: import('../shared/providers/modelThinking').ModelThinkingConfig;
 };
 
 export const POPI_DEFAULT_SERVER_MODELS = [
@@ -714,6 +715,15 @@ export class AuthManager {
           ...(contextWindow !== undefined ? { context: contextWindow, contextWindow } : {}),
           supportsImage: item.isSupportImages,
           supportsThinking: true,
+          thinkingConfig: {
+            options: [
+              { level: 'off', openclawLevel: 'off' },
+              { level: 'low', openclawLevel: 'low' },
+              { level: 'medium', openclawLevel: 'medium' },
+              { level: 'high', openclawLevel: 'high' },
+            ],
+            defaultLevel: 'medium',
+          },
         };
       })
       .filter((model): model is ServerModelMetadata => model !== null);

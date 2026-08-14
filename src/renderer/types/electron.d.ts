@@ -1266,6 +1266,7 @@ interface IElectronAPI {
         contextWindow?: number;
         supportsImage?: boolean;
         supportsThinking?: boolean;
+        thinkingConfig?: import('@shared/providers/modelThinking').ModelThinkingConfig;
       }>;
     }>;
     getProfileSummary: () => Promise<{ success: boolean; data?: ProfileSummaryData }>;
