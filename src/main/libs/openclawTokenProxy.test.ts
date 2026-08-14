@@ -48,6 +48,34 @@ function createDiagnostics() {
   };
 }
 
+test('normalizes token proxy business errors regardless of the outer status code', () => {
+  const responseText = JSON.stringify({
+    message: 'llm chat stream failed: status=403 body=' + JSON.stringify({
+      error: {
+        message: '积分预扣失败: 积分不足，需要预扣 25，当前可用 10',
+        user_message: '当前积分不足，请充值或更换计费方式',
+        type: 'new_api_error',
+        code: 'insufficient_points',
+        normalized_code: 'points.insufficient_balance',
+        http_status: 403,
+        request_id: 'request-123',
+        params: { available_points: '10', model: 'kimi-k2.6', need_points: '25' },
+      },
+    }),
+    status: '4005',
+  });
+
+  const result = testUtils.normalizeLlmChatBusinessError(responseText);
+  expect(result?.status).toBe(403);
+  const body = JSON.parse((result?.body as Buffer).toString('utf8'));
+  expect(body.error.message).toContain('当前积分不足');
+  expect(body.error.message).toContain('need points: 25');
+  expect(body.error.message).toContain('available points: 10');
+  expect(body.error.message).toContain('request id: request-123');
+  expect(body.error.upstream.normalized_code).toBe('points.insufficient_balance');
+  expect(body.error.responseText).toBe(responseText);
+});
+
 test('retries transient HTTP/2 ping failures before returning upstream response', async () => {
   vi.useFakeTimers();
   const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

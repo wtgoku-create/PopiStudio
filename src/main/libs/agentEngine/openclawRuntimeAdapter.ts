@@ -525,6 +525,45 @@ type ChatEventPayload = {
   rawErrorPreview?: string;
 };
 
+type WrappedProviderError = Pick<ChatEventPayload, 'httpCode' | 'providerErrorType' | 'providerErrorMessagePreview' | 'rawErrorPreview'>;
+
+const parseWrappedProviderError = (errorText: string): WrappedProviderError => {
+  const match = errorText.match(/body=(\{[\s\S]*\})$/);
+  if (!match) return {};
+  let body: unknown;
+  try {
+    body = JSON.parse(match[1]);
+  } catch {
+    return {};
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return {};
+  const error = (body as Record<string, unknown>).error;
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return {};
+  const upstreamError = error as Record<string, unknown>;
+  const userMessage = typeof upstreamError.user_message === 'string'
+    ? upstreamError.user_message.trim()
+    : '';
+  const message = typeof upstreamError.message === 'string'
+    ? upstreamError.message.trim()
+    : '';
+  const params = upstreamError.params && typeof upstreamError.params === 'object' && !Array.isArray(upstreamError.params)
+    ? upstreamError.params as Record<string, unknown>
+    : null;
+  const details = [
+    typeof params?.need_points === 'string' ? `need points: ${params.need_points}` : '',
+    typeof params?.available_points === 'string' ? `available points: ${params.available_points}` : '',
+    typeof params?.model === 'string' ? `model: ${params.model}` : '',
+    typeof upstreamError.request_id === 'string' ? `request id: ${upstreamError.request_id}` : '',
+  ].filter(Boolean);
+  const rawErrorPreview = [message, ...details].filter(Boolean).join(' ');
+  return {
+    ...(typeof upstreamError.http_status === 'number' ? { httpCode: String(upstreamError.http_status) } : {}),
+    ...(typeof upstreamError.type === 'string' ? { providerErrorType: upstreamError.type } : {}),
+    ...(userMessage || message ? { providerErrorMessagePreview: userMessage || message } : {}),
+    ...(rawErrorPreview ? { rawErrorPreview } : {}),
+  };
+};
+
 const normalizeLifecycleErrorPayload = (
   data: Record<string, unknown>,
   defaults: {
@@ -573,6 +612,7 @@ const normalizeLifecycleErrorPayload = (
     'provider_runtime_failure_kind',
     'failureKind',
   ]);
+  const wrappedProviderError = parseWrappedProviderError(defaults.errorMessage);
 
   return {
     runId: defaults.runId,
@@ -581,10 +621,10 @@ const normalizeLifecycleErrorPayload = (
     errorMessage: defaults.errorMessage,
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
-    ...(httpCode ? { httpCode } : {}),
-    ...(providerErrorType ? { providerErrorType } : {}),
-    ...(providerErrorMessagePreview ? { providerErrorMessagePreview } : {}),
-    ...(rawErrorPreview ? { rawErrorPreview } : {}),
+    ...((httpCode || wrappedProviderError.httpCode) ? { httpCode: httpCode || wrappedProviderError.httpCode } : {}),
+    ...((providerErrorType || wrappedProviderError.providerErrorType) ? { providerErrorType: providerErrorType || wrappedProviderError.providerErrorType } : {}),
+    ...((providerErrorMessagePreview || wrappedProviderError.providerErrorMessagePreview) ? { providerErrorMessagePreview: providerErrorMessagePreview || wrappedProviderError.providerErrorMessagePreview } : {}),
+    ...((rawErrorPreview || wrappedProviderError.rawErrorPreview) ? { rawErrorPreview: rawErrorPreview || wrappedProviderError.rawErrorPreview } : {}),
     ...(failoverReason ? { failoverReason } : {}),
     ...(providerRuntimeFailureKind ? { providerRuntimeFailureKind } : {}),
   };
@@ -7852,6 +7892,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     displayMessage: string,
     payload: ChatEventPayload,
   ): CoworkMessageMetadata['errorDetail'] {
+    const wrappedProviderError = parseWrappedProviderError(rawErrorMessage);
     const metadata: Record<string, string | undefined> = {};
     for (const key of [
       'provider',
@@ -7865,6 +7906,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     ] as const) {
       const value = payload[key];
       if (typeof value === 'string') metadata[key] = value;
+    }
+    for (const key of ['httpCode', 'providerErrorType', 'providerErrorMessagePreview', 'rawErrorPreview'] as const) {
+      if (!metadata[key] && wrappedProviderError[key]) metadata[key] = wrappedProviderError[key];
     }
 
     return buildCoworkErrorDetail({
@@ -9736,3 +9780,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     await this.ensureGatewayClientReady();
   }
 }
+
+export const __openClawRuntimeAdapterTestUtils = {
+  parseWrappedProviderError,
+};

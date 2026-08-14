@@ -24,6 +24,7 @@ import {
 } from '../../../common/openclawSession';
 import { buildCronRunHistoryMetadata } from './openclawCronRunHistorySync';
 import {
+  __openClawRuntimeAdapterTestUtils,
   buildOpenClawChatSendPayloadTooLargeError,
   estimateOpenClawChatSendFrameBytes,
   isSignificantAssistantStreamReset,
@@ -31,6 +32,27 @@ import {
   OpenClawRuntimeAdapter,
   pickPersistedAssistantSegment,
 } from './openclawRuntimeAdapter';
+
+test('extracts provider details from a wrapped token proxy error', () => {
+  const parsed = __openClawRuntimeAdapterTestUtils.parseWrappedProviderError(
+    'llm chat stream failed: status=403 body=' + JSON.stringify({
+      error: {
+        message: '积分预扣失败: 积分不足，需要预扣 25，当前可用 10',
+        user_message: '当前积分不足，请充值或更换计费方式',
+        type: 'new_api_error',
+        http_status: 403,
+        request_id: 'request-123',
+        params: { available_points: '10', model: 'kimi-k2.6', need_points: '25' },
+      },
+    }),
+  );
+
+  expect(parsed.providerErrorMessagePreview).toContain('当前积分不足');
+  expect(parsed.rawErrorPreview).toContain('need points: 25');
+  expect(parsed.rawErrorPreview).toContain('request id: request-123');
+  expect(parsed.httpCode).toBe('403');
+  expect(parsed.providerErrorType).toBe('new_api_error');
+});
 
 test('pickPersistedAssistantSegment: stream authority keeps previous when same length or longer', () => {
   expect(pickPersistedAssistantSegment('aa', 'a', true)).toEqual({

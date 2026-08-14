@@ -391,7 +391,7 @@ function flushProxySSEBuffer(buffer: string, scanState?: ProxySSEStreamScanState
 
 function normalizeLlmChatBusinessError(responseText: string): UpstreamResult | null {
   const payload = tryParseJson(responseText);
-  if (!isRecord(payload) || payload.status !== '5000' || typeof payload.message !== 'string') {
+  if (!isRecord(payload) || typeof payload.message !== 'string') {
     return null;
   }
 
@@ -400,12 +400,25 @@ function normalizeLlmChatBusinessError(responseText: string): UpstreamResult | n
   const upstreamError = isRecord(upstreamPayload) && isRecord(upstreamPayload.error)
     ? upstreamPayload.error
     : null;
+  if (!upstreamError) return null;
 
-  const message = typeof upstreamError?.user_message === 'string'
-    ? upstreamError.user_message
-    : typeof upstreamError?.message === 'string'
-      ? upstreamError.message
-      : payload.message;
+  const userMessage = typeof upstreamError.user_message === 'string'
+    ? upstreamError.user_message.trim()
+    : '';
+  const upstreamMessage = typeof upstreamError.message === 'string'
+    ? upstreamError.message.trim()
+    : '';
+  const messageParts = [userMessage];
+  if (upstreamMessage && upstreamMessage !== userMessage) messageParts.push(upstreamMessage);
+  const params = isRecord(upstreamError.params) ? upstreamError.params : null;
+  const detailParts = [
+    typeof params?.need_points === 'string' ? `need points: ${params.need_points}` : '',
+    typeof params?.available_points === 'string' ? `available points: ${params.available_points}` : '',
+    typeof params?.model === 'string' ? `model: ${params.model}` : '',
+    typeof upstreamError.request_id === 'string' ? `request id: ${upstreamError.request_id}` : '',
+  ].filter(Boolean);
+  if (detailParts.length > 0) messageParts.push(`(${detailParts.join(', ')})`);
+  const message = messageParts.join(' ') || payload.message;
   const status = typeof upstreamError?.http_status === 'number'
     ? upstreamError.http_status
     : 502;
@@ -427,6 +440,7 @@ function normalizeLlmChatBusinessError(responseText: string): UpstreamResult | n
         type,
         code,
         upstream: upstreamError ?? payload,
+        responseText,
       },
     })),
     isStream: false,
@@ -857,4 +871,5 @@ export const __openClawTokenProxyTestUtils = {
   pipeNodeReadableResponse,
   pipeWebReadableResponse,
   scanProxySSEBuffer,
+  normalizeLlmChatBusinessError,
 };
