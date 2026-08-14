@@ -1,7 +1,9 @@
-import { CheckIcon } from '@heroicons/react/24/outline';
-import React, { useMemo, useState } from 'react';
+import { CheckIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 
 import { i18nService } from '../../services/i18n';
+import { selectIsStreaming } from '../../store/selectors/coworkSelectors';
 import DiffView, { extractDiffFromToolInput } from './DiffView';
 import {
   formatToolInput,
@@ -11,6 +13,7 @@ import {
   getToolResultCollapsedDisplay,
   getToolResultDisplay,
   getToolResultLineCountSummary,
+  getToolStepDisplay,
   hasText,
   isBashLikeToolName,
   isCronToolName,
@@ -21,6 +24,17 @@ import {
   type ToolGroupItem,
   truncatePreview,
 } from './messageDisplayUtils';
+
+const ToolRunningElapsed: React.FC<{ startTimestamp: number }> = ({ startTimestamp }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+  const elapsedSeconds = Math.max(0, Math.floor((now - startTimestamp) / 1000));
+  if (elapsedSeconds < 2) return null;
+  return <span className="tabular-nums"> · {elapsedSeconds}s</span>;
+};
 
 // ── TodoWriteInputView ───────────────────────────────────────────────────────
 
@@ -70,11 +84,15 @@ const ToolCallGroup: React.FC<{
   isLastInSequence?: boolean;
   mapDisplayText?: (value: string) => string;
   footer?: React.ReactNode;
+  variant?: 'timeline' | 'row';
+  initiallyExpanded?: boolean;
 }> = ({
   group,
   isLastInSequence = true,
   mapDisplayText,
   footer,
+  variant = 'timeline',
+  initiallyExpanded = false,
 }) => {
   const { toolUse, toolResult } = group;
   const rawToolName = typeof toolUse.metadata?.toolName === 'string' ? toolUse.metadata.toolName : 'Tool';
@@ -88,7 +106,8 @@ const ToolCallGroup: React.FC<{
   const toolInputDisplay = toolInputDisplayRaw ? mapText(toolInputDisplayRaw) : null;
   const toolInputSummaryRaw = getToolInputSummary(rawToolName, toolInput) ?? toolInputDisplayRaw;
   const toolInputSummary = toolInputSummaryRaw ? mapText(toolInputSummaryRaw) : null;
-  const [isExpanded, setIsExpanded] = useState(false);
+  const isSessionStreaming = useSelector(selectIsStreaming);
+  const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
   const collapsedToolResult = useMemo(
     () => toolResult ? getToolResultCollapsedDisplay(toolResult) : null,
     [toolResult],
@@ -127,35 +146,51 @@ const ToolCallGroup: React.FC<{
     [rawToolName, toolInput],
   );
   const isEditWithDiff = diffDataList !== null && diffDataList.length > 0;
+  const rowStep = variant === 'row'
+    ? getToolStepDisplay(rawToolName, toolInput as Record<string, unknown> | undefined)
+    : null;
 
   return (
-    <div className="relative py-1">
-      {!isLastInSequence && (
+    <div className={`relative ${variant === 'timeline' ? 'py-1' : ''}`}>
+      {variant === 'timeline' && !isLastInSequence && (
         <div className="absolute left-[3.5px] top-[14px] bottom-[-8px] w-px bg-border" />
       )}
       <button
+        type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-start gap-2 text-left group relative z-10"
+        className={`w-full flex gap-2 text-left group relative z-10 transition-colors ${variant === 'row' ? 'items-center px-4 py-2 hover:bg-surface-raised/40' : 'items-start'}`}
       >
-        <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
+        <span className={`${variant === 'row' ? 'w-1.5 h-1.5' : 'mt-1.5 w-2 h-2'} rounded-full flex-shrink-0 ${
           !toolResult
             ? 'bg-blue-500 animate-pulse'
             : isToolError
               ? 'bg-red-500'
-              : 'bg-green-500'
+              : variant === 'row'
+                ? 'hidden'
+                : 'bg-green-500'
         }`} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-secondary">
+            <span className={`font-medium ${variant === 'row' ? 'text-xs text-foreground/90 flex-shrink-0' : 'text-sm text-secondary'} ${!toolResult && isSessionStreaming ? 'shimmer-text' : ''}`}>
               {toolName}
             </span>
-            {toolInputSummary && (
+            {variant === 'row' && rowStep?.summary && (
+              <span className="min-w-0 truncate text-xs text-secondary">
+                {rowStep.summary}
+              </span>
+            )}
+            {variant === 'row' && !toolResult && isSessionStreaming && typeof toolUse.timestamp === 'number' && (
+              <span className="text-xs text-muted flex-shrink-0">
+                <ToolRunningElapsed startTimestamp={toolUse.timestamp} />
+              </span>
+            )}
+            {variant === 'timeline' && toolInputSummary && (
               <code className="text-xs text-muted font-mono truncate max-w-full">
                 {toolInputSummary}
               </code>
             )}
           </div>
-          {toolResult && !isTodoWriteTool && (hasToolResultText || showNoDetailError) && (
+          {variant === 'timeline' && toolResult && !isTodoWriteTool && (hasToolResultText || showNoDetailError) && (
             <div className={`text-xs mt-0.5 ${
               hasToolResultText
                 ? 'text-muted'
@@ -174,14 +209,21 @@ const ToolCallGroup: React.FC<{
             </div>
           )}
         </div>
+        {variant === 'row' && (
+          <ChevronRightIcon
+            className={`h-3 w-3 text-muted flex-shrink-0 transition-transform duration-200 ${
+              isExpanded ? 'rotate-90' : ''
+            }`}
+          />
+        )}
       </button>
       {footer && (
-        <div className="ml-4 mt-2">
+        <div className={variant === 'row' ? 'px-4 pb-3' : 'ml-4 mt-2'}>
           {footer}
         </div>
       )}
       {isExpanded && (
-        <div className="ml-4 mt-2">
+        <div className={`${variant === 'row' ? 'activity-row-detail px-4 pb-3' : 'ml-4 mt-2'}`}>
           {isBashTool ? (
             <div className="rounded-lg overflow-hidden border border-border">
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-surfaceInset">

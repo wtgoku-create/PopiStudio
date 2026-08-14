@@ -27,6 +27,7 @@ export const CoworkIpcChannel = {
   ListAgentSidebarSessions: 'cowork:session:listAgentSidebar',
   GetMessageRailIndex: 'cowork:session:getMessageRailIndex',
   GetMessages: 'cowork:session:getMessages',
+  SearchMessages: 'cowork:session:searchMessages',
   ListArtifacts: 'cowork:session:listArtifacts',
   ListArtifactResources: 'cowork:session:listArtifactResources',
   ResyncArtifacts: 'cowork:session:resyncArtifacts',

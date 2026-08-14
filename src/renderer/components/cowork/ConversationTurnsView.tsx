@@ -12,7 +12,6 @@ import LazyRenderTurn from './LazyRenderTurn';
 import {
   buildConversationTurns,
   buildDisplayItems,
-  hasRenderableAssistantContent,
 } from './messageDisplayUtils';
 import UserMessageItem from './UserMessageItem';
 
@@ -77,7 +76,7 @@ const ConversationTurnsView: React.FC<ConversationTurnsViewProps> = ({
     <div className={className}>
       {turns.map((turn, index) => {
         const isLastTurn = index === turns.length - 1;
-        const showTypingIndicator = isStreaming && isLastTurn && !hasRenderableAssistantContent(turn);
+        const showTypingIndicator = isStreaming && isLastTurn;
         const showAssistantBlock = turn.assistantItems.length > 0 || showTypingIndicator;
         const alwaysRender = index >= turns.length - 3;
 
@@ -118,6 +117,7 @@ const ConversationTurnsView: React.FC<ConversationTurnsViewProps> = ({
                   onOpenLocalService={onOpenLocalService}
                   showTypingIndicator={showTypingIndicator}
                   showCopyButtons={!isStreaming || !isLastTurn}
+                  isStreamingTurn={isStreaming && isLastTurn}
                 />
               </div>
             )}

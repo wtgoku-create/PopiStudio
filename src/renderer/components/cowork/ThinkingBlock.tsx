@@ -7,42 +7,59 @@ import type { CoworkMessage } from '../../types/cowork';
 const ThinkingBlock: React.FC<{
   message: CoworkMessage;
   mapDisplayText?: (value: string) => string;
-}> = ({ message, mapDisplayText }) => {
+  variant?: 'default' | 'row';
+  initiallyExpanded?: boolean;
+  highlightQuery?: string;
+}> = ({ message, mapDisplayText, variant = 'default', initiallyExpanded = false, highlightQuery }) => {
   const isCurrentlyStreaming = Boolean(message.metadata?.isStreaming);
-  const [isExpanded, setIsExpanded] = useState(isCurrentlyStreaming);
+  const isRowVariant = variant === 'row';
+  const [isExpanded, setIsExpanded] = useState(
+    isRowVariant ? initiallyExpanded : isCurrentlyStreaming,
+  );
   const displayContent = mapDisplayText ? mapDisplayText(message.content) : message.content;
 
   useEffect(() => {
+    if (isRowVariant) return;
     if (isCurrentlyStreaming) {
       setIsExpanded(true);
     } else {
       setIsExpanded(false);
     }
-  }, [isCurrentlyStreaming]);
+  }, [isCurrentlyStreaming, isRowVariant]);
 
   return (
-    <div className="rounded-lg border border-border bg-surface-sunken/50 overflow-hidden">
+    <div className={isRowVariant ? '' : 'rounded-lg border border-border bg-surface-sunken/50 overflow-hidden'}>
       <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised/50 transition-colors"
+        onClick={() => setIsExpanded(value => !value)}
+        className={`w-full flex items-center gap-2 px-4 py-2 text-left transition-colors ${
+          isRowVariant ? 'hover:bg-surface-raised/40' : 'hover:bg-surface-raised/50'
+        }`}
       >
-        <LightBulbIcon className="h-3.5 w-3.5 text-secondary flex-shrink-0" />
-        <span className="text-xs font-medium text-secondary">
+        <LightBulbIcon className="h-3 w-3 text-secondary flex-shrink-0" />
+        <span className="text-xs text-secondary">
           {i18nService.t('reasoning')}
         </span>
         {isCurrentlyStreaming && (
-          <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+          <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0" />
         )}
         <ChevronRightIcon
-          className={`h-3 w-3 text-secondary/60 flex-shrink-0 ml-auto transition-transform duration-200 ${
+          className={`h-3 w-3 text-muted flex-shrink-0 transition-transform duration-200 ${
+            !isRowVariant ? 'ml-auto' : ''
+          } ${
             isExpanded ? 'rotate-90' : ''
           }`}
         />
       </button>
       {isExpanded && (
-        <div className="px-3 pb-3 max-h-[300px] overflow-y-auto border-t border-border/50">
-          <div className="text-xs leading-relaxed text-muted whitespace-pre-wrap pt-2">
-            {displayContent}
+        <div className="activity-row-detail px-4 pb-3 max-h-[300px] overflow-y-auto">
+          <div className="text-xs leading-relaxed text-muted whitespace-pre-wrap">
+            {highlightQuery
+              ? displayContent.split(new RegExp(`(${highlightQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')).map((part, index) => (
+                part.toLocaleLowerCase() === highlightQuery.trim().toLocaleLowerCase()
+                  ? <mark key={`${part}-${index}`} className="cowork-search-highlight">{part}</mark>
+                  : part
+              ))
+              : displayContent}
           </div>
         </div>
       )}

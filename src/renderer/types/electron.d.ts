@@ -659,6 +659,15 @@ interface IElectronAPI {
       total?: number;
       error?: string;
     }>;
+    searchSessionMessages: (options: {
+      sessionId: string;
+      query: string;
+      maxResults?: number;
+    }) => Promise<{
+      success: boolean;
+      messages?: CoworkMessage[];
+      error?: string;
+    }>;
     getSessionMessageRailIndex: (
       sessionId: string,
       limit?: number,

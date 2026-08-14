@@ -600,6 +600,68 @@ select::-ms-expand {
   animation: shimmer 1.5s infinite;
 }
 
+/* Keep expanded activity details visually quieter than their row titles. */
+.activity-row-detail {
+  --lobster-activity-detail-font-size: min(
+    var(--lobster-code-font-size),
+    calc(var(--lobster-text-xs) - 1px)
+  );
+  font-size: var(--lobster-activity-detail-font-size);
+}
+
+.activity-row-detail .text-code {
+  font-size: var(--lobster-activity-detail-font-size);
+  line-height: calc(var(--lobster-activity-detail-font-size) + 8px);
+}
+
+.activity-indicator-dot {
+  animation: activity-dot-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes activity-dot-breathe {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.shimmer-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--lobster-text-secondary) 0%,
+    var(--lobster-text-secondary) 42%,
+    var(--lobster-text-primary) 50%,
+    var(--lobster-text-secondary) 58%,
+    var(--lobster-text-secondary) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: shimmer-text-sweep 2.4s linear infinite;
+}
+
+.cowork-search-highlight {
+  border-radius: 2px;
+  background: var(--lobster-primary-muted);
+  color: var(--lobster-text-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lobster-primary) 28%, transparent);
+}
+
+.cowork-search-active-message {
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lobster-primary) 32%, transparent);
+}
+
+@keyframes shimmer-text-sweep {
+  0% { background-position: 175% 0; }
+  100% { background-position: -75% 0; }
+}
+
 /* Streaming activity bar */
 .streaming-bar {
   position: relative;

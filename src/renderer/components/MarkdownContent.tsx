@@ -25,6 +25,18 @@ const LARGE_MARKDOWN_PREVIEW_HEAD_LENGTH = 4 * 1024;
 const LARGE_MARKDOWN_PREVIEW_TAIL_LENGTH = 8 * 1024;
 type MarkdownSpacing = 'normal' | 'compact';
 
+const renderHighlightedText = (value: string, query?: string): React.ReactNode => {
+  const normalizedQuery = query?.trim();
+  if (!normalizedQuery) return value;
+  const escaped = normalizedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = value.split(new RegExp(`(${escaped})`, 'gi'));
+  return parts.map((part, index) => (
+    part.toLocaleLowerCase() === normalizedQuery.toLocaleLowerCase()
+      ? <mark key={`${part}-${index}`} className="cowork-search-highlight">{part}</mark>
+      : part
+  ));
+};
+
 export const shouldUseLargeMarkdownPreview = (content: string): boolean =>
   content.length > LARGE_MARKDOWN_RENDER_THRESHOLD;
 
@@ -381,7 +393,11 @@ const createMarkdownComponents = (
   onSourceReferenceClick?: (reference: SourceReference) => void,
   spacing: MarkdownSpacing = 'normal',
   imageClassName?: string,
+  highlightQuery?: string,
 ) => ({
+  text: ({ node: _node, children }: any) => (
+    <>{React.Children.map(children, child => typeof child === 'string' ? renderHighlightedText(child, highlightQuery) : child)}</>
+  ),
   p: ({ node: _node, className: _className, children, ...props }: any) => (
     <p className={`my-2 first:mt-0 last:mb-0 text-markdown-body-compact text-foreground/90 ${MARKDOWN_WRAP_CLASS_NAME}`} {...props}>
       {children}
@@ -689,6 +705,7 @@ interface MarkdownContentProps {
   onImageClick?: (image: { src: string; alt?: string | null }) => void;
   onSourceReferenceClick?: (reference: SourceReference) => void;
   imageClassName?: string;
+  highlightQuery?: string;
 }
 
 const MarkdownContent: React.FC<MarkdownContentProps> = ({
@@ -701,6 +718,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
   onImageClick,
   onSourceReferenceClick,
   imageClassName,
+  highlightQuery,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const canUseLargePreview = enableLargePreview && shouldUseLargeMarkdownPreview(content);
@@ -713,8 +731,9 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
       onSourceReferenceClick,
       spacing,
       imageClassName,
+      highlightQuery,
     ),
-    [resolveLocalFilePath, showRevealInFolderAction, onImageClick, onSourceReferenceClick, spacing, imageClassName]
+    [resolveLocalFilePath, showRevealInFolderAction, onImageClick, onSourceReferenceClick, spacing, imageClassName, highlightQuery]
   );
   const normalizedContent = useMemo(() => {
     if (useLargePreview) {

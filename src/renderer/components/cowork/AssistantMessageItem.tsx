@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { i18nService } from '../../services/i18n';
 import type { CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
@@ -30,6 +30,8 @@ const AssistantMessageItem: React.FC<{
   onConfirmPlan?: (messageId: string) => void;
   onAdjustPlan?: (messageId: string) => void;
   onFork?: (messageId: string) => void;
+  afterContent?: React.ReactNode;
+  highlightQuery?: string;
 }> = ({
   message,
   resolveLocalFilePath,
@@ -41,7 +43,10 @@ const AssistantMessageItem: React.FC<{
   onConfirmPlan,
   onAdjustPlan,
   onFork,
+  afterContent,
+  highlightQuery,
 }) => {
+  const contentRef = useRef<HTMLDivElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
   const rawContent = mapDisplayText ? mapDisplayText(message.content) : message.content;
@@ -63,6 +68,47 @@ const AssistantMessageItem: React.FC<{
     setIsHovered(false);
   }, []);
 
+  useEffect(() => {
+    const container = contentRef.current;
+    if (!container) return;
+
+    container.querySelectorAll('mark.cowork-search-highlight').forEach(mark => {
+      mark.replaceWith(document.createTextNode(mark.textContent ?? ''));
+    });
+
+    const query = highlightQuery?.trim();
+    if (!query) return;
+    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matcher = new RegExp(escapedQuery, 'gi');
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    let current: Node | null;
+    while ((current = walker.nextNode())) {
+      if (current.parentElement?.closest('mark')) continue;
+      if (current.textContent && matcher.test(current.textContent)) {
+        matcher.lastIndex = 0;
+        textNodes.push(current as Text);
+      }
+      matcher.lastIndex = 0;
+    }
+    textNodes.forEach(node => {
+      const text = node.textContent ?? '';
+      const fragment = document.createDocumentFragment();
+      let cursor = 0;
+      text.replace(matcher, (match, offset: number) => {
+        fragment.append(document.createTextNode(text.slice(cursor, offset)));
+        const mark = document.createElement('mark');
+        mark.className = 'cowork-search-highlight';
+        mark.textContent = match;
+        fragment.append(mark);
+        cursor = offset + match.length;
+        return match;
+      });
+      fragment.append(document.createTextNode(text.slice(cursor)));
+      node.replaceWith(fragment);
+    });
+  }, [displayContent, highlightQuery]);
+
   return (
     <div
       className="relative focus:outline-none"
@@ -72,7 +118,7 @@ const AssistantMessageItem: React.FC<{
       onFocus={() => setIsHovered(true)}
       onBlur={handleBlur}
     >
-      <div className="text-foreground">
+      <div ref={contentRef} className="text-foreground">
         <div className="space-y-3">
           {displayContent && (
             <MarkdownContent
@@ -81,6 +127,7 @@ const AssistantMessageItem: React.FC<{
               resolveLocalFilePath={resolveLocalFilePath}
               showRevealInFolderAction
               onImageClick={setExpandedImage}
+              highlightQuery={highlightQuery}
             />
           )}
           {parsedPlan.planText && (
@@ -95,6 +142,7 @@ const AssistantMessageItem: React.FC<{
           )}
         </div>
       </div>
+      {afterContent}
       {showCopyButton && (
         <div className={messageMetaClassName(metaVisible)} aria-hidden={!metaVisible}>
           <span>{formatMessageDateTime(message.timestamp)}</span>

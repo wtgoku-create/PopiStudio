@@ -6,18 +6,45 @@ import type { CoworkMessage } from '../../types/cowork';
 
 interface CoworkMessageSearchProps {
   messages: CoworkMessage[];
+  searchMessages?: (query: string) => Promise<CoworkMessage[]>;
   onClose: () => void;
-  onSelectMessage: (messageId: string) => void;
+  onQueryChange?: (query: string) => void;
+  onSelectMessage: (messageId: string) => void | Promise<void>;
 }
 
-const CoworkMessageSearch: React.FC<CoworkMessageSearchProps> = ({ messages, onClose, onSelectMessage }) => {
+const isVisibleSearchMessage = (message: CoworkMessage): boolean => (
+  (message.type === 'user' || message.type === 'assistant')
+  && message.metadata?.isThinking !== true
+  && message.metadata?.hidden !== true
+);
+
+const CoworkMessageSearch: React.FC<CoworkMessageSearchProps> = ({ messages, searchMessages, onClose, onQueryChange, onSelectMessage }) => {
   const [query, setQuery] = useState('');
   const [matchIndex, setMatchIndex] = useState(0);
-  const matches = useMemo(() => {
+  const [remoteMatches, setRemoteMatches] = useState<CoworkMessage[] | null>(null);
+  const localMatches = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     if (!normalized) return [];
-    return messages.filter(message => message.content.toLocaleLowerCase().includes(normalized));
+    return messages.filter(message => (
+      isVisibleSearchMessage(message)
+      && message.content.toLocaleLowerCase().includes(normalized)
+    ));
   }, [messages, query]);
+  const matches = (remoteMatches ?? localMatches).filter(isVisibleSearchMessage);
+
+  useEffect(() => {
+    let active = true;
+    setRemoteMatches(null);
+    if (!searchMessages || !query.trim()) {
+      return () => { active = false; };
+    }
+    void searchMessages(query).then(result => {
+      if (active) setRemoteMatches(result);
+    }).catch(() => {
+      if (active) setRemoteMatches(localMatches);
+    });
+    return () => { active = false; };
+  }, [localMatches, query, searchMessages]);
 
   useEffect(() => setMatchIndex(0), [query]);
   useEffect(() => {
@@ -34,7 +61,12 @@ const CoworkMessageSearch: React.FC<CoworkMessageSearchProps> = ({ messages, onC
 
   const move = (direction: number) => {
     if (matches.length === 0) return;
-    setMatchIndex(index => (index + direction + matches.length) % matches.length);
+    const nextIndex = (matchIndex + direction + matches.length) % matches.length;
+    setMatchIndex(nextIndex);
+    const nextMatch = matches[nextIndex];
+    if (nextMatch) {
+      void onSelectMessage(nextMatch.id);
+    }
   };
 
   return (
@@ -43,7 +75,10 @@ const CoworkMessageSearch: React.FC<CoworkMessageSearchProps> = ({ messages, onC
       <input
         autoFocus
         value={query}
-        onChange={event => setQuery(event.target.value)}
+        onChange={event => {
+          setQuery(event.target.value);
+          onQueryChange?.(event.target.value);
+        }}
         placeholder={i18nService.t('coworkMessageSearchPlaceholder')}
         className="min-w-0 flex-1 bg-transparent px-1 text-sm text-foreground outline-none"
       />

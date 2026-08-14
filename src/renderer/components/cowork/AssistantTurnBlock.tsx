@@ -1,4 +1,4 @@
-import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
+import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { classifyErrorKey } from '../../../common/coworkErrorClassify';
@@ -16,17 +16,26 @@ import type { CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import { ArtifactPreviewCard } from '../artifacts';
 import ExclamationTriangleIcon from '../icons/ExclamationTriangleIcon';
 import InformationCircleIcon from '../icons/InformationCircleIcon';
+import ActivityGroupBlock from './ActivityGroupBlock';
 import AssistantMessageItem from './AssistantMessageItem';
 import { MessageCopyButton } from './MessageActionButton';
 import {
+  chunkConsolidatedItemsForDisplay,
+  type ConsolidatedItem,
   type ConversationTurn,
   COWORK_DETAIL_CONTENT_CLASS,
   COWORK_DETAIL_GUTTER_CLASS,
+  formatTurnDuration,
   getContextCompactionMessageLabel,
   getToolResultDisplay,
   getToolResultLineCount,
+  getTurnActivityFingerprint,
+  getTurnAnswerStartIndex,
+  getTurnEndTimestamp,
+  getTurnStartTimestamp,
   getVisibleAssistantItems,
   hasText,
+  isActivityConsolidatedItem,
   isContextCompactionMessage,
   type ToolGroupItem,
 } from './messageDisplayUtils';
@@ -89,13 +98,27 @@ const ContextCompactionDivider: React.FC<{ label: string; active?: boolean }> = 
 
 // ── TypingDots ───────────────────────────────────────────────────────────────
 
-const TypingDots: React.FC = () => (
-  <div className="flex items-center space-x-1.5 py-1">
-    <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
-    <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
-    <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
-  </div>
-);
+const ActivityIndicator: React.FC<{ fingerprint: string; hasContent: boolean; startTimestamp: number | null }> = ({
+  fingerprint,
+  hasContent,
+  startTimestamp,
+}) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+  const elapsed = startTimestamp == null ? null : Math.max(0, now - startTimestamp);
+  const seconds = elapsed == null ? 0 : Math.floor(elapsed / 1000);
+  const status = hasContent ? i18nService.t('coworkActivityRunning') : i18nService.t('coworkActivityThinkingNow');
+  return (
+    <div key={fingerprint} className="flex items-center gap-2 py-1 animate-fade-in" role="status" aria-live="polite">
+      <span className="activity-indicator-dot h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+      <span className="shimmer-text min-w-0 truncate text-sm text-secondary">{status}</span>
+      {seconds >= 1 && <span className="shrink-0 text-xs tabular-nums text-muted">{formatTurnDuration(seconds * 1000)}</span>}
+    </div>
+  );
+};
 
 const buildErrorModelLine = (detail: CoworkErrorDetail): string | null => {
   if (!detail.provider && !detail.model) return null;
@@ -182,7 +205,10 @@ const AssistantTurnBlock: React.FC<{
   onConfirmPlan?: (messageId: string) => void;
   onAdjustPlan?: (messageId: string) => void;
   onForkMessage?: (messageId: string) => void;
-  renderToolGroupFooter?: (group: ToolGroupItem) => React.ReactNode;
+  renderToolGroupOverride?: (group: ToolGroupItem) => React.ReactNode;
+  hasRunningSubagents?: boolean;
+  highlightQuery?: string;
+  isStreamingTurn?: boolean;
 }> = ({
   turn,
   artifacts,
@@ -197,10 +223,78 @@ const AssistantTurnBlock: React.FC<{
   onConfirmPlan,
   onAdjustPlan,
   onForkMessage,
-  renderToolGroupFooter,
+  renderToolGroupOverride,
+  hasRunningSubagents = false,
+  highlightQuery,
+  isStreamingTurn = false,
 }) => {
   const [artifactCardsExpanded, setArtifactCardsExpanded] = useState(false);
+  const [processExpanded, setProcessExpanded] = useState(false);
   const visibleAssistantItems = getVisibleAssistantItems(turn.assistantItems);
+
+  const renderConsolidatedItem = (
+    item: ConsolidatedItem,
+    index: number,
+    displayVariant: 'timeline' | 'row' = 'timeline',
+    rowInitiallyExpanded = false,
+  ): React.ReactNode => {
+    if (item.type === 'assistant') {
+      if (item.message.metadata?.isThinking) {
+        return (
+          <div key={item.message.id} data-cowork-message-id={item.message.id}>
+            <ThinkingBlock
+              message={item.message}
+              mapDisplayText={mapDisplayText}
+              variant={displayVariant === 'row' ? 'row' : 'default'}
+              initiallyExpanded={rowInitiallyExpanded}
+              highlightQuery={highlightQuery}
+            />
+          </div>
+        );
+      }
+      const hasToolGroupAfter = visibleAssistantItems.slice(index + 1).some(next => next.type === 'tool_group');
+      const isLastAssistant = showCopyButtons && !hasToolGroupAfter;
+      return (
+        <div key={item.message.id} data-cowork-message-id={item.message.id}>
+          <AssistantMessageItem
+            message={item.message}
+            resolveLocalFilePath={resolveLocalFilePath}
+            mapDisplayText={mapDisplayText}
+            showCopyButton={isLastAssistant}
+            alwaysShowMeta={alwaysShowLastAssistantMeta && isLastAssistant}
+            turnMetadata={isLastAssistant ? (item.message.metadata as CoworkMessageMetadata) : undefined}
+            planConfirmationMessageId={planConfirmationMessageId}
+            onConfirmPlan={onConfirmPlan}
+            onAdjustPlan={onAdjustPlan}
+            onFork={isLastAssistant ? onForkMessage : undefined}
+            afterContent={isLastAssistant ? renderArtifactCards() : undefined}
+            highlightQuery={highlightQuery}
+          />
+        </div>
+      );
+    }
+    if (item.type === 'tool_group') {
+      const override = renderToolGroupOverride?.(item.group);
+      if (override) {
+        return <div key={`tool-${item.group.toolUse.id}`}>{override}</div>;
+      }
+      const next = visibleAssistantItems[index + 1];
+      return (
+        <ToolCallGroup
+          key={`tool-${item.group.toolUse.id}`}
+          group={item.group}
+          isLastInSequence={!next || (next.type !== 'tool_group' && next.type !== 'tool_result')}
+          mapDisplayText={mapDisplayText}
+          variant={displayVariant}
+        />
+      );
+    }
+    if (item.type === 'system') {
+      const systemMessage = renderSystemMessage(item.message);
+      return systemMessage ? <div key={item.message.id}>{systemMessage}</div> : null;
+    }
+    return <div key={item.message.id}>{renderOrphanToolResult(item.message)}</div>;
+  };
   const artifactCards = useMemo(
     () => artifacts
       ? dedupeArtifactsForDisplay(
@@ -215,8 +309,51 @@ const AssistantTurnBlock: React.FC<{
   }, [artifactCards, artifactCardsExpanded]);
   const hiddenArtifactCardCount = Math.max(0, artifactCards.length - visibleArtifactCards.length);
 
+  const renderArtifactCards = (): React.ReactNode => {
+    if (artifactCards.length === 0) return null;
+    return (
+      <div className="mt-3 space-y-2">
+        <div className="artifact-preview-card-group w-full overflow-hidden rounded-lg border border-border">
+          <div className="divide-y divide-border">
+            {visibleArtifactCards.map(artifact => (
+              <ArtifactPreviewCard
+                key={artifact.id}
+                artifact={artifact}
+                onOpenLocalService={onOpenLocalService}
+              />
+            ))}
+          </div>
+          {(hiddenArtifactCardCount > 0 || (artifactCardsExpanded && artifactCards.length > 3)) && (
+            <div className="border-t border-border px-4 py-2 text-center">
+              {hiddenArtifactCardCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setArtifactCardsExpanded(true)}
+                  className="inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-secondary hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.035] transition-colors"
+                >
+                  <span>{i18nService.t('artifactPreviewCardShowMore').replace('{count}', String(hiddenArtifactCardCount))}</span>
+                  <ChevronDownIcon className="h-4 w-4" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setArtifactCardsExpanded(false)}
+                  className="inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-secondary hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.035] transition-colors"
+                >
+                  <span>{i18nService.t('artifactPreviewCardShowLess')}</span>
+                  <ChevronUpIcon className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   useEffect(() => {
     setArtifactCardsExpanded(false);
+    setProcessExpanded(false);
   }, [turn.id]);
 
   const renderSystemMessage = (message: CoworkMessage) => {
@@ -314,114 +451,73 @@ const AssistantTurnBlock: React.FC<{
     );
   };
 
+  const renderChunks = chunkConsolidatedItemsForDisplay(
+    visibleAssistantItems,
+    item => isActivityConsolidatedItem(item)
+      && !(item.type === 'tool_group' && renderToolGroupOverride?.(item.group)),
+  );
+  const answerStartIndex = getTurnAnswerStartIndex(renderChunks);
+  const processChunks = renderChunks.slice(0, answerStartIndex);
+  const answerChunks = renderChunks.slice(answerStartIndex);
+  const shouldFoldProcess = !isStreamingTurn && !hasRunningSubagents && processChunks.length > 0;
+  const processStart = getTurnStartTimestamp(turn);
+  const processEnd = getTurnEndTimestamp(turn);
+  const processDuration = processStart != null && processEnd != null
+    ? Math.max(0, processEnd - processStart)
+    : null;
+  const processLabel = processDuration != null && processDuration >= 1000
+    ? i18nService.t('coworkTurnProcessDuration').replace('{duration}', formatTurnDuration(processDuration))
+    : i18nService.t('coworkTurnProcess');
+  const renderChunk = (chunk: (typeof renderChunks)[number], index: number): React.ReactNode => (
+    chunk.kind === 'item'
+      ? renderConsolidatedItem(chunk.item, chunk.index)
+      : (
+        <ActivityGroupBlock
+          key={`activity-${chunk.entries[0].item.type}-${chunk.entries[0].index}`}
+          entries={chunk.entries}
+          isStreamingTail={showTypingIndicator && index === renderChunks.length - 1}
+          renderEntry={(entry, options) => renderConsolidatedItem(
+            entry.item,
+            entry.index,
+            'row',
+            options?.initiallyExpanded,
+          )}
+        />
+      )
+  );
+
   return (
     <div className={`py-2 ${COWORK_DETAIL_GUTTER_CLASS}`}>
       <div className={COWORK_DETAIL_CONTENT_CLASS}>
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0 py-3 space-y-3">
-            {visibleAssistantItems.map((item, index) => {
-              if (item.type === 'assistant') {
-                if (item.message.metadata?.isThinking) {
-                  return (
-                    <ThinkingBlock
-                      key={item.message.id}
-                      message={item.message}
-                      mapDisplayText={mapDisplayText}
-                    />
-                  );
-                }
-                const hasToolGroupAfter = visibleAssistantItems
-                  .slice(index + 1)
-                  .some(laterItem => laterItem.type === 'tool_group');
-                const isLastAssistant = showCopyButtons && !hasToolGroupAfter;
-
-                return (
-                  <AssistantMessageItem
-                    key={item.message.id}
-                    message={item.message}
-                    resolveLocalFilePath={resolveLocalFilePath}
-                    mapDisplayText={mapDisplayText}
-                    showCopyButton={isLastAssistant}
-                    alwaysShowMeta={alwaysShowLastAssistantMeta && isLastAssistant}
-                    turnMetadata={isLastAssistant ? (item.message.metadata as CoworkMessageMetadata) : undefined}
-                    planConfirmationMessageId={planConfirmationMessageId}
-                    onConfirmPlan={onConfirmPlan}
-                    onAdjustPlan={onAdjustPlan}
-                    onFork={isLastAssistant ? onForkMessage : undefined}
-                  />
-                );
-              }
-
-              if (item.type === 'tool_group') {
-                const nextItem = visibleAssistantItems[index + 1];
-                const isLastInSequence = !nextItem || nextItem.type !== 'tool_group';
-                return (
-                  <ToolCallGroup
-                    key={`tool-${item.group.toolUse.id}`}
-                    group={item.group}
-                    isLastInSequence={isLastInSequence}
-                    mapDisplayText={mapDisplayText}
-                    footer={renderToolGroupFooter?.(item.group)}
-                  />
-                );
-              }
-
-              if (item.type === 'system') {
-                const systemMessage = renderSystemMessage(item.message);
-                if (!systemMessage) {
-                  return null;
-                }
-                return (
-                  <div key={item.message.id}>
-                    {systemMessage}
-                  </div>
-                );
-              }
-
-              return (
-                <div key={item.message.id}>
-                  {renderOrphanToolResult(item.message)}
+            {shouldFoldProcess ? (
+              <>
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => setProcessExpanded(value => !value)}
+                    className="group flex max-w-full items-center gap-1.5 text-left"
+                    aria-expanded={processExpanded}
+                  >
+                    <span className="min-w-0 truncate text-sm text-secondary transition-colors group-hover:text-foreground">{processLabel}</span>
+                    <ChevronRightIcon className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200 group-hover:text-secondary ${processExpanded ? 'rotate-90' : ''}`} />
+                  </button>
                 </div>
-              );
-            })}
-            {showTypingIndicator && <TypingDots />}
-            {artifactCards.length > 0 && (
-              <div className="space-y-2 pt-1">
-                <div className="artifact-preview-card-group w-full overflow-hidden rounded-lg border border-border">
-                  <div className="divide-y divide-border">
-                    {visibleArtifactCards.map(artifact => (
-                      <ArtifactPreviewCard
-                        key={artifact.id}
-                        artifact={artifact}
-                        onOpenLocalService={onOpenLocalService}
-                      />
-                    ))}
-                  </div>
-                  {(hiddenArtifactCardCount > 0 || (artifactCardsExpanded && artifactCards.length > 3)) && (
-                    <div className="border-t border-border px-4 py-2 text-center">
-                      {hiddenArtifactCardCount > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => setArtifactCardsExpanded(true)}
-                          className="inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-secondary hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.035] transition-colors"
-                        >
-                          <span>{i18nService.t('artifactPreviewCardShowMore').replace('{count}', String(hiddenArtifactCardCount))}</span>
-                          <ChevronDownIcon className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setArtifactCardsExpanded(false)}
-                          className="inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-secondary hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.035] transition-colors"
-                        >
-                          <span>{i18nService.t('artifactPreviewCardShowLess')}</span>
-                          <ChevronUpIcon className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
+                {processExpanded && processChunks.map((chunk, index) => renderChunk(chunk, index))}
+                {answerChunks.map((chunk, index) => renderChunk(chunk, answerStartIndex + index))}
+              </>
+            ) : (
+              renderChunks.map(renderChunk)
+            )}
+            {!visibleAssistantItems.some(item => item.type === 'assistant' && !item.message.metadata?.isThinking)
+              && renderArtifactCards()}
+            {showTypingIndicator && (
+              <ActivityIndicator
+                fingerprint={getTurnActivityFingerprint(turn)}
+                hasContent={visibleAssistantItems.length > 0}
+                startTimestamp={getTurnStartTimestamp(turn)}
+              />
             )}
           </div>
         </div>

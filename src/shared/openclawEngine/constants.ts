@@ -29,3 +29,6 @@ export const OpenClawGatewayRepairErrorCode = {
 
 export type OpenClawGatewayRepairErrorCode =
   typeof OpenClawGatewayRepairErrorCode[keyof typeof OpenClawGatewayRepairErrorCode];
+
+/** Keys maintained by OpenClaw's plugin index rather than config sync. */
+export const OPENCLAW_PLUGIN_INDEX_MANAGED_KEYS = ['installs'] as const;

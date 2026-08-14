@@ -9,6 +9,7 @@ import { i18nService } from '../../services/i18n';
 import type { CoworkImageAttachment, CoworkMessage, CoworkMessageMetadata } from '../../types/cowork';
 import { formatMessageDateTime } from '../../utils/tokenFormat';
 import { parseUserMessageForDisplay } from '../../utils/userMessageDisplay';
+import { extractUserMessageFileAttachments } from '../../utils/userMessageFileAttachments';
 import AcademicCapIcon from '../icons/AcademicCapIcon';
 import EditIcon from '../icons/EditIcon';
 import GoalIcon from '../icons/GoalIcon';
@@ -24,6 +25,7 @@ import {
 } from './messageDisplayUtils';
 import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
 import UserMessageContent from './UserMessageContent';
+import UserMessageFileAttachments from './UserMessageFileAttachments';
 
 const USER_MESSAGE_ATTACHMENT_IMAGE_CLASS_NAME = 'h-32 w-32 shrink-0 rounded-lg object-cover cursor-pointer border border-border hover:border-primary transition-colors';
 
@@ -88,7 +90,8 @@ const UserMessageItem: React.FC<{
   message: CoworkMessage;
   sessionId?: string;
   onReEdit?: (message: CoworkMessage) => void;
-}> = React.memo(({ message, sessionId = '', onReEdit }) => {
+  highlightQuery?: string;
+}> = React.memo(({ message, sessionId = '', onReEdit, highlightQuery }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ImagePreviewSource | null>(null);
   const modelLabel = getMessageModelLabel(message.metadata);
@@ -107,13 +110,17 @@ const UserMessageItem: React.FC<{
   const metadata = message.metadata as CoworkMessageMetadata | undefined;
   const promptDocument = normalizeCoworkPromptDocument(metadata?.promptDocument);
   const isGoalSettingMessage = hasGoalSettingMessageMetadata(metadata);
+  const extractedFileAttachments = useMemo(
+    () => extractUserMessageFileAttachments(message.content || ''),
+    [message.content],
+  );
   const displayContent = useMemo(
-    () => parseUserMessageForDisplay(message.content || '', {
+    () => parseUserMessageForDisplay(extractedFileAttachments.text, {
       localMediaAttachments: Array.isArray(metadata?.localMediaAttachments)
         ? metadata.localMediaAttachments as Array<{ localPath: string; mimeType?: string; name?: string }>
         : undefined,
     }),
-    [message.content, metadata?.localMediaAttachments]
+    [extractedFileAttachments.text, metadata?.localMediaAttachments]
   );
 
   const messageKnowledgeBases = (metadata?.knowledgeBases ?? [])
@@ -175,6 +182,13 @@ const UserMessageItem: React.FC<{
                     promptDocument={promptDocument}
                     className="max-w-none"
                     onImageClick={setExpandedImage}
+                    highlightQuery={highlightQuery}
+                  />
+                )}
+                {extractedFileAttachments.attachments.length > 0 && (
+                  <UserMessageFileAttachments
+                    attachments={extractedFileAttachments.attachments}
+                    className={hasPromptContent || imageAttachments.length > 0 ? 'mt-2' : ''}
                   />
                 )}
                 {imageAttachments.length > 0 && (

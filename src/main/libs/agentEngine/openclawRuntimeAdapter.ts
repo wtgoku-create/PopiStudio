@@ -100,13 +100,13 @@ import {
   buildCronRunHistoryEntries,
   buildCronRunHistoryMetadata,
   buildCronRunLocalHistoryEntries,
+  type CronRunHistoryEntry,
+  type CronRunLocalHistoryEntry,
   findCronRunHistoryLocalMatch,
   getCronRunHistorySessionKey,
   isCronRunPromptContentCoveredByMessage,
   isSameCronRunHistorySessionKey,
   shouldReplaceLocalConversationWithCronHistory,
-  type CronRunHistoryEntry,
-  type CronRunLocalHistoryEntry,
 } from './openclawCronRunHistorySync';
 import { OpenClawTurnHistorySync } from './openclawTurnHistorySync';
 import { buildSubagentChildHistorySyncPlan } from './subagent/childHistorySync';
@@ -7785,6 +7785,15 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     const staleErrorText = payload.errorMessage?.trim()
       || extractGatewayMessageText(payload.message).trim();
+    if (this.isProviderRuntimeFailureChatError(payload, staleErrorText)) {
+      console.warn(
+        '[OpenClawRuntime] surfacing a provider runtime failure that arrived as a late chat error despite a pending deferred final.',
+        `Session ${sessionId}.`,
+        `Run ${errorRunId || turn.finalCompletionRunId || turn.runId}.`,
+        `Error ${staleErrorText.slice(0, 200) || 'unknown'}.`,
+      );
+      return false;
+    }
     console.warn(
       '[OpenClawRuntime] ignored a stale chat error after a successful final; completing the deferred final instead.',
       `Session ${sessionId}.`,
@@ -7797,6 +7806,24 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       turn.finalCompletionRunId ?? turn.runId,
     );
     return true;
+  }
+
+  /**
+   * Distinguishes provider failures from stale tool-failure notices that share
+   * the deferred-final error path.
+   */
+  private isProviderRuntimeFailureChatError(payload: ChatEventPayload, errorText: string): boolean {
+    const metadata = payload as ChatEventPayload & Record<string, unknown>;
+    if (
+      metadata.providerRuntimeFailureKind
+      || metadata.failoverReason
+      || metadata.httpCode
+      || metadata.providerErrorType
+    ) {
+      return true;
+    }
+    if (!errorText) return false;
+    return /LLM request timed out|model idle timeout|model did not produce a response before/i.test(errorText);
   }
 
   private buildChatErrorDetail(

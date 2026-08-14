@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
+import { CoworkSystemMessageKind } from '../common/coworkSystemMessages';
 import { AgentId, normalizeAgentAvatarIcon } from '../shared/agent';
 import {
   type Artifact,
@@ -23,19 +24,18 @@ import {
   CoworkSessionSourceKind,
   type CoworkSessionSourceKind as CoworkSessionSourceKindType,
 } from '../shared/cowork/constants';
-import { CoworkSystemMessageKind } from '../common/coworkSystemMessages';
 import type { CoworkErrorDetail } from '../shared/cowork/errorDetail';
 import {
   type CoworkGoal,
   normalizeCoworkGoal,
 } from '../shared/cowork/goal';
 import type { CoworkPromptDocument } from '../shared/cowork/promptDocument';
-import { CoworkSelectedTextSource } from '../shared/cowork/selectedText';
 import {
   COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
   type CoworkMessageRailIndexItem,
   getCoworkRailPreview,
 } from '../shared/cowork/rail';
+import { CoworkSelectedTextSource } from '../shared/cowork/selectedText';
 
 
 // Default working directory for new users
@@ -1912,6 +1912,22 @@ export class CoworkStore {
       timestamp: row.created_at,
       metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
     }));
+  }
+
+  searchSessionMessages(sessionId: string, query: string, maxResults = 200): CoworkMessage[] {
+    const terms = extractConversationSearchTerms(query);
+    if (terms.length === 0) return [];
+    const clauses = terms.map(() => 'LOWER(content) LIKE ?');
+    const params = [sessionId, ...terms.map(term => `%${term}%`), Math.max(1, Math.min(1000, Math.floor(maxResults)))];
+    const rows = this.getAll<CoworkMessageRow>(
+      `SELECT id, type, content, metadata, created_at, sequence
+       FROM cowork_messages
+       WHERE session_id = ? AND type IN ('user', 'assistant') AND (${clauses.join(' OR ')})
+       ORDER BY COALESCE(sequence, created_at) ASC, created_at ASC, ROWID ASC
+       LIMIT ?`,
+      params,
+    );
+    return this.mapConversationMessageRows(sessionId, rows);
   }
 
   getRecentConversationMessages(sessionId: string, limit: number): CoworkMessage[] {

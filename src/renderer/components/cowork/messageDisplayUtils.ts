@@ -111,6 +111,8 @@ export const getToolDisplayName = (toolName: string | undefined): string => {
       return 'Process';
     case 'sessionsspawn':
       return 'Subagent';
+    case 'sessionsyield':
+      return i18nService.t('coworkToolWaitingSubagents');
     default:
       return toolName;
   }
@@ -318,6 +320,45 @@ export const getToolInputSummary = (
     default:
       return null;
   }
+};
+
+export const getToolStepDisplay = (
+  toolName: string | undefined,
+  toolInput?: Record<string, unknown>,
+): { name: string; summary: string | null } => {
+  const name = getToolDisplayName(toolName);
+  let summary = getToolInputSummary(toolName, toolInput);
+  if (summary) {
+    const normalized = toolName ? normalizeToolName(toolName) : '';
+    const isFileTool = normalized === 'read'
+      || normalized === 'readfile'
+      || normalized === 'write'
+      || normalized === 'writefile'
+      || normalized === 'edit'
+      || normalized === 'editfile'
+      || normalized === 'multiedit';
+    if (isFileTool) {
+      summary = summary.split(/[\\/]/).pop() ?? summary;
+    }
+    summary = truncatePreview(summary.split('\n')[0].trim(), 96);
+  }
+  return { name, summary: summary || null };
+};
+
+export type ActivityStepDisplay = { name: string; summary: string | null };
+
+export const getActivityStepDisplay = (item: ConsolidatedItem): ActivityStepDisplay => {
+  if (item.type === 'tool_group') {
+    const rawName = item.group.toolUse.metadata?.toolName;
+    return getToolStepDisplay(
+      typeof rawName === 'string' ? rawName : undefined,
+      item.group.toolUse.metadata?.toolInput,
+    );
+  }
+  if (item.type === 'tool_result') {
+    return { name: i18nService.t('coworkToolResult'), summary: null };
+  }
+  return { name: i18nService.t('reasoning'), summary: null };
 };
 
 export const formatToolInput = (
@@ -619,6 +660,189 @@ export const buildConversationTurns = (items: DisplayItem[]): ConversationTurn[]
   }
 
   return turns;
+};
+
+// Activity grouping keeps intermediate work readable without hiding final
+// assistant answers. Only consecutive work items are collapsed.
+export type ConsolidatedItem = AssistantTurnItem;
+export type ActivityChunkEntry = { item: ConsolidatedItem; index: number };
+export type ConsolidatedRenderChunk =
+  | { kind: 'item'; item: ConsolidatedItem; index: number }
+  | { kind: 'activity_group'; entries: ActivityChunkEntry[] };
+
+export const ACTIVITY_GROUP_MIN_ITEMS = 2;
+
+export const isActivityConsolidatedItem = (item: ConsolidatedItem): boolean => (
+  item.type === 'tool_group'
+  || item.type === 'tool_result'
+  || (item.type === 'assistant' && item.message.metadata?.isThinking === true)
+);
+
+export const chunkConsolidatedItemsForDisplay = (
+  items: ConsolidatedItem[],
+  isGroupable: (item: ConsolidatedItem, index: number) => boolean = isActivityConsolidatedItem,
+): ConsolidatedRenderChunk[] => {
+  const chunks: ConsolidatedRenderChunk[] = [];
+  let pending: ActivityChunkEntry[] = [];
+  const flush = () => {
+    if (pending.length >= ACTIVITY_GROUP_MIN_ITEMS) {
+      chunks.push({ kind: 'activity_group', entries: pending });
+    } else {
+      pending.forEach(entry => chunks.push({ kind: 'item', ...entry }));
+    }
+    pending = [];
+  };
+  items.forEach((item, index) => {
+    if (isGroupable(item, index)) {
+      pending.push({ item, index });
+    } else {
+      flush();
+      chunks.push({ kind: 'item', item, index });
+    }
+  });
+  flush();
+  return chunks;
+};
+
+export const getTurnStartTimestamp = (turn: ConversationTurn): number | null => {
+  const timestamps: number[] = [];
+  if (turn.userMessage?.timestamp) timestamps.push(turn.userMessage.timestamp);
+  turn.assistantItems.forEach(item => {
+    if (item.type === 'tool_group') {
+      timestamps.push(item.group.toolUse.timestamp);
+      if (item.group.toolResult?.timestamp) timestamps.push(item.group.toolResult.timestamp);
+    } else if (item.message.timestamp) {
+      timestamps.push(item.message.timestamp);
+    }
+  });
+  return timestamps.length > 0 ? Math.min(...timestamps) : null;
+};
+
+export const getTurnEndTimestamp = (turn: ConversationTurn): number | null => {
+  const start = getTurnStartTimestamp(turn);
+  if (start == null) return null;
+  const timestamps = [start];
+  turn.assistantItems.forEach(item => {
+    timestamps.push(item.type === 'tool_group'
+      ? item.group.toolResult?.timestamp ?? item.group.toolUse.timestamp
+      : item.message.timestamp);
+  });
+  return Math.max(...timestamps);
+};
+
+export const formatTurnDuration = (durationMs: number): string => {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return i18nService.t('coworkDurationHours').replace('{hours}', String(hours)).replace('{minutes}', String(minutes));
+  if (minutes > 0) return i18nService.t('coworkDurationMinutes').replace('{minutes}', String(minutes)).replace('{seconds}', String(seconds));
+  return i18nService.t('coworkDurationSecondsOnly').replace('{seconds}', String(seconds));
+};
+
+export const getTurnActivityFingerprint = (turn: ConversationTurn): string => (
+  `${turn.id}:${turn.assistantItems.length}:${turn.assistantItems.map(item => item.type === 'tool_group'
+    ? `${item.group.toolUse.content.length}:${item.group.toolResult?.content.length ?? 0}`
+    : item.message.content.length).join(',')}`
+);
+
+export const getTurnAnswerStartIndex = (chunks: ConsolidatedRenderChunk[]): number => {
+  let index = chunks.length;
+  while (index > 0) {
+    const chunk = chunks[index - 1];
+    if (chunk.kind !== 'item') break;
+    const item = chunk.item;
+    if (!(item.type === 'system' || (item.type === 'assistant' && item.message.metadata?.isThinking !== true))) break;
+    index -= 1;
+  }
+  return index;
+};
+
+export type ActivityGroupSummary = { stepCount: number; durationMs: number | null };
+
+export const getActivityGroupSummary = (items: ConsolidatedItem[]): ActivityGroupSummary => {
+  const timestamps = items.flatMap(item => {
+    if (item.type === 'tool_group') {
+      return [item.group.toolUse.timestamp, item.group.toolResult?.timestamp].filter(
+        (value): value is number => typeof value === 'number' && value > 0,
+      );
+    }
+    return [item.message.timestamp].filter((value): value is number => typeof value === 'number' && value > 0);
+  });
+  const span = timestamps.length > 1 ? Math.max(...timestamps) - Math.min(...timestamps) : 0;
+  return {
+    stepCount: items.length,
+    durationMs: span >= 1000 && span <= 24 * 60 * 60 * 1000 ? span : null,
+  };
+};
+
+export const formatActivityDuration = (durationMs: number | null): string | null => {
+  if (!durationMs || durationMs < 1000) return null;
+  const seconds = Math.round(durationMs / 1000);
+  const hours = Math.floor(seconds / 3600);
+  if (hours > 0) {
+    return i18nService.t('coworkActivityDurationHours')
+      .replace('{hours}', String(hours))
+      .replace('{minutes}', String(Math.floor((seconds % 3600) / 60)));
+  }
+  if (seconds < 60) return i18nService.t('coworkActivityDurationSeconds').replace('{seconds}', String(seconds));
+  const minutes = Math.floor(seconds / 60);
+  return i18nService.t('coworkActivityDurationMinutes')
+    .replace('{minutes}', String(minutes))
+    .replace('{seconds}', String(seconds % 60));
+};
+
+export const getActivityGroupHeaderLabel = (items: ConsolidatedItem[]): string => {
+  if (items.length === 1 && items[0].type !== 'assistant') {
+    const step = getActivityStepDisplay(items[0]);
+    return step.summary ? `${step.name} ${step.summary}` : step.name;
+  }
+  const counts = { commands: 0, reads: 0, edits: 0, tools: 0, thinking: 0 };
+  items.forEach(item => {
+    if (item.type === 'assistant') {
+      counts.thinking += 1;
+      return;
+    }
+    if (item.type !== 'tool_group') {
+      counts.tools += 1;
+      return;
+    }
+    const name = typeof item.group.toolUse.metadata?.toolName === 'string'
+      ? item.group.toolUse.metadata.toolName
+      : undefined;
+    const normalized = name ? normalizeToolName(name) : '';
+    if (isBashLikeToolName(name)) counts.commands += 1;
+    else if (normalized === 'read' || normalized === 'readfile') counts.reads += 1;
+    else if (normalized === 'write' || normalized === 'writefile' || normalized === 'edit' || normalized === 'editfile' || normalized === 'multiedit') counts.edits += 1;
+    else counts.tools += 1;
+  });
+  const parts: string[] = [];
+  const add = (count: number, one: string, many: string) => {
+    if (count > 0) parts.push(i18nService.t(count === 1 ? one : many).replace('{count}', String(count)));
+  };
+  add(counts.commands, 'coworkActivitySegmentCommand', 'coworkActivitySegmentCommands');
+  add(counts.reads, 'coworkActivitySegmentFileRead', 'coworkActivitySegmentFilesRead');
+  add(counts.edits, 'coworkActivitySegmentEdit', 'coworkActivitySegmentEdits');
+  add(counts.tools, 'coworkActivitySegmentTool', 'coworkActivitySegmentTools');
+  return parts.join(i18nService.t('coworkActivitySegmentSeparator')) || i18nService.t('coworkActivityThoughtProcess');
+};
+
+export const getActivityCurrentActionText = (item: ConsolidatedItem): string => {
+  if (item.type === 'assistant') return i18nService.t('coworkActivityThinkingNow');
+  if (item.type === 'tool_result') return i18nService.t('coworkToolResult');
+  if (item.type !== 'tool_group') return i18nService.t('coworkActivityRunning');
+  const name = typeof item.group.toolUse.metadata?.toolName === 'string'
+    ? item.group.toolUse.metadata.toolName
+    : undefined;
+  const normalized = name ? normalizeToolName(name) : '';
+  if (normalized === 'sessionsyield') {
+    return i18nService.t('coworkActivityLiveWaitSubagents');
+  }
+  if (normalized === 'sessionsspawn') {
+    return i18nService.t('coworkActivityLiveSpawnSubagent');
+  }
+  const summary = name ? getToolInputSummary(name, item.group.toolUse.metadata?.toolInput) : null;
+  return summary ? `${getToolDisplayName(name)} ${truncatePreview(summary, 96)}` : getToolDisplayName(name);
 };
 
 // ── Metadata helpers ─────────────────────────────────────────────────────────

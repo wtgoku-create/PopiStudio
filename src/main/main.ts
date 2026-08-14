@@ -5,8 +5,8 @@ import os from 'os';
 import path from 'path';
 import { Readable } from 'stream';
 
-import type { OpenClawSessionPatch } from '../common/openclawSession';
 import { CoworkSystemMessageKind } from '../common/coworkSystemMessages';
+import type { OpenClawSessionPatch } from '../common/openclawSession';
 import { buildSessionTitleFromInput } from '../common/sessionTitle';
 import { BindingKind } from '../scheduledTask/constants';
 import { buildScheduledTaskEnginePrompt } from '../scheduledTask/enginePrompt';
@@ -31,13 +31,13 @@ import {
 } from '../shared/cowork/browserAnnotations';
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkForkMode, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
+import { containsPlanModePrompt } from '../shared/cowork/planMode';
 import {
   type CoworkPromptDocument,
   CoworkPromptSegmentKind,
   normalizeCoworkPromptDocument,
   serializeCoworkPromptDocumentForOpenClaw,
 } from '../shared/cowork/promptDocument';
-import { containsPlanModePrompt } from '../shared/cowork/planMode';
 import {
   type CoworkSelectedTextSnippet,
   normalizeCoworkSelectedTextSnippets,
@@ -4114,6 +4114,19 @@ if (!gotTheLock) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to get session messages',
+      };
+    }
+  });
+
+  ipcMain.handle(CoworkIpcChannel.SearchMessages, async (_event, options: { sessionId: string; query: string; maxResults?: number }) => {
+    try {
+      const store = getCoworkStore();
+      const messages = store.searchSessionMessages(options.sessionId, options.query, options.maxResults);
+      return { success: true, messages };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to search session messages',
       };
     }
   });

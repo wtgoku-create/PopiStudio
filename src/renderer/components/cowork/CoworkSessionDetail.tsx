@@ -67,6 +67,7 @@ import {
 import {
   addDraftSelectedTextSnippet,
   PlanConfirmationState,
+  setCurrentSession,
   setDraftCollaborationMode,
   setPlanConfirmationAdjusting,
   setPlanConfirmationAwaiting,
@@ -109,13 +110,12 @@ import {
   type ConversationTurn,
   COWORK_DETAIL_CONTENT_CLASS,
   COWORK_DETAIL_GUTTER_CLASS,
-  hasRenderableAssistantContent,
   MEDIA_TOKEN_DISPLAY_RE,
   type ToolGroupItem,
 } from './messageDisplayUtils';
 import PopiTVCanvasWorkspace from './PopiTVCanvasWorkspace';
 import { parseProposedPlanBlock } from './proposedPlanParser';
-import SubagentTurnLinks from './SubagentTurnLinks';
+import SubagentSpawnCard from './SubagentSpawnCard';
 import UserMessageContent from './UserMessageContent';
 import UserMessageItem from './UserMessageItem';
 interface CoworkSessionDetailProps {
@@ -1274,16 +1274,64 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const dispatch = useDispatch();
   const currentSession = useSelector(selectCurrentSession);
   const [isMessageSearchOpen, setIsMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [activeSearchMessageId, setActiveSearchMessageId] = useState<string | null>(null);
+  const searchForcedTurnIndexRef = useRef<number | null>(null);
   const isStreaming = useSelector(selectIsStreaming);
   const remoteManaged = useSelector(selectRemoteManaged);
   const lastMessageContent = useSelector(selectLastMessageContent);
   const messagesLength = useSelector(selectCurrentMessagesLength);
   const sessionId = currentSession?.id;
 
-  const selectSearchedMessage = useCallback((messageId: string) => {
-    const target = document.querySelector<HTMLElement>(`[data-rail-message-id="${CSS.escape(messageId)}"]`);
-    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, []);
+  const searchSessionMessages = useCallback(async (query: string): Promise<CoworkMessage[]> => {
+    if (!sessionId || !window.electron?.cowork.searchSessionMessages) return [];
+    const result = await window.electron.cowork.searchSessionMessages({ sessionId, query });
+    return result.success ? (result.messages ?? []) : [];
+  }, [sessionId]);
+
+  const selectSearchedMessage = useCallback(async (messageId: string) => {
+    setActiveSearchMessageId(messageId);
+    const findTarget = () => document.querySelector<HTMLElement>(
+      `[data-rail-message-id="${CSS.escape(messageId)}"], [data-cowork-message-id="${CSS.escape(messageId)}"]`,
+    );
+    const target = findTarget();
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (!currentSession || !window.electron?.cowork.getSessionMessages) return;
+    const result = await window.electron.cowork.getSessionMessages({
+      sessionId: currentSession.id,
+      limit: Math.max(currentSession.totalMessages ?? 0, currentSession.messages.length, 1),
+      offset: 0,
+    });
+    if (!result.success || !result.messages) return;
+    let searchTurnIndex = 0;
+    for (const message of result.messages) {
+      if (message.id === messageId) break;
+      if (message.type === 'user') searchTurnIndex += 1;
+    }
+    searchForcedTurnIndexRef.current = searchTurnIndex;
+    dispatch(setCurrentSession({
+      ...currentSession,
+      messages: result.messages,
+      messagesOffset: result.offset ?? 0,
+      totalMessages: result.total ?? result.messages.length,
+    }));
+    let attempts = 0;
+    const locateAfterRender = () => {
+      const nextTarget = findTarget();
+      if (nextTarget) {
+        nextTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      if (attempts < 30) {
+        attempts += 1;
+        window.setTimeout(() => requestAnimationFrame(locateAfterRender), 40);
+      }
+    };
+    requestAnimationFrame(locateAfterRender);
+  }, [currentSession, dispatch, sessionId]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -1431,7 +1479,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       scrollToBottomIntentRef.current = true;
     }
     container.scrollTo({
-      top: container.scrollHeight,
+      top: Math.max(0, container.scrollHeight - container.clientHeight),
       behavior: reducedMotion ? 'auto' : 'smooth',
     });
     if (!scheduleSettle) return;
@@ -1454,7 +1502,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           return;
         }
         latestContainer.scrollTo({
-          top: latestContainer.scrollHeight,
+          top: Math.max(0, latestContainer.scrollHeight - latestContainer.clientHeight),
           behavior: reducedMotion || index === SCROLL_TO_BOTTOM_SETTLE_DELAYS_MS.length - 1
             ? 'auto'
             : 'smooth',
@@ -3238,9 +3286,13 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
     // Find current turn based on turn element offsetTop
     const scrollTop = container.scrollTop;
+    const containerRect = container.getBoundingClientRect();
+    const getTurnTop = (element: HTMLElement): number => (
+      scrollTop + element.getBoundingClientRect().top - containerRect.top
+    );
     let currentTurn = 0;
     for (let i = 0; i < turnEls.length; i++) {
-      if (turnEls[i].offsetTop <= scrollTop + 80) {
+      if (getTurnTop(turnEls[i]) <= scrollTop + 80) {
         currentTurn = i;
       } else {
         break;
@@ -3255,9 +3307,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     if (range.first !== range.last) {
       const turnEl = turnEls[currentTurn];
       const nextTurnTop = currentTurn + 1 < turnEls.length
-        ? turnEls[currentTurn + 1].offsetTop
+        ? getTurnTop(turnEls[currentTurn + 1])
         : container.scrollHeight;
-      const turnMid = turnEl.offsetTop + (nextTurnTop - turnEl.offsetTop) / 2;
+      const turnTop = getTurnTop(turnEl);
+      const turnMid = turnTop + (nextTurnTop - turnTop) / 2;
       if (scrollTop + 80 >= turnMid) {
         railIdx = range.last;
       }
@@ -3310,7 +3363,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         const latestContainer = scrollContainerRef.current;
         if (!latestContainer || !scrollToBottomIntentRef.current) return;
         latestContainer.scrollTo({
-          top: latestContainer.scrollHeight,
+          top: Math.max(0, latestContainer.scrollHeight - latestContainer.clientHeight),
           behavior: 'auto',
         });
       });
@@ -3915,7 +3968,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       return;
     }
     if (currentRailIndex >= railItemCountRef.current - 1) {
-      container.scrollTop = container.scrollHeight;
+      container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
       return;
     }
 
@@ -4065,10 +4118,16 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     }
     return turns.map((turn, index) => {
       const isLastTurn = index === turns.length - 1;
-      const showTypingIndicator = isStreaming && isLastTurn && !hasRenderableAssistantContent(turn);
+      const showTypingIndicator = isStreaming && isLastTurn;
       const showAssistantBlock = turn.assistantItems.length > 0 || showTypingIndicator;
+      const turnHasRunningSubagents = turn.assistantItems.some(
+        item => item.type === 'tool_group'
+          && getToolGroupSubagents(item.group).some(subagent => subagent.status === 'running'),
+      );
       // Always render last 3 turns (needed for streaming, auto-scroll, and smooth UX)
-      const alwaysRender = index >= turns.length - 3 || index === forcedRailTurnIndex;
+      const alwaysRender = index >= turns.length - 3
+        || index === searchForcedTurnIndexRef.current
+        || index === forcedRailTurnIndex;
 
       // Compute one rail index per conversation turn (must match grouped rail item logic).
       const hasAssistantContent = turn.assistantItems.some(
@@ -4105,13 +4164,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             <div
               data-export-role="user-message"
               data-rail-message-id={turn.userMessage.id}
-              className={isLastTurn ? 'animate-message-in' : undefined}
+              className={`${isLastTurn ? 'animate-message-in ' : ''}${activeSearchMessageId === turn.userMessage.id ? 'cowork-search-active-message' : ''}`}
               {...(turnRailIdx >= 0 ? { 'data-rail-index': turnRailIdx } : undefined)}
             >
               <UserMessageItem
                 message={turn.userMessage}
                 sessionId={currentSession.id}
                 onReEdit={remoteManaged ? undefined : handleReEdit}
+                highlightQuery={messageSearchQuery}
               />
             </div>
           )}
@@ -4120,11 +4180,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               data-export-role="assistant-block"
               {...(assistantMessageId ? { 'data-cowork-assistant-message-id': assistantMessageId } : undefined)}
               {...(assistantMessageId ? { 'data-rail-message-id': assistantMessageId } : undefined)}
-              className={isLastTurn ? 'animate-message-in' : undefined}
+              className={`${isLastTurn ? 'animate-message-in ' : ''}${activeSearchMessageId && turn.assistantItems.some(item => item.type === 'assistant' && item.message.id === activeSearchMessageId) ? 'cowork-search-active-message' : ''}`}
               {...(turnRailIdx >= 0 ? { 'data-rail-index': turnRailIdx } : undefined)}
             >
               <AssistantTurnBlock
                 turn={turn}
+                highlightQuery={messageSearchQuery}
                 artifacts={visibleTurnArtifacts}
                 resolveLocalFilePath={resolveLocalFilePath}
                 mapDisplayText={mapDisplayText}
@@ -4132,18 +4193,19 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 onOpenLocalService={handleOpenLocalServiceArtifact}
                 showTypingIndicator={showTypingIndicator}
                 showCopyButtons={!isStreaming || !isLastTurn}
+                isStreamingTurn={isStreaming && isLastTurn}
+                hasRunningSubagents={turnHasRunningSubagents}
                 alwaysShowLastAssistantMeta={!isStreaming && isLastTurn}
                 planConfirmationMessageId={planConfirmationMessageId}
                 onConfirmPlan={handleConfirmPlan}
                 onAdjustPlan={handleAdjustPlan}
                 onForkMessage={remoteManaged ? undefined : handleForkMessage}
-                renderToolGroupFooter={(group) => {
+                renderToolGroupOverride={(group) => {
                   const groupSubagents = getToolGroupSubagents(group);
                   if (groupSubagents.length === 0) return null;
                   return (
-                    <SubagentTurnLinks
+                    <SubagentSpawnCard
                       subagents={groupSubagents}
-                      variant="tool"
                       onSelectSubagent={handleSelectSubagent}
                     />
                   );
@@ -4210,7 +4272,17 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         {isMessageSearchOpen && currentSession && (
           <CoworkMessageSearch
             messages={currentSession.messages}
-            onClose={() => setIsMessageSearchOpen(false)}
+            searchMessages={searchSessionMessages}
+            onQueryChange={(query) => {
+              setMessageSearchQuery(query);
+              setActiveSearchMessageId(null);
+            }}
+            onClose={() => {
+              setIsMessageSearchOpen(false);
+              setMessageSearchQuery('');
+              setActiveSearchMessageId(null);
+              searchForcedTurnIndexRef.current = null;
+            }}
             onSelectMessage={selectSearchedMessage}
           />
         )}

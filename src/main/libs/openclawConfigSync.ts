@@ -12,6 +12,7 @@ import {
   normalizeBrowserHostnamePolicyList,
   normalizeBrowserWebAccessConfig,
 } from '../../shared/browserWebAccess/constants';
+import { OPENCLAW_PLUGIN_INDEX_MANAGED_KEYS } from '../../shared/openclawEngine/constants';
 import {
   AuthType,
   getModelRuntimeProfileDefinition,
@@ -89,6 +90,14 @@ const mapExecutionModeToSandboxMode = (
       return 'off';
   }
 };
+
+export function omitPluginIndexManagedKeys(plugins: unknown): Record<string, unknown> {
+  if (!plugins || typeof plugins !== 'object' || Array.isArray(plugins)) return {};
+  return Object.fromEntries(
+    Object.entries(plugins as Record<string, unknown>)
+      .filter(([key]) => !OPENCLAW_PLUGIN_INDEX_MANAGED_KEYS.includes(key as 'installs')),
+  );
+}
 
 /**
  * Default agent timeout in seconds written to openclaw config.
@@ -1855,7 +1864,7 @@ export class OpenClawConfigSync {
     try {
       const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       existingGateway = (existing.gateway ?? {}) as Record<string, unknown>;
-      existingPlugins = (existing.plugins ?? {}) as Record<string, unknown>;
+      existingPlugins = omitPluginIndexManagedKeys(existing.plugins);
       existingChannels = (existing.channels ?? {}) as Record<string, unknown>;
     } catch {
       // First run or corrupt file — nothing to preserve.
@@ -3566,7 +3575,7 @@ export class OpenClawConfigSync {
         // vars (${LOBSTER_TG_BOT_TOKEN} etc.) that are still injected when
         // the corresponding IM channels remain enabled.
         if (existing.plugins) {
-          mergedConfig.plugins = existing.plugins;
+          mergedConfig.plugins = omitPluginIndexManagedKeys(existing.plugins);
         }
         // Preserve non-default gateway settings (e.g. custom port).
         if (existing.gateway && existing.gateway.mode !== 'local') {
