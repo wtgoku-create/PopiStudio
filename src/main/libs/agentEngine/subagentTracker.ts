@@ -845,7 +845,10 @@ export class SubagentTracker {
     // 3b. Try reading from persistent store if not in memory
     if (!key) {
       const runs = this.store.listSubagentRuns(parentSessionId);
-      const matchingRun = runs.find((r) => r.id === runId || r.agentId === runId);
+      // A run id is unique per spawn. Never use agentId as a fallback here:
+      // multiple subagents for the same Agent would otherwise open the wrong
+      // transcript in the detail panel.
+      const matchingRun = runs.find((r) => r.id === runId);
       if (matchingRun?.sessionKey) {
         key = matchingRun.sessionKey;
         this.subagentSessionKeys.set(runId, key);

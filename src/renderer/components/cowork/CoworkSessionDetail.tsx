@@ -1945,14 +1945,25 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const getToolGroupSubagents = useCallback((group: ToolGroupItem): SubagentSessionSummary[] => {
     const seen = new Set<string>();
     const result: SubagentSessionSummary[] = [];
+    const metadata = group.toolUse.metadata as Record<string, unknown> | undefined;
     const candidateIds = [
       group.toolUse.id,
-      group.toolUse.metadata?.toolUseId,
+      metadata?.toolUseId,
+      metadata?.runId,
+      metadata?.subagentId,
+      metadata?.sessionKey,
+      metadata?.childSessionKey,
+      metadata?.childCoworkSessionId,
     ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
 
     for (const candidateId of candidateIds) {
       if (seen.has(candidateId)) continue;
-      const subagent = subagentsByRunId.get(candidateId);
+      const subagent = subagentsByRunId.get(candidateId)
+        ?? subagents.find(run => (
+          run.id === candidateId
+          || run.sessionKey === candidateId
+          || run.childCoworkSessionId === candidateId
+        ));
       if (!subagent) continue;
       seen.add(candidateId);
       result.push(subagent);

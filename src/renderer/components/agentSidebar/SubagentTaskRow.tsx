@@ -1,7 +1,10 @@
 import React from 'react';
+import { useSelector } from 'react-redux';
 
 import { i18nService } from '../../services/i18n';
+import type { RootState } from '../../store';
 import type { SubagentSessionSummary } from '../../types/cowork';
+import { getSubagentDisplayName } from '../../utils/subagentDisplay';
 import LoadingIcon from '../icons/LoadingIcon';
 
 interface SubagentTaskRowProps {
@@ -23,7 +26,8 @@ const formatDuration = (createdAt: number): string => {
 };
 
 const SubagentTaskRow: React.FC<SubagentTaskRowProps> = ({ subagent, isSelected = false, onSelect }) => {
-  const displayName = subagent.label ?? subagent.agentId ?? i18nService.t('subagentUnnamed');
+  const agents = useSelector((state: RootState) => state.agent.agents);
+  const displayName = getSubagentDisplayName(subagent, agents);
   const duration = formatDuration(subagent.createdAt);
 
   return (

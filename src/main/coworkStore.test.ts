@@ -418,6 +418,33 @@ test('addMessage syncs detected artifacts into the resource table', () => {
   });
 });
 
+test('syncArtifactsForSession disambiguates artifact ids across sessions', () => {
+  const firstSessionId = 'sess-artifact-id-first';
+  const secondSessionId = 'sess-artifact-id-second';
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-artifact-project-'));
+  const filePath = createArtifactFile(projectRoot, 'output/shared.pdf');
+  insertSession(firstSessionId, 'main', 1000);
+  insertSession(secondSessionId, 'main', 1000);
+  db.prepare('UPDATE cowork_sessions SET cwd = ? WHERE id IN (?, ?)')
+    .run(projectRoot, firstSessionId, secondSessionId);
+
+  insertMessage('shared-message-id', firstSessionId, 'assistant', `created ${filePath}`, null, 1);
+  insertMessage('shared-message-id', secondSessionId, 'assistant', `created ${filePath}`, null, 1);
+
+  expect(() => store.syncArtifactsForSession(firstSessionId)).not.toThrow();
+  expect(() => store.syncArtifactsForSession(secondSessionId)).not.toThrow();
+
+  const firstArtifact = store.listArtifacts(firstSessionId)[0];
+  const secondArtifact = store.listArtifacts(secondSessionId)[0];
+  expect(firstArtifact).toBeDefined();
+  expect(secondArtifact).toBeDefined();
+  expect(secondArtifact.id).not.toBe(firstArtifact.id);
+
+  store.syncArtifactsForSession(secondSessionId);
+  expect(store.listArtifacts(secondSessionId)[0]?.id).toBe(secondArtifact.id);
+  expect(store.listArtifacts(firstSessionId)[0]?.id).toBe(firstArtifact.id);
+});
+
 test('addMessage skips missing local file artifacts', () => {
   const sid = 'sess-artifact-missing-local-file';
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'popiai-artifact-project-'));

@@ -2081,6 +2081,51 @@ export class CoworkStore {
       artifactByIdentityKey.set(getArtifactStorageIdentity(artifact), artifact);
     }
 
+    // Artifact ids are generated from message ids, which are not guaranteed to
+    // be unique across sessions. Keep the persisted id for an existing identity
+    // and allocate a stable disambiguated id for a new identity that collides.
+    const persistedArtifacts = this.getAll<{
+      id: string;
+      session_id: string;
+      identity_key: string;
+    }>('SELECT id, session_id, identity_key FROM cowork_artifacts');
+    const persistedIdByIdentity = new Map<string, string>();
+    const usedArtifactIds = new Set<string>();
+    for (const persisted of persistedArtifacts) {
+      usedArtifactIds.add(persisted.id);
+      persistedIdByIdentity.set(
+        `${persisted.session_id}\u0000${persisted.identity_key}`,
+        persisted.id,
+      );
+    }
+
+    const storageIdByIdentity = new Map<string, string>();
+    for (const [identityKey, artifact] of artifactByIdentityKey) {
+      const identityLookupKey = `${sessionId}\u0000${identityKey}`;
+      const persistedId = persistedIdByIdentity.get(identityLookupKey);
+      if (persistedId) {
+        storageIdByIdentity.set(identityKey, persistedId);
+        continue;
+      }
+
+      let storageId = artifact.id;
+      if (usedArtifactIds.has(storageId)) {
+        const suffix = crypto
+          .createHash('sha1')
+          .update(identityLookupKey)
+          .digest('hex')
+          .slice(0, 12);
+        storageId = `${artifact.id}-${suffix}`;
+        let attempt = 1;
+        while (usedArtifactIds.has(storageId)) {
+          storageId = `${artifact.id}-${suffix}-${attempt}`;
+          attempt += 1;
+        }
+      }
+      usedArtifactIds.add(storageId);
+      storageIdByIdentity.set(identityKey, storageId);
+    }
+
     const upsert = this.db.prepare(`
       INSERT INTO cowork_artifacts (
         id, session_id, message_id, identity_key, type, title, content, file_name,
@@ -2107,7 +2152,7 @@ export class CoworkStore {
       for (const [identityKey, artifact] of artifactByIdentityKey) {
         const content = artifact.filePath ? '' : artifact.content;
         upsert.run(
-          artifact.id,
+          storageIdByIdentity.get(identityKey) ?? artifact.id,
           sessionId,
           artifact.messageId,
           identityKey,

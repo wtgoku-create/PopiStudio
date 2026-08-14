@@ -38,6 +38,7 @@ import {
   isActivityConsolidatedItem,
   isContextCompactionMessage,
   type ToolGroupItem,
+  turnHasSelfIndicatingActivity,
 } from './messageDisplayUtils';
 import ThinkingBlock from './ThinkingBlock';
 import ToolCallGroup from './ToolCallGroup';
@@ -512,7 +513,7 @@ const AssistantTurnBlock: React.FC<{
             )}
             {!visibleAssistantItems.some(item => item.type === 'assistant' && !item.message.metadata?.isThinking)
               && renderArtifactCards()}
-            {showTypingIndicator && (
+            {showTypingIndicator && !turnHasSelfIndicatingActivity(turn) && (
               <ActivityIndicator
                 fingerprint={getTurnActivityFingerprint(turn)}
                 hasContent={visibleAssistantItems.length > 0}

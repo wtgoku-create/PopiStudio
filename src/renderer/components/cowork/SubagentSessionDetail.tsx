@@ -6,6 +6,7 @@ import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
 import type { RootState } from '../../store';
 import type { CoworkMessage, SubagentSessionSummary } from '../../types/cowork';
+import { getSubagentDisplayName } from '../../utils/subagentDisplay';
 import ComposeIcon from '../icons/ComposeIcon';
 import SidebarToggleIcon from '../icons/SidebarToggleIcon';
 import ConversationTurnsView from './ConversationTurnsView';
@@ -27,6 +28,7 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
   const messages = useSelector((state: RootState) => state.cowork.subagentMessagesByRunId[subagent.id] ?? []);
   const loading = useSelector((state: RootState) => state.cowork.subagentMessagesLoadingByRunId[subagent.id] === true);
   const status = storeSubagent.status;
+  const agents = useSelector((state: RootState) => state.agent.agents);
   const contentRef = useRef<HTMLDivElement>(null);
   const prevMessageCountRef = useRef(0);
 
@@ -51,7 +53,7 @@ const SubagentSessionDetail: React.FC<SubagentSessionDetailProps> = ({ subagent,
   }, [messages.length, subagent.id, subagent.parentSessionId, subagent.sessionKey]);
 
   // Use agent name as title to avoid duplicating the task content shown in conversation
-  const displayTitle = subagent.agentId ?? subagent.label ?? 'Subagent';
+  const displayTitle = getSubagentDisplayName(storeSubagent, agents);
 
   // When messages are empty but task exists, synthesize a user message so
   // the view shows the initial prompt instead of "暂无对话记录"

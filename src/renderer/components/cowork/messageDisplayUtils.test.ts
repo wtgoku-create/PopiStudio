@@ -4,7 +4,9 @@ import type { CoworkMessage } from '../../types/cowork';
 import {
   buildConversationTurns,
   buildDisplayItems,
+  chunkConsolidatedItemsForDisplay,
   getToolResultCollapsedDisplay,
+  isActivityConsolidatedItem,
   TOOL_RESULT_COLLAPSED_FULL_DISPLAY_MAX_CHARS,
   TOOL_RESULT_COLLAPSED_PREVIEW_MAX_CHARS,
 } from './messageDisplayUtils';
@@ -36,6 +38,24 @@ test('buildConversationTurns preserves persisted thinking insertion order', () =
   expect(turns[0].assistantItems.map(item => (
     item.type === 'assistant' ? item.message.id : item.type
   ))).toEqual(['thinking-1', 'assistant-1', 'tool_group']);
+});
+
+test('activity grouping uses the new presentation for a single tool or thinking item', () => {
+  const toolItems = buildConversationTurns(buildDisplayItems([
+    message('user-1', 'user', 'start'),
+    message('tool-1', 'tool_use', 'Using tool', { toolName: 'sessions_yield', toolUseId: 'call-1' }),
+  ]))[0].assistantItems;
+  const thinkingItems = buildConversationTurns(buildDisplayItems([
+    message('user-2', 'user', 'start'),
+    message('thinking-1', 'assistant', 'reasoning', { isThinking: true }),
+  ]))[0].assistantItems;
+
+  expect(chunkConsolidatedItemsForDisplay(toolItems, isActivityConsolidatedItem)).toEqual([
+    { kind: 'activity_group', entries: [{ item: toolItems[0], index: 0 }] },
+  ]);
+  expect(chunkConsolidatedItemsForDisplay(thinkingItems, isActivityConsolidatedItem)).toEqual([
+    { kind: 'activity_group', entries: [{ item: thinkingItems[0], index: 0 }] },
+  ]);
 });
 
 test('buildDisplayItems pairs a tool result that was persisted before its tool use', () => {

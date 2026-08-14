@@ -5,7 +5,7 @@ import { useSelector } from 'react-redux';
 import { i18nService } from '../../services/i18n';
 import type { RootState } from '../../store';
 import type { SubagentSessionSummary } from '../../types/cowork';
-import { getAgentDisplayName } from '../../utils/agentDisplay';
+import { getSubagentDisplayInitial, getSubagentDisplayName } from '../../utils/subagentDisplay';
 
 const SubagentSpawnCard: React.FC<{
   subagents: SubagentSessionSummary[];
@@ -18,13 +18,7 @@ const SubagentSpawnCard: React.FC<{
   return (
     <div className="w-full overflow-hidden rounded-lg border border-border divide-y divide-border">
       {subagents.map(subagent => {
-        const agent = subagent.agentId
-          ? agents.find(candidate => candidate.id === subagent.agentId)
-          : undefined;
-        const displayName = subagent.label?.trim()
-          || (agent ? getAgentDisplayName(agent) : null)
-          || subagent.agentId?.trim()
-          || i18nService.t('subagentUnnamed');
+        const displayName = getSubagentDisplayName(subagent, agents);
 
         return (
           <button
@@ -35,7 +29,7 @@ const SubagentSpawnCard: React.FC<{
             aria-label={displayName}
           >
             <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-              {displayName.slice(0, 1).toUpperCase() || 'S'}
+              {getSubagentDisplayInitial(subagent, agents)}
             </span>
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-2">

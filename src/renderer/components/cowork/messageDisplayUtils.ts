@@ -663,19 +663,26 @@ export const buildConversationTurns = (items: DisplayItem[]): ConversationTurn[]
 };
 
 // Activity grouping keeps intermediate work readable without hiding final
-// assistant answers. Only consecutive work items are collapsed.
+// assistant answers. A single work item is also collapsed so tool/thinking
+// rows use the same Lobster activity presentation as multi-step work.
 export type ConsolidatedItem = AssistantTurnItem;
 export type ActivityChunkEntry = { item: ConsolidatedItem; index: number };
 export type ConsolidatedRenderChunk =
   | { kind: 'item'; item: ConsolidatedItem; index: number }
   | { kind: 'activity_group'; entries: ActivityChunkEntry[] };
 
-export const ACTIVITY_GROUP_MIN_ITEMS = 2;
+export const ACTIVITY_GROUP_MIN_ITEMS = 1;
 
 export const isActivityConsolidatedItem = (item: ConsolidatedItem): boolean => (
   item.type === 'tool_group'
   || item.type === 'tool_result'
   || (item.type === 'assistant' && item.message.metadata?.isThinking === true)
+);
+
+// Pending tool rows already show their own live state. Avoid rendering a
+// duplicate generic activity indicator while the parent waits for a result.
+export const turnHasSelfIndicatingActivity = (turn: ConversationTurn): boolean => (
+  turn.assistantItems.some(item => item.type === 'tool_group' && !item.group.toolResult)
 );
 
 export const chunkConsolidatedItemsForDisplay = (
