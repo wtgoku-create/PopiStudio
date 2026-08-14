@@ -747,12 +747,6 @@ export const formatTurnDuration = (durationMs: number): string => {
   return i18nService.t('coworkDurationSecondsOnly').replace('{seconds}', String(seconds));
 };
 
-export const getTurnActivityFingerprint = (turn: ConversationTurn): string => (
-  `${turn.id}:${turn.assistantItems.length}:${turn.assistantItems.map(item => item.type === 'tool_group'
-    ? `${item.group.toolUse.content.length}:${item.group.toolResult?.content.length ?? 0}`
-    : item.message.content.length).join(',')}`
-);
-
 export const getTurnAnswerStartIndex = (chunks: ConsolidatedRenderChunk[]): number => {
   let index = chunks.length;
   while (index > 0) {

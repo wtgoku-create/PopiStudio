@@ -22,15 +22,15 @@ import {
   OpenClawSessionReasoningLevel,
   OpenClawSessionThinkingLevel,
 } from '../../../common/openclawSession';
+import { buildCronRunHistoryMetadata } from './openclawCronRunHistorySync';
 import {
   buildOpenClawChatSendPayloadTooLargeError,
   estimateOpenClawChatSendFrameBytes,
-  OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES,
   isSignificantAssistantStreamReset,
+  OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES,
   OpenClawRuntimeAdapter,
   pickPersistedAssistantSegment,
 } from './openclawRuntimeAdapter';
-import { buildCronRunHistoryMetadata } from './openclawCronRunHistorySync';
 
 test('pickPersistedAssistantSegment: stream authority keeps previous when same length or longer', () => {
   expect(pickPersistedAssistantSegment('aa', 'a', true)).toEqual({
@@ -490,6 +490,7 @@ function createRunTurnAdapter(options: {
   holdFirstModelPatch?: boolean;
   sessionCwd?: string;
   sessionSystemPrompt?: string;
+  managedSystemPrompt?: boolean;
 } = {}) {
   const session = {
     id: 'session-1',
@@ -566,7 +567,9 @@ function createRunTurnAdapter(options: {
       clientEntryPath: '/tmp/openclaw-gateway-client.js',
     }),
   };
-  const adapter = new OpenClawRuntimeAdapter(store as never, engineManager as never);
+  const adapter = new OpenClawRuntimeAdapter(store as never, engineManager as never, {
+    isSystemPromptManaged: () => options.managedSystemPrompt === true,
+  });
   adapter.gatewayClient = {
     start: () => {},
     stop: () => {},
@@ -768,6 +771,33 @@ test('startSession injects the stored system prompt into the outbound message', 
   const chatSend = requests.find((request) => request.method === 'chat.send');
   expect(chatSend?.params.message).toContain('[Popiai system instructions]');
   expect(chatSend?.params.message).toContain('stored system prompt');
+});
+
+test('desktop turns skip a managed static prompt but keep dynamic prompt additions', async () => {
+  const { adapter } = createRunTurnAdapter({
+    sessionSystemPrompt: 'stored system prompt',
+    managedSystemPrompt: true,
+  });
+  const internal = adapter as unknown as {
+    buildOutboundPrompt: (
+      sessionId: string,
+      prompt: string,
+      systemPrompt: string,
+      agentId: string,
+      staticSystemPrompt: string,
+    ) => Promise<string>;
+  };
+
+  const prompt = await internal.buildOutboundPrompt(
+    'session-1',
+    'hello',
+    'stored system prompt\n\ntransient plan instruction',
+    'main',
+    'stored system prompt',
+  );
+
+  expect(prompt).not.toContain('stored system prompt');
+  expect(prompt).toContain('transient plan instruction');
 });
 
 test('continueSession injects the stored system prompt only when it changes', async () => {

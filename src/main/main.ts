@@ -2032,6 +2032,9 @@ const getCoworkEngineRouter = () => {
     if (!openClawRuntimeAdapter) {
       openClawRuntimeAdapter = new OpenClawRuntimeAdapter(getCoworkStore(), getOpenClawEngineManager(), {
         normalizeModelRef: normalizeOpenClawModelRef,
+        isSystemPromptManaged: (agentId, systemPrompt) => (
+          getOpenClawConfigSync().isSystemPromptManaged(agentId, systemPrompt)
+        ),
         resolveCronJobPrompt: (jobId) => {
           const message = getCronJobService().getJobPromptSync(jobId);
           if (!message) return null;

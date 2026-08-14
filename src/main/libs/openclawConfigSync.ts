@@ -1484,6 +1484,7 @@ export class OpenClawConfigSync {
   private readonly getUserPlugins: () => Array<{ pluginId: string; enabled: boolean; config?: Record<string, unknown> }>;
   private previousBindingsJson?: string;
   private currentBindingsObj: { bindings?: Array<Record<string, unknown>> } = {};
+  private readonly syncedSystemPromptsByAgent = new Map<string, string>();
 
   constructor(deps: OpenClawConfigSyncDeps) {
     this.engineManager = deps.engineManager;
@@ -1509,6 +1510,18 @@ export class OpenClawConfigSync {
     this.getSkillsList = deps.getSkillsList;
     this.getAgents = deps.getAgents;
     this.getUserPlugins = deps.getUserPlugins ?? (() => []);
+  }
+
+  /**
+   * Returns true only when the exact static prompt was successfully written to
+   * the workspace managed section. Callers can use this to avoid sending the
+   * same prompt again in the first desktop turn.
+   */
+  isSystemPromptManaged(agentId: string, systemPrompt: string): boolean {
+    const normalizedAgentId = agentId.trim() || AgentId.Main;
+    const normalizedPrompt = systemPrompt.trim();
+    return normalizedPrompt.length > 0
+      && this.syncedSystemPromptsByAgent.get(normalizedAgentId) === normalizedPrompt;
   }
 
   /**
@@ -1637,7 +1650,7 @@ export class OpenClawConfigSync {
         // Still sync AGENTS.md even when API is not configured — skills/systemPrompt
         // may already be set and should be available when the user configures a model.
         const mainWorkspacePath = getMainAgentWorkspacePath(this.engineManager.getStateDir());
-        const agentsMdWarning = this.syncAgentsMd(mainWorkspacePath, coworkConfig);
+        const agentsMdWarning = this.syncAgentsMd(mainWorkspacePath, coworkConfig, AgentId.Main);
         this.syncPerAgentWorkspaces(mainWorkspacePath, coworkConfig);
         if (agentsMdWarning) result.agentsMdWarning = agentsMdWarning;
         return result;
@@ -2768,7 +2781,7 @@ export class OpenClawConfigSync {
     // Sync AGENTS.md with skills routing prompt to the OpenClaw workspace directory.
     // This runs on every sync regardless of openclaw.json changes, because skills
     // may have been installed/enabled/disabled independently.
-    const agentsMdWarning = this.syncAgentsMd(mainWorkspacePath, coworkConfig);
+    const agentsMdWarning = this.syncAgentsMd(mainWorkspacePath, coworkConfig, AgentId.Main);
 
     // Sync per-agent workspace files (SOUL.md, IDENTITY.md, AGENTS.md) for non-main agents
     this.syncPerAgentWorkspaces(mainWorkspacePath, coworkConfig);
@@ -3219,7 +3232,11 @@ export class OpenClawConfigSync {
    * native channel connectors (DingTalk, Feishu, etc.) can discover and
    * invoke Popiai skills.
    */
-  private syncAgentsMd(workspaceDir: string, coworkConfig: CoworkConfig): string | undefined {
+  private syncAgentsMd(
+    workspaceDir: string,
+    coworkConfig: CoworkConfig,
+    agentId: string = AgentId.Main,
+  ): string | undefined {
     const MARKER = '<!-- Popiai managed: do not edit below this line -->';
 
     try {
@@ -3285,6 +3302,7 @@ export class OpenClawConfigSync {
             }
           }
         }
+        this.syncedSystemPromptsByAgent.set(agentId, systemPrompt);
         return;
       }
 
@@ -3294,9 +3312,13 @@ export class OpenClawConfigSync {
         : `${managedContent}\n`;
 
       // Only write if content actually changed
-      if (existingContent === nextContent) return;
+      if (existingContent === nextContent) {
+        this.syncedSystemPromptsByAgent.set(agentId, systemPrompt);
+        return;
+      }
 
       this.atomicWriteFile(agentsMdPath, nextContent);
+      this.syncedSystemPromptsByAgent.set(agentId, systemPrompt);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.warn('[OpenClawConfigSync] Failed to sync AGENTS.md:', msg);
@@ -3493,7 +3515,7 @@ export class OpenClawConfigSync {
         this.syncAgentsMd(agentWorkspace, {
           ...coworkConfig,
           systemPrompt: agent.systemPrompt || '',
-        });
+        }, agent.id);
 
         // Ensure memory directory exists
         const memoryDir = path.join(agentWorkspace, 'memory');

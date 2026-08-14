@@ -29,7 +29,6 @@ import {
   getContextCompactionMessageLabel,
   getToolResultDisplay,
   getToolResultLineCount,
-  getTurnActivityFingerprint,
   getTurnAnswerStartIndex,
   getTurnEndTimestamp,
   getTurnStartTimestamp,
@@ -99,8 +98,7 @@ const ContextCompactionDivider: React.FC<{ label: string; active?: boolean }> = 
 
 // ── TypingDots ───────────────────────────────────────────────────────────────
 
-const ActivityIndicator: React.FC<{ fingerprint: string; hasContent: boolean; startTimestamp: number | null }> = ({
-  fingerprint,
+const ActivityIndicator: React.FC<{ hasContent: boolean; startTimestamp: number | null }> = ({
   hasContent,
   startTimestamp,
 }) => {
@@ -113,7 +111,7 @@ const ActivityIndicator: React.FC<{ fingerprint: string; hasContent: boolean; st
   const seconds = elapsed == null ? 0 : Math.floor(elapsed / 1000);
   const status = hasContent ? i18nService.t('coworkActivityRunning') : i18nService.t('coworkActivityThinkingNow');
   return (
-    <div key={fingerprint} className="flex items-center gap-2 py-1 animate-fade-in" role="status" aria-live="polite">
+    <div className="flex items-center gap-2 py-1 animate-fade-in" role="status" aria-live="polite">
       <span className="activity-indicator-dot h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
       <span className="shimmer-text min-w-0 truncate text-sm text-secondary">{status}</span>
       {seconds >= 1 && <span className="shrink-0 text-xs tabular-nums text-muted">{formatTurnDuration(seconds * 1000)}</span>}
@@ -515,7 +513,6 @@ const AssistantTurnBlock: React.FC<{
               && renderArtifactCards()}
             {showTypingIndicator && !turnHasSelfIndicatingActivity(turn) && (
               <ActivityIndicator
-                fingerprint={getTurnActivityFingerprint(turn)}
                 hasContent={visibleAssistantItems.length > 0}
                 startTimestamp={getTurnStartTimestamp(turn)}
               />

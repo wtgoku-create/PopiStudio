@@ -499,6 +499,7 @@ function shouldBootstrapGoalFromPrompt(
 type OpenClawRuntimeAdapterOptions = {
   normalizeModelRef?: (modelRef: string) => string;
   resolveCronJobPrompt?: (jobId: string) => { message: string; name?: string | null } | null;
+  isSystemPromptManaged?: (agentId: string, systemPrompt: string) => boolean;
 };
 
 const MANUAL_CONTEXT_COMPACTION_TIMEOUT_MS = 300_000;
@@ -3662,6 +3663,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       promptWithBrowserAnnotations,
       outboundSystemPrompt,
       agentId,
+      systemPromptText,
     ));
     if (this.cancelTurnStartupIfStopped(sessionId, 'outbound prompt built')) {
       return;
@@ -3784,8 +3786,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     prompt: string,
     systemPrompt?: string,
     agentId?: string,
+    staticSystemPrompt?: string,
   ): Promise<string> {
     const normalizedSystemPrompt = (systemPrompt ?? '').trim();
+    const normalizedStaticSystemPrompt = (staticSystemPrompt ?? '').trim();
     const planMode = isPlanModeSystemPrompt(normalizedSystemPrompt)
       || (
         containsPlanModePrompt(prompt)
@@ -3795,6 +3799,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const shouldInjectSystemPrompt = Boolean(
       normalizedSystemPrompt
       && normalizedSystemPrompt !== previousSystemPrompt,
+    );
+    const shouldSkipManagedStaticPrompt = Boolean(
+      shouldInjectSystemPrompt
+      && normalizedStaticSystemPrompt
+      && normalizedSystemPrompt.startsWith(normalizedStaticSystemPrompt)
+      && isManagedSessionKey(this.toSessionKey(sessionId, agentId))
+      && this.options.isSystemPromptManaged?.(
+        agentId?.trim() || DEFAULT_MANAGED_AGENT_ID,
+        normalizedStaticSystemPrompt,
+      ),
     );
 
     if (normalizedSystemPrompt) {
@@ -3810,7 +3824,14 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     const sections: string[] = [];
     if (shouldInjectSystemPrompt) {
-      sections.push(this.buildSystemPromptPrefix(normalizedSystemPrompt));
+      const promptToInject = shouldSkipManagedStaticPrompt
+        ? normalizedSystemPrompt
+          .slice(normalizedStaticSystemPrompt.length)
+          .trim()
+        : normalizedSystemPrompt;
+      if (promptToInject) {
+        sections.push(this.buildSystemPromptPrefix(promptToInject));
+      }
     }
     sections.push(buildOpenClawLocalTimeContextPrompt());
     if (currentModel) {
