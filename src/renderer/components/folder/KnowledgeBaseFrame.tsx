@@ -9,6 +9,7 @@ import { useSelector } from 'react-redux';
 import { coworkService } from '../../services/cowork';
 import { getKnowledgeBasesUrl } from '../../services/endpoints';
 import { i18nService } from '../../services/i18n';
+import { themeService } from '../../services/theme';
 import type { RootState } from '../../store';
 import type { CoworkSessionSummary } from '../../types/cowork';
 import { sanitizeExportFileName, sessionToMarkdown } from '../../utils/coworkSessionExport';
@@ -56,6 +57,10 @@ interface KnowledgeBaseFrameProps {
 
 const getKnowledgeTheme = (): string => {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+};
+
+const getKnowledgeThemeId = (): string => {
+  return document.documentElement.dataset.theme || themeService.getThemeId();
 };
 
 const buildKnowledgeGraphUrl = (detail: OpenKnowledgeGraphEventDetail, knowledgeBasesUrl: string): string => {
@@ -113,14 +118,16 @@ const KnowledgeBaseFrame: React.FC<KnowledgeBaseFrameProps> = ({
 
   const postKnowledgeToken = useCallback(async () => {
     const token = isLoggedIn ? await window.electron?.auth?.getKnowledgeToken?.() : '';
-    await postKnowledgeMessage({ type: 'weknora:kb-token', token: token || '' });
+    await postKnowledgeMessage({ type: KnowledgeWebviewMessage.KbToken, token: token || '' });
   }, [isLoggedIn, postKnowledgeMessage]);
 
   const postKnowledgeTheme = useCallback(async () => {
     const theme = getKnowledgeTheme();
+    const themeId = getKnowledgeThemeId();
     await postKnowledgeMessage({
-      type: 'weknora:theme',
+      type: KnowledgeWebviewMessage.Theme,
       theme,
+      theme_id: themeId,
     });
   }, [postKnowledgeMessage]);
 

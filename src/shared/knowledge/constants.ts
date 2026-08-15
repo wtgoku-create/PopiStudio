@@ -61,6 +61,8 @@ export const KnowledgeBrowserPartition = {
 export type KnowledgeBrowserPartition = typeof KnowledgeBrowserPartition[keyof typeof KnowledgeBrowserPartition];
 
 export const KnowledgeWebviewMessage = {
+  KbToken: 'weknora:kb-token',
+  Theme: 'weknora:theme',
   UploadLocalSession: 'weknora:upload-local-session',
   LocalSessionUploadComplete: 'weknora:local-session-upload-complete',
   PreloadReady: 'weknora:preload-ready',
