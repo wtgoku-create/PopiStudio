@@ -62,6 +62,7 @@ import {
   selectPanelWidth,
   selectPreviewTabs,
   selectSessionArtifacts,
+  setPanelWidth,
   togglePanel,
 } from '../../store/slices/artifactSlice';
 import {
@@ -90,6 +91,7 @@ import {
 } from '../artifacts/autoPreviewPolicy';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
+import SidebarToggleIcon from '../icons/SidebarToggleIcon';
 import SubagentIcon from '../icons/SubagentIcon';
 import MarkdownContent from '../MarkdownContent';
 import AssistantTurnBlock, { ContextCompactionDivider } from './AssistantTurnBlock';
@@ -150,7 +152,8 @@ const RAIL_LINE_HEIGHT = 3;
 const RAIL_TARGET_RENDER_RELEASE_DELAY = 2400;
 const RAIL_TARGET_SCROLL_RETRY_LIMIT = 6;
 const ARTIFACT_PANEL_TRANSITION_MS = 200;
-const ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH = 4;
+const COWORK_DETAIL_ARTIFACT_GAP_WIDTH = 6;
+const ARTIFACT_PANEL_CLOSE_DRAG_THRESHOLD = 48;
 const COWORK_DETAIL_MIN_WIDTH = 480;
 const ARTIFACT_PANEL_MIN_WIDTH_RATIO = 1 / 6;
 const AUTO_PREVIEW_ARTIFACT_SETTLE_MS = 600;
@@ -1272,6 +1275,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   onManageSkills,
   onContinue,
   onStop,
+  isSidebarCollapsed,
+  onToggleSidebar,
   minimizedPermission,
   onRestorePermission,
   onRespondToPermission,
@@ -1445,6 +1450,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
   const [steerPreviewPortalTarget, setSteerPreviewPortalTarget] = useState<HTMLDivElement | null>(null);
   const [goalStatusBarPortalTarget, setGoalStatusBarPortalTarget] = useState<HTMLDivElement | null>(null);
+  const [detailHeaderPortalTarget, setDetailHeaderPortalTarget] = useState<HTMLDivElement | null>(null);
+  const [artifactHeaderPortalTarget, setArtifactHeaderPortalTarget] = useState<HTMLDivElement | null>(null);
+  const [artifactTabsPortalTarget, setArtifactTabsPortalTarget] = useState<HTMLDivElement | null>(null);
   const compactConfirmRef = useRef<HTMLDivElement>(null);
   const [, setShouldAutoScroll] = useState(true);
   const shouldAutoScrollRef = useRef(true);
@@ -1920,6 +1928,12 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [artifactPanelMinWidth, setArtifactPanelMinWidth] = useState(MIN_PANEL_WIDTH);
   const [artifactPanelMaxWidth, setArtifactPanelMaxWidth] = useState(MAX_PANEL_WIDTH);
   const [contentRowWidth, setContentRowWidth] = useState(0);
+  const [isArtifactPanelResizing, setIsArtifactPanelResizing] = useState(false);
+  const artifactPanelResizeRef = useRef(false);
+  const artifactPanelResizeStartXRef = useRef(0);
+  const artifactPanelResizeStartWidthRef = useRef(0);
+  const artifactPanelResizeCleanupRef = useRef<(() => void) | null>(null);
+  const artifactPanelPreviousBodyCursorRef = useRef('');
   const [promptInputAreaHeight, setPromptInputAreaHeight] = useState(0);
 
   useEffect(() => {
@@ -2063,7 +2077,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const contentWidth = contentRowRef.current?.clientWidth ?? 0;
     if (contentWidth <= 0) return;
     setContentRowWidth(contentWidth);
-    const availablePanelWidth = contentWidth - COWORK_DETAIL_MIN_WIDTH - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH;
+    const availablePanelWidth = contentWidth - COWORK_DETAIL_MIN_WIDTH - COWORK_DETAIL_ARTIFACT_GAP_WIDTH;
     const nextMaxWidth = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, availablePanelWidth));
     const proportionalMinWidth = Math.floor(contentWidth * ARTIFACT_PANEL_MIN_WIDTH_RATIO);
     const nextMinWidth = Math.min(nextMaxWidth, Math.max(MIN_PANEL_WIDTH, proportionalMinWidth));
@@ -4107,29 +4121,20 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   ]);
 
 
-  if (!currentSession) {
-    return null;
-  }
-
   const defaultArtifactPanelContentWidth = Math.max(
     artifactPanelMinWidth,
     Math.min(panelWidth, artifactPanelMaxWidth),
   );
   const expandedArtifactPanelContentWidth = Math.max(
     MIN_PANEL_WIDTH,
-    contentRowWidth - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH,
+    contentRowWidth,
   );
   const artifactPanelContentWidth = isArtifactPanelExpanded
     ? expandedArtifactPanelContentWidth
     : defaultArtifactPanelContentWidth;
   const artifactPanelFrameWidth = isArtifactPanelVisible
-    ? artifactPanelContentWidth + ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH
+    ? artifactPanelContentWidth
     : 0;
-  const artifactHeaderWidth = isArtifactPanelVisible
-    ? isArtifactPanelExpanded && contentRowWidth > 0
-      ? contentRowWidth || artifactPanelFrameWidth
-      : Math.max(0, artifactPanelFrameWidth - ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH)
-    : undefined;
   const artifactPanelRenderMinWidth = isArtifactPanelExpanded
     ? expandedArtifactPanelContentWidth
     : artifactPanelMinWidth;
@@ -4141,6 +4146,69 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     ? promptInputAreaHeight
     : 0;
   const artifactPanelInnerWidth = artifactPanelIsOverlay ? '100%' : artifactPanelFrameWidth;
+
+  const handleArtifactPanelResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (isArtifactPanelExpanded || !isArtifactPanelVisible) return;
+    event.preventDefault();
+    artifactPanelResizeCleanupRef.current?.();
+    artifactPanelResizeRef.current = true;
+    artifactPanelResizeStartXRef.current = event.clientX;
+    artifactPanelResizeStartWidthRef.current = artifactPanelContentWidth;
+    artifactPanelPreviousBodyCursorRef.current = document.body.style.cursor;
+    document.body.style.cursor = 'col-resize';
+    document.body.classList.add('select-none');
+    setIsArtifactPanelResizing(true);
+
+    const stopResizing = () => {
+      artifactPanelResizeRef.current = false;
+      document.body.style.cursor = artifactPanelPreviousBodyCursorRef.current;
+      document.body.classList.remove('select-none');
+      setIsArtifactPanelResizing(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      if (artifactPanelResizeCleanupRef.current === stopResizing) {
+        artifactPanelResizeCleanupRef.current = null;
+      }
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!artifactPanelResizeRef.current) return;
+      moveEvent.preventDefault();
+      const nextWidth = artifactPanelResizeStartWidthRef.current
+        + artifactPanelResizeStartXRef.current
+        - moveEvent.clientX;
+      if (nextWidth < artifactPanelRenderMinWidth - ARTIFACT_PANEL_CLOSE_DRAG_THRESHOLD) {
+        stopResizing();
+        dispatch(closePanel({ sessionId }));
+        return;
+      }
+      dispatch(setPanelWidth(Math.max(
+        artifactPanelRenderMinWidth,
+        Math.min(artifactPanelRenderMaxWidth, nextWidth),
+      )));
+    };
+
+    const handleMouseUp = () => {
+      stopResizing();
+    };
+
+    artifactPanelResizeCleanupRef.current = stopResizing;
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [artifactPanelContentWidth, artifactPanelRenderMaxWidth, artifactPanelRenderMinWidth, dispatch, isArtifactPanelExpanded, isArtifactPanelVisible, sessionId]);
+
+  useEffect(() => {
+    return () => {
+      artifactPanelResizeCleanupRef.current?.();
+      artifactPanelResizeCleanupRef.current = null;
+      document.body.classList.remove('select-none');
+    };
+  }, []);
+
+  if (!currentSession) {
+    return null;
+  }
+
   const shouldShowTurnNavigationRail = railItems.length > 1 && isScrollable;
   const showExternalSteerPreview = queuedSteerCount > 0 && !remoteManaged && !isExpandedPromptInputHidden;
   const showExternalGoalStatusBar = Boolean(currentSession?.goal && !remoteManaged && !isExpandedPromptInputHidden);
@@ -4285,36 +4353,27 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   };
 
   return (
-    <div className="relative flex-1 flex flex-col h-full overflow-hidden">
+    <div className="relative flex h-full min-w-0 flex-1 flex-row overflow-hidden">
       {/* Header — spans full width */}
-      <div className={`draggable flex h-12 items-center justify-between border-b border-border bg-background shrink-0 ${
+      {detailHeaderPortalTarget && createPortal(<div className={`draggable flex h-12 items-center justify-between border-b border-border bg-background shrink-0 ${
         isArtifactPanelExpanded ? 'pl-0 pr-4' : 'px-4'
       }`}
       >
-        {/* Left side: Toggle buttons (when collapsed) + Title */}
+        {/* Left side: Sidebar toggle + title */}
         <div className={`h-full flex-1 items-center gap-2 min-w-0 ${
           isArtifactPanelExpanded ? 'hidden' : 'flex'
         }`}>
-          {/* {isSidebarCollapsed && (
-            <div className={`non-draggable flex items-center gap-1 ${isMac ? 'pl-[68px]' : ''}`}>
-              <button
-                type="button"
-                onClick={onToggleSidebar}
-                className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-secondary hover:bg-surface-raised transition-colors"
-              >
-                <SidebarToggleIcon className="h-4 w-4" isCollapsed={true} />
-              </button>
-              <button
-                type="button"
-                onClick={onNewChat}
-                className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-secondary hover:bg-surface-raised transition-colors"
-              >
-                <ComposeIcon className="h-4 w-4" />
-              </button>
-              {updateBadge}
-            </div>
-          )} */}
-            <div className="flex min-w-0 items-center gap-1">
+          <div className="non-draggable flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-secondary transition-colors hover:bg-surface-raised"
+              aria-label={i18nService.t('agentSidebarMessages')}
+            >
+              <SidebarToggleIcon className="h-4 w-4" isCollapsed={Boolean(isSidebarCollapsed)} />
+            </button>
+          </div>
+          <div className="flex min-w-0 items-center gap-1">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-transparent leading-none text-foreground">
               <HeaderAgentAvatar agent={headerAgent} />
             </span>
@@ -4323,15 +4382,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 {currentSession.title || currentSession.source?.label || i18nService.t('coworkNewSession')}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsMessageSearchOpen(true)}
-              title={i18nService.t('coworkMessageSearch')}
-              aria-label={i18nService.t('coworkMessageSearch')}
-              className="non-draggable rounded-md p-1.5 text-secondary hover:bg-surface-raised hover:text-foreground"
-            >
-              <MagnifyingGlassIcon className="h-4 w-4" />
-            </button>
           </div>
         </div>
 
@@ -4355,21 +4405,39 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           />
         )}
 
+        <button
+          type="button"
+          onClick={() => setIsMessageSearchOpen(true)}
+          title={i18nService.t('coworkMessageSearch')}
+          aria-label={i18nService.t('coworkMessageSearch')}
+          className="non-draggable inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+        >
+          <MagnifyingGlassIcon className="h-4 w-4" />
+        </button>
+
+        {!isArtifactPanelVisible && (
+          <button
+            type="button"
+            onClick={handleToggleArtifactPanel}
+            className="non-draggable relative h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg text-secondary hover:bg-surface-raised transition-colors"
+            aria-label={i18nService.t('artifactPanelToggle')}
+            title={i18nService.t('artifactPanelToggle')}
+          >
+            <ArtifactPanelIcon className="h-4 w-4" open={false} />
+          </button>
+        )}
+
         {/* Right side: Artifact toggle */}
-        <div
-          className={`non-draggable flex h-full items-center gap-1 ${
-            isArtifactPanelExpanded ? 'min-w-0 flex-1' : 'shrink-0'
-          } ${
+        {artifactHeaderPortalTarget && createPortal(<div
+          className={`non-draggable order-2 flex h-12 shrink-0 items-center gap-1 ${
             isArtifactPanelVisible
-              ? isArtifactPanelExpanded
-                ? 'pr-0'
-                : '-mr-4 border-l border-border pr-4'
+              ? 'pr-4'
               : ''
           }`}
-          style={artifactHeaderWidth !== undefined ? { width: artifactHeaderWidth } : undefined}
         >
-          {isArtifactPanelVisible && (
-            <div className="flex h-full min-w-0 flex-1 items-center">
+          {artifactTabsPortalTarget && createPortal(
+            isArtifactPanelVisible && (
+              <div className="flex h-full min-w-0 flex-1 items-center">
               <div className="relative flex h-full min-w-0 flex-1">
                 <div
                   ref={artifactTabsScrollRef}
@@ -4583,7 +4651,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                   </>
                 )}
               </div>
-            </div>
+              </div>
+            ),
+            artifactTabsPortalTarget,
           )}
           {isArtifactPanelVisible && (
             <button
@@ -4610,8 +4680,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             <ArtifactPanelIcon className="h-4 w-4" open={isPanelOpen} />
           </button>
 
-        </div>
-      </div>
+        </div>, artifactHeaderPortalTarget)}
+      </div>, detailHeaderPortalTarget)}
 
       {showArtifactAddMenu && artifactAddMenuPosition && createPortal(
         <div
@@ -4703,7 +4773,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       )}
 
       {/* Content row: chat + artifact panel */}
-      <div ref={contentRowRef} className="relative flex-1 flex overflow-hidden">
+      <div ref={contentRowRef} className="relative flex h-full min-w-0 flex-1 gap-[6px] overflow-hidden bg-surface-raised">
       {isPopiTVSession && (
         <PopiTVCanvasWorkspace
           sessionId={currentSession.id}
@@ -4712,9 +4782,10 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       )}
       <div
         ref={detailRootRef}
-        className={`${isPopiTVSession ? 'w-[420px] 2xl:w-[500px] shrink-0 border-l border-border' : 'flex-1'} flex flex-col bg-background h-full`}
+        className={`${isPopiTVSession ? 'w-[420px] 2xl:w-[500px] shrink-0' : 'flex-1'} flex h-full flex-col overflow-hidden rounded-xl bg-background`}
         style={{ minWidth: isArtifactPanelExpanded ? 0 : (isPopiTVSession ? 380 : COWORK_DETAIL_MIN_WIDTH) }}
       >
+      <div ref={setDetailHeaderPortalTarget} className="h-12 shrink-0" />
       <div className="relative flex-1 min-h-0">
         <div
           ref={scrollContainerRef}
@@ -5187,53 +5258,73 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         </button>
       )}
     </div>
-    {shouldRenderArtifactPanel && (
-      <div
+   {shouldRenderArtifactPanel && (
+     <div
         className={`${
           artifactPanelIsOverlay
             ? 'absolute inset-x-0 top-0 z-40 overflow-hidden bg-background'
-            : 'h-full shrink-0 overflow-hidden bg-background'
+            : 'relative h-full shrink-0'
         } ${
-          isArtifactPanelTransitioning
-            ? 'transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none'
-            : ''
-        } ${isArtifactPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
-        style={artifactPanelIsOverlay
-          ? {
-              bottom: artifactPanelOverlayBottom,
-              width: 'auto',
-              maxWidth: 'none',
-            }
+         isArtifactPanelTransitioning
+           ? 'transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none'
+           : ''
+       } ${isArtifactPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+       style={artifactPanelIsOverlay
+         ? {
+             bottom: artifactPanelOverlayBottom,
+             width: 'auto',
+             maxWidth: 'none',
+           }
           : {
               width: artifactPanelFrameWidth,
-              maxWidth: artifactPanelRenderMaxWidth + ARTIFACT_PANEL_RESIZE_HANDLE_WIDTH,
+             maxWidth: artifactPanelRenderMaxWidth,
             }}
         aria-hidden={!isPanelOpen}
       >
+       {!artifactPanelIsOverlay && isArtifactPanelVisible && (
+         <div
+           className="non-draggable group absolute left-[-6px] top-0 z-40 h-full w-[6px] cursor-col-resize"
+           onMouseDown={handleArtifactPanelResizeStart}
+         >
+           <div className="mx-auto h-full w-px bg-border/50 transition-colors group-hover:bg-primary/60 group-active:bg-primary" />
+         </div>
+       )}
+       {isArtifactPanelResizing && (
+         <div className="absolute inset-0 z-30 cursor-col-resize bg-transparent" />
+       )}
         <div
-          className="flex h-full"
+         className={`flex h-full flex-col ${artifactPanelIsOverlay ? '' : 'overflow-hidden rounded-xl bg-background'}`}
           style={{ width: artifactPanelInnerWidth }}
         >
-          <ArtifactPanelErrorBoundary onClose={handleCloseArtifactPanel}>
-            <ArtifactPanel
-              sessionId={currentSession.id}
-              artifacts={sessionArtifacts}
-              activeSpecialTab={activeSpecialPreviewTab}
-              minPanelWidth={artifactPanelRenderMinWidth}
-              maxPanelWidth={artifactPanelRenderMaxWidth}
-              isPanelExpanded={isArtifactPanelExpanded}
-              browserAddress={browserPreviewAddress}
-              browserUrl={browserPreviewUrl}
-              onBrowserAddressChange={handleBrowserPreviewAddressChange}
-              onBrowserUrlChange={handleBrowserPreviewUrlChange}
-              onOpenFileListTab={handleOpenArtifactFileListTab}
-              onOpenBrowserTab={handleOpenArtifactBrowserTab}
-              subagentPanel={subagentPanel}
-            />
-          </ArtifactPanelErrorBoundary>
-        </div>
-      </div>
-    )}
+         <div
+           ref={setArtifactHeaderPortalTarget}
+           className="relative flex h-12 shrink-0 items-center bg-background"
+         >
+           <div
+             ref={setArtifactTabsPortalTarget}
+             className="order-1 flex h-12 min-w-0 flex-1 items-center"
+           />
+           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-px bg-border" />
+         </div>
+         <div className="min-h-0 flex-1">
+           <ArtifactPanelErrorBoundary onClose={handleCloseArtifactPanel}>
+             <ArtifactPanel
+               sessionId={currentSession.id}
+                artifacts={sessionArtifacts}
+                activeSpecialTab={activeSpecialPreviewTab}
+                browserAddress={browserPreviewAddress}
+               browserUrl={browserPreviewUrl}
+               onBrowserAddressChange={handleBrowserPreviewAddressChange}
+               onBrowserUrlChange={handleBrowserPreviewUrlChange}
+               onOpenFileListTab={handleOpenArtifactFileListTab}
+               onOpenBrowserTab={handleOpenArtifactBrowserTab}
+               subagentPanel={subagentPanel}
+             />
+           </ArtifactPanelErrorBoundary>
+         </div>
+       </div>
+     </div>
+   )}
     </div>
     </div>
   );

@@ -25,13 +25,8 @@ import {
   addArtifact,
   ArtifactContentView,
   ArtifactSpecialTab,
-  closePanel,
-  MAX_PANEL_WIDTH,
-  MIN_PANEL_WIDTH,
   openArtifactPreviewTab,
   selectActivePreviewTab,
-  selectPanelWidth,
-  setPanelWidth,
   setPreviewTabContentView,
 } from '@/store/slices/artifactSlice';
 import {
@@ -69,7 +64,6 @@ const NON_CODE_TYPES = new Set<ArtifactType>([
 
 const COPYABLE_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg']);
 
-const PANEL_CLOSE_DRAG_THRESHOLD = 48;
 const FILE_LIST_DRAWER_TRANSITION_MS = 180;
 
 function isCopyableArtifact(artifact: Artifact): boolean {
@@ -125,9 +119,6 @@ interface ArtifactPanelProps {
   sessionId: string;
   artifacts: Artifact[];
   activeSpecialTab?: ArtifactSpecialTab;
-  minPanelWidth?: number;
-  maxPanelWidth?: number;
-  isPanelExpanded?: boolean;
   browserAddress?: string;
   browserUrl?: string;
   onBrowserAddressChange?: (value: string) => void;
@@ -148,9 +139,6 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   sessionId,
   artifacts,
   activeSpecialTab = ArtifactSpecialTab.FileList,
-  minPanelWidth = MIN_PANEL_WIDTH,
-  maxPanelWidth = MAX_PANEL_WIDTH,
-  isPanelExpanded = false,
   browserAddress: controlledBrowserAddress,
   browserUrl: controlledBrowserUrl,
   onBrowserAddressChange,
@@ -160,7 +148,6 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   subagentPanel,
 }) => {
   const dispatch = useDispatch();
-  const panelWidth = useSelector(selectPanelWidth);
   const activePreviewTab = useSelector((state: RootState) => selectActivePreviewTab(state, sessionId));
   const browserAnnotationBatches = useSelector(
     (state: RootState) => state.cowork.draftBrowserAnnotationBatches[sessionId] || EMPTY_BROWSER_ANNOTATION_BATCHES,
@@ -182,19 +169,6 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   const isDocumentArtifact = selectedArtifact?.type === 'document';
   const browserAnnotationBatch = browserAnnotationBatches[0] ?? null;
 
-  const isResizing = useRef(false);
-  const startX = useRef(0);
-  const startWidth = useRef(0);
-  const previousBodyCursor = useRef('');
-  const [panelIsResizing, setPanelIsResizing] = useState(false);
-  const constrainedMaxPanelWidth = isPanelExpanded
-    ? Math.max(MIN_PANEL_WIDTH, maxPanelWidth)
-    : Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, maxPanelWidth));
-  const constrainedMinPanelWidth = Math.min(
-    constrainedMaxPanelWidth,
-    Math.max(MIN_PANEL_WIDTH, minPanelWidth),
-  );
-  const constrainedPanelWidth = Math.max(constrainedMinPanelWidth, Math.min(constrainedMaxPanelWidth, panelWidth));
   const browserAddress = controlledBrowserAddress ?? localBrowserAddress;
   const browserUrl = controlledBrowserUrl ?? localBrowserUrl;
 
@@ -249,52 +223,6 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
     openFileListDrawer();
   }, [closeFileListDrawer, isFileListDrawerVisible, openFileListDrawer, showFileListDrawer]);
 
-  const handleResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    isResizing.current = true;
-    startX.current = e.clientX;
-    startWidth.current = constrainedPanelWidth;
-    previousBodyCursor.current = document.body.style.cursor;
-    document.body.style.cursor = 'col-resize';
-    document.body.classList.add('select-none');
-    setPanelIsResizing(true);
-
-    const stopResizing = () => {
-      isResizing.current = false;
-      document.body.style.cursor = previousBodyCursor.current;
-      document.body.classList.remove('select-none');
-      setPanelIsResizing(false);
-      document.removeEventListener('pointermove', handlePointerMove);
-      document.removeEventListener('pointerup', handlePointerUp);
-      document.removeEventListener('pointercancel', handlePointerUp);
-    };
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      if (!isResizing.current) return;
-      moveEvent.preventDefault();
-      const nextWidth = startWidth.current + startX.current - moveEvent.clientX;
-      if (nextWidth < constrainedMinPanelWidth - PANEL_CLOSE_DRAG_THRESHOLD) {
-        stopResizing();
-        dispatch(closePanel({ sessionId }));
-        return;
-      }
-      const clampedWidth = Math.max(
-        constrainedMinPanelWidth,
-        Math.min(constrainedMaxPanelWidth, nextWidth),
-      );
-      dispatch(setPanelWidth(clampedWidth));
-    };
-
-    const handlePointerUp = () => {
-      stopResizing();
-    };
-
-    document.addEventListener('pointermove', handlePointerMove);
-    document.addEventListener('pointerup', handlePointerUp);
-    document.addEventListener('pointercancel', handlePointerUp);
-  }, [constrainedMaxPanelWidth, constrainedMinPanelWidth, constrainedPanelWidth, dispatch, sessionId]);
-
   useEffect(() => {
     return () => {
       if (fileListDrawerAnimationFrameRef.current !== undefined) {
@@ -303,8 +231,6 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
       if (fileListDrawerCloseTimeoutRef.current !== undefined) {
         window.clearTimeout(fileListDrawerCloseTimeoutRef.current);
       }
-      document.body.style.cursor = previousBodyCursor.current;
-      document.body.classList.remove('select-none');
     };
   }, []);
 
@@ -514,25 +440,10 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   const hideArtifactTitle = selectedArtifact?.type === ArtifactTypeValue.Wiki;
 
   return (
-    <>
-      {!isPanelExpanded && (
-        <div
-          key="artifact-panel-resize-handle"
-          className="w-1 shrink-0 touch-none cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
-          onPointerDown={handleResizeStart}
-        />
-      )}
-      {/* The key preserves the preview subtree when the preceding drag handle is removed. */}
-      <aside
-        key="artifact-panel-content"
-        style={isPanelExpanded
-          ? { width: '100%', maxWidth: 'none' }
-          : { width: constrainedPanelWidth, maxWidth: constrainedMaxPanelWidth }}
-        className={`${isPanelExpanded ? 'min-w-0 flex-1' : 'shrink border-l border-border'} bg-background flex flex-col h-full overflow-hidden relative`}
-      >
-        {!isPanelExpanded && panelIsResizing && (
-          <div className="absolute inset-0 z-30 cursor-col-resize bg-transparent" />
-        )}
+    <aside
+      key="artifact-panel-content"
+      className="flex h-full min-w-0 flex-1 flex-col bg-background"
+    >
 
         {selectedArtifact ? (
           <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
@@ -690,8 +601,7 @@ const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
             />
           </div>
         )}
-      </aside>
-    </>
+    </aside>
   );
 };
 
