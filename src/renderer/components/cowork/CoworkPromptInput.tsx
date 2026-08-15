@@ -750,12 +750,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   const useHomeContextLayout = isLarge && showAgentSelector;
   const useCompactSendButton = isCompact || (isLarge && (useHomeContextLayout || showReadOnlyContext));
   const minHeight = isCompact
-    ? 32
+    ? 40
     : isLarge
     ? useHomeContextLayout
-      ? hasContextBadges ? 36 : 52
-      : hasContextBadges ? 44 : showReadOnlyContext ? 52 : 60
-    : 24;
+      ? hasContextBadges ? 44 : 60
+      : hasContextBadges ? 52 : showReadOnlyContext ? 60 : 68
+    : 32;
   const maxHeight = isLarge ? 200 : 200;
 
   const effectiveSelectedModel = resolveEffectiveModel({
