@@ -683,6 +683,8 @@ type ActiveTurn = {
   knownRunIds: Set<string>;
   assistantMessageId: string | null;
   committedAssistantText: string;
+  /** Last visible assistant segment finalized before a tool call. */
+  lastCommittedAssistantMessageId?: string | null;
   currentAssistantSegmentText: string;
   currentText: string;
   /** Highest text length from agent assistant events (immune to chat delta noise). */
@@ -3722,6 +3724,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       knownRunIds: new Set([runId]),
       assistantMessageId: null,
       committedAssistantText: '',
+      lastCommittedAssistantMessageId: null,
       currentAssistantSegmentText: '',
       currentText: '',
       agentAssistantTextLength: 0,
@@ -5915,6 +5918,36 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     return null;
   }
 
+  private reuseCommittedAssistantMessage(
+    sessionId: string,
+    turn: ActiveTurn,
+    content: string,
+  ): string | null {
+    const normalizedContent = content.trim();
+    if (!normalizedContent || !turn.lastCommittedAssistantMessageId) return null;
+
+    const session = this.store.getSession(sessionId);
+    const message = session?.messages.find(
+      (candidate) => candidate.id === turn.lastCommittedAssistantMessageId,
+    );
+    if (
+      !message
+      || message.type !== 'assistant'
+      || message.metadata?.isThinking === true
+      || message.content.trim() !== normalizedContent
+    ) {
+      return null;
+    }
+
+    const finalMetadata = { isStreaming: false, isFinal: true };
+    this.store.updateMessage(sessionId, message.id, {
+      content,
+      metadata: finalMetadata,
+    });
+    this.emit('messageUpdate', sessionId, message.id, content, finalMetadata);
+    return message.id;
+  }
+
   private resolveAssistantMessageIdForUsage(sessionId: string, preferredMessageId?: string | null): string | undefined {
     const session = this.store.getSession(sessionId);
     if (!session) {
@@ -7088,6 +7121,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
     if (storeContent) {
       turn.committedAssistantText = `${turn.committedAssistantText}${storeContent}`;
+      turn.lastCommittedAssistantMessageId = messageId;
     }
 
     const finalMetadata = { isStreaming: false, isFinal: true };
@@ -8715,6 +8749,16 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       }
 
       if (!turn.assistantMessageId) {
+        const committedMessageId = this.reuseCommittedAssistantMessage(
+          sessionId,
+          turn,
+          canonicalSegmentText,
+        );
+        if (committedMessageId) {
+          turn.assistantMessageId = committedMessageId;
+          return;
+        }
+
         const reusedMessageId = this.reuseFinalAssistantMessage(sessionId, canonicalSegmentText);
         if (reusedMessageId) {
           turn.assistantMessageId = reusedMessageId;
@@ -9540,6 +9584,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       knownRunIds: new Set(runId ? [runId] : [turnRunId]),
       assistantMessageId: null,
       committedAssistantText: '',
+      lastCommittedAssistantMessageId: null,
       currentAssistantSegmentText: '',
       currentText: '',
       agentAssistantTextLength: 0,
