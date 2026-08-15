@@ -15,7 +15,7 @@ interface MyAgentSidebarHeaderProps {
 const ADD_MENU_OFFSET_X = -10;
 const ADD_MENU_OFFSET_Y = 8;
 const ADD_MENU_VIEWPORT_PADDING = 8;
-const ADD_MENU_WIDTH = 216;
+const ADD_MENU_WIDTH = 160;
 
 const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
   onAddFriend,
@@ -27,8 +27,8 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuItemClassName =
-    'flex w-full items-center gap-2 whitespace-nowrap px-2.5 py-1.5 text-left text-[13px] text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
-  const menuIconClassName = 'h-5 w-5 shrink-0';
+    'flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]';
+  const menuIconClassName = 'h-4 w-4';
 
   const closeAddMenu = useCallback(() => {
     setIsAddMenuOpen(false);
@@ -112,27 +112,27 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
       ? createPortal(
           <div
             ref={menuRef}
-            className="fixed z-50 w-[180px] max-w-[calc(100vw-16px)] overflow-hidden rounded-[12px] border border-black/[0.05] bg-white p-1 shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:border-white/[0.08] dark:bg-[#1f1f1f] dark:shadow-[0_8px_24px_rgba(0,0,0,0.3)]"
+            className="fixed z-50 w-max min-w-[160px] max-w-[calc(100vw-16px)] overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
             style={menuPosition ?? { visibility: 'hidden' }}
             role="menu"
           >
             <button
               type="button"
               onClick={handleShowContacts}
-              className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
+              className={menuItemClassName}
               role="menuitem"
             >
-              <UserPlusIcon  className={menuIconClassName} />
-              <span className="text-[14px] font-medium leading-none text-[#666666] dark:text-foreground">{i18nService.t('agentSidebarAddFriend')}</span>
+              <UserPlusIcon className={menuIconClassName} />
+              <span>{i18nService.t('agentSidebarAddFriend')}</span>
             </button>
             <button
               type="button"
               onClick={handleCreateAgent}
-              className={`${menuItemClassName} h-[43px] rounded-[8px] px-3 hover:bg-[#f7f7f7] dark:hover:bg-white/[0.06]`}
+              className={menuItemClassName}
               role="menuitem"
             >
               <BoltIcon className={menuIconClassName} />
-              <span className="text-[14px] font-medium leading-none text-[#666666] dark:text-foreground">{i18nService.t('createNewAgent')}</span>
+              <span>{i18nService.t('createNewAgent')}</span>
             </button>
           </div>,
           document.body,
@@ -159,7 +159,7 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
             aria-haspopup="menu"
             aria-label={i18nService.t('add')}
           >
-            <PlusCircleIcon className="h-6 w-6" />
+            <PlusCircleIcon className="h-5 w-5" />
           </button>
         </div>
       </div>
