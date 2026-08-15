@@ -4363,7 +4363,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         <div className={`h-full flex-1 items-center gap-2 min-w-0 ${
           isArtifactPanelExpanded ? 'hidden' : 'flex'
         }`}>
-          <div className="non-draggable flex items-center gap-1">
+          {/* <div className="non-draggable flex items-center gap-1">
             <button
               type="button"
               onClick={onToggleSidebar}
@@ -4372,7 +4372,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             >
               <SidebarToggleIcon className="h-4 w-4" isCollapsed={Boolean(isSidebarCollapsed)} />
             </button>
-          </div>
+          </div> */}
           <div className="flex min-w-0 items-center gap-1">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-transparent leading-none text-foreground">
               <HeaderAgentAvatar agent={headerAgent} />
