@@ -129,6 +129,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     retryLoadTasks,
     loadMoreTasks,
     collapseTasks,
+    collapseAgent,
     toggleAgentExpanded,
   } = useAgentSidebarState();
 
@@ -348,6 +349,16 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     if (deletedSessionIds.length === 0) return;
     removeTaskPreviews(deletedSessionIds);
   }, [deletedSessionIds, removeTaskPreviews]);
+
+  useEffect(() => {
+    const handleCollapseCurrentAgentTasks = () => {
+      collapseTasks(currentAgentId);
+      collapseAgent(currentAgentId);
+      onShowCowork();
+    };
+    window.addEventListener(CoworkUiEvent.CollapseCurrentAgentTasks, handleCollapseCurrentAgentTasks);
+    return () => window.removeEventListener(CoworkUiEvent.CollapseCurrentAgentTasks, handleCollapseCurrentAgentTasks);
+  }, [collapseAgent, collapseTasks, currentAgentId, onShowCowork]);
 
   useEffect(() => {
     const batchScopedAgentNodes = batchAgentId

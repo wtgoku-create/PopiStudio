@@ -427,6 +427,24 @@ export const getToolResultLineCountSummary = (lineCount: number): string => {
 export const getLargeToolResultSummary = (sizeLabel: string): string =>
   i18nService.t('coworkToolLargeOutput').replace('{size}', sizeLabel);
 
+export const getActivityIndicatorStatusText = (
+  isContextMaintenance = false,
+  isLongWaiting = false,
+): string => {
+  if (isContextMaintenance) return i18nService.t('coworkContextMaintenanceRunning');
+  return isLongWaiting
+    ? i18nService.t('coworkModelResponseWaitingLong')
+    : i18nService.t('coworkThinking');
+};
+
+export const formatElapsedDuration = (elapsedMs: number): string => {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes}m ${totalSeconds % 60}s`;
+  return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
+};
+
 export const getToolResultCollapsedDisplay = (message: CoworkMessage): ToolResultCollapsedDisplay => {
   const rawText = getToolResultRawText(message);
   if (!hasText(rawText)) {
@@ -682,8 +700,26 @@ export const isActivityConsolidatedItem = (item: ConsolidatedItem): boolean => (
 // Pending tool rows already show their own live state. Avoid rendering a
 // duplicate generic activity indicator while the parent waits for a result.
 export const turnHasSelfIndicatingActivity = (turn: ConversationTurn): boolean => (
-  turn.assistantItems.some(item => item.type === 'tool_group' && !item.group.toolResult)
+  turn.assistantItems.some(item => {
+    if (item.type === 'tool_group') return !item.group.toolResult;
+    return item.type === 'assistant'
+      && Boolean(item.message.metadata?.isThinking)
+      && Boolean(item.message.metadata?.isStreaming);
+  })
 );
+
+export const getTurnActivityFingerprint = (turn: ConversationTurn): string => {
+  let contentLength = 0;
+  for (const item of turn.assistantItems) {
+    if (item.type === 'tool_group') {
+      contentLength += item.group.toolUse.content.length;
+      contentLength += item.group.toolResult?.content.length ?? 0;
+    } else {
+      contentLength += item.message.content.length;
+    }
+  }
+  return `${turn.id}:${turn.assistantItems.length}:${contentLength}`;
+};
 
 export const chunkConsolidatedItemsForDisplay = (
   items: ConsolidatedItem[],
@@ -758,6 +794,17 @@ export const getTurnAnswerStartIndex = (chunks: ConsolidatedRenderChunk[]): numb
   }
   return index;
 };
+
+/**
+ * A process can fold only when the turn has both process content and a
+ * trailing answer. A yield/wait gap may be non-streaming without having
+ * produced an answer yet; folding that state would hide the active work
+ * behind an empty duration row.
+ */
+export const canFoldTurnProcess = (
+  chunks: ConsolidatedRenderChunk[],
+  answerStartIndex: number,
+): boolean => answerStartIndex > 0 && answerStartIndex < chunks.length;
 
 export type ActivityGroupSummary = { stepCount: number; durationMs: number | null };
 

@@ -4,8 +4,10 @@ import type { CoworkMessage } from '../../types/cowork';
 import {
   buildConversationTurns,
   buildDisplayItems,
+  canFoldTurnProcess,
   chunkConsolidatedItemsForDisplay,
   getToolResultCollapsedDisplay,
+  getTurnAnswerStartIndex,
   isActivityConsolidatedItem,
   TOOL_RESULT_COLLAPSED_FULL_DISPLAY_MAX_CHARS,
   TOOL_RESULT_COLLAPSED_PREVIEW_MAX_CHARS,
@@ -56,6 +58,30 @@ test('activity grouping uses the new presentation for a single tool or thinking 
   expect(chunkConsolidatedItemsForDisplay(thinkingItems, isActivityConsolidatedItem)).toEqual([
     { kind: 'activity_group', entries: [{ item: thinkingItems[0], index: 0 }] },
   ]);
+});
+
+test('does not fold a yielded turn until a trailing answer exists', () => {
+  const yieldedItems = buildConversationTurns(buildDisplayItems([
+    message('user-yield', 'user', 'start'),
+    message('tool-yield', 'tool_use', 'Waiting for subagent', {
+      toolName: 'sessions_yield',
+      toolUseId: 'call-yield',
+    }),
+  ]))[0].assistantItems;
+  const yieldedChunks = chunkConsolidatedItemsForDisplay(yieldedItems, isActivityConsolidatedItem);
+  const yieldedAnswerStart = getTurnAnswerStartIndex(yieldedChunks);
+
+  expect(canFoldTurnProcess(yieldedChunks, yieldedAnswerStart)).toBe(false);
+
+  const completedItems = buildConversationTurns(buildDisplayItems([
+    message('user-complete', 'user', 'start'),
+    message('tool-complete', 'tool_use', 'Using tool', { toolName: 'read', toolUseId: 'call-read' }),
+    message('assistant-complete', 'assistant', 'Done'),
+  ]))[0].assistantItems;
+  const completedChunks = chunkConsolidatedItemsForDisplay(completedItems, isActivityConsolidatedItem);
+  const completedAnswerStart = getTurnAnswerStartIndex(completedChunks);
+
+  expect(canFoldTurnProcess(completedChunks, completedAnswerStart)).toBe(true);
 });
 
 test('buildDisplayItems pairs a tool result that was persisted before its tool use', () => {

@@ -101,6 +101,11 @@ import {
   shouldAutoScrollForPosition,
   shouldShowScrollToBottomButton,
 } from './conversationScrollPolicy';
+import {
+  getConversationSearchCenterDelta,
+  isUsableConversationSearchRect,
+  scheduleConversationSearchSettle,
+} from './conversationSearchNavigation';
 import CoworkMessageSearch from './CoworkMessageSearch';
 import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
 import LazyRenderTurn from './LazyRenderTurn';
@@ -1035,7 +1040,7 @@ class ArtifactPanelErrorBoundary extends React.Component<
 }
 
 // Streaming activity bar shown between messages and input
-const StreamingActivityBar: React.FC<{ messages: CoworkMessage[]; isContextMaintenance?: boolean }> = ({
+export const _StreamingActivityBar: React.FC<{ messages: CoworkMessage[]; isContextMaintenance?: boolean }> = ({
   messages,
   isContextMaintenance = false,
 }) => {
@@ -1277,6 +1282,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
   const [activeSearchMessageId, setActiveSearchMessageId] = useState<string | null>(null);
   const searchForcedTurnIndexRef = useRef<number | null>(null);
+  const searchNavigationRequestRef = useRef(0);
+  const searchPaginationLockRef = useRef<number | null>(null);
   const isStreaming = useSelector(selectIsStreaming);
   const remoteManaged = useSelector(selectRemoteManaged);
   const lastMessageContent = useSelector(selectLastMessageContent);
@@ -1290,22 +1297,59 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   }, [sessionId]);
 
   const selectSearchedMessage = useCallback(async (messageId: string) => {
+    const requestId = ++searchNavigationRequestRef.current;
+    searchPaginationLockRef.current = requestId;
     setActiveSearchMessageId(messageId);
     const findTarget = () => document.querySelector<HTMLElement>(
       `[data-rail-message-id="${CSS.escape(messageId)}"], [data-cowork-message-id="${CSS.escape(messageId)}"]`,
     );
+    const releasePaginationLock = () => {
+      if (searchPaginationLockRef.current === requestId) searchPaginationLockRef.current = null;
+    };
+    const settleTarget = () => scheduleConversationSearchSettle({
+      isCurrent: () => requestId === searchNavigationRequestRef.current,
+      getContainer: () => scrollContainerRef.current,
+      getTargetRect: () => {
+        const target = findTarget();
+        const rect = target?.getBoundingClientRect();
+        return rect && isUsableConversationSearchRect(rect) ? rect : null;
+      },
+      onSettled: () => undefined,
+      onTargetUnavailable: () => undefined,
+      onError: error => console.warn('[CoworkSessionDetail] search target settling failed:', error),
+      onRelease: releasePaginationLock,
+    });
+    const scrollTargetToCenter = (target: HTMLElement) => {
+      const container = scrollContainerRef.current;
+      const rect = target.getBoundingClientRect();
+      if (container && isUsableConversationSearchRect(rect)) {
+        const delta = getConversationSearchCenterDelta(
+          container.getBoundingClientRect(),
+          container.clientHeight,
+          rect,
+        );
+        container.scrollTo({ top: container.scrollTop + delta, behavior: 'smooth' });
+      }
+      settleTarget();
+    };
     const target = findTarget();
     if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      scrollTargetToCenter(target);
       return;
     }
-    if (!currentSession || !window.electron?.cowork.getSessionMessages) return;
+    if (!currentSession || !window.electron?.cowork.getSessionMessages) {
+      releasePaginationLock();
+      return;
+    }
     const result = await window.electron.cowork.getSessionMessages({
       sessionId: currentSession.id,
       limit: Math.max(currentSession.totalMessages ?? 0, currentSession.messages.length, 1),
       offset: 0,
     });
-    if (!result.success || !result.messages) return;
+    if (!result.success || !result.messages) {
+      releasePaginationLock();
+      return;
+    }
     let searchTurnIndex = 0;
     for (const message of result.messages) {
       if (message.id === messageId) break;
@@ -1322,12 +1366,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const locateAfterRender = () => {
       const nextTarget = findTarget();
       if (nextTarget) {
-        nextTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        scrollTargetToCenter(nextTarget);
         return;
       }
       if (attempts < 30) {
         attempts += 1;
         window.setTimeout(() => requestAnimationFrame(locateAfterRender), 40);
+      } else {
+        releasePaginationLock();
       }
     };
     requestAnimationFrame(locateAfterRender);
@@ -2931,6 +2977,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       if (forcedRailTurnReleaseTimerRef.current) clearTimeout(forcedRailTurnReleaseTimerRef.current);
       clearScrollToBottomSettleTimers();
       clearAutoPreviewArtifactSettleTimer();
+      searchNavigationRequestRef.current += 1;
+      searchPaginationLockRef.current = null;
     };
   }, [clearAutoPreviewArtifactSettleTimer, clearScrollToBottomSettleTimers]);
 
@@ -2961,6 +3009,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     clearAutoPreviewArtifactSettleTimer();
     setAutoPreviewPendingTurnId(null);
     setHoveredRailIndex(null);
+    searchNavigationRequestRef.current += 1;
+    searchPaginationLockRef.current = null;
   }, [clearAutoPreviewArtifactSettleTimer, currentSession?.id, updateShouldAutoScroll]);
 
   useEffect(() => {
@@ -3235,8 +3285,11 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     setIsScrollable((prev) => (prev === scrollable ? prev : scrollable));
     if (!scrollable) return;
 
-    // Load older messages when scrolled near the top
-    if (userInitiatedHistoryScrollRef.current && container.scrollTop <= 80 && !isLoadingMoreMessagesRef.current) {
+    const isSearchNavigationActive = searchPaginationLockRef.current !== null;
+
+    // Search navigation may temporarily move the viewport through a lazy window.
+    // Do not let that programmatic movement trigger ordinary history pagination.
+    if (!isSearchNavigationActive && userInitiatedHistoryScrollRef.current && container.scrollTop <= 80 && !isLoadingMoreMessagesRef.current) {
       const sessionId = currentSession?.id;
       const offset = currentSession?.messagesOffset ?? 0;
       if (sessionId && offset > 0) {
@@ -3267,7 +3320,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
     // Load newer messages when a rail jump opened an earlier message window and
     // the user scrolls to that window's local bottom.
-    if (!hasLoadedSessionEnd && distanceToBottom <= 80 && !isLoadingMoreMessagesRef.current) {
+    if (!isSearchNavigationActive && !hasLoadedSessionEnd && distanceToBottom <= 80 && !isLoadingMoreMessagesRef.current) {
       const sessionId = currentSession?.id;
       if (sessionId) {
         isLoadingMoreMessagesRef.current = true;
@@ -4111,7 +4164,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   const renderConversationTurns = () => {
     let railCounter = 0;
     if (turns.length === 0) {
-      if (!isStreaming) return null;
+      if (!isSessionBusy) return null;
       return (
         <div data-export-role="assistant-block">
           <AssistantTurnBlock
@@ -4122,6 +4175,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
             }}
             resolveLocalFilePath={resolveLocalFilePath}
             showTypingIndicator
+            activityStatusOverride={isContextMaintenance ? i18nService.t('coworkContextMaintenanceRunning') : null}
             showCopyButtons={!isStreaming}
           />
         </div>
@@ -4129,7 +4183,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     }
     return turns.map((turn, index) => {
       const isLastTurn = index === turns.length - 1;
-      const showTypingIndicator = isStreaming && isLastTurn;
+      const showTypingIndicator = isSessionBusy && isLastTurn;
       const showAssistantBlock = turn.assistantItems.length > 0 || showTypingIndicator;
       const turnHasRunningSubagents = turn.assistantItems.some(
         item => item.type === 'tool_group'
@@ -4203,6 +4257,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
                 localServiceDirectory={currentSession?.cwd}
                 onOpenLocalService={handleOpenLocalServiceArtifact}
                 showTypingIndicator={showTypingIndicator}
+                activityStatusOverride={isContextMaintenance ? i18nService.t('coworkContextMaintenanceRunning') : null}
                 showCopyButtons={!isStreaming || !isLastTurn}
                 isStreamingTurn={isStreaming && isLastTurn}
                 hasRunningSubagents={turnHasRunningSubagents}
@@ -4289,6 +4344,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
               setActiveSearchMessageId(null);
             }}
             onClose={() => {
+              searchNavigationRequestRef.current += 1;
+              searchPaginationLockRef.current = null;
               setIsMessageSearchOpen(false);
               setMessageSearchQuery('');
               setActiveSearchMessageId(null);
@@ -4871,9 +4928,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           </button>
         )}
       </div>
-
-      {/* Streaming Activity Bar */}
-      {isSessionBusy && <StreamingActivityBar messages={currentSession.messages} isContextMaintenance={isContextMaintenance} />}
 
       {/* Input Area */}
       <div

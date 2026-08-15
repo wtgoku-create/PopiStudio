@@ -455,6 +455,10 @@ export const useAgentSidebarState = () => {
     ));
   }, []);
 
+  const collapseAgent = useCallback((agentId: string) => {
+    setExpandedAgentIds((previous) => previous.filter((id) => id !== agentId));
+  }, []);
+
   const loadMoreTasks = useCallback(async (agentId: string) => {
     const loadedTasks = sidebarSessions.filter((session) => normalizeAgentId(session.agentId) === agentId);
     const nextVisibleLimit = (visibleTaskLimitByAgentId[agentId] ?? AgentSidebarPageSize.Preview)
@@ -553,6 +557,7 @@ export const useAgentSidebarState = () => {
     retryLoadTasks,
     loadMoreTasks,
     collapseTasks,
+    collapseAgent,
     toggleAgentExpanded,
     expandAgent,
   };

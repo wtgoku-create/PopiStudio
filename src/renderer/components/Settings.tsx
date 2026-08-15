@@ -578,6 +578,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     search: 'Ctrl+F',
     settings: 'Ctrl+,',
     sendMessage: defaultConfig.shortcuts!.sendMessage,
+    collapseAgentTasks: defaultConfig.shortcuts!.collapseAgentTasks ?? '',
   });
 
   // GitHub Copilot device code auth state
@@ -2000,6 +2001,7 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
     search: 'search',
     settings: 'openSettings',
     sendMessage: 'sendMessageShortcut',
+    collapseAgentTasks: 'shortcutCollapseAgentTasks',
   };
 
   // 快捷键更新处理
@@ -3325,6 +3327,10 @@ const Settings: React.FC<SettingsProps> = ({ onClose, initialTab, notice, notice
                     value={shortcuts.sendMessage}
                     onChange={(v) => handleShortcutChange('sendMessage', v)}
                   />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-foreground">{i18nService.t('shortcutCollapseAgentTasks')}</span>
+                  <ShortcutRecorder value={shortcuts.collapseAgentTasks} onChange={(v) => handleShortcutChange('collapseAgentTasks', v)} />
                 </div>
               </div>
             </div>

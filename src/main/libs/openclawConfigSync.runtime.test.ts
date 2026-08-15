@@ -120,7 +120,7 @@ describe('OpenClawConfigSync runtime config output', () => {
     setSystemProxyEnabled(false);
   });
 
-  const createSync = async () => {
+  const createSync = async (getSkillsList: () => Array<{ id: string; name: string; enabled: boolean }> = () => []) => {
     const { OpenClawConfigSync } = await import('./openclawConfigSync');
 
     return new OpenClawConfigSync({
@@ -155,10 +155,30 @@ describe('OpenClawConfigSync runtime config output', () => {
       getNeteaseBeeChanConfig: () => null,
       getWeixinConfig: () => null,
       getIMSettings: () => null,
-      getSkillsList: () => [],
+      getSkillsList,
       getAgents: () => [],
     });
   };
+
+  test('keys skill entries by frontmatter name instead of directory id', async () => {
+    const sync = await createSync(() => [
+      { id: 'technology-news-search', name: 'technology-search', enabled: false },
+      { id: 'remotion', name: 'remotion-best-practices', enabled: false },
+      { id: 'weather', name: 'weather', enabled: true },
+    ]);
+
+    const result = sync.sync('skill-entry-keys');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.skills.entries).toMatchObject({
+      'technology-search': { enabled: false },
+      'remotion-best-practices': { enabled: false },
+      weather: { enabled: true },
+    });
+    expect(config.skills.entries).not.toHaveProperty('technology-news-search');
+    expect(config.skills.entries).not.toHaveProperty('remotion');
+  });
 
   test('writes model provider env-proxy transport when system proxy is enabled', async () => {
     const { setSystemProxyEnabled } = await import('./systemProxy');

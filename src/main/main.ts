@@ -1584,7 +1584,7 @@ const getOpenClawConfigSync = (): OpenClawConfigSync => {
       getBrowserWebAccessConfig: () => getStore().get<AppConfigSettings>('app_config')?.browserWebAccess,
       isEnterprise: () => !!getStore().get('enterprise_config'),
       getOpenClawSessionPolicy: () => loadOpenClawSessionPolicyConfig(getStore()),
-      getSkillsList: () => getSkillManager().listSkills().map(s => ({ id: s.id, enabled: s.enabled })),
+      getSkillsList: () => getSkillManager().listSkills().map(s => ({ id: s.id, name: s.name, enabled: s.enabled })),
       getTelegramInstances: () => {
         try {
           return getIMGatewayManager().getIMStore().getTelegramInstances();
@@ -6709,6 +6709,30 @@ if (!gotTheLock) {
     }
   );
 
+  ipcMain.handle(
+    DialogIpc.SaveFileCopy,
+    async (event, filePath?: string): Promise<{ success: boolean; canceled?: boolean; path?: string; error?: string }> => {
+      try {
+        if (typeof filePath !== 'string' || !filePath.trim()) {
+          return { success: false, error: 'Missing file path' };
+        }
+        const resolvedPath = path.resolve(filePath.trim());
+        const stat = await fs.promises.stat(resolvedPath);
+        if (!stat.isFile()) return { success: false, error: 'Not a file' };
+        const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+        const options = { defaultPath: path.join(app.getPath('downloads'), path.basename(resolvedPath)) };
+        const result = ownerWindow
+          ? await dialog.showSaveDialog(ownerWindow, options)
+          : await dialog.showSaveDialog(options);
+        if (result.canceled || !result.filePath) return { success: true, canceled: true };
+        await fs.promises.copyFile(resolvedPath, result.filePath);
+        return { success: true, path: result.filePath };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to save file copy' };
+      }
+    },
+  );
+
   // Shell handlers - 打开文件/文件夹
   ipcMain.handle('shell:openPath', async (_event, filePath: string) => {
     try {
@@ -7641,10 +7665,11 @@ end tell'`, { timeout: 5000 });
 
   let isCleanupFinished = false;
   let isCleanupInProgress = false;
+  let cleanupWatchdogTimer: NodeJS.Timeout | null = null;
+  const APP_CLEANUP_WATCHDOG_MS = 10_000;
 
   const runAppCleanup = async (): Promise<void> => {
     console.log('[Main] App is quitting, starting cleanup...');
-    destroyTray();
     skillManager?.stopWatching();
 
     // Stop Cowork sessions without blocking shutdown.
@@ -7695,6 +7720,11 @@ end tell'`, { timeout: 5000 });
     } catch {
       // Store may not have been initialized — safe to ignore.
     }
+
+    // Keep the tray alive until every async teardown has completed. Destroying
+    // it first made a hung cleanup look like a finished exit while the process
+    // remained alive without a visible window or tray icon.
+    destroyTray();
   };
 
   app.on('before-quit', (e) => {
@@ -7707,12 +7737,20 @@ end tell'`, { timeout: 5000 });
 
     isCleanupInProgress = true;
     isQuitting = true;
+    cleanupWatchdogTimer = setTimeout(() => {
+      console.error(`[Main] Cleanup exceeded ${APP_CLEANUP_WATCHDOG_MS}ms; forcing process exit.`);
+      app.exit(0);
+    }, APP_CLEANUP_WATCHDOG_MS);
 
     void runAppCleanup()
       .catch((error) => {
         console.error('[Main] Cleanup error:', error);
       })
       .finally(() => {
+        if (cleanupWatchdogTimer) {
+          clearTimeout(cleanupWatchdogTimer);
+          cleanupWatchdogTimer = null;
+        }
         isCleanupFinished = true;
         isCleanupInProgress = false;
         app.exit(0);
@@ -7726,11 +7764,19 @@ end tell'`, { timeout: 5000 });
     console.log(`[Main] Received ${signal}, running cleanup before exit...`);
     isCleanupInProgress = true;
     isQuitting = true;
+    cleanupWatchdogTimer = setTimeout(() => {
+      console.error(`[Main] Cleanup exceeded ${APP_CLEANUP_WATCHDOG_MS}ms after ${signal}; forcing process exit.`);
+      app.exit(0);
+    }, APP_CLEANUP_WATCHDOG_MS);
     void runAppCleanup()
       .catch((error) => {
         console.error(`[Main] Cleanup error during ${signal}:`, error);
       })
       .finally(() => {
+        if (cleanupWatchdogTimer) {
+          clearTimeout(cleanupWatchdogTimer);
+          cleanupWatchdogTimer = null;
+        }
         isCleanupFinished = true;
         isCleanupInProgress = false;
         app.exit(0);

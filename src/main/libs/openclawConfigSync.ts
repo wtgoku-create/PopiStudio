@@ -240,6 +240,19 @@ const MANAGED_OWNER_ALLOW_FROM = [
 ];
 
 const MANAGED_TOOL_DENY = ['web_search'] as const;
+const MANAGED_TOOL_LOOP_DETECTION = {
+  enabled: true,
+  historySize: 48,
+  warningThreshold: 6,
+  unknownToolThreshold: 6,
+  criticalThreshold: 10,
+  globalCircuitBreakerThreshold: 30,
+  detectors: {
+    genericRepeat: true,
+    knownPollNoProgress: false,
+    pingPong: true,
+  },
+} as const;
 const EMAIL_PLUGIN_ID = 'email';
 const NIM_CHANNEL_PLUGIN_ID = 'nimsuite-openclaw-nim-channel';
 
@@ -1453,7 +1466,7 @@ type OpenClawConfigSyncDeps = {
   getResolvedMcpServers?: () => ResolvedMcpServer[];
   getAskUserCallbackUrl?: () => string | null;
   getMcpBridgeSecret?: () => string;
-  getSkillsList?: () => Array<{ id: string; enabled: boolean }>;
+  getSkillsList?: () => Array<{ id: string; name: string; enabled: boolean }>;
   getAgents?: () => Agent[];
   getUserPlugins?: () => Array<{ pluginId: string; enabled: boolean; config?: Record<string, unknown> }>;
 };
@@ -1479,7 +1492,7 @@ export class OpenClawConfigSync {
   private readonly getResolvedMcpServers?: () => ResolvedMcpServer[];
   private readonly getAskUserCallbackUrl?: () => string | null;
   private readonly getMcpBridgeSecret?: () => string;
-  private readonly getSkillsList?: () => Array<{ id: string; enabled: boolean }>;
+  private readonly getSkillsList?: () => Array<{ id: string; name: string; enabled: boolean }>;
   private readonly getAgents?: () => Agent[];
   private readonly getUserPlugins: () => Array<{ pluginId: string; enabled: boolean; config?: Record<string, unknown> }>;
   private previousBindingsJson?: string;
@@ -1601,6 +1614,7 @@ export class OpenClawConfigSync {
 
     return {
       deny: [...MANAGED_TOOL_DENY],
+      loopDetection: MANAGED_TOOL_LOOP_DETECTION,
       web: {
         search: {
           enabled: false,
@@ -3221,7 +3235,11 @@ export class OpenClawConfigSync {
     const skills = this.getSkillsList?.() ?? [];
     const entries: Record<string, { enabled: boolean }> = {};
     for (const skill of skills) {
-      entries[skill.id] = { enabled: skill.enabled };
+      const existing = entries[skill.name];
+      if (existing && existing.enabled !== skill.enabled) {
+        console.warn(`[OpenClawConfigSync] skills with duplicate name "${skill.name}" disagree on enabled state; last one wins`);
+      }
+      entries[skill.name] = { enabled: skill.enabled };
     }
     return entries;
   }

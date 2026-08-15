@@ -621,7 +621,7 @@ const createMarkdownComponents = (
       };
 
       return (
-        <LocalFileContextMenu filePath={filePath}>
+        <LocalFileContextMenu filePath={filePath} isDirectory={isDirectoryLink}>
           <span className="group inline-flex max-w-full items-center gap-1 align-baseline">
           <a
             href={toFileHref(filePath)}

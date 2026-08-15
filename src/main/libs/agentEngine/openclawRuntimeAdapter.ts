@@ -671,6 +671,24 @@ const OpenClawHistoryRole = {
   ToolResult: 'toolResult',
 } as const;
 
+const OPENCLAW_TOOL_LOOP_BLOCKED_RESULT_PATTERN = /^CRITICAL: [\s\S]*Session execution blocked/;
+const OPENCLAW_INCOMPLETE_TURN_TEXT = "Agent couldn't generate a response";
+
+export const isOpenClawToolLoopBlockedResultText = (text: string): boolean => (
+  OPENCLAW_TOOL_LOOP_BLOCKED_RESULT_PATTERN.test(text.trim())
+);
+
+export const resolveOpenClawToolLoopErrorOverride = (
+  toolLoopBlockReason: string | undefined,
+  rawErrorMessage: string,
+): { errorMessage: string; detailRawErrorMessage: string } | null => {
+  if (!toolLoopBlockReason || !rawErrorMessage.includes(OPENCLAW_INCOMPLETE_TURN_TEXT)) return null;
+  return {
+    errorMessage: t('coworkErrorToolLoopBlocked'),
+    detailRawErrorMessage: `${rawErrorMessage}\n${toolLoopBlockReason}`,
+  };
+};
+
 type ActiveTurn = {
   sessionId: string;
   sessionKey: string;
@@ -704,6 +722,7 @@ type ActiveTurn = {
   toolNameByToolCallId: Map<string, string>;
   toolResultMessageIdByToolCallId: Map<string, string>;
   toolResultTextByToolCallId: Map<string, string>;
+  toolLoopBlockReason?: string;
   contextMaintenanceToolCallIds: Set<string>;
   stopRequested: boolean;
   /** Thinking message state — separate from main assistant message. */
@@ -6529,6 +6548,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       const previous = turn.toolResultTextByToolCallId.get(toolCallId) ?? '';
       const isError = Boolean(data.isError);
       const finalContent = incoming.trim() ? incoming : previous;
+      if (isOpenClawToolLoopBlockedResultText(finalContent)) {
+        turn.toolLoopBlockReason = finalContent.trim().slice(0, 400);
+      }
       const finalError = isError ? (finalContent || 'Tool execution failed') : undefined;
       const existingResultMessageId = turn.toolResultMessageIdByToolCallId.get(toolCallId);
 
@@ -8008,10 +8030,20 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     });
   }
 
+  private resolveTurnErrorMessageWithToolLoopContext(
+    turn: ActiveTurn,
+    rawErrorMessage: string,
+  ): { errorMessage: string; detailRawErrorMessage: string } {
+    const override = resolveOpenClawToolLoopErrorOverride(turn.toolLoopBlockReason, rawErrorMessage);
+    if (override) return override;
+    return { errorMessage: rawErrorMessage, detailRawErrorMessage: rawErrorMessage };
+  }
+
   private handleChatError(sessionId: string, turn: ActiveTurn, payload: ChatEventPayload): void {
     console.log('[OpenClawRuntime] handleChatError payload:', JSON.stringify(payload).slice(0, 1000));
     const rawErrorMessage = payload.errorMessage?.trim() || 'OpenClaw run failed';
-    let errorMessage = rawErrorMessage;
+    const resolved = this.resolveTurnErrorMessageWithToolLoopContext(turn, rawErrorMessage);
+    let errorMessage = resolved.errorMessage;
 
     // Detect model API errors that are likely caused by unsupported image content
     // in tool results (e.g., Read tool returning image blocks for non-vision models).
@@ -8020,7 +8052,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (/^400\b/.test(errorMessage)) {
       errorMessage += '\n\n[Hint: If the model attempted to read an image file, this may be because the model does not support image input. Consider using a vision-capable model or avoid sending image files.]';
     }
-    const errorDetail = this.buildChatErrorDetail(rawErrorMessage, errorMessage, payload);
+    const errorDetail = this.buildChatErrorDetail(resolved.detailRawErrorMessage, errorMessage, payload);
 
     const erroredSessionKey = turn.sessionKey;
     this.store.updateSession(sessionId, { status: 'error' });

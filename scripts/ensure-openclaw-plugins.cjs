@@ -53,6 +53,18 @@ function die(msg) {
   process.exit(1);
 }
 
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function buildPluginInstallEnv(plugin) {
+  const env = { npm_config_legacy_peer_deps: 'true' };
+  if (plugin.id === BEE_PACKAGE_NAME || plugin.npm === BEE_PACKAGE_NAME) {
+    env.npm_config_allow_git = 'all';
+  }
+  return env;
+}
+
 function copyDirRecursive(src, dest) {
   const linkedOpenClawPeer = path.join(src, 'node_modules', 'openclaw');
   const shouldExcludeLinkedPeer =
@@ -738,9 +750,11 @@ function resolvePluginInstallSource(plugin) {
     };
   }
 
+  // Pack registry packages before OpenClaw installation so npm metadata and
+  // plugin manifests are resolved from the pinned tarball consistently.
   return {
-    kind: 'direct',
-    installSpec: `${npmSpec}@${version}`,
+    kind: 'packed',
+    packSpec: `${npmSpec}@${version}`,
     pinnedDisplaySpec: `${npmSpec}@${version}`,
   };
 }
@@ -768,7 +782,7 @@ function installPluginWithRetries(installSpec, stagingDir, plugin) {
             // gateway already provides the SDK at runtime.  Without this,
             // npm installs the full openclaw SDK + transitive deps (~738 MB)
             // into each plugin's node_modules.
-            npm_config_legacy_peer_deps: 'true',
+            ...buildPluginInstallEnv(plugin),
           },
           stdio: 'inherit',
         }
@@ -862,6 +876,7 @@ function main() {
       // Use a temporary OPENCLAW_STATE_DIR so the CLI installs plugins
       // into a staging directory rather than the user's global config.
       const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), `openclaw-plugin-staging-`));
+      let installFailure = null;
 
       try {
         let installSpec;
@@ -944,11 +959,11 @@ function main() {
         log(`Downloaded and cached ${id}@${version}.`);
       } catch (err) {
         if (optional) {
-          log(`WARNING: Failed to install optional plugin ${id}: ${err.message}`);
+          log(`WARNING: Failed to install optional plugin ${id}: ${getErrorMessage(err)}`);
           log(`Skipping ${id} — it may not be available from this network.`);
           continue;
         }
-        die(`Failed to install plugin ${id}: ${err.message}`);
+        installFailure = err;
       } finally {
         // Clean up staging directory
         try {
@@ -956,6 +971,10 @@ function main() {
         } catch {
           // best-effort cleanup
         }
+      }
+
+      if (installFailure !== null) {
+        die(`Failed to install plugin ${id}: ${getErrorMessage(installFailure)}`);
       }
     }
 
@@ -993,6 +1012,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildPluginInstallEnv,
   buildNpmPackEnv,
   buildGitEnv,
   copyDirRecursive,

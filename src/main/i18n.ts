@@ -67,6 +67,8 @@ const translations: Record<LanguageType, Record<string, string>> = {
     coworkErrorNetworkError: '网络连接失败，请检查网络设置。',
     coworkErrorRateLimit: '请求过于频繁，请稍后再试。',
     coworkErrorContentFiltered: '内容未通过安全审核，请修改后重试。',
+    coworkErrorToolLoopBlocked:
+      '检测到 AI 在重复执行同一个工具调用且没有新的进展（通常是在等待一个耗时较长的后台任务），本轮已被安全停止。后台任务可能仍在运行，可以继续发消息让 AI 接着处理。',
     coworkErrorServerError: '服务端出现错误，请稍后重试。',
     coworkErrorEngineNotReady: 'AI 引擎正在启动中，请稍等几秒后重试。',
     coworkErrorUnknown: '任务执行出错，请重试。如果问题持续出现，请检查模型配置。',
@@ -331,6 +333,8 @@ const translations: Record<LanguageType, Record<string, string>> = {
     coworkErrorRateLimit: 'Too many requests. Please try again later.',
     coworkErrorContentFiltered:
       'Content did not pass the safety review. Please modify and try again.',
+    coworkErrorToolLoopBlocked:
+      'This turn was stopped safely because the AI kept repeating the same tool call with no new progress (usually while waiting on a slow background task). The background task may still be running; send another message to continue.',
     coworkErrorServerError: 'Server error occurred. Please try again later.',
     coworkErrorEngineNotReady: 'AI engine is starting up. Please wait a few seconds and try again.',
     coworkErrorUnknown:

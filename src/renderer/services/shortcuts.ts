@@ -105,6 +105,12 @@ export const parseShortcut = (shortcut?: string): ParsedShortcut | null => {
   return parsed;
 };
 
+export const isTextEditingSafeShortcut = (shortcut?: string): boolean => {
+  const parsed = parseShortcut(shortcut);
+  if (!parsed) return false;
+  return parsed.commandOrControl || parsed.ctrl || parsed.meta;
+};
+
 export const matchesShortcut = (event: KeyboardEvent, shortcut?: string): boolean => {
   const parsed = parseShortcut(shortcut);
   if (!parsed) return false;

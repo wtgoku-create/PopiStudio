@@ -75,8 +75,11 @@ const strongPatchValidators = {
     {
       file: 'src/agents/agent-tools.before-tool-call.ts',
       snippets: [
-        'const terminateRun = deniedReason === "tool-loop"',
         '...(terminateRun ? { terminate: true } : {})',
+      ],
+      alternatives: [
+        ['const terminateRun = deniedReason === "tool-loop"'],
+        ['const terminateRun = params.terminateRun ?? deniedReason === "tool-loop"'],
       ],
     },
     {
@@ -97,9 +100,12 @@ const strongPatchValidators = {
     {
       file: 'src/agents/agent-tools.before-tool-call.blocked-result.test.ts',
       snippets: [
-        'terminates critical tool-loop vetoes',
         'keeps %s vetoes non-terminating',
         'expect(result.terminate).toBe(true)',
+      ],
+      alternatives: [
+        ['terminates critical tool-loop vetoes'],
+        ['terminates tool-loop vetoes from legacy callers that omit terminateRun'],
       ],
     },
   ],
@@ -161,6 +167,14 @@ function collectMissingStrongPatchSnippets(patchFile) {
       if (!source.includes(snippet)) {
         missing.push(`${validator.file}: missing ${JSON.stringify(snippet)}`);
       }
+    }
+
+    if (validator.alternatives && !validator.alternatives.some((alternative) =>
+      alternative.every((snippet) => source.includes(snippet)))) {
+      const expected = validator.alternatives
+        .map((alternative) => alternative.map((snippet) => JSON.stringify(snippet)).join(' and '))
+        .join(' or ');
+      missing.push(`${validator.file}: missing one of ${expected}`);
     }
   }
   return missing;

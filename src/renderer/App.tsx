@@ -19,6 +19,7 @@ import {
 import AgentSidebarPanel from './components/agentSidebar/AgentSidebarPanel';
 import { ContactsView } from './components/contacts';
 import { CoworkView } from './components/cowork';
+import { CoworkUiEvent } from './components/cowork/constants';
 import CoworkPermissionModal from './components/cowork/CoworkPermissionModal';
 import CoworkQuestionWizard from './components/cowork/CoworkQuestionWizard';
 import EngineStartupOverlay from './components/cowork/EngineStartupOverlay';
@@ -37,14 +38,13 @@ import WelcomeDialog from './components/WelcomeDialog';
 import WindowTitleBar from './components/window/WindowTitleBar';
 import { defaultConfig } from './config';
 import { MainView } from './constants/navigation';
-import type { ApiConfig } from './services/api';
 import { apiService } from './services/api';
 import { authService } from './services/auth';
 import { configService } from './services/config';
 import { coworkService } from './services/cowork';
 import { i18nService } from './services/i18n';
 import { scheduledTaskService } from './services/scheduledTask';
-import { matchesShortcut } from './services/shortcuts';
+import { isTextEditingSafeShortcut, matchesShortcut } from './services/shortcuts';
 import { themeService } from './services/theme';
 import { applyTypographyPreferences } from './services/typography';
 import { RootState, store } from './store';
@@ -61,6 +61,14 @@ import type { CoworkPermissionResult } from './types/cowork';
 /** Used for config + i18n init; longer on Windows where main-process IPC can stall during cold start. */
 const INIT_STEP_TIMEOUT_MS_WINDOWS = 24_000;
 const INIT_STEP_TIMEOUT_MS_DEFAULT = 16_000;
+const INIT_STEP_RETRY_TIMEOUT_MS = 8_000;
+const INIT_CONFIG_MAX_ATTEMPTS = 3;
+const INIT_AUTO_RETRY_DELAY_MS = 8_000;
+const INIT_AUTO_RETRY_MAX = 2;
+const INIT_CONFIG_REPAIR_DELAY_MS = 15_000;
+const INIT_CONFIG_REPAIR_MAX = 4;
+const InitPassMode = { Startup: 'startup', Retry: 'retry', Repair: 'repair' } as const;
+type InitPassMode = typeof InitPassMode[keyof typeof InitPassMode];
 
 const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
@@ -96,6 +104,10 @@ const App: React.FC = () => {
   const toastTimerRef = useRef<number | null>(null);
   const askAiFocusTimerRef = useRef<number | null>(null);
   const hasInitialized = useRef(false);
+  const initPassRunningRef = useRef(false);
+  const initRetryTimerRef = useRef<number | null>(null);
+  const initAutoRetryCountRef = useRef(0);
+  const initRepairCountRef = useRef(0);
   const previousUpdateStatusRef = useRef<AppUpdateRuntimeState['status']>(AppUpdateStatus.Idle);
   const shouldInstallReadyUpdateRef = useRef(false);
   const dispatch = useDispatch();
@@ -148,103 +160,114 @@ const App: React.FC = () => {
     [],
   );
 
-  // 初始化应用
-  useEffect(() => {
-    if (hasInitialized.current) {
-      return;
-    }
-    hasInitialized.current = true;
+  const applyConfigToApp = useCallback(() => {
+    const config = configService.getConfig();
+    applyTypographyPreferences(config);
+    apiService.setConfig({ apiKey: config.api.key, baseUrl: config.api.baseUrl });
+    const allModels = store.getState().model.availableModels;
+    const preferredModel = allModels.find(
+      model => model.id === config.model.defaultModel
+        && (!config.model.defaultModelProvider || model.providerKey === config.model.defaultModelProvider),
+    ) ?? allModels[0];
+    if (preferredModel) dispatch(setDefaultSelectedModel(preferredModel));
+    return allModels.length;
+  }, [dispatch]);
 
-    const initializeApp = async () => {
-      const t0 = performance.now();
-      const mark = (label: string) => {
-        const elapsed = Math.round(performance.now() - t0);
-        const msg = `initializeApp: ${label} (+${elapsed}ms)`;
-        console.info(`[App] ${msg}`);
+  const runInitPassRef = useRef<(mode: InitPassMode) => void>(() => {});
+  const runInitPass = useCallback(async (mode: InitPassMode): Promise<void> => {
+    if (initPassRunningRef.current) return;
+    initPassRunningRef.current = true;
+    if (initRetryTimerRef.current !== null) window.clearTimeout(initRetryTimerRef.current);
+
+    const startedAt = performance.now();
+    const log = (level: 'info' | 'error', label: string) => {
+      const message = `initializeApp: ${label} (+${Math.round(performance.now() - startedAt)}ms)`;
+      if (level === 'error') console.error(`[App] ${message}`);
+      else console.info(`[App] ${message}`);
+      try { window.electron?.log?.fromRenderer?.(level, 'App', message); } catch { /* best effort */ }
+    };
+    const schedule = (nextMode: InitPassMode, delayMs: number) => {
+      initRetryTimerRef.current = window.setTimeout(() => {
+        initRetryTimerRef.current = null;
+        runInitPassRef.current(nextMode);
+      }, delayMs);
+    };
+    const runStep = async (label: string, task: () => Promise<unknown>, attempts: number, timeout: number) => {
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
-          window.electron?.log?.fromRenderer?.('info', 'App', msg);
-        } catch {
-          /* preload may not expose this yet */
+          await waitWithTimeout(task(), attempt === 1 ? timeout : INIT_STEP_RETRY_TIMEOUT_MS, label);
+          if (attempt > 1) log('info', `${label} recovered on attempt ${attempt}`);
+          return true;
+        } catch (error) {
+          log('error', `${label} attempt ${attempt}/${attempts} failed: ${error instanceof Error ? error.message : String(error)}`);
         }
-      };
-
-      try {
-        mark('start');
-        document.documentElement.classList.add(`platform-${window.electron.platform}`);
-
-        const initTimeoutMs =
-          window.electron.platform === 'win32'
-            ? INIT_STEP_TIMEOUT_MS_WINDOWS
-            : INIT_STEP_TIMEOUT_MS_DEFAULT;
-        mark('configService.init begin');
-        await waitWithTimeout(configService.init(), initTimeoutMs, 'configService.init');
-        mark('configService.init done');
-
-        const entConfig = await window.electron.enterprise.getConfig();
-        setEnterpriseConfig(entConfig);
-        mark('enterprise.getConfig done');
-
-        themeService.initialize();
-        mark('themeService done');
-
-        mark('i18nService.initialize begin');
-        await waitWithTimeout(i18nService.initialize(), initTimeoutMs, 'i18nService.initialize');
-        mark('i18nService.initialize done');
-
-        mark('authService.init begin');
-        await authService.init();
-        mark('authService.init done');
-
-        const config = await configService.getConfig();
-        applyTypographyPreferences(config);
-        const apiConfig: ApiConfig = {
-          apiKey: config.api.key,
-          baseUrl: config.api.baseUrl,
-        };
-        apiService.setConfig(apiConfig);
-
-        const allModels = store.getState().model.availableModels;
-        if (allModels.length > 0) {
-          const preferredModel =
-            allModels.find(
-              model =>
-                model.id === config.model.defaultModel &&
-                (!config.model.defaultModelProvider ||
-                  model.providerKey === config.model.defaultModelProvider),
-            ) ?? allModels[0];
-          dispatch(setDefaultSelectedModel(preferredModel));
-        }
-        mark('model resolution done');
-
-        const agreed = await window.electron.store.get('privacy_agreed');
-        setPrivacyAgreed(agreed === true);
-        mark('privacy check done');
-
-        setIsInitialized(true);
-        mark('shell ready');
-
-        void waitWithTimeout(scheduledTaskService.init(), 5000, 'scheduledTaskService.init').catch(
-          error => {
-            console.error('[App] initializeApp: scheduledTaskService.init failed:', error);
-          },
-        );
-      } catch (error) {
-        const elapsed = Math.round(performance.now() - t0);
-        const msg = error instanceof Error ? error.message : String(error);
-        const detail = `initializeApp FAILED after ${elapsed}ms: ${msg}`;
-        console.error(`[App] ${detail}`);
-        try {
-          window.electron?.log?.fromRenderer?.('error', 'App', detail);
-        } catch {
-          /* best-effort */
-        }
-        setInitError(i18nService.t('initializationError'));
-        setIsInitialized(true);
       }
+      return false;
     };
 
-    void initializeApp();
-  }, [dispatch, waitWithTimeout]);
+    try {
+      log('info', `start (mode=${mode})`);
+      document.documentElement.classList.add(`platform-${window.electron.platform}`);
+      const timeout = window.electron.platform === 'win32' ? INIT_STEP_TIMEOUT_MS_WINDOWS : INIT_STEP_TIMEOUT_MS_DEFAULT;
+      const isRepair = mode === InitPassMode.Repair;
+      const configReady = await runStep('configService.init', () => configService.init(), isRepair ? 2 : INIT_CONFIG_MAX_ATTEMPTS, isRepair ? INIT_STEP_RETRY_TIMEOUT_MS : timeout);
+      if (!configReady && isRepair) {
+        if (initRepairCountRef.current < INIT_CONFIG_REPAIR_MAX) {
+          initRepairCountRef.current += 1;
+          log('error', `config repair failed; retrying in ${INIT_CONFIG_REPAIR_DELAY_MS}ms`);
+          schedule(InitPassMode.Repair, INIT_CONFIG_REPAIR_DELAY_MS);
+        }
+        return;
+      }
+      if (!configReady) log('error', 'configService.init unavailable; continuing with default config');
+
+      await runStep('enterprise.getConfig', async () => setEnterpriseConfig(await window.electron.enterprise.getConfig()), 2, INIT_STEP_RETRY_TIMEOUT_MS);
+      themeService.initialize();
+      await runStep('i18nService.initialize', () => i18nService.initialize(), 2, timeout);
+      await runStep('authService.init', () => authService.init(), 1, INIT_STEP_RETRY_TIMEOUT_MS);
+      const modelCount = applyConfigToApp();
+      await runStep('privacy check', async () => setPrivacyAgreed((await window.electron.store.get('privacy_agreed')) === true), 2, INIT_STEP_RETRY_TIMEOUT_MS);
+
+      setIsInitialized(true);
+      setInitError(null);
+      log('info', `${configReady ? 'shell ready' : 'shell ready (degraded: default config)'} with ${modelCount} models`);
+      void waitWithTimeout(scheduledTaskService.init(), 5000, 'scheduledTaskService.init').catch(error => {
+        console.error('[App] scheduledTaskService.init failed:', error);
+      });
+      if (!configReady) {
+        initRepairCountRef.current = 1;
+        schedule(InitPassMode.Repair, INIT_CONFIG_REPAIR_DELAY_MS);
+      }
+    } catch (error) {
+      const detail = `initializeApp FAILED after ${Math.round(performance.now() - startedAt)}ms (mode=${mode}): ${error instanceof Error ? error.message : String(error)}`;
+      console.error(`[App] ${detail}`);
+      try { window.electron?.log?.fromRenderer?.('error', 'App', detail); } catch { /* best effort */ }
+      if (mode !== InitPassMode.Repair) {
+        setInitError(i18nService.t('initializationError'));
+        setIsInitialized(true);
+        if (initAutoRetryCountRef.current < INIT_AUTO_RETRY_MAX) {
+          initAutoRetryCountRef.current += 1;
+          schedule(InitPassMode.Retry, INIT_AUTO_RETRY_DELAY_MS);
+        }
+      }
+    } finally {
+      initPassRunningRef.current = false;
+    }
+  }, [applyConfigToApp, waitWithTimeout]);
+
+  useEffect(() => {
+    runInitPassRef.current = mode => { void runInitPass(mode); };
+  }, [runInitPass]);
+
+  useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+    void runInitPass(InitPassMode.Startup);
+  }, [runInitPass]);
+
+  useEffect(() => () => {
+    if (initRetryTimerRef.current !== null) window.clearTimeout(initRetryTimerRef.current);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = i18nService.subscribe(() => {
@@ -599,6 +622,15 @@ const App: React.FC = () => {
     return activeElement.dataset.shortcutInput === 'true';
   };
 
+  const isTextEditingActive = () => {
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement)) return false;
+    return activeElement.isContentEditable
+      || activeElement.tagName === 'INPUT'
+      || activeElement.tagName === 'TEXTAREA'
+      || activeElement.tagName === 'SELECT';
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || isShortcutInputActive()) return;
@@ -608,6 +640,17 @@ const App: React.FC = () => {
         ...defaultConfig.shortcuts,
         ...(shortcuts ?? {}),
       };
+
+      const isTextEditing = isTextEditingActive();
+      const collapseShortcut = activeShortcuts.collapseAgentTasks;
+      if ((!isTextEditing || isTextEditingSafeShortcut(collapseShortcut))
+        && matchesShortcut(event, collapseShortcut)) {
+        event.preventDefault();
+        setMainView(MainView.Cowork);
+        setIsAgentPanelCollapsed(false);
+        window.dispatchEvent(new CustomEvent(CoworkUiEvent.CollapseCurrentAgentTasks));
+        return;
+      }
 
       if (matchesShortcut(event, activeShortcuts.search)) {
         event.preventDefault();

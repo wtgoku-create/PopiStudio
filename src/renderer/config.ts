@@ -5,8 +5,8 @@ import {
   defaultBrowserWebAccessConfig,
 } from '../shared/browserWebAccess/constants';
 import {
-  type NotificationSettings,
   defaultNotificationSettings,
+  type NotificationSettings,
 } from '../shared/notifications/constants';
 
 // 配置类型定义
@@ -57,6 +57,7 @@ export interface AppConfig {
     search: string;
     settings: string;
     sendMessage: string;
+    collapseAgentTasks?: string;
     [key: string]: string | undefined;
   };
 }
@@ -130,6 +131,7 @@ export const defaultConfig: AppConfig = {
     search: 'Ctrl+F',
     settings: 'Ctrl+,',
     sendMessage: 'Enter',
+    collapseAgentTasks: '',
   }
 };
 

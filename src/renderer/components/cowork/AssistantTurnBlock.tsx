@@ -1,5 +1,5 @@
 import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { classifyErrorKey } from '../../../common/coworkErrorClassify';
 import { ContextCompactionStatus } from '../../../common/coworkSystemMessages';
@@ -20,15 +20,19 @@ import ActivityGroupBlock from './ActivityGroupBlock';
 import AssistantMessageItem from './AssistantMessageItem';
 import { MessageCopyButton } from './MessageActionButton';
 import {
+  canFoldTurnProcess,
   chunkConsolidatedItemsForDisplay,
   type ConsolidatedItem,
   type ConversationTurn,
   COWORK_DETAIL_CONTENT_CLASS,
   COWORK_DETAIL_GUTTER_CLASS,
+  formatElapsedDuration,
   formatTurnDuration,
+  getActivityIndicatorStatusText,
   getContextCompactionMessageLabel,
   getToolResultDisplay,
   getToolResultLineCount,
+  getTurnActivityFingerprint,
   getTurnAnswerStartIndex,
   getTurnEndTimestamp,
   getTurnStartTimestamp,
@@ -98,23 +102,47 @@ const ContextCompactionDivider: React.FC<{ label: string; active?: boolean }> = 
 
 // ── TypingDots ───────────────────────────────────────────────────────────────
 
-const ActivityIndicator: React.FC<{ hasContent: boolean; startTimestamp: number | null }> = ({
-  hasContent,
-  startTimestamp,
-}) => {
+const ActivityIndicator: React.FC<{
+  fingerprint: string;
+  showImmediately: boolean;
+  startTimestamp: number | null;
+  statusTextOverride?: string | null;
+}> = ({ fingerprint, showImmediately, startTimestamp, statusTextOverride }) => {
+  const [visible, setVisible] = useState(showImmediately);
+  const [isLongWaiting, setIsLongWaiting] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const startRef = useRef<number>(startTimestamp ?? Date.now());
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, []);
-  const elapsed = startTimestamp == null ? null : Math.max(0, now - startTimestamp);
-  const seconds = elapsed == null ? 0 : Math.floor(elapsed / 1000);
-  const status = hasContent ? i18nService.t('coworkActivityRunning') : i18nService.t('coworkActivityThinkingNow');
+    if (typeof startTimestamp === 'number') startRef.current = startTimestamp;
+  }, [startTimestamp]);
+  useEffect(() => {
+    if (showImmediately) {
+      setVisible(true);
+      return undefined;
+    }
+    setVisible(false);
+    const timer = window.setTimeout(() => setVisible(true), 1500);
+    return () => window.clearTimeout(timer);
+  }, [fingerprint, showImmediately]);
+  useEffect(() => {
+    setIsLongWaiting(false);
+    const timer = window.setTimeout(() => setIsLongWaiting(true), 30_000);
+    return () => window.clearTimeout(timer);
+  }, [fingerprint]);
+  useEffect(() => {
+    if (!visible) return undefined;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [visible]);
+  if (!visible) return null;
+  const elapsed = now - startRef.current;
+  const status = statusTextOverride ?? getActivityIndicatorStatusText(false, isLongWaiting);
   return (
     <div className="flex items-center gap-2 py-1 animate-fade-in" role="status" aria-live="polite">
       <span className="activity-indicator-dot h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
       <span className="shimmer-text min-w-0 truncate text-sm text-secondary">{status}</span>
-      {seconds >= 1 && <span className="shrink-0 text-xs tabular-nums text-muted">{formatTurnDuration(seconds * 1000)}</span>}
+      {elapsed >= 2000 && <span className="shrink-0 text-xs tabular-nums text-muted">{formatElapsedDuration(elapsed)}</span>}
     </div>
   );
 };
@@ -198,6 +226,7 @@ const AssistantTurnBlock: React.FC<{
   localServiceDirectory?: string;
   onOpenLocalService?: (artifact: Artifact) => void;
   showTypingIndicator?: boolean;
+  activityStatusOverride?: string | null;
   showCopyButtons?: boolean;
   alwaysShowLastAssistantMeta?: boolean;
   planConfirmationMessageId?: string | null;
@@ -216,6 +245,7 @@ const AssistantTurnBlock: React.FC<{
   localServiceDirectory,
   onOpenLocalService,
   showTypingIndicator = false,
+  activityStatusOverride = null,
   showCopyButtons = true,
   alwaysShowLastAssistantMeta = false,
   planConfirmationMessageId,
@@ -458,7 +488,9 @@ const AssistantTurnBlock: React.FC<{
   const answerStartIndex = getTurnAnswerStartIndex(renderChunks);
   const processChunks = renderChunks.slice(0, answerStartIndex);
   const answerChunks = renderChunks.slice(answerStartIndex);
-  const shouldFoldProcess = !isStreamingTurn && !hasRunningSubagents && processChunks.length > 0;
+  const shouldFoldProcess = !isStreamingTurn
+    && !hasRunningSubagents
+    && canFoldTurnProcess(renderChunks, answerStartIndex);
   const processStart = getTurnStartTimestamp(turn);
   const processEnd = getTurnEndTimestamp(turn);
   const processDuration = processStart != null && processEnd != null
@@ -513,8 +545,10 @@ const AssistantTurnBlock: React.FC<{
               && renderArtifactCards()}
             {showTypingIndicator && !turnHasSelfIndicatingActivity(turn) && (
               <ActivityIndicator
-                hasContent={visibleAssistantItems.length > 0}
+                fingerprint={getTurnActivityFingerprint(turn)}
+                showImmediately={visibleAssistantItems.length === 0 || Boolean(activityStatusOverride)}
                 startTimestamp={getTurnStartTimestamp(turn)}
+                statusTextOverride={activityStatusOverride}
               />
             )}
           </div>
