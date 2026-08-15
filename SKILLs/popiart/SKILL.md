@@ -23,7 +23,7 @@ description_i18n:
 - **不要传递 `--key` 或 `--api-key`**：不要把密钥写进命令、prompt 或 tool 输入。
 - **优先使用 agent/CI 友好参数**：推荐统一带上 `--output json --quiet --non-interactive`；需要等待完成时再加 `--wait`。
 - **本地文件可以直接传**：传本地 `--image`、`--video`、`--audio` 时，CLI 会自动处理上传和稳定媒体 URL。
-- **生成后默认下载到本地**：每次图片、视频、语音、音乐生成成功后，都要继续把产物下载到本地目录，不要只返回远端 URL 或只汇报 `artifact_id`。
+- **生成时默认下载到本地**：每次图片、视频、语音、音乐生成都优先在生成命令上直接带 `--download --dir "需要存放的目录地址"`，不要只返回远端 URL 或只汇报 `artifact_id`。如果提交前还不知道任务 ID，用能稳定标识本次请求的目录名，例如时间戳或简短 slug。
 - **主站模式不要优先用单 artifact 下载**：`popiart artifacts pull <artifact_id>` 在主站模式下可能返回 `UNSUPPORTED_IN_POPI_ART_MODE`，优先使用 `artifacts list`、`artifacts get`、`artifacts pull-all`。
 
 ## 常用全局参数
@@ -43,6 +43,8 @@ Agent / CI 场景默认带：
 | `--non-interactive` | 不弹交互提示，缺参数时直接报错。 |
 | `--wait` | 等待任务完成后再返回。 |
 | `--async` | 只提交任务并立即返回 `job_id` / `task_id`。 |
+| `--download` | 任务成功后直接下载结果文件；启用后输出 `files` / `saved_to`，不再输出结果 URL。 |
+| `--dir` | 下载输出目录，仅在 `--download` 时生效。 |
 | `--dry-run` | 预览归一化后的请求，不执行生成。 |
 
 ## 推荐入口
@@ -74,6 +76,8 @@ popiart image generate \
   --prompt "A cinematic portrait of a creator at sunset" \
   --aspect-ratio 9:16 \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/portrait-sunset" \
   --output json \
   --quiet \
   --non-interactive
@@ -87,6 +91,8 @@ popiart image img2img \
   --prompt "Turn this into a poster-style portrait" \
   --aspect-ratio 3:4 \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/poster-portrait" \
   --output json \
   --quiet \
   --non-interactive
@@ -99,6 +105,8 @@ popiart image transform \
   --image ./source.png \
   --prompt "Turn this into a cyberpunk poster" \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/cyberpunk-poster" \
   --output json \
   --quiet \
   --non-interactive
@@ -122,6 +130,8 @@ popiart video generate \
   --image ./source.png \
   --prompt "Slow push-in and soft wind movement" \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/slow-push-video" \
   --output json \
   --quiet \
   --non-interactive
@@ -134,6 +144,8 @@ popiart video img2video \
   --image ./source.png \
   --prompt "Add gentle motion and a slow push-in" \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/gentle-motion" \
   --output json \
   --quiet \
   --non-interactive
@@ -146,6 +158,8 @@ popiart video from-image \
   --image ./source.png \
   --prompt "Slowly push toward the subject's face" \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/face-push-in" \
   --output json \
   --quiet \
   --non-interactive
@@ -158,6 +172,8 @@ popiart video action-transfer \
   --image ./face.jpg \
   --video ./motion.mp4 \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/action-transfer" \
   --output json \
   --quiet \
   --non-interactive
@@ -172,6 +188,8 @@ popiart video generate \
   --prompt "从第一帧自然过渡到最后一帧，镜头平稳推进" \
   --duration 6 \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/first-last-video" \
   --output json \
   --quiet \
   --non-interactive
@@ -185,6 +203,8 @@ popiart video seedance \
   --prompt "女孩睁开眼，头发被风轻轻吹动，镜头慢慢推进" \
   --ratio 16:9 \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/seedance-video" \
   --output json \
   --quiet \
   --non-interactive
@@ -199,6 +219,8 @@ popiart video seedance \
   --prompt "从第一帧自然过渡到最后一帧" \
   --ratio 16:9 \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/seedance-first-last" \
   --output json \
   --quiet \
   --non-interactive
@@ -212,6 +234,8 @@ popiart video seedance \
   --prompt "人物边唱边看向镜头，镜头缓慢推近" \
   --generate-audio \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/seedance-audio" \
   --output json \
   --quiet \
   --non-interactive
@@ -222,6 +246,9 @@ popiart video seedance \
 ```bash
 popiart speech synthesize \
   --text "Hello world" \
+  --wait \
+  --download \
+  --dir "<project-root>/output/popiart/hello-world-tts" \
   --output json \
   --quiet \
   --non-interactive
@@ -235,6 +262,9 @@ popiart music generate \
   --lyrics "La la la" \
   --output-format url \
   --format mp3 \
+  --wait \
+  --download \
+  --dir "<project-root>/output/popiart/upbeat-pop" \
   --output json \
   --quiet \
   --non-interactive
@@ -274,6 +304,8 @@ popiart image generate \
   --prompt "A clean editorial product photo" \
   --aspect-ratio 1:1 \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/editorial-product-photo" \
   --output json \
   --quiet \
   --non-interactive
@@ -286,6 +318,8 @@ popiart video generate \
   --prompt "Subtle camera push-in and natural motion" \
   --duration 5 \
   --wait \
+  --download \
+  --dir "<project-root>/output/popiart/model-video-test" \
   --output json \
   --quiet \
   --non-interactive
@@ -321,19 +355,20 @@ popiart models route-override set \
 
 ### 图片 / 视频生成
 
-1. 使用 `popiart image generate`、`popiart image img2img`、`popiart video generate` 或 `popiart video seedance` 提交任务。
-2. 如果带了 `--wait`，直接从 JSON 结果中提取 `task_id`、`job_id`、`artifact_ids`、`outputs`、`result_url` 或 `last_frame_url`。
-3. 如果没有带 `--wait`，先取回 `job_id` 或 `task_id`，再用 `popiart jobs get <job_id>` 或 `popiart jobs wait <job_id>`。
-4. 任务完成后，优先使用 `task_id` 立即下载全部结果到本地目录。先确认当前工作目录，不要在已经位于 `output/popiart/<task-id>` 或其子目录时再次拼接 `./output/popiart/<task-id>`。
-5. 下载命令优先使用项目根目录下的绝对路径：`popiart artifacts pull-all <task-id> --dir "<project-root>/output/popiart/<task-id>"`。如果无法确认项目根目录，则使用当前目录下的 `./artifacts`，不要再次拼接 `output/popiart/<task-id>`。
+1. 先确定本地下载目录，优先使用项目根目录下的绝对路径，例如 `"<project-root>/output/popiart/<task-id-or-job-id>"`。提交前没有任务 ID 时，用时间戳或简短 slug 作为目录名。
+2. 使用 `popiart image generate`、`popiart image img2img`、`popiart video generate` 或 `popiart video seedance` 提交任务，并优先带 `--wait --download --dir "<output-dir>"`。
+3. 如果带了 `--wait --download`，直接从 JSON 结果中提取 `task_id`、`job_id`、`artifact_ids`、`files`、`saved_to`。
+4. 如果没有带 `--wait`，先取回 `job_id` 或 `task_id`，再用 `popiart jobs get <job_id>` 或 `popiart jobs wait <job_id>`。
+5. 如果生成命令没有直接下载，任务完成后再用 `popiart artifacts pull-all <task-id> --dir "<output-dir>"` 下载全部结果。先确认当前工作目录，不要在已经位于 `output/popiart/<task-id>` 或其子目录时再次拼接 `./output/popiart/<task-id>`。
 6. 只有在确认拿不到 `task_id` 时，才退回到 `popiart artifacts list <task-id>`、`popiart artifacts get <artifact-id>` 等查询步骤补齐信息。
 
 ### 语音 / 音乐生成
 
-1. 使用 `popiart speech synthesize` 或 `popiart music generate` 提交任务，优先带 `--wait`。
-2. 从结果中提取 `task_id`、`artifact_ids`、输出 URL 或其他产物元数据。
-3. 生成成功后同样立即下载到本地，优先使用项目根目录下的绝对路径：`popiart artifacts pull-all <task-id> --dir "<project-root>/output/popiart/<task-id>"`。如果当前目录已经在该输出目录内，则改用 `./artifacts`。
-4. 如果接口只返回 URL 而没有可用的 `task_id`，至少要把最终媒体文件保存到本地，并在回复中明确本地路径。
+1. 先确定本地下载目录，优先使用项目根目录下的绝对路径，例如 `"<project-root>/output/popiart/<task-id-or-job-id>"`。提交前没有任务 ID 时，用时间戳或简短 slug 作为目录名。
+2. 使用 `popiart speech synthesize` 或 `popiart music generate` 提交任务，优先带 `--wait --download --dir "<output-dir>"`。
+3. 从结果中提取 `task_id`、`artifact_ids`、`files`、`saved_to` 或其他产物元数据。
+4. 如果生成命令没有直接下载，任务完成后再用 `popiart artifacts pull-all <task-id> --dir "<output-dir>"` 下载全部结果。
+5. 如果接口只返回 URL 而没有可用的 `task_id`，至少要把最终媒体文件保存到本地，并在回复中明确本地路径。
 
 ### 本地文件作为输入
 
@@ -362,8 +397,8 @@ popiart media get <media-id>
 
 - 产物优先看 `artifact_id`。
 - 任务级轮询优先用 `popiart jobs get <job_id>` 或 `popiart jobs wait <job_id>`。
-- 默认把生成结果下载到项目根目录下的 `output/popiart/<task-id>/`；如果暂时拿不到 `task_id`，使用能稳定标识任务的目录名。
-- 下载前必须确认输出目录是绝对路径或相对于项目根目录的路径。不要从 `output/popiart/<task-id>` 内部再执行 `--dir ./output/popiart/<task-id>`，这会生成嵌套目录。
+- 默认在生成命令上加 `--download --dir "<project-root>/output/popiart/<task-id-or-job-id>"`，把生成结果直接保存到项目根目录下；如果暂时拿不到 `task_id`，使用能稳定标识任务的目录名。
+- `--dir` 仅在同时传 `--download` 时生效。下载前必须确认输出目录是绝对路径或相对于项目根目录的路径。不要从 `output/popiart/<task-id>` 内部再执行 `--dir ./output/popiart/<task-id>`，这会生成嵌套目录。
 - 回复用户时只写实际存在的下载路径；不要手写推测路径。必要时用 `ls` 或等价方式确认文件存在。
 - 查看任务结果列表：
 
@@ -383,6 +418,7 @@ popiart artifacts get <artifact-id>
 popiart artifacts pull-all <task-id> --dir "<project-root>/output/popiart/<task-id>"
 ```
 
+- `artifacts pull-all` 主要用于下载已有任务、补救未带 `--download` 的生成任务，或重新拉取结果；新提交的生成任务优先使用生成命令自己的 `--download --dir`。
 - `popiart artifacts pull <artifact_id>` 在主站模式下可能不可用，只有确认环境支持时再使用。
 - 回复用户时，除了说明任务状态，也要明确告知本地下载目录和关键文件路径。
 
