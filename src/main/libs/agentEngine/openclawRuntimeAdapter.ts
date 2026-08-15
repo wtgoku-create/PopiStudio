@@ -1192,6 +1192,54 @@ const isYieldedToolResultText = (text: string): boolean => {
   }
 };
 
+const historyHasYieldedSessionToolResult = (messages: unknown[]): boolean => {
+  const yieldToolCallIds = new Set<string>();
+  for (const message of messages) {
+    if (!isRecord(message)) continue;
+    const role = typeof message.role === 'string' ? message.role.toLowerCase() : '';
+    const content = message.content;
+    const blocks = Array.isArray(content) ? content : [];
+    const toolCalls = [
+      ...blocks,
+      ...(Array.isArray(message.toolCalls) ? message.toolCalls : []),
+      ...(Array.isArray(message.tool_calls) ? message.tool_calls : []),
+    ];
+    if (role === 'assistant') {
+      for (const block of toolCalls) {
+        if (!isRecord(block)) continue;
+        const name = typeof block.name === 'string'
+          ? block.name
+          : isRecord(block.function) && typeof block.function.name === 'string'
+            ? block.function.name
+            : '';
+        const id = typeof block.id === 'string'
+          ? block.id
+          : typeof block.toolCallId === 'string'
+            ? block.toolCallId
+            : '';
+        if (name.toLowerCase() === OpenClawToolName.SessionsYield && id) {
+          yieldToolCallIds.add(id);
+        }
+      }
+      continue;
+    }
+    if (role !== OpenClawHistoryRole.ToolResult.toLowerCase() && role !== OpenClawHistoryRole.Tool) continue;
+    const toolCallId = typeof message.toolCallId === 'string'
+      ? message.toolCallId
+      : typeof message.tool_call_id === 'string'
+        ? message.tool_call_id
+        : '';
+    if (!toolCallId || !yieldToolCallIds.has(toolCallId)) continue;
+    const resultText = typeof message.content === 'string'
+      ? message.content
+      : typeof message.text === 'string'
+        ? message.text
+        : '';
+    if (isYieldedToolResultText(resultText)) return true;
+  }
+  return false;
+};
+
 const extractTextBlocksAndSignals = (
   message: unknown,
 ): { textBlocks: string[]; thinkingText: string; sawNonTextContentBlocks: boolean } => {
@@ -7229,6 +7277,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const wasWaitingForRecoverableFinal = this.isWaitingForRecoverableFollowup(turn);
     const rawFinalText = this.resolveFinalTurnText(turn, payload.message);
     const finalText = stripTrailingSilentReplyToken(rawFinalText);
+    let yieldedHistoryResult = false;
     console.debug(
       '[OpenClawRuntime] handleChatFinal:',
       `sessionId=${sessionId}`,
@@ -7301,7 +7350,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     // Collect media URLs and backfill tool result text from chat.history.
     // The agent tool event does not carry the result text (gateway strips it),
     // so we fetch it from the authoritative transcript via chat.history.
-    if (turn.toolUseMessageIdByToolCallId.size > 0
+    if ((turn.toolUseMessageIdByToolCallId.size > 0 || !finalText.trim())
         && turn.sessionKey
         && this.gatewayClient) {
       try {
@@ -7311,6 +7360,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         }, { timeoutMs: 5_000 });
         if (Array.isArray(history?.messages)) {
           this.syncToolResultsFromHistory(sessionId, turn, history.messages);
+          yieldedHistoryResult = historyHasYieldedSessionToolResult(history.messages);
         }
       } catch (err) {
         console.warn('[OpenClawRuntime] chat history tool result backfill failed:', err);
@@ -7369,9 +7419,9 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     }
 
     if (isYieldedChatFinal(payload, messageRecord, stopReason)
-        || (!finalText.trim() && this.hasYieldedSessionToolResult(sessionId, turn))) {
+        || (!finalText.trim() && (yieldedHistoryResult || this.hasYieldedSessionToolResult(sessionId, turn)))) {
       this.finalizeThinkingMessage(sessionId, turn);
-      if (isManagedSessionKey(turn.sessionKey)) {
+      if (isManagedSessionKey(turn.sessionKey) && (finalText.trim() || !yieldedHistoryResult)) {
         await this.syncFinalAssistantWithHistory(sessionId, turn);
       } else {
         await this.syncSessionHistoryFromGateway(sessionId, turn.sessionKey);
@@ -7379,13 +7429,19 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       if (this.activeTurns.get(sessionId) !== turn) {
         return;
       }
-      this.store.updateSession(sessionId, { status: 'running' });
-      this.emitSessionStatus(sessionId, 'running');
+      this.store.updateSession(sessionId, { status: 'completed' });
+      this.emitSessionStatus(sessionId, 'completed');
+      this.emit('complete', sessionId, payload.runId ?? turn.runId);
+      // A later lifecycle start may reopen this run for continuation. The
+      // current yielded attempt itself must not keep the session open.
       turn.allowRecentlyClosedRunRetryReopenOnCleanup = true;
       this.cleanupSessionTurn(sessionId);
+      // Cleanup can flush late lifecycle bookkeeping; keep the yielded turn
+      // terminal so closing the session is never blocked by the old attempt.
+      this.store.updateSession(sessionId, { status: 'completed' });
       this.resolveTurn(sessionId);
       console.debug(
-        '[OpenClawRuntime] yielded chat.final kept session running while waiting for subagent work.',
+        '[OpenClawRuntime] yielded chat.final completed the current turn and released the session for continuation.',
         `sessionId=${sessionId}`,
         `runId=${payload.runId ?? turn.runId}`,
       );

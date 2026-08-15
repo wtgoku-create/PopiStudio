@@ -3670,9 +3670,9 @@ test('sessions_yield final keeps session running while waiting for subagent work
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(completeSpy).not.toHaveBeenCalled();
-    expect(statusSpy).toHaveBeenCalledWith(session.id, 'running');
-    expect(session.status).toBe('running');
+    expect(completeSpy).toHaveBeenCalledWith(session.id, 'run-yield');
+    expect(statusSpy).toHaveBeenCalledWith(session.id, 'completed');
+    expect(session.status).toBe('completed');
     expect(adapter.activeTurns.has(session.id)).toBe(false);
     expect(adapter.sessionIdByRunId.has('run-yield')).toBe(false);
 
@@ -3684,8 +3684,8 @@ test('sessions_yield final keeps session running while waiting for subagent work
       message.type === 'system'
       && String(message.content).includes('[模型未输出内容]')
     ))).toBe(false);
-    expect(completeSpy).not.toHaveBeenCalled();
-    expect(session.status).toBe('running');
+    expect(completeSpy).toHaveBeenCalledTimes(1);
+    expect(session.status).toBe('completed');
   } finally {
     vi.useRealTimers();
   }
