@@ -1859,7 +1859,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [workingDirectory]);
 
   const handleIncomingFiles = useCallback(async (fileList: FileList | File[]) => {
-    if (disabled || isStreaming) return;
+    if (disabled) return;
     const files = Array.from(fileList ?? []);
     if (files.length === 0) return;
 
@@ -1954,10 +1954,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     if (hasImageWithoutVision) {
       setImageVisionHint(true);
     }
-  }, [addAttachment, addImageAttachmentFromDataUrl, disabled, effectiveSelectedModel, fileToDataUrl, getNativeFilePath, isStreaming, modelSupportsImage, saveInlineFile]);
+  }, [addAttachment, addImageAttachmentFromDataUrl, disabled, effectiveSelectedModel, fileToDataUrl, getNativeFilePath, modelSupportsImage, saveInlineFile]);
 
   const handleAddFile = useCallback(async () => {
-    if (isAddingFile || disabled || isStreaming) return;
+    if (isAddingFile || disabled) return;
     setShowAddMenu(false);
     handleCloseSkillsPopover();
     setIsAddingFile(true);
@@ -2000,7 +2000,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     } finally {
       setIsAddingFile(false);
     }
-  }, [addAttachment, effectiveSelectedModel, handleCloseSkillsPopover, isAddingFile, disabled, isStreaming, modelSupportsImage]);
+  }, [addAttachment, effectiveSelectedModel, handleCloseSkillsPopover, isAddingFile, disabled, modelSupportsImage]);
 
   const handleRemoveAttachment = useCallback((path: string) => {
     dispatch(removeDraftAttachment({
@@ -2030,7 +2030,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     event.preventDefault();
     event.stopPropagation();
     dragDepthRef.current += 1;
-    if (!disabled && !isStreaming) {
+    if (!disabled) {
       setIsDraggingFiles(true);
     }
   };
@@ -2039,7 +2039,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     if (!hasFileTransfer(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
-    event.dataTransfer.dropEffect = disabled || isStreaming ? 'none' : 'copy';
+    event.dataTransfer.dropEffect = disabled ? 'none' : 'copy';
   };
 
   const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
@@ -2058,7 +2058,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     event.stopPropagation();
     dragDepthRef.current = 0;
     setIsDraggingFiles(false);
-    if (disabled || isStreaming) return;
+    if (disabled) return;
     void handleIncomingFiles(event.dataTransfer.files);
   };
 
@@ -2066,7 +2066,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     if (disabled) return;
     const files = getClipboardAttachmentFiles(event.clipboardData);
     if (files.length > 0) {
-      if (isStreaming) return;
       event.preventDefault();
       void handleIncomingFiles(files);
       return;
@@ -2091,7 +2090,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         isImage: isImageMimeType(parsedBase64.mimeType),
       });
     })();
-  }, [addAttachment, disabled, handleIncomingFiles, isStreaming, savePastedBase64File]);
+  }, [addAttachment, disabled, handleIncomingFiles, savePastedBase64File]);
 
   const activeEditorValue = steerInputActive ? steerValue : value;
   const goalCommandCanRunWhileStreaming = goalInputActive && !!sessionId && !!onGoalCommand;
@@ -2343,7 +2342,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
               handleCloseSkillsPopover();
               handleCloseKnowledgeSubmenu();
             }}
-            disabled={disabled || isStreaming || isAddingFile}
+            disabled={disabled || isAddingFile}
             className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
             role="menuitem"
           >
@@ -2356,7 +2355,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             onClick={handleOpenKnowledgeSubmenu}
             onMouseEnter={handleOpenKnowledgeSubmenu}
             onFocus={handleOpenKnowledgeSubmenu}
-            disabled={disabled || isStreaming}
+            disabled={disabled}
             className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               showKnowledgeSubmenu || selectedKnowledgeBaseIds.length > 0
                 ? 'bg-surface-raised text-foreground'
