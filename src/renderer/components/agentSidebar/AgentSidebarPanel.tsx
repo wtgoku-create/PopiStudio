@@ -23,9 +23,9 @@ interface AgentSidebarPanelProps {
   onShowCowork: () => void;
 }
 
-const DEFAULT_AGENT_PANEL_WIDTH = 306;
-const MIN_AGENT_PANEL_WIDTH = 300;
-const MAX_AGENT_PANEL_WIDTH = 540;
+const DEFAULT_AGENT_PANEL_WIDTH = 260
+const MIN_AGENT_PANEL_WIDTH = 260;
+const MAX_AGENT_PANEL_WIDTH = 340;
 const SIDEBAR_COLLAPSE_TRANSITION_MS = 200;
 const normalizeAgentId = (agentId?: string | null) => agentId?.trim() || AgentId.Main;
 
