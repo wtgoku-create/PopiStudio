@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 import { IpcChannel as ScheduledTaskIpc } from '../scheduledTask/constants';
 import { AgentIpcChannel } from '../shared/agent/constants';
@@ -465,6 +465,7 @@ contextBridge.exposeInMainWorld('electron', {
       title?: string;
       filters?: { name: string; extensions: string[] }[];
     }) => ipcRenderer.invoke('dialog:selectFiles', options),
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
     saveInlineFile: (options: {
       dataBase64: string;
       fileName?: string;

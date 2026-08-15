@@ -1806,11 +1806,35 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, []);
 
   const getNativeFilePath = useCallback((file: File): string | null => {
+    const bridgePath = window.electron.dialog.getPathForFile?.(file);
+    if (typeof bridgePath === 'string' && bridgePath.trim()) {
+      return bridgePath;
+    }
     const maybePath = (file as File & { path?: string }).path;
     if (typeof maybePath === 'string' && maybePath.trim()) {
       return maybePath;
     }
     return null;
+  }, []);
+
+  const statNativePath = useCallback(async (filePath: string): Promise<{ isFile: boolean; isDirectory: boolean } | null> => {
+    try {
+      const result = await window.electron.dialog.statFile(filePath);
+      if (!result.success) {
+        console.debug('[CoworkPromptInput] stat dropped or pasted path returned an unsuccessful result:', {
+          path: filePath,
+          error: result.error,
+        });
+        return null;
+      }
+      return {
+        isFile: result.isFile === true,
+        isDirectory: result.isDirectory === true,
+      };
+    } catch (error) {
+      console.warn('[CoworkPromptInput] failed to stat dropped or pasted path:', error);
+      return null;
+    }
   }, []);
 
   const saveInlineFile = useCallback(async (file: File): Promise<string | null> => {
@@ -1866,6 +1890,12 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     let hasImageWithoutVision = false;
     for (const file of files) {
       const nativePath = getNativeFilePath(file);
+      const nativeStat = nativePath ? await statNativePath(nativePath) : null;
+
+      if (nativePath && nativeStat?.isDirectory) {
+        addAttachment(nativePath, { isDirectory: true });
+        continue;
+      }
 
       // Check if this is an image file and model supports images
       const fileIsImage = nativePath
@@ -1954,7 +1984,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     if (hasImageWithoutVision) {
       setImageVisionHint(true);
     }
-  }, [addAttachment, addImageAttachmentFromDataUrl, disabled, effectiveSelectedModel, fileToDataUrl, getNativeFilePath, modelSupportsImage, saveInlineFile]);
+  }, [addAttachment, addImageAttachmentFromDataUrl, disabled, effectiveSelectedModel, fileToDataUrl, getNativeFilePath, modelSupportsImage, saveInlineFile, statNativePath]);
 
   const handleAddFile = useCallback(async () => {
     if (isAddingFile || disabled) return;

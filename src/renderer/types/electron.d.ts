@@ -820,9 +820,10 @@ interface IElectronAPI {
     selectDirectory: () => Promise<{ success: boolean; path: string | null }>;
     selectFile: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<{ success: boolean; path: string | null }>;
     selectFiles: (options?: { title?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<{ success: boolean; paths: string[] }>;
+    getPathForFile?: (file: File) => string;
     saveInlineFile: (options: { dataBase64: string; fileName?: string; mimeType?: string; cwd?: string }) => Promise<{ success: boolean; path: string | null; error?: string }>;
     readFileAsDataUrl: (filePath: string) => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
-    statFile: (filePath: string) => Promise<{ success: boolean; isFile?: boolean; size?: number; mtimeMs?: number; error?: string }>;
+    statFile: (filePath: string) => Promise<{ success: boolean; isFile?: boolean; isDirectory?: boolean; size?: number; mtimeMs?: number; error?: string }>;
     readTextFile: (filePath: string) => Promise<{ success: boolean; content?: string; size?: number; readBytes?: number; truncated?: boolean; error?: string }>;
     saveFileCopy: (filePath: string) => Promise<{ success: boolean; canceled?: boolean; path?: string; error?: string }>;
     generateThumbnail: (filePath: string) => Promise<{ success: boolean; dataUrl?: string; error?: string }>;

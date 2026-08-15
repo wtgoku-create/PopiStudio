@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import XMarkIcon from '../icons/XMarkIcon';
-import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
-import { ImageFileIcon, getFileTypeInfo } from '../icons/fileTypes/index';
+import { FolderIcon } from '@heroicons/react/24/solid';
+import React, { useEffect,useState } from 'react';
+
 import { i18nService } from '../../services/i18n';
 import type { DraftAttachment } from '../../store/slices/coworkSlice';
+import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
+import { getFileTypeInfo,ImageFileIcon } from '../icons/fileTypes/index';
+import XMarkIcon from '../icons/XMarkIcon';
 
 interface AttachmentCardProps {
   attachment: DraftAttachment;
@@ -107,6 +109,7 @@ const ImageCard: React.FC<AttachmentCardProps> = ({ attachment, onRemove }) => {
 
 const FileCard: React.FC<AttachmentCardProps> = ({ attachment, onRemove }) => {
   const { label } = getFileTypeInfo(attachment.name);
+  const displayTypeLabel = attachment.isDirectory ? i18nService.t('folderAttachmentType') : label;
 
   return (
     <div
@@ -114,7 +117,11 @@ const FileCard: React.FC<AttachmentCardProps> = ({ attachment, onRemove }) => {
       title={attachment.path}
     >
       {/* File type icon */}
-      <FileTypeIcon fileName={attachment.name} className="h-8 w-8 flex-shrink-0" />
+      {attachment.isDirectory ? (
+        <FolderIcon className="h-8 w-8 flex-shrink-0 text-amber-500" />
+      ) : (
+        <FileTypeIcon fileName={attachment.name} className="h-8 w-8 flex-shrink-0" />
+      )}
 
       {/* File name + type label */}
       <div className="flex min-w-0 flex-1 flex-col justify-center">
@@ -122,7 +129,7 @@ const FileCard: React.FC<AttachmentCardProps> = ({ attachment, onRemove }) => {
           {attachment.name}
         </span>
         <span className="text-[10px] dark:text-claude-darkTextSecondary text-claude-textSecondary">
-          {label}
+          {displayTypeLabel}
         </span>
       </div>
 
