@@ -91,7 +91,6 @@ import {
 } from '../artifacts/autoPreviewPolicy';
 import DefaultAgentIcon from '../icons/DefaultAgentIcon';
 import FileTypeIcon from '../icons/fileTypes/FileTypeIcon';
-import SidebarToggleIcon from '../icons/SidebarToggleIcon';
 import SubagentIcon from '../icons/SubagentIcon';
 import MarkdownContent from '../MarkdownContent';
 import AssistantTurnBlock, { ContextCompactionDivider } from './AssistantTurnBlock';
@@ -1275,8 +1274,6 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
   onManageSkills,
   onContinue,
   onStop,
-  isSidebarCollapsed,
-  onToggleSidebar,
   minimizedPermission,
   onRestorePermission,
   onRespondToPermission,
