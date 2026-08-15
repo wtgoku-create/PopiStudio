@@ -140,7 +140,7 @@ const MyAgentSidebarHeader: React.FC<MyAgentSidebarHeaderProps> = ({
       : null;
 
   return (
-    <div className="sticky top-0 z-30 w-full bg-background pb-2">
+    <div className="sticky top-0 z-30 h-[94px] w-full bg-background pb-2">
       <div className="flex h-[52px] items-center justify-between">
         <h2 className="min-w-0 truncate text-lg font-semibold leading-none text-[#333] dark:text-foreground">
           {i18nService.t('agentSidebarMessages')}

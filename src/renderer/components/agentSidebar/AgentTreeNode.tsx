@@ -173,9 +173,9 @@ const AgentTreeNode: React.FC<AgentTreeNodeProps> = ({
   };
 
   return (
-    <div className="space-y-0">
-      <div className={`group relative ${isMenuOpen ? 'z-50' : 'z-20'} h-9 w-full rounded-md transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04] ${
-        isActive ? 'bg-black/[0.06] dark:bg-white/[0.07]' : 'bg-transparent'
+    <div className="contents">
+      <div className={`group sticky top-[94px] isolate ${isMenuOpen ? 'z-50' : 'z-40'} h-9 w-full rounded-md border-b border-background transition-colors before:absolute before:inset-x-0 before:-top-1 before:-bottom-1 before:-z-10 before:bg-background hover:bg-black/[0.03] dark:hover:bg-white/[0.04] ${
+        isActive ? 'bg-black/[0.06] dark:bg-white/[0.07]' : 'bg-background'
       }`}
       >
         <button

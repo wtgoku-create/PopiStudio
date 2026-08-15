@@ -298,7 +298,7 @@ const MyAgentSidebarTree: React.FC<MyAgentSidebarTreeProps> = ({
     const isAgentActive = agent.id === currentAgentId && !currentSessionId;
 
     return (
-      <div key={agent.id} className="space-y-1">
+      <div key={agent.id} className="contents">
         <AgentTreeNode
           agent={agent}
           isActive={isAgentActive}
