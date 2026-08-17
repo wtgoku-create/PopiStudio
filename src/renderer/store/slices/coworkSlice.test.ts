@@ -8,6 +8,7 @@ import coworkReducer, {
   setConfig,
   setCurrentSession,
   setCurrentSessionId,
+  setMessageWindow,
   setSessions,
   updateCurrentSessionModelOverride,
   updateCurrentSessionModelSettings,
@@ -317,4 +318,60 @@ test('revisit cache evicts the least-recently-left session beyond the limit', ()
   expect(state.sessionCacheById['session-0']).toBeUndefined(); // oldest evicted
   expect(state.sessionCacheById['session-25']?.title).toBe('S25'); // most recently left
   expect(state.currentSession?.id).toBe('session-26');
+});
+
+test('keeps live messages detached while viewing an older message window', () => {
+  const messages = [
+    { id: 'user-1', type: 'user' as const, content: 'first', timestamp: 1 },
+    { id: 'tool-1', type: 'tool_use' as const, content: 'work', timestamp: 2 },
+    { id: 'assistant-1', type: 'assistant' as const, content: 'done', timestamp: 3 },
+  ];
+  let state = coworkReducer(undefined, addSession(makeSession({
+    messages,
+    totalMessages: messages.length,
+  })));
+
+  state = coworkReducer(state, setMessageWindow({
+    sessionId: 'session-1',
+    messages: [messages[0]],
+    messagesOffset: 0,
+    totalMessages: messages.length,
+  }));
+  state = coworkReducer(state, addMessage({
+    sessionId: 'session-1',
+    message: { id: 'tool-2', type: 'tool_use', content: 'new work', timestamp: 4 },
+  }));
+
+  expect(state.currentSession?.messages.map(message => message.id)).toEqual(['user-1']);
+  expect(state.detachedTailMessagesBySessionId['session-1']?.map(message => message.id)).toEqual([
+    'tool-1',
+    'assistant-1',
+    'tool-2',
+  ]);
+});
+
+test('clears detached messages when the loaded window reaches the session tail', () => {
+  const messages = [
+    { id: 'user-1', type: 'user' as const, content: 'first', timestamp: 1 },
+    { id: 'assistant-1', type: 'assistant' as const, content: 'done', timestamp: 2 },
+  ];
+  let state = coworkReducer(undefined, addSession(makeSession({
+    messages,
+    totalMessages: messages.length,
+  })));
+
+  state = coworkReducer(state, setMessageWindow({
+    sessionId: 'session-1',
+    messages: [messages[0]],
+    messagesOffset: 0,
+    totalMessages: messages.length,
+  }));
+  state = coworkReducer(state, setMessageWindow({
+    sessionId: 'session-1',
+    messages: [messages[1]],
+    messagesOffset: 1,
+    totalMessages: messages.length,
+  }));
+
+  expect(state.detachedTailMessagesBySessionId['session-1']).toBeUndefined();
 });

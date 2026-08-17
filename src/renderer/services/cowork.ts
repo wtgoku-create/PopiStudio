@@ -157,6 +157,7 @@ class CoworkService {
   private openClawEngineListenerAttached = false;
   private latestLoadSessionsRequestId = 0;
   private latestLoadSessionRequestId = 0;
+  private messageWindowRequestGeneration = 0;
   private contextUsageRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private sessionEntryContextUsageRefreshAt = new Map<string, number>();
   private contextCompactionWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1283,6 +1284,33 @@ class CoworkService {
     }
   }
 
+  /** Ensure a paged session starts at a user-message turn boundary. */
+  private async loadSessionTurnStart(session: CoworkSession): Promise<CoworkSession> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getSessionMessages || session.messagesOffset <= 0) return session;
+    if (session.messages[0]?.type === 'user') return session;
+
+    let messages = session.messages;
+    let offset = session.messagesOffset;
+    const seenIds = new Set(messages.map(message => message.id));
+    let attempts = 0;
+    while (offset > 0 && messages[0]?.type !== 'user' && attempts < 20) {
+      attempts += 1;
+      const nextOffset = Math.max(0, offset - COWORK_MESSAGE_PAGE_SIZE);
+      const result = await cowork.getSessionMessages({
+        sessionId: session.id,
+        limit: offset - nextOffset,
+        offset: nextOffset,
+      });
+      if (!result.success || !result.messages?.length) break;
+      const olderMessages = result.messages.filter(message => !seenIds.has(message.id));
+      olderMessages.forEach(message => seenIds.add(message.id));
+      messages = [...olderMessages, ...messages];
+      offset = result.offset ?? nextOffset;
+    }
+    return messages === session.messages ? session : { ...session, messages, messagesOffset: offset };
+  }
+
   async loadSession(
     sessionId: string,
     options: { preserveLoadedRange?: boolean } = {},
@@ -1313,7 +1341,10 @@ class CoworkService {
       if (requestId !== this.latestLoadSessionRequestId) {
         return result.session;
       }
-      let session = result.session;
+      let session = await this.loadSessionTurnStart(result.session);
+      if (requestId !== this.latestLoadSessionRequestId) {
+        return session;
+      }
       if (
         options.preserveLoadedRange
         && previouslyLoadedSession?.id === sessionId
@@ -1446,6 +1477,8 @@ class CoworkService {
     if (state.currentSession?.id !== sessionId) return false;
 
     const currentOffset = state.currentSession.messagesOffset;
+    const currentMessageCount = state.currentSession.messages.length;
+    const expectedFirstMessageId = state.currentSession.messages[0]?.id ?? null;
     if (currentOffset <= 0) return false;
 
     const PAGE_SIZE = 50;
@@ -1454,6 +1487,13 @@ class CoworkService {
 
     const result = await cowork.getSessionMessages({ sessionId, limit, offset: newOffset });
     if (result.success && result.messages && result.messages.length > 0) {
+      const latestSession = store.getState().cowork.currentSession;
+      if (
+        latestSession?.id !== sessionId
+        || latestSession.messagesOffset !== currentOffset
+        || latestSession.messages.length !== currentMessageCount
+        || latestSession.messages[0]?.id !== expectedFirstMessageId
+      ) return false;
       store.dispatch(prependMessages({ sessionId, messages: result.messages, newOffset }));
       return true;
     }
@@ -1469,6 +1509,8 @@ class CoworkService {
     if (state.currentSession?.id !== sessionId) return false;
 
     const { messages, messagesOffset, totalMessages } = state.currentSession;
+    const currentMessageCount = messages.length;
+    const expectedLastMessageId = messages[currentMessageCount - 1]?.id ?? null;
     const nextOffset = messagesOffset + messages.length;
     if (nextOffset >= totalMessages) return false;
 
@@ -1476,10 +1518,18 @@ class CoworkService {
     const limit = Math.min(PAGE_SIZE, totalMessages - nextOffset);
     const result = await cowork.getSessionMessages({ sessionId, limit, offset: nextOffset });
     if (result.success && result.messages && result.messages.length > 0) {
+      const latestSession = store.getState().cowork.currentSession;
+      if (
+        latestSession?.id !== sessionId
+        || latestSession.messagesOffset !== messagesOffset
+        || latestSession.messages.length !== currentMessageCount
+        || latestSession.messages[currentMessageCount - 1]?.id !== expectedLastMessageId
+      ) return false;
       store.dispatch(appendMessages({
         sessionId,
         messages: result.messages,
         totalMessages: result.total ?? totalMessages,
+        preserveCurrentTotal: latestSession.totalMessages > totalMessages,
       }));
       return true;
     }
@@ -1541,6 +1591,7 @@ class CoworkService {
 
     const state = store.getState().cowork;
     if (state.currentSession?.id !== sessionId) return false;
+    const requestGeneration = ++this.messageWindowRequestGeneration;
 
     const totalMessages = state.currentSession.totalMessages;
     const safeAbsoluteIndex = Number.isFinite(absoluteIndex) ? Math.max(0, Math.floor(absoluteIndex)) : 0;
@@ -1553,11 +1604,17 @@ class CoworkService {
 
     const result = await cowork.getSessionMessages({ sessionId, limit: boundedPageSize, offset });
     if (result.success && result.messages && result.messages.length > 0) {
+      const latestSession = store.getState().cowork.currentSession;
+      if (
+        latestSession?.id !== sessionId
+        || this.messageWindowRequestGeneration !== requestGeneration
+      ) return false;
       store.dispatch(setMessageWindow({
         sessionId,
         messages: result.messages,
         messagesOffset: result.offset ?? offset,
         totalMessages: result.total ?? totalMessages,
+        preserveCurrentTotal: latestSession.totalMessages > totalMessages,
       }));
       return true;
     }
