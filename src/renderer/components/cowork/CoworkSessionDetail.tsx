@@ -342,13 +342,74 @@ const HeaderAgentAvatar: React.FC<{ agent: HeaderAgent }> = ({ agent }) => {
   );
 };
 
-const MAX_EXPORT_CANVAS_HEIGHT = 32760;
-const MAX_EXPORT_SEGMENTS = 240;
+// Chromium caps a canvas dimension at 65535px; keep margin for platform differences.
+const MAX_EXPORT_CANVAS_DIMENSION = 65000;
+const MAX_EXPORT_CANVAS_AREA = 60_000_000;
+const MIN_EXPORT_SCALE = 0.5;
+const EXPORT_CHROME_CSS_HEIGHT = 218;
+const EXPORT_CHROME_CSS_WIDTH = 48;
+const MAX_EXPORT_SEGMENTS = 400;
+const MAX_EXPORT_MESSAGE_COUNT = 1500;
+const EXPORT_IMAGE_DECODE_TIMEOUT_MS = 1500;
+
+class ExportImageCancelledError extends Error {
+  constructor() {
+    super('Export image cancelled');
+  }
+}
+
+class ExportImageTooLongError extends Error {
+  constructor() {
+    super('Conversation too long for a single export image');
+  }
+}
+
+type ExportImageProgress = {
+  phase: 'loading' | 'capturing' | 'saving';
+  current?: number;
+  total?: number;
+};
 
 const waitForNextFrame = (): Promise<void> =>
   new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
+
+const waitForStableLayout = async (container: HTMLElement, requiredStableFrames = 5, maxFrames = 300): Promise<void> => {
+  let lastScrollHeight = container.scrollHeight;
+  let stableFrames = 0;
+  for (let frame = 0; frame < maxFrames && stableFrames < requiredStableFrames; frame += 1) {
+    await waitForNextFrame();
+    const nextScrollHeight = container.scrollHeight;
+    if (nextScrollHeight === lastScrollHeight) stableFrames += 1;
+    else { stableFrames = 0; lastScrollHeight = nextScrollHeight; }
+  }
+};
+
+const prepareAllImagesForExport = async (container: HTMLElement, timeoutMs = 10000): Promise<void> => {
+  const pendingImages = Array.from(container.querySelectorAll('img')).filter(img => !img.complete);
+  pendingImages.forEach(img => { if (img.loading === 'lazy') img.loading = 'eager'; });
+  if (pendingImages.length === 0) return;
+  await Promise.race([
+    Promise.all(pendingImages.map(img => img.decode().catch(() => undefined))),
+    new Promise<void>(resolve => window.setTimeout(resolve, timeoutMs)),
+  ]);
+};
+
+const waitForViewportImagesReady = async (container: HTMLElement, timeoutMs = EXPORT_IMAGE_DECODE_TIMEOUT_MS): Promise<void> => {
+  const containerRect = container.getBoundingClientRect();
+  const pendingImages = Array.from(container.querySelectorAll('img')).filter(img => {
+    if (img.complete) return false;
+    const rect = img.getBoundingClientRect();
+    return rect.bottom > containerRect.top && rect.top < containerRect.bottom;
+  });
+  if (pendingImages.length === 0) return;
+  await Promise.race([
+    Promise.all(pendingImages.map(img => img.decode().catch(() => undefined))),
+    new Promise<void>(resolve => window.setTimeout(resolve, timeoutMs)),
+  ]);
+  await waitForNextFrame();
+};
 
 const isWheelHandledByNestedScroller = (
   target: EventTarget | null,
@@ -796,13 +857,14 @@ const composeExportCanvas = async (
   contentCanvas: HTMLCanvasElement,
   title: string,
   createdAt: number,
+  renderScale: number = window.devicePixelRatio || 1,
 ): Promise<HTMLCanvasElement> => {
   const isDark = document.documentElement.classList.contains('dark');
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = renderScale;
   const fontStack = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
 
-  const contentW = contentCanvas.width;   // CSS px
-  const contentH = contentCanvas.height;  // CSS px
+  const contentW = contentCanvas.width / dpr;   // CSS px
+  const contentH = contentCanvas.height / dpr;  // CSS px
 
   // ── Layout constants (CSS px) ──
   const outerPadX = 24;          // horizontal breathing room around card
@@ -1731,6 +1793,9 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
   // Export states
   const [isExportingImage, setIsExportingImage] = useState(false);
+  const [exportImageProgress, setExportImageProgress] = useState<ExportImageProgress | null>(null);
+  const isExportingImageRef = useRef(false);
+  const exportImageAbortRef = useRef(false);
   const [showExportOptions, setShowExportOptions] = useState(false);
 
   useEffect(() => {
@@ -3101,166 +3166,134 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     }
   }, [currentSession, loadTextExportMessages]);
 
+  const handleCancelExportImage = useCallback(() => {
+    exportImageAbortRef.current = true;
+  }, []);
+
   const handleShareClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!currentSession || isExportingImage) return;
+    const sessionId = currentSession.id;
+    const sessionTitle = currentSession.title;
+    const sessionCreatedAt = currentSession.createdAt;
+    const knownTotalMessages = Math.max(currentSession.totalMessages ?? 0, currentSession.messages.length);
     setIsExportingImage(true);
+    isExportingImageRef.current = true;
+    exportImageAbortRef.current = false;
+    setExportImageProgress({ phase: 'loading' });
 
-    window.requestAnimationFrame(() => {
-      void (async () => {
+    void (async () => {
+      try {
+        const scrollContainer = scrollContainerRef.current;
+        if (!scrollContainer) throw new Error('Capture target not found');
+        const throwIfAborted = () => { if (exportImageAbortRef.current) throw new ExportImageCancelledError(); };
+        const initialDistanceToBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
         try {
-          const scrollContainer = scrollContainerRef.current;
-          if (!scrollContainer) {
-            throw new Error('Capture target not found');
-          }
-          const initialScrollTop = scrollContainer.scrollTop;
-          try {
-            const scrollRect = domRectToCaptureRect(scrollContainer.getBoundingClientRect());
-            if (scrollRect.width <= 0 || scrollRect.height <= 0) {
-              throw new Error('Invalid capture area');
-            }
+          if (knownTotalMessages > MAX_EXPORT_MESSAGE_COUNT) throw new ExportImageTooLongError();
+          let contentTooLong = false;
+          const historyLoaded = await coworkService.loadFullSessionHistory(sessionId, {
+            onProgress: (loadedCount, totalCount) => {
+              setExportImageProgress({ phase: 'loading', current: loadedCount, total: totalCount });
+              if (scrollContainer.scrollHeight > MAX_EXPORT_CANVAS_DIMENSION / MIN_EXPORT_SCALE) contentTooLong = true;
+            },
+            shouldAbort: () => exportImageAbortRef.current || contentTooLong,
+          });
+          if (contentTooLong) throw new ExportImageTooLongError();
+          throwIfAborted();
+          if (!historyLoaded) throw new Error('Failed to load the full conversation history');
+          await prepareAllImagesForExport(scrollContainer);
+          await waitForStableLayout(scrollContainer);
+          throwIfAborted();
 
-            const scrollContentHeight = Math.max(scrollContainer.scrollHeight, scrollContainer.clientHeight);
-            if (scrollContentHeight <= 0) {
-              throw new Error('Invalid content height');
-            }
-
-            const toContentY = (viewportY: number): number => {
-              const y = scrollContainer.scrollTop + (viewportY - scrollRect.y);
-              return Math.max(0, Math.min(scrollContentHeight, y));
-            };
-
-            const userAnchors = scrollContainer.querySelectorAll<HTMLElement>('[data-export-role="user-message"]');
-            const assistantAnchors = scrollContainer.querySelectorAll<HTMLElement>('[data-export-role="assistant-block"]');
-
-            let contentStart = 0;
-            let contentEnd = scrollContentHeight;
-
-            if (userAnchors.length > 0) {
-              contentStart = toContentY(userAnchors[0].getBoundingClientRect().top);
-            } else if (assistantAnchors.length > 0) {
-              contentStart = toContentY(assistantAnchors[0].getBoundingClientRect().top);
-            }
-
-            if (assistantAnchors.length > 0) {
-              const lastAssistant = assistantAnchors[assistantAnchors.length - 1];
-              contentEnd = toContentY(lastAssistant.getBoundingClientRect().bottom);
-            } else if (userAnchors.length > 0) {
-              const lastUser = userAnchors[userAnchors.length - 1];
-              contentEnd = toContentY(lastUser.getBoundingClientRect().bottom);
-            }
-
-            const maxStart = Math.max(0, scrollContentHeight - 1);
-            contentStart = Math.max(0, Math.min(maxStart, Math.round(contentStart)));
-            contentEnd = Math.max(contentStart + 1, Math.min(scrollContentHeight, Math.round(contentEnd)));
-
-            const outputHeight = contentEnd - contentStart;
-
-            if (outputHeight > MAX_EXPORT_CANVAS_HEIGHT) {
-              throw new Error(`Export image is too tall (${outputHeight}px)`);
-            }
-
-            const segmentsEstimate = Math.ceil(outputHeight / Math.max(1, scrollRect.height)) + 1;
-            if (segmentsEstimate > MAX_EXPORT_SEGMENTS) {
-              throw new Error('Export image is too long');
-            }
-
-            const canvas = document.createElement('canvas');
-            canvas.width = scrollRect.width;
-            canvas.height = outputHeight;
-            const context = canvas.getContext('2d');
-            if (!context) {
-              throw new Error('Canvas context unavailable');
-            }
-
-            const captureAndLoad = async (rect: CaptureRect): Promise<HTMLImageElement> => {
-              const chunk = await coworkService.captureSessionImageChunk({ rect });
-              if (!chunk.success || !chunk.pngBase64) {
-                throw new Error(chunk.error || 'Failed to capture image chunk');
-              }
-              return loadImageFromBase64(chunk.pngBase64);
-            };
-
-            scrollContainer.scrollTop = Math.min(contentStart, Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight));
-            await waitForNextFrame();
-            await waitForNextFrame();
-
+          const boundingRect = scrollContainer.getBoundingClientRect();
+          const visibleLeft = Math.max(0, boundingRect.left);
+          const visibleTop = Math.max(0, boundingRect.top);
+          const scrollRect = domRectToCaptureRect(new DOMRect(
+            visibleLeft, visibleTop,
+            Math.min(boundingRect.right, window.innerWidth) - visibleLeft,
+            Math.min(boundingRect.bottom, window.innerHeight) - visibleTop,
+          ));
+          if (scrollRect.width <= 0 || scrollRect.height <= 0) throw new Error('Invalid capture area');
+          const scrollContentHeight = Math.max(scrollContainer.scrollHeight, scrollContainer.clientHeight);
+          const toContentY = (viewportY: number) => Math.max(0, Math.min(scrollContentHeight, scrollContainer.scrollTop + viewportY - scrollRect.y));
+          const userAnchors = scrollContainer.querySelectorAll<HTMLElement>('[data-export-role="user-message"]');
+          const assistantAnchors = scrollContainer.querySelectorAll<HTMLElement>('[data-export-role="assistant-block"]');
+          let contentStart = userAnchors.length ? toContentY(userAnchors[0].getBoundingClientRect().top) : 0;
+          let contentEnd = assistantAnchors.length
+            ? toContentY(assistantAnchors[assistantAnchors.length - 1].getBoundingClientRect().bottom)
+            : userAnchors.length ? toContentY(userAnchors[userAnchors.length - 1].getBoundingClientRect().bottom) : scrollContentHeight;
+          contentStart = Math.max(0, Math.min(scrollContentHeight - 1, Math.round(contentStart)));
+          contentEnd = Math.max(contentStart + 1, Math.min(scrollContentHeight, Math.round(contentEnd)));
+          const outputHeight = contentEnd - contentStart;
+          const devicePixelRatio = window.devicePixelRatio || 1;
+          const composedCssHeight = outputHeight + EXPORT_CHROME_CSS_HEIGHT;
+          const composedCssWidth = scrollRect.width + EXPORT_CHROME_CSS_WIDTH;
+          const exportScale = Math.min(devicePixelRatio, MAX_EXPORT_CANVAS_DIMENSION / composedCssHeight, Math.sqrt(MAX_EXPORT_CANVAS_AREA / (composedCssHeight * composedCssWidth)));
+          if (exportScale < MIN_EXPORT_SCALE) throw new ExportImageTooLongError();
+          const totalSegments = Math.ceil(outputHeight / Math.max(1, scrollRect.height));
+          if (totalSegments + 1 > MAX_EXPORT_SEGMENTS) throw new ExportImageTooLongError();
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(scrollRect.width * exportScale));
+          canvas.height = Math.max(1, Math.round(outputHeight * exportScale));
+          const context = canvas.getContext('2d');
+          if (!context) throw new Error('Canvas context unavailable');
+          const captureAndLoad = async (rect: CaptureRect) => {
+            const chunk = await coworkService.captureSessionImageChunk({ rect });
+            if (!chunk.success || !chunk.pngBase64) throw new Error(chunk.error || 'Failed to capture image chunk');
+            return loadImageFromBase64(chunk.pngBase64);
+          };
+          scrollContainer.scrollTop = Math.min(contentStart, Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight));
+          await waitForNextFrame(); await waitForNextFrame();
+          let contentOffset = contentStart;
+          let capturedSegments = 0;
+          while (contentOffset < contentEnd) {
+            throwIfAborted();
+            capturedSegments += 1;
+            if (capturedSegments > MAX_EXPORT_SEGMENTS) throw new ExportImageTooLongError();
+            setExportImageProgress({ phase: 'capturing', current: capturedSegments, total: totalSegments });
             const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
-            let contentOffset = contentStart;
-            while (contentOffset < contentEnd) {
-              const targetScrollTop = Math.min(contentOffset, maxScrollTop);
-              scrollContainer.scrollTop = targetScrollTop;
-              await waitForNextFrame();
-              await waitForNextFrame();
-
-              const chunkImage = await captureAndLoad(scrollRect);
-              const sourceYOffset = Math.max(0, contentOffset - targetScrollTop);
-              const drawableHeight = Math.min(scrollRect.height - sourceYOffset, contentEnd - contentOffset);
-              if (drawableHeight <= 0) {
-                throw new Error('Failed to stitch export image');
-              }
-              const scaleY = chunkImage.naturalHeight / scrollRect.height;
-              const sourceYInImage = Math.max(0, Math.round(sourceYOffset * scaleY));
-              const sourceHeightInImage = Math.max(1, Math.min(
-                chunkImage.naturalHeight - sourceYInImage,
-                Math.round(drawableHeight * scaleY),
-              ));
-
-              context.drawImage(
-                chunkImage,
-                0,
-                sourceYInImage,
-                chunkImage.naturalWidth,
-                sourceHeightInImage,
-                0,
-                contentOffset - contentStart,
-                scrollRect.width,
-                drawableHeight,
-              );
-
-              contentOffset += drawableHeight;
-            }
-
-            // Compose final canvas with branded header and footer
-            const finalCanvas = await composeExportCanvas(
-              canvas,
-              currentSession.title,
-              currentSession.createdAt,
-            );
-
-            const pngDataUrl = finalCanvas.toDataURL('image/png');
-            const base64Index = pngDataUrl.indexOf(',');
-            if (base64Index < 0) {
-              throw new Error('Failed to encode export image');
-            }
-
-            const timestamp = formatExportTimestamp(new Date());
-            const saveResult = await coworkService.saveSessionResultImage({
-              pngBase64: pngDataUrl.slice(base64Index + 1),
-              defaultFileName: sanitizeExportFileName(`${currentSession.title}-${timestamp}.png`),
-            });
-            if (saveResult.success && !saveResult.canceled) {
-              window.dispatchEvent(new CustomEvent('app:showToast', {
-                detail: i18nService.t('coworkExportImageSuccess'),
-              }));
-              return;
-            }
-            if (!saveResult.success) {
-              throw new Error(saveResult.error || 'Failed to export image');
-            }
-          } finally {
-            scrollContainer.scrollTop = initialScrollTop;
+            const targetScrollTop = Math.min(contentOffset, maxScrollTop);
+            scrollContainer.scrollTop = targetScrollTop;
+            await waitForNextFrame(); await waitForNextFrame();
+            await waitForViewportImagesReady(scrollContainer);
+            const chunkImage = await captureAndLoad(scrollRect);
+            const sourceYOffset = Math.max(0, contentOffset - targetScrollTop);
+            const drawableHeight = Math.min(scrollRect.height - sourceYOffset, contentEnd - contentOffset);
+            if (drawableHeight <= 0) throw new Error('Failed to stitch export image');
+            const chunkDeviceScale = chunkImage.naturalHeight / scrollRect.height;
+            const sourceY = sourceYOffset * chunkDeviceScale;
+            const sourceHeight = Math.max(1, Math.min(chunkImage.naturalHeight - sourceY, drawableHeight * chunkDeviceScale));
+            const destTop = Math.round((contentOffset - contentStart) * exportScale);
+            const destBottom = Math.round((contentOffset - contentStart + drawableHeight) * exportScale);
+            context.drawImage(chunkImage, 0, sourceY, chunkImage.naturalWidth, sourceHeight, 0, destTop, canvas.width, Math.max(1, destBottom - destTop));
+            contentOffset += drawableHeight;
           }
-        } catch (error) {
-          console.error('Failed to export session image:', error);
-          window.dispatchEvent(new CustomEvent('app:showToast', {
-            detail: i18nService.t('coworkExportImageFailed'),
-          }));
+          throwIfAborted();
+          setExportImageProgress({ phase: 'saving' });
+          const finalCanvas = await composeExportCanvas(canvas, sessionTitle, sessionCreatedAt, exportScale);
+          const pngDataUrl = finalCanvas.toDataURL('image/png');
+          const base64Index = pngDataUrl.indexOf(',');
+          if (base64Index < 0 || pngDataUrl.length - base64Index <= 1) throw new Error('Failed to encode export image');
+          const timestamp = formatExportTimestamp(new Date());
+          const saveResult = await coworkService.saveSessionResultImage({ pngBase64: pngDataUrl.slice(base64Index + 1), defaultFileName: sanitizeExportFileName(`${sessionTitle}-${timestamp}.png`) });
+          if (saveResult.success && !saveResult.canceled) {
+            window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('coworkExportImageSuccess') }));
+          } else if (!saveResult.success) throw new Error(saveResult.error || 'Failed to export image');
         } finally {
-          setIsExportingImage(false);
+          const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+          scrollContainer.scrollTop = Math.max(0, Math.min(maxScrollTop, maxScrollTop - initialDistanceToBottom));
         }
-      })();
-    });
+      } catch (error) {
+        if (!(error instanceof ExportImageCancelledError)) {
+          console.error('Failed to export session image:', error);
+          window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t(error instanceof ExportImageTooLongError ? 'coworkExportImageTooLong' : 'coworkExportImageFailed') }));
+        }
+      } finally {
+        setIsExportingImage(false);
+        isExportingImageRef.current = false;
+        setExportImageProgress(null);
+      }
+    })();
   };
 
   const handleMessagesScroll = useCallback(() => {
@@ -4257,7 +4290,8 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
       // Always render last 3 turns (needed for streaming, auto-scroll, and smooth UX)
       const alwaysRender = index >= turns.length - 3
         || index === searchForcedTurnIndexRef.current
-        || index === forcedRailTurnIndex;
+        || index === forcedRailTurnIndex
+        || isExportingImage;
 
       // Compute one rail index per conversation turn (must match grouped rail item logic).
       const hasAssistantContent = turn.assistantItems.some(
@@ -4769,6 +4803,32 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
         </div>
       )}
 
+      {exportImageProgress && createPortal(
+        <div className="fixed inset-0 z-[10050]" style={{ cursor: 'progress' }}>
+          <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2.5 rounded-full border border-border bg-surface py-1.5 pl-4 pr-2 shadow-elevated">
+            <div className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <span className="whitespace-nowrap text-xs font-medium text-foreground">
+              {exportImageProgress.phase === 'loading'
+                ? i18nService.t('coworkExportImagePreparing')
+                : i18nService.t('coworkExportImageInProgress')}
+              {exportImageProgress.phase !== 'saving'
+                && exportImageProgress.current !== undefined
+                && exportImageProgress.total !== undefined
+                && exportImageProgress.total > 0
+                && ` (${exportImageProgress.current}/${exportImageProgress.total})`}
+            </span>
+            <button
+              type="button"
+              onClick={handleCancelExportImage}
+              className="shrink-0 rounded-full px-2 py-0.5 text-xs text-secondary transition-colors hover:bg-surface-raised hover:text-foreground"
+            >
+              {i18nService.t('cancel')}
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
+
       {/* Content row: chat + artifact panel */}
       <div ref={contentRowRef} className="relative flex h-full min-w-0 flex-1 gap-[6px] overflow-hidden bg-surface-raised">
       {isPopiTVSession && (
@@ -4792,7 +4852,7 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
           className="relative h-full min-h-0 overflow-y-auto pt-3"
           style={{ scrollbarGutter: 'stable both-edges', overflowAnchor: 'none' }}
         >
-          {selectedTextAction && (
+          {selectedTextAction && !exportImageProgress && (
             <button
               type="button"
               data-cowork-selected-text-action
