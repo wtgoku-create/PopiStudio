@@ -148,6 +148,10 @@ const OpenClawGatewayMethod = {
   SessionsSubscribe: 'sessions.subscribe',
   SessionsMessagesSubscribe: 'sessions.messages.subscribe',
 } as const;
+type OpenClawOutboundPrompt = {
+  message: string;
+  extraSystemPrompt?: string;
+};
 const BRIDGE_MAX_MESSAGES = 20;
 const BRIDGE_MAX_MESSAGE_CHARS = 1200;
 const FORK_COMPACTION_SUMMARY_MAX_CHARS = 40_000;
@@ -1732,7 +1736,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
   private readonly bridgedSessions = new Set<string>();
   private readonly continuityFullBridgeCompactedAtBySession = new Map<string, number>();
   private readonly workspaceRehydrationBridgeCompactedAtBySession = new Map<string, number>();
-  private readonly lastSystemPromptBySession = new Map<string, string>();
   private readonly lastPatchedModelBySession = new Map<string, string>();
   private readonly sessionModelPatchQueue = new Map<string, Promise<void>>();
   private readonly gatewayHistoryCountBySession = new Map<string, number>();
@@ -3081,6 +3084,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     await this.runTurn(sessionId, stripNullChars(prompt), {
       skipInitialUserMessage: options.skipInitialUserMessage,
       systemPrompt: options.systemPrompt,
+      extraSystemPrompt: options.extraSystemPrompt,
       skillIds: options.skillIds,
       confirmationMode: options.confirmationMode,
       imageAttachments: options.imageAttachments,
@@ -3590,6 +3594,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     options: {
       skipInitialUserMessage?: boolean;
       systemPrompt?: string;
+      extraSystemPrompt?: string;
       skillIds?: string[];
       confirmationMode?: 'modal' | 'text';
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
@@ -3767,13 +3772,18 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       );
     }
 
-    const outboundMessage = stripNullChars(await this.buildOutboundPrompt(
+    const outboundPrompt = await this.buildOutboundPrompt(
       sessionId,
       promptWithBrowserAnnotations,
       outboundSystemPrompt,
       agentId,
       systemPromptText,
-    ));
+      options.extraSystemPrompt,
+    );
+    const outboundMessage = stripNullChars(outboundPrompt.message);
+    const extraSystemPrompt = outboundPrompt.extraSystemPrompt
+      ? stripNullChars(outboundPrompt.extraSystemPrompt)
+      : undefined;
     if (this.cancelTurnStartupIfStopped(sessionId, 'outbound prompt built')) {
       return;
     }
@@ -3852,6 +3862,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         message: outboundMessage,
         deliver: false,
         idempotencyKey: runId,
+        ...(extraSystemPrompt ? { extraSystemPrompt } : {}),
         ...(runCwd ? { cwd: runCwd } : {}),
         ...(attachments ? { attachments } : {}),
       };
@@ -3897,7 +3908,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     systemPrompt?: string,
     agentId?: string,
     staticSystemPrompt?: string,
-  ): Promise<string> {
+    extraSystemPrompt?: string,
+  ): Promise<OpenClawOutboundPrompt> {
     const normalizedSystemPrompt = (systemPrompt ?? '').trim();
     const normalizedStaticSystemPrompt = (staticSystemPrompt ?? '').trim();
     const planMode = isPlanModeSystemPrompt(normalizedSystemPrompt)
@@ -3905,13 +3917,8 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
         containsPlanModePrompt(prompt)
         && !normalizedSystemPrompt.includes(PLAN_MODE_EXECUTION_OVERRIDE_MARKER)
       );
-    const previousSystemPrompt = this.lastSystemPromptBySession.get(sessionId) ?? '';
-    const shouldInjectSystemPrompt = Boolean(
-      normalizedSystemPrompt
-      && normalizedSystemPrompt !== previousSystemPrompt,
-    );
     const shouldSkipManagedStaticPrompt = Boolean(
-      shouldInjectSystemPrompt
+      normalizedSystemPrompt
       && normalizedStaticSystemPrompt
       && normalizedSystemPrompt.startsWith(normalizedStaticSystemPrompt)
       && isManagedSessionKey(this.toSessionKey(sessionId, agentId))
@@ -3921,28 +3928,17 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       ),
     );
 
-    if (normalizedSystemPrompt) {
-      this.lastSystemPromptBySession.set(sessionId, normalizedSystemPrompt);
-    } else {
-      this.lastSystemPromptBySession.delete(sessionId);
-    }
-
     const session = this.store.getSession(sessionId);
     const agent = agentId ? this.store.getAgent(agentId) : null;
     const rawCurrentModel = session?.modelOverride || agent?.model || '';
     const currentModel = rawCurrentModel ? this.normalizeModelRef(rawCurrentModel) : '';
 
     const sections: string[] = [];
-    if (shouldInjectSystemPrompt) {
-      const promptToInject = shouldSkipManagedStaticPrompt
-        ? normalizedSystemPrompt
-          .slice(normalizedStaticSystemPrompt.length)
-          .trim()
-        : normalizedSystemPrompt;
-      if (promptToInject) {
-        sections.push(this.buildSystemPromptPrefix(promptToInject));
-      }
-    }
+    const promptToInject = shouldSkipManagedStaticPrompt
+      ? normalizedSystemPrompt.slice(normalizedStaticSystemPrompt.length).trim()
+      : normalizedSystemPrompt;
+    const extraSystemPromptParts = [promptToInject, extraSystemPrompt?.trim()].filter(Boolean);
+    const combinedExtraSystemPrompt = extraSystemPromptParts.join('\n\n') || undefined;
     sections.push(buildOpenClawLocalTimeContextPrompt());
     if (currentModel) {
       sections.push(`[Session info]\nCurrent model: ${currentModel}`);
@@ -3967,7 +3963,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       if (planMode) {
         sections.push(buildPlanModeOutboundReminder());
       }
-      return sections.join('\n\n');
+      return {
+        message: sections.join('\n\n'),
+        ...(combinedExtraSystemPrompt ? { extraSystemPrompt: combinedExtraSystemPrompt } : {}),
+      };
     }
 
     const client = this.requireGatewayClient();
@@ -4009,16 +4008,10 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (planMode) {
       sections.push(buildPlanModeOutboundReminder());
     }
-    return sections.join('\n\n');
-  }
-
-  private buildSystemPromptPrefix(systemPrompt: string): string {
-    return [
-      '[Popiai system instructions]',
-      'Apply the instructions below as the highest-priority guidance for this session.',
-      'If earlier Popiai system instructions exist, replace them with this version.',
-      systemPrompt,
-    ].join('\n');
+    return {
+      message: sections.join('\n\n'),
+      ...(combinedExtraSystemPrompt ? { extraSystemPrompt: combinedExtraSystemPrompt } : {}),
+    };
   }
 
   private buildBridgePrefix(messages: CoworkMessage[], currentPrompt: string): string {
@@ -9321,10 +9314,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     } else {
       this.pendingGoalContinuations.delete(sessionId);
     }
-    // NOTE: Do NOT clear lastSystemPromptBySession here — it must persist
-    // across turns so that the system prompt is only injected on the first
-    // turn of a session (or when it actually changes).  Cleanup happens in
-    // onSessionDeleted() when the session is removed entirely.
     this.reCreatedChannelSessionIds.delete(sessionId);
   }
 

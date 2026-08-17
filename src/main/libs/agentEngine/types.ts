@@ -97,6 +97,7 @@ export type CoworkStartOptions = {
 export type CoworkContinueOptions = {
   skipInitialUserMessage?: boolean;
   systemPrompt?: string;
+  extraSystemPrompt?: string;
   skillIds?: string[];
   confirmationMode?: 'modal' | 'text';
   imageAttachments?: CoworkImageAttachment[];

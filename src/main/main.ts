@@ -3685,19 +3685,11 @@ if (!gotTheLock) {
           console.log(`[Cowork] removed a legacy persisted plan mode prompt from session ${options.sessionId}.`);
         }
         const turnInstructions = options.turnInstructions?.trim();
-        const runtimePrompt = turnInstructions
-          ? [
-            '[Popiai turn instructions]',
-            turnInstructions,
-            '',
-            '[User request]',
-            openClawPrompt,
-          ].join('\n')
-          : openClawPrompt;
-        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt: runtimePrompt });
+        const baseRuntimePrompt = await resolveCoworkRuntimePrompt({ ...options, prompt: openClawPrompt });
         await runtime.continueSession(options.sessionId, baseRuntimePrompt, {
           skipInitialUserMessage: true,
           systemPrompt: continuationSystemPrompt,
+          extraSystemPrompt: turnInstructions,
           skillIds: runtimeSkillIds,
           imageAttachments: browserAnnotationPayload.imageAttachments,
           selectedTextSnippets,

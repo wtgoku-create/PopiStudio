@@ -359,7 +359,7 @@ test('outbound prompt injects top-k evidence after context compaction', async ()
   const internal = adapter as unknown as {
     bridgedSessions: Set<string>;
     continuityCapsuleBySession: Map<string, unknown>;
-    buildOutboundPrompt: (sessionId: string, prompt: string) => Promise<string>;
+    buildOutboundPrompt: (sessionId: string, prompt: string) => Promise<{ message: string; extraSystemPrompt?: string }>;
   };
 
   internal.bridgedSessions.add(session.id);
@@ -390,11 +390,11 @@ test('outbound prompt injects top-k evidence after context compaction', async ()
     '继续处理 src/pages/Bakery.tsx 的 npm test failed',
   );
 
-  expect(prompt).toContain('[Popiai retrieved evidence after context compaction]');
-  expect(prompt).toContain('tool result: shell');
-  expect(prompt).toContain('expected ja copy');
-  expect(prompt.indexOf('[Popiai retrieved evidence after context compaction]')).toBeLessThan(
-    prompt.indexOf('[Current user request]'),
+  expect(prompt.message).toContain('[Popiai retrieved evidence after context compaction]');
+  expect(prompt.message).toContain('tool result: shell');
+  expect(prompt.message).toContain('expected ja copy');
+  expect(prompt.message.indexOf('[Popiai retrieved evidence after context compaction]')).toBeLessThan(
+    prompt.message.indexOf('[Current user request]'),
   );
 });
 
@@ -783,7 +783,7 @@ test('continueSession creates a missing session cwd before chat.send', async () 
   });
 });
 
-test('startSession injects the stored system prompt into the outbound message', async () => {
+test('startSession sends the stored system prompt through the structured field', async () => {
   const { adapter, requests } = createRunTurnAdapter({
     sessionSystemPrompt: 'stored system prompt',
   });
@@ -791,8 +791,10 @@ test('startSession injects the stored system prompt into the outbound message', 
   await adapter.startSession('session-1', 'hello');
 
   const chatSend = requests.find((request) => request.method === 'chat.send');
-  expect(chatSend?.params.message).toContain('[Popiai system instructions]');
-  expect(chatSend?.params.message).toContain('stored system prompt');
+  expect(chatSend?.params.message).not.toContain('stored system prompt');
+  expect(chatSend?.params).toMatchObject({
+    extraSystemPrompt: 'stored system prompt',
+  });
 });
 
 test('desktop turns skip a managed static prompt but keep dynamic prompt additions', async () => {
@@ -807,7 +809,7 @@ test('desktop turns skip a managed static prompt but keep dynamic prompt additio
       systemPrompt: string,
       agentId: string,
       staticSystemPrompt: string,
-    ) => Promise<string>;
+    ) => Promise<{ message: string; extraSystemPrompt?: string }>;
   };
 
   const prompt = await internal.buildOutboundPrompt(
@@ -818,11 +820,11 @@ test('desktop turns skip a managed static prompt but keep dynamic prompt additio
     'stored system prompt',
   );
 
-  expect(prompt).not.toContain('stored system prompt');
-  expect(prompt).toContain('transient plan instruction');
+  expect(prompt.message).not.toContain('stored system prompt');
+  expect(prompt.extraSystemPrompt).toBe('transient plan instruction');
 });
 
-test('continueSession injects the stored system prompt only when it changes', async () => {
+test('continueSession sends the stored system prompt on every turn without duplicating it in message', async () => {
   const { adapter, requests } = createRunTurnAdapter({
     sessionSystemPrompt: 'stored system prompt',
   });
@@ -832,10 +834,28 @@ test('continueSession injects the stored system prompt only when it changes', as
 
   const chatSends = requests.filter((request) => request.method === 'chat.send');
   expect(chatSends).toHaveLength(2);
-  expect(chatSends[0].params.message).toContain('[Popiai system instructions]');
-  expect(chatSends[0].params.message).toContain('stored system prompt');
-  expect(chatSends[1].params.message).not.toContain('[Popiai system instructions]');
+  expect(chatSends[0].params.message).not.toContain('stored system prompt');
   expect(chatSends[1].params.message).not.toContain('stored system prompt');
+  expect(chatSends[0].params).toMatchObject({ extraSystemPrompt: 'stored system prompt' });
+  expect(chatSends[1].params).toMatchObject({ extraSystemPrompt: 'stored system prompt' });
+});
+
+test('continueSession keeps per-turn instructions out of the user message', async () => {
+  const { adapter, requests } = createRunTurnAdapter({
+    sessionSystemPrompt: 'stored system prompt',
+  });
+
+  await adapter.continueSession('session-1', 'continue', {
+    extraSystemPrompt: 'only apply this rule for this turn',
+  });
+
+  const chatSend = requests.find((request) => request.method === 'chat.send');
+  expect(chatSend?.params.message).toContain('continue');
+  expect(chatSend?.params.message).not.toContain('only apply this rule');
+  expect(chatSend?.params.message).not.toContain('stored system prompt');
+  expect(chatSend?.params).toMatchObject({
+    extraSystemPrompt: 'stored system prompt\n\nonly apply this rule for this turn',
+  });
 });
 
 // ==================== Reconcile tests ====================

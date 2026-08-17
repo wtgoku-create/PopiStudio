@@ -1,0 +1,82 @@
+diff --git a/packages/gateway-protocol/src/schema/logs-chat.ts b/packages/gateway-protocol/src/schema/logs-chat.ts
+--- a/packages/gateway-protocol/src/schema/logs-chat.ts
++++ b/packages/gateway-protocol/src/schema/logs-chat.ts
+@@ -66,7 +66,8 @@ export const ChatSendParamsSchema = Type.Object(
+     agentId: Type.Optional(NonEmptyString),
+     sessionId: Type.Optional(NonEmptyString),
+     message: Type.String(),
+     cwd: Type.Optional(Type.String()),
++    extraSystemPrompt: Type.Optional(Type.String({ maxLength: 100_000 })),
+     thinking: Type.Optional(Type.String()),
+     fastMode: Type.Optional(Type.Boolean()),
+     deliver: Type.Optional(Type.Boolean()),
+diff --git a/src/auto-reply/get-reply-options.types.ts b/src/auto-reply/get-reply-options.types.ts
+--- a/src/auto-reply/get-reply-options.types.ts
++++ b/src/auto-reply/get-reply-options.types.ts
+@@ -48,5 +48,7 @@ export type PartialReplyPayload = Pick<ReplyPayload, "text" | "mediaUrls"> & {
+ export type GetReplyOptions = {
+   /** Override run id for agent events (defaults to random UUID). */
+   runId?: string;
++  /** One-shot system guidance supplied by a trusted chat client. */
++  extraSystemPrompt?: string;
+   /** Abort signal for the underlying agent run. */
+   abortSignal?: AbortSignal;
+diff --git a/src/auto-reply/reply/get-reply-run.ts b/src/auto-reply/reply/get-reply-run.ts
+--- a/src/auto-reply/reply/get-reply-run.ts
++++ b/src/auto-reply/reply/get-reply-run.ts
+@@ -595,17 +595,18 @@ export async function runPreparedReply(
+   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
+     isNewSession ? sessionCtx : { ...sessionCtx, ThreadStarterBody: undefined },
+     { includeFormattingHints: !useFastReplyRuntime },
+   );
+   const extraSystemPromptParts = [
+-    inboundMetaPrompt,
+     directChatContext,
+     groupChatContext,
+     groupIntro,
+     groupSystemPrompt,
+     buildExecOverridePromptHint({
+       execOverrides,
+       elevatedLevel: resolvedElevatedLevel,
+       fullAccessAvailable: fullAccessState.available,
+       fullAccessBlockedReason: fullAccessState.blockedReason,
+     }),
++    opts?.extraSystemPrompt,
++    inboundMetaPrompt,
+   ].filter(Boolean);
+diff --git a/src/gateway/server-methods/chat.ts b/src/gateway/server-methods/chat.ts
+--- a/src/gateway/server-methods/chat.ts
++++ b/src/gateway/server-methods/chat.ts
+@@ -2891,7 +2891,8 @@ export const chatHandlers: GatewayRequestHandlers = {
+       agentId?: string;
+       sessionId?: string;
+       message: string;
+       cwd?: string;
++      extraSystemPrompt?: string;
+       thinking?: string;
+       fastMode?: boolean;
+       deliver?: boolean;
+@@ -2912,7 +2912,15 @@ export const chatHandlers: GatewayRequestHandlers = {
+     const explicitOriginResult = normalizeExplicitChatSendOrigin({
+       originatingChannel: p.originatingChannel,
+       originatingTo: p.originatingTo,
+       accountId: p.originatingAccountId,
+       messageThreadId: p.originatingThreadId,
+     });
++    if (p.extraSystemPrompt?.trim() && !canInjectSystemProvenance(client)) {
++      respond(
++        false,
++        undefined,
++        errorShape(ErrorCodes.INVALID_REQUEST, "extraSystemPrompt requires admin scope"),
++      );
++      return;
++    }
+     if (!explicitOriginResult.ok) {
+@@ -3580,6 +3580,7 @@ export const chatHandlers: GatewayRequestHandlers = {
+               images: replyOptionImages,
+               imageOrder: imageOrder.length > 0 ? imageOrder : undefined,
+               cwd: normalizeOptionalText(p.cwd),
++              extraSystemPrompt: normalizeOptionalText(p.extraSystemPrompt),
+               thinkingLevelOverride: p.thinking,
+               fastModeOverride: p.fastMode,
+               userTurnTranscriptRecorder: userTurnRecorder,
