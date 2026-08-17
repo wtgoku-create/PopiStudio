@@ -53,6 +53,7 @@ import {
   setSubagentMessagesLoading,
   setSubagentRuns,
   setSubagentRunsLoading,
+  updateCurrentSessionModelSettings,
   updateMessageContent,
   updateSessionGoal,
   updateSessionPinned,
@@ -1576,8 +1577,17 @@ class CoworkService {
     if (result.success && result.session) {
       const currentSessionId = store.getState().cowork.currentSessionId;
       if (currentSessionId === sessionId) {
-        store.dispatch(setCurrentSession(result.session));
-        store.dispatch(setStreaming(result.session.status === 'running'));
+        if (patch.model !== undefined) {
+          store.dispatch(updateCurrentSessionModelSettings({
+            sessionId,
+            modelOverride: result.session.modelOverride,
+            thinkingLevel: result.session.thinkingLevel,
+          }));
+          store.dispatch(setStreaming(result.session.status === 'running'));
+        } else {
+          store.dispatch(setCurrentSession(result.session));
+          store.dispatch(setStreaming(result.session.status === 'running'));
+        }
         void this.refreshContextUsage(sessionId, { notifyCompaction: false });
       }
       return result.session;

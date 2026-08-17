@@ -1,6 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 import type { CoworkBrowserAnnotationBatch } from '../../../shared/cowork/browserAnnotations';
+import type { CoworkPromptResourceSource } from '../../../shared/cowork/promptDocument';
 import {
   COWORK_RAIL_TOOLTIP_PREVIEW_MAX_LENGTH,
   type CoworkMessageRailIndexItem,
@@ -12,7 +13,6 @@ import {
   CoworkSteerStatus,
   type CoworkSteerStatus as CoworkSteerStatusType,
 } from '../../../shared/cowork/steer';
-import type { CoworkPromptResourceSource } from '../../../shared/cowork/promptDocument';
 import {
   CoworkCollaborationMode,
   type CoworkCollaborationMode as CoworkCollaborationModeType,
@@ -861,6 +861,20 @@ const coworkSlice = createSlice({
       state.currentSession.modelOverride = modelOverride;
     },
 
+    updateCurrentSessionModelSettings(
+      state,
+      action: PayloadAction<{
+        sessionId: string;
+        modelOverride?: string;
+        thinkingLevel?: string | null;
+      }>,
+    ) {
+      const { sessionId, modelOverride, thinkingLevel } = action.payload;
+      if (state.currentSession?.id !== sessionId) return;
+      if (modelOverride !== undefined) state.currentSession.modelOverride = modelOverride;
+      if (thinkingLevel !== undefined) state.currentSession.thinkingLevel = thinkingLevel;
+    },
+
     enqueuePendingPermission(state, action: PayloadAction<CoworkPermissionRequest>) {
       const alreadyQueued = state.pendingPermissions.some(
         (permission) => permission.requestId === action.payload.requestId
@@ -1134,6 +1148,7 @@ export const {
   updateSessionTitle,
   updateSessionGoal,
   updateCurrentSessionModelOverride,
+  updateCurrentSessionModelSettings,
   enqueuePendingPermission,
   dequeuePendingPermission,
   clearPendingPermissions,

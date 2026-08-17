@@ -60,6 +60,7 @@ interface CoworkSession {
   cwd: string;
   systemPrompt: string;
   modelOverride: string;
+  thinkingLevel?: string | null;
   executionMode: 'auto' | 'local' | 'sandbox';
   activeSkillIds: string[];
   agentId: string;

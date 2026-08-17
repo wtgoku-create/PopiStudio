@@ -9,10 +9,11 @@ import coworkReducer, {
   setCurrentSession,
   setCurrentSessionId,
   setSessions,
-  upsertSessionSummary,
   updateCurrentSessionModelOverride,
+  updateCurrentSessionModelSettings,
   updateSessionStatus,
   updateSessionTitle,
+  upsertSessionSummary,
 } from './coworkSlice';
 
 const makeSession = (overrides: Partial<Parameters<typeof addSession>[0]> = {}) => ({
@@ -98,6 +99,25 @@ test('updateCurrentSessionModelOverride only patches the active session', () => 
   );
 
   expect(ignoredState.currentSession?.modelOverride).toBe('popiai-server/qwen3.6-plus-YoudaoInner');
+});
+
+test('updateCurrentSessionModelSettings preserves the session list and messages', () => {
+  const session = makeSession({
+    modelOverride: 'openai/gpt-5.4',
+    thinkingLevel: 'medium',
+    messages: [{ id: 'message-1', type: 'user', content: 'Keep me', timestamp: 2 }],
+  });
+  const state = coworkReducer(coworkReducer(undefined, addSession(session)), updateCurrentSessionModelSettings({
+    sessionId: 'session-1',
+    modelOverride: 'popiai-server/kimi-k2.6',
+    thinkingLevel: 'off',
+  }));
+
+  expect(state.sessions[0].updatedAt).toBe(1);
+  expect(state.sessions[0].lastMessagePreview).toBe('Keep me');
+  expect(state.currentSession?.modelOverride).toBe('popiai-server/kimi-k2.6');
+  expect(state.currentSession?.thinkingLevel).toBe('off');
+  expect(state.currentSession?.messages).toHaveLength(1);
 });
 
 test('updateSessionTitle preserves the session updated time', () => {
@@ -298,4 +318,3 @@ test('revisit cache evicts the least-recently-left session beyond the limit', ()
   expect(state.sessionCacheById['session-25']?.title).toBe('S25'); // most recently left
   expect(state.currentSession?.id).toBe('session-26');
 });
-
