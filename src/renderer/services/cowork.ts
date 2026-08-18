@@ -42,6 +42,8 @@ import {
   setContextUsage,
   setCurrentSession,
   setCurrentSessionId,
+  setDraftCollaborationMode,
+  setDraftGoalInput,
   setHasMoreSessions,
   setMessageRailIndex,
   setMessageRailIndexLoading,
@@ -953,7 +955,22 @@ class CoworkService {
 
     const result = await cowork.forkSession(options);
     if (result.success && result.session) {
+      const state = store.getState();
+      const sourceCollaborationMode = state.cowork.draftCollaborationModes[options.sessionId];
+      const sourceGoalInput = state.cowork.draftGoalInputs[options.sessionId];
       store.dispatch(addSession(result.session));
+      if (sourceCollaborationMode) {
+        store.dispatch(setDraftCollaborationMode({
+          draftKey: result.session.id,
+          mode: sourceCollaborationMode,
+        }));
+      }
+      if (sourceGoalInput) {
+        store.dispatch(setDraftGoalInput({
+          draftKey: result.session.id,
+          goalInput: { ...sourceGoalInput },
+        }));
+      }
       store.dispatch(setCurrentSession(result.session));
       store.dispatch(setCurrentSessionId(result.session.id));
       store.dispatch(setStreaming(false));

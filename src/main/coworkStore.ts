@@ -1380,10 +1380,10 @@ export class CoworkStore {
         id, title, claude_session_id, status, cwd, system_prompt, model_override,
         execution_mode, active_skill_ids, agent_id, pinned, pin_order,
         parent_session_id, forked_from_message_id, forked_at, fork_mode,
-        fork_workspace_path, fork_git_branch, fork_git_base_ref,
+        fork_workspace_path, fork_git_branch, fork_git_base_ref, goal_json,
         created_at, updated_at
       )
-      VALUES (?, ?, NULL, 'idle', ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, NULL, 'idle', ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     );
     const insertMessage = this.db.prepare(
@@ -1410,6 +1410,7 @@ export class CoworkStore {
         options.workspacePath ?? null,
         options.gitBranch ?? null,
         options.gitBaseRef ?? null,
+        this.serializeGoal(source.goal),
         now,
         now,
       );

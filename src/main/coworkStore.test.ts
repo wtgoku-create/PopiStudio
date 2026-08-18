@@ -26,6 +26,7 @@ import path from 'path';
 import { CoworkSystemMessageKind } from '../common/coworkSystemMessages';
 import { AgentAvatarSvg, DefaultAgentAvatarIcon, encodeAgentAvatarIcon } from '../shared/agent/avatar';
 import { CoworkForkMode, CoworkSessionSourceKind } from '../shared/cowork/constants';
+import { CoworkGoalStatus } from '../shared/cowork/goal';
 import { CoworkStore } from './coworkStore';
 
 // ---------------------------------------------------------------------------
@@ -356,6 +357,30 @@ test('forkSession stores a provided compaction summary as a hidden system contex
   expect(summaryMessages[0]?.content).toBe('fresh summary');
   expect(summaryMessages[0]?.metadata?.hidden).toBe(true);
   expect(fork.messages.some(message => message.content === 'old summary')).toBe(false);
+});
+
+test('forkSession inherits the source session goal snapshot', () => {
+  insertSession('source-session', 'main', 1000);
+  const goal = {
+    id: 'goal-1',
+    objective: 'Ship the forked feature',
+    status: CoworkGoalStatus.Active,
+    createdAt: 1000,
+    updatedAt: 2000,
+    tokensUsed: 123,
+    tokenBudget: 5000,
+  };
+  store.updateSession('source-session', { goal }, { touchUpdatedAt: false });
+  insertMessage('user-1', 'source-session', 'user', 'first request', null, 1, 1000);
+
+  const fork = store.forkSession({
+    sourceSessionId: 'source-session',
+    forkMode: CoworkForkMode.Conversation,
+  });
+
+  expect(fork.goal).toEqual(goal);
+  expect(store.getSession(fork.id)?.goal).toEqual(goal);
+  expect(store.listSessions(10, 0).find(session => session.id === fork.id)?.goal).toEqual(goal);
 });
 
 test('searchSessions returns matching plain sessions and escapes LIKE wildcards', () => {
