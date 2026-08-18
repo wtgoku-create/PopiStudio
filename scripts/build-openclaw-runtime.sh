@@ -157,7 +157,11 @@ node --import tsx --input-type=module - <<'NODE'
 const { writePackageDistInventory } = await import('./src/infra/package-dist-inventory.ts');
 await writePackageDistInventory(process.cwd());
 NODE
-node scripts/test-built-bundled-channel-entry-smoke.mjs
+# The embedded build already runs against the prepared package root. Avoid the
+# installed-layout symlink probe, which requires Windows Developer Mode or an
+# elevated shell, while retaining the bundled channel entry smoke checks.
+OPENCLAW_BUNDLED_CHANNEL_SMOKE_INSTALLED_LAYOUT=1 \
+  node scripts/test-built-bundled-channel-entry-smoke.mjs
 node scripts/package-changelog.mjs prepare
 OPENCLAW_CHANGELOG_PREPARED=1
 
