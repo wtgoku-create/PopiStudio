@@ -1573,15 +1573,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [disabled, dispatch, draftKey, goalInputActive, isStreaming, remoteManaged, resetGoalInput, sessionId, steerDraft, steerInputActive, value]);
 
   const handleTogglePlanMode = useCallback(async () => {
-    if (remoteManaged || disabled || isPatchingModel) return;
+    if (remoteManaged || disabled || isPatchingModel || isStreaming) return;
     const syncedMode = await syncPlanModeState();
     if (syncedMode === undefined) return;
     const nextMode = syncedMode === CoworkCollaborationMode.Plan
       ? CoworkCollaborationMode.Default
       : CoworkCollaborationMode.Plan;
-    if (nextMode === CoworkCollaborationMode.Plan && goalInputActive) {
-      resetGoalInput(true);
-    }
+    if (nextMode === CoworkCollaborationMode.Plan && goalInputActive) return;
     if (sessionId) {
       try {
         const state = await coworkService.controlPlanMode(sessionId, {
@@ -1616,22 +1614,17 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setShowAddMenu(false);
     handleCloseSkillsPopover();
     requestAnimationFrame(() => editorRef.current?.focus());
-  }, [disabled, dispatch, draftKey, goalInputActive, handleCloseSkillsPopover, isPatchingModel, planConfirmation, remoteManaged, resetGoalInput, sessionId, syncPlanModeState]);
+  }, [disabled, dispatch, draftKey, goalInputActive, handleCloseSkillsPopover, isPatchingModel, isStreaming, planConfirmation, remoteManaged, sessionId, syncPlanModeState]);
 
-  const handleEnableGoalInput = useCallback((mode: CoworkGoalInputMode = CoworkGoalInputMode.Start, initialValue?: string) => {
+  const handleEnableGoalInput = useCallback(async (mode: CoworkGoalInputMode = CoworkGoalInputMode.Start, initialValue?: string) => {
     if (disabled || remoteManaged || isPatchingModel) return;
     if (!onGoalCommand && sessionId) return;
+    const syncedMode = await syncPlanModeState();
+    if (syncedMode === undefined) return;
+    const planModeActive = syncedMode === CoworkCollaborationMode.Plan;
+    if (planModeActive) return;
     setShowAddMenu(false);
     handleCloseSkillsPopover();
-    if (isPlanMode) {
-      dispatch(setDraftCollaborationMode({ draftKey, mode: CoworkCollaborationMode.Default }));
-      if (planConfirmation && planConfirmation.state !== PlanConfirmationState.Handled) {
-        dispatch(setPlanConfirmationHandled({
-          sessionId: draftKey,
-          messageId: planConfirmation.messageId,
-        }));
-      }
-    }
     if (steerInputActive) {
       setSteerInputActive(false);
       if (sessionId) {
@@ -1649,7 +1642,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setValue(initialValue ?? '');
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: initialValue ?? '' }));
     requestAnimationFrame(() => editorRef.current?.focus());
-  }, [disabled, dispatch, draftKey, handleCloseSkillsPopover, isPatchingModel, isPlanMode, onGoalCommand, planConfirmation, remoteManaged, sessionId, steerInputActive, steerValue, value]);
+  }, [disabled, dispatch, draftKey, handleCloseSkillsPopover, isPatchingModel, onGoalCommand, remoteManaged, sessionId, steerInputActive, steerValue, syncPlanModeState, value]);
 
   const handleGoalCommandClick = useCallback((command: string) => {
     if (disabled || remoteManaged || isPatchingModel || !onGoalCommand) return;
@@ -2495,7 +2488,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
               handleCloseSkillsPopover();
               handleCloseKnowledgeSubmenu();
             }}
-            disabled={disabled || isPatchingModel || remoteManaged}
+            disabled={disabled || isPatchingModel || isStreaming || goalInputActive || remoteManaged}
             className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               isPlanMode ? 'bg-surface-raised text-foreground' : 'text-foreground hover:bg-surface-raised'
             } focus:outline-none focus-visible:ring-1 focus-visible:ring-border-subtle`}
@@ -2507,7 +2500,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           </button>
           <button
             type="button"
-            onClick={() => handleEnableGoalInput(goal ? CoworkGoalInputMode.Set : CoworkGoalInputMode.Start, goal?.objective)}
+            onClick={() => { void handleEnableGoalInput(goal ? CoworkGoalInputMode.Set : CoworkGoalInputMode.Start, goal?.objective); }}
             onMouseEnter={() => {
               handleCloseSkillsPopover();
               handleCloseKnowledgeSubmenu();
@@ -2516,7 +2509,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
               handleCloseSkillsPopover();
               handleCloseKnowledgeSubmenu();
             }}
-            disabled={disabled || isPatchingModel || (!!sessionId && !onGoalCommand)}
+            disabled={disabled || isPatchingModel || isPlanMode || (!!sessionId && !onGoalCommand)}
             className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               goalInputActive ? 'bg-surface-raised text-foreground' : 'text-foreground hover:bg-surface-raised'
             }`}
@@ -2695,7 +2688,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       ? createPortal(queuedFollowUpNode, steerPreviewPortalTarget)
       : shouldUseExternalSteerPreview ? null : queuedFollowUpNode
     : null;
-  const goalActionsDisabled = disabled || remoteManaged || isPatchingModel || !onGoalCommand;
+  const goalActionsDisabled = disabled || remoteManaged || isPatchingModel || isPlanMode || !onGoalCommand;
   const shouldUseExternalGoalStatusBar = goalStatusBarPortalTarget !== undefined;
   const sessionGoalStatusBarNode = goal && !goalInputActive ? (() => {
     const summary = getGoalSummary(goal);
@@ -2732,7 +2725,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
           <div className="flex shrink-0 items-center gap-0.5">
             <button
               type="button"
-              onClick={() => handleEnableGoalInput(CoworkGoalInputMode.Set, goal.objective)}
+              onClick={() => { void handleEnableGoalInput(CoworkGoalInputMode.Set, goal.objective); }}
               disabled={goalActionsDisabled}
               className="rounded-md p-1 text-secondary transition-colors hover:bg-surface hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               title={i18nService.t('coworkGoalEdit')}
@@ -2862,7 +2855,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         event.stopPropagation();
         handleTogglePlanMode();
       }}
-      className="group inline-flex h-[34px] max-w-[220px] items-center gap-1.5 rounded-lg px-2 text-[13px] font-normal leading-none text-secondary transition-colors hover:bg-surface-raised hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-border-subtle"
+      disabled={isStreaming}
+      className="group inline-flex h-[34px] max-w-[220px] items-center gap-1.5 rounded-lg px-2 text-[13px] font-normal leading-none text-secondary transition-colors hover:bg-surface-raised hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-secondary focus:outline-none focus-visible:ring-1 focus-visible:ring-border-subtle"
       title={i18nService.t('coworkClearPlanMode')}
       aria-label={i18nService.t('coworkClearPlanMode')}
     >
