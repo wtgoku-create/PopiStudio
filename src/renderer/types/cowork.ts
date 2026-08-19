@@ -4,6 +4,7 @@ import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import type { CoworkGoal } from '../../shared/cowork/goal';
 import type { CoworkPromptDocument } from '../../shared/cowork/promptDocument';
 import type { CoworkSelectedTextSnippet } from '../../shared/cowork/selectedText';
+import type { PlanControl } from '../../shared/cowork/planProtocol';
 
 // Cowork image attachment for vision-capable models
 export interface CoworkImageAttachment {
@@ -317,6 +318,7 @@ export interface CoworkStartOptions {
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
   browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
   promptDocument?: CoworkPromptDocument;
+  planControl?: PlanControl;
 }
 
 // Continue session options
@@ -332,6 +334,7 @@ export interface CoworkContinueOptions {
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
   browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
   promptDocument?: CoworkPromptDocument;
+  planControl?: PlanControl;
 }
 
 // IPC result types

@@ -1,9 +1,10 @@
 import type { OpenClawSessionPatch } from '../../../common/openclawSession';
 import type { CoworkBrowserAnnotationMessageBatch } from '../../../shared/cowork/browserAnnotations';
+import type { CoworkErrorDetail } from '../../../shared/cowork/errorDetail';
+import type { CoworkGoal } from '../../../shared/cowork/goal';
+import type { PlanControl, PlanControlState } from '../../../shared/cowork/planProtocol';
 import type { CoworkSelectedTextSnippet } from '../../../shared/cowork/selectedText';
 import type { CoworkSteerResponse } from '../../../shared/cowork/steer';
-import type { CoworkGoal } from '../../../shared/cowork/goal';
-import type { CoworkErrorDetail } from '../../../shared/cowork/errorDetail';
 import type { CoworkMessage, CoworkSessionStatus } from '../../coworkStore';
 
 export type CoworkAgentEngine = 'openclaw';
@@ -92,6 +93,7 @@ export type CoworkStartOptions = {
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
   browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
   agentId?: string;
+  planControl?: PlanControl;
 };
 
 export type CoworkContinueOptions = {
@@ -103,6 +105,7 @@ export type CoworkContinueOptions = {
   imageAttachments?: CoworkImageAttachment[];
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
   browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
+  planControl?: PlanControl;
 };
 
 export interface CoworkRuntime {
@@ -118,6 +121,8 @@ export interface CoworkRuntime {
   continueSession(sessionId: string, prompt: string, options?: CoworkContinueOptions): Promise<void>;
   createSession?(sessionId: string, options?: CoworkCreateRuntimeSessionOptions): Promise<void>;
   patchSession?(sessionId: string, patch: OpenClawSessionPatch): Promise<void>;
+  getPlanControlState?(sessionId: string): Promise<PlanControlState | null>;
+  controlPlanMode?(sessionId: string, control: PlanControl): Promise<PlanControlState | null>;
   getContextUsage?(sessionId: string): Promise<CoworkContextUsage | null>;
   compactContext?(sessionId: string): Promise<{ compacted: boolean; reason?: string; usage?: CoworkContextUsage | null }>;
   getForkCompactionSummary?(sessionId: string, beforeCreatedAt?: number): Promise<CoworkForkCompactionSummary | null>;

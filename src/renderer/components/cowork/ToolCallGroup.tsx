@@ -55,19 +55,18 @@ const TodoWriteInputView: React.FC<{ items: ParsedTodoItem[] }> = ({ items }) =>
   return (
     <div className="space-y-2">
       {items.map((item, index) => (
-        <div
-          key={`todo-item-${index}`}
-          className="flex items-start gap-2"
-        >
-          <span className={`mt-0.5 h-4 w-4 rounded-[4px] border flex-shrink-0 inline-flex items-center justify-center ${getStatusCheckboxClass(item.status)}`}>
+        <div key={`todo-item-${index}`} className="flex items-start gap-2">
+          <span
+            className={`mt-0.5 h-4 w-4 rounded-[4px] border flex-shrink-0 inline-flex items-center justify-center ${getStatusCheckboxClass(item.status)}`}
+          >
             {item.status === 'completed' && <CheckIcon className="h-3 w-3 stroke-[2.5]" />}
           </span>
           <div className="min-w-0 flex-1">
-            <div className={`text-xs whitespace-pre-wrap break-words leading-5 ${
-              item.status === 'completed'
-                ? 'text-muted'
-                : 'text-foreground'
-            }`}>
+            <div
+              className={`text-xs whitespace-pre-wrap break-words leading-5 ${
+                item.status === 'completed' ? 'text-muted' : 'text-foreground'
+              }`}
+            >
               {item.primaryText}
             </div>
           </div>
@@ -95,7 +94,8 @@ const ToolCallGroup: React.FC<{
   initiallyExpanded = false,
 }) => {
   const { toolUse, toolResult } = group;
-  const rawToolName = typeof toolUse.metadata?.toolName === 'string' ? toolUse.metadata.toolName : 'Tool';
+  const rawToolName =
+    typeof toolUse.metadata?.toolName === 'string' ? toolUse.metadata.toolName : 'Tool';
   const toolName = getToolDisplayName(rawToolName);
   const toolInput = toolUse.metadata?.toolInput;
   const isCronTool = isCronToolName(rawToolName);
@@ -109,11 +109,11 @@ const ToolCallGroup: React.FC<{
   const isSessionStreaming = useSelector(selectIsStreaming);
   const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
   const collapsedToolResult = useMemo(
-    () => toolResult ? getToolResultCollapsedDisplay(toolResult) : null,
+    () => (toolResult ? getToolResultCollapsedDisplay(toolResult) : null),
     [toolResult],
   );
   const toolResultDisplayRaw = useMemo(
-    () => toolResult && isExpanded ? getToolResultDisplay(toolResult) : '',
+    () => (toolResult && isExpanded ? getToolResultDisplay(toolResult) : ''),
     [isExpanded, toolResult],
   );
   const toolResultDisplay = toolResultDisplayRaw ? mapText(toolResultDisplayRaw) : '';
@@ -146,9 +146,10 @@ const ToolCallGroup: React.FC<{
     [rawToolName, toolInput],
   );
   const isEditWithDiff = diffDataList !== null && diffDataList.length > 0;
-  const rowStep = variant === 'row'
-    ? getToolStepDisplay(rawToolName, toolInput as Record<string, unknown> | undefined)
-    : null;
+  const rowStep =
+    variant === 'row'
+      ? getToolStepDisplay(rawToolName, toolInput as Record<string, unknown> | undefined)
+      : null;
 
   return (
     <div className={`relative ${variant === 'timeline' ? 'py-1' : ''}`}>
@@ -156,72 +157,74 @@ const ToolCallGroup: React.FC<{
         <div className="absolute left-[3.5px] top-[14px] bottom-[-8px] w-px bg-border" />
       )}
       <button
-        type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={`w-full flex gap-2 text-left group relative z-10 transition-colors ${variant === 'row' ? 'items-center px-4 py-2 hover:bg-surface-raised/40' : 'items-start'}`}
-      >
-        <span className={`${variant === 'row' ? 'w-1.5 h-1.5' : 'mt-1.5 w-2 h-2'} rounded-full flex-shrink-0 ${
-          !toolResult
-            ? 'bg-blue-500 animate-pulse'
-            : isToolError
-              ? 'bg-red-500'
-              : variant === 'row'
-                ? 'hidden'
-                : 'bg-green-500'
-        }`} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`font-medium ${variant === 'row' ? 'text-xs text-foreground/90 flex-shrink-0' : 'text-sm text-secondary'} ${!toolResult && isSessionStreaming ? 'shimmer-text' : ''}`}>
-              {toolName}
-            </span>
-            {variant === 'row' && rowStep?.summary && (
-              <span className="min-w-0 truncate text-xs text-secondary">
-                {rowStep.summary}
-              </span>
-            )}
-            {variant === 'row' && !toolResult && isSessionStreaming && typeof toolUse.timestamp === 'number' && (
-              <span className="text-xs text-muted flex-shrink-0">
-                <ToolRunningElapsed startTimestamp={toolUse.timestamp} />
-              </span>
-            )}
-            {variant === 'timeline' && toolInputSummary && (
-              <code className="text-xs text-muted font-mono truncate max-w-full">
-                {toolInputSummary}
-              </code>
-            )}
-          </div>
-          {variant === 'timeline' && toolResult && !isTodoWriteTool && (hasToolResultText || showNoDetailError) && (
-            <div className={`text-xs mt-0.5 ${
-              hasToolResultText
-                ? 'text-muted'
-                : showNoDetailError
-                  ? 'text-red-500/80'
-                  : 'text-muted'
-              }`}>
-              {hasToolResultText
-                ? toolResultSummary
-                : toolResultFallback}
-            </div>
-          )}
-          {!toolResult && (
-            <div className="text-xs text-muted mt-0.5">
-              {i18nService.t('coworkToolRunning')}
-            </div>
-          )}
-        </div>
-        {variant === 'row' && (
-          <ChevronRightIcon
-            className={`h-3 w-3 text-muted flex-shrink-0 transition-transform duration-200 ${
-              isExpanded ? 'rotate-90' : ''
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className={`w-full flex gap-2 text-left group relative z-10 transition-colors ${variant === 'row' ? 'items-center px-4 py-2 hover:bg-surface-raised/40' : 'items-start'}`}
+        >
+          <span
+            className={`${variant === 'row' ? 'w-1.5 h-1.5' : 'mt-1.5 w-2 h-2'} rounded-full flex-shrink-0 ${
+              !toolResult
+                ? 'bg-blue-500 animate-pulse'
+                : isToolError
+                  ? 'bg-red-500'
+                  : variant === 'row'
+                    ? 'hidden'
+                    : 'bg-green-500'
             }`}
           />
-        )}
-      </button>
-      {footer && (
-        <div className={variant === 'row' ? 'px-4 pb-3' : 'ml-4 mt-2'}>
-          {footer}
-        </div>
-      )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`font-medium ${variant === 'row' ? 'text-xs text-foreground/90 flex-shrink-0' : 'text-sm text-secondary'} ${!toolResult && isSessionStreaming ? 'shimmer-text' : ''}`}
+              >
+                {toolName}
+              </span>
+              {variant === 'row' && rowStep?.summary && (
+                <span className="min-w-0 truncate text-xs text-secondary">{rowStep.summary}</span>
+              )}
+              {variant === 'row' &&
+                !toolResult &&
+                isSessionStreaming &&
+                typeof toolUse.timestamp === 'number' && (
+                  <span className="text-xs text-muted flex-shrink-0">
+                    <ToolRunningElapsed startTimestamp={toolUse.timestamp} />
+                  </span>
+                )}
+              {variant === 'timeline' && toolInputSummary && (
+                <code className="text-xs text-muted font-mono truncate max-w-full">
+                  {toolInputSummary}
+                </code>
+              )}
+            </div>
+            {variant === 'timeline' &&
+              toolResult &&
+              !isTodoWriteTool &&
+              (hasToolResultText || showNoDetailError) && (
+                <div
+                  className={`text-xs mt-0.5 ${
+                    hasToolResultText
+                      ? 'text-muted'
+                      : showNoDetailError
+                        ? 'text-red-500/80'
+                        : 'text-muted'
+                  }`}
+                >
+                  {hasToolResultText ? toolResultSummary : toolResultFallback}
+                </div>
+              )}
+            {!toolResult && (
+              <div className="text-xs text-muted mt-0.5">{i18nService.t('coworkToolRunning')}</div>
+            )}
+          </div>
+          {variant === 'row' && (
+            <ChevronRightIcon
+              className={`h-3 w-3 text-muted flex-shrink-0 transition-transform duration-200 ${
+                isExpanded ? 'rotate-90' : ''
+              }`}
+            />
+          )}
+        </button>
+      {footer && <div className={variant === 'row' ? 'px-4 pb-3' : 'ml-4 mt-2'}>{footer}</div>}
       {isExpanded && (
         <div className={`${variant === 'row' ? 'activity-row-detail px-4 pb-3' : 'ml-4 mt-2'}`}>
           {isBashTool ? (
@@ -240,13 +243,15 @@ const ToolCallGroup: React.FC<{
                   </div>
                 )}
                 {toolResult && (hasExpandedToolResultText || showNoDetailError) && (
-                  <div className={`mt-1.5 whitespace-pre-wrap break-words ${
-                    isToolError
-                      ? 'text-red-400'
-                      : hasExpandedToolResultText
-                        ? 'text-secondary'
-                        : 'text-muted italic'
-                  }`}>
+                  <div
+                    className={`mt-1.5 whitespace-pre-wrap break-words ${
+                      isToolError
+                        ? 'text-red-400'
+                        : hasExpandedToolResultText
+                          ? 'text-secondary'
+                          : 'text-muted italic'
+                    }`}
+                  >
                     {displayToolResult}
                   </div>
                 )}
@@ -275,13 +280,15 @@ const ToolCallGroup: React.FC<{
                     {i18nService.t('coworkToolResult')}
                   </div>
                   <div className="max-h-32 overflow-y-auto">
-                    <pre className={`text-xs whitespace-pre-wrap break-words font-mono ${
-                      isToolError
-                        ? 'text-red-500'
-                        : hasExpandedToolResultText
-                          ? 'dark:text-claude-darkText text-claude-text'
-                          : 'dark:text-claude-darkTextSecondary text-claude-textSecondary italic'
-                    }`}>
+                    <pre
+                      className={`text-xs whitespace-pre-wrap break-words font-mono ${
+                        isToolError
+                          ? 'text-red-500'
+                          : hasExpandedToolResultText
+                            ? 'dark:text-claude-darkText text-claude-text'
+                            : 'dark:text-claude-darkTextSecondary text-claude-textSecondary italic'
+                      }`}
+                    >
                       {displayToolResult}
                     </pre>
                   </div>
@@ -308,13 +315,15 @@ const ToolCallGroup: React.FC<{
                     {i18nService.t('coworkToolResult')}
                   </div>
                   <div className="max-h-64 overflow-y-auto">
-                    <pre className={`text-xs whitespace-pre-wrap break-words font-mono ${
-                      isToolError
-                        ? 'text-red-500'
-                        : hasExpandedToolResultText
-                          ? 'text-foreground'
-                          : 'text-secondary italic'
-                    }`}>
+                    <pre
+                      className={`text-xs whitespace-pre-wrap break-words font-mono ${
+                        isToolError
+                          ? 'text-red-500'
+                          : hasExpandedToolResultText
+                            ? 'text-foreground'
+                            : 'text-secondary italic'
+                      }`}
+                    >
                       {displayToolResult}
                     </pre>
                   </div>

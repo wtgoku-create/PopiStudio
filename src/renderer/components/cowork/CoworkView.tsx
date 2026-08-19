@@ -38,8 +38,12 @@ import { useAgentSelectedModel } from './agentModelSelection';
 import { CoworkUiEvent } from './constants';
 import CoworkPromptInput, { type CoworkPromptInputRef, type CoworkPromptSubmitOptions } from './CoworkPromptInput';
 import CoworkSessionDetail from './CoworkSessionDetail';
-import { buildCoworkSystemPrompt } from './skillSystemPrompt';
 import SubagentSessionDetail from './SubagentSessionDetail';
+
+const buildCoworkSystemPrompt = (baseSystemPrompt?: string): string | undefined => {
+  const normalized = baseSystemPrompt?.trim();
+  return normalized || undefined;
+};
 
 const POPITV_SKILL_ID = 'popitv';
 
@@ -372,7 +376,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         shouldInclude: sessionSkillIds.includes(POPITV_SKILL_ID),
       });
       const baseSystemPrompt = buildSessionSystemPrompt(config.systemPrompt, popitvCanvasContext);
-      const combinedSystemPrompt = buildCoworkSystemPrompt(options?.skillPrompt, baseSystemPrompt);
+      const combinedSystemPrompt = buildCoworkSystemPrompt(baseSystemPrompt);
 
       // Start the actual session immediately with fallback title
       const sessionModelOverride = currentAgentSelectedModel ? toOpenClawModelRef(currentAgentSelectedModel) : '';
@@ -391,6 +395,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         agentId: currentAgentId,
         modelOverride: sessionModelOverride,
         imageAttachments,
+        planControl: options?.planControl,
       });
       if (isPlanMode && startedSession) {
         dispatch(setDraftCollaborationMode({
@@ -465,9 +470,9 @@ const CoworkView: React.FC<CoworkViewProps> = ({
         selectedTextSnippets,
         browserAnnotations,
         promptDocument,
-        turnInstructions: options?.skillPrompt,
         activeSkillIds: sessionSkillIds.length > 0 ? sessionSkillIds : undefined,
         imageAttachments,
+        planControl: options?.planControl,
       });
       if (sent) {
         dispatch(setDraftCollaborationMode({

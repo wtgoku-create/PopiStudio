@@ -13,6 +13,7 @@ import type {
 } from '../../shared/cowork/constants';
 import type { CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import type { CoworkGoal } from '../../shared/cowork/goal';
+import type { PlanControl, PlanControlState } from '../../shared/cowork/planProtocol';
 import type { CoworkPromptDocument } from '../../shared/cowork/promptDocument';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import type { FolderListChildrenResult } from '../../shared/folder/constants';
@@ -568,6 +569,7 @@ interface IElectronAPI {
       activeSkillIds?: string[];
       agentId?: string;
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
+      planControl?: PlanControl;
     }) => Promise<{
       success: boolean;
       session?: CoworkSession;
@@ -587,6 +589,7 @@ interface IElectronAPI {
       turnInstructions?: string;
       activeSkillIds?: string[];
       imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
+      planControl?: PlanControl;
     }) => Promise<{
       success: boolean;
       session?: CoworkSession;
@@ -626,6 +629,19 @@ interface IElectronAPI {
     getSession: (
       sessionId: string,
     ) => Promise<{ success: boolean; session?: CoworkSession; error?: string }>;
+    getPlanModeState: (sessionId: string) => Promise<{
+      success: boolean;
+      state?: PlanControlState | null;
+      error?: string;
+    }>;
+    controlPlanMode: (options: {
+      sessionId: string;
+      control: PlanControl;
+    }) => Promise<{
+      success: boolean;
+      state?: PlanControlState | null;
+      error?: string;
+    }>;
     remoteManaged: (
       sessionId: string,
     ) => Promise<{ success: boolean; remoteManaged: boolean; error?: string }>;

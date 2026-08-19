@@ -13,6 +13,7 @@ import {
 } from '../../shared/cowork/constants';
 import { buildCoworkErrorDetail, type CoworkErrorDetail } from '../../shared/cowork/errorDetail';
 import { normalizeCoworkGoal } from '../../shared/cowork/goal';
+import type { PlanControl, PlanControlState } from '../../shared/cowork/planProtocol';
 import type { CoworkMessageRailIndexItem } from '../../shared/cowork/rail';
 import {
   CoworkSteerRejectReason,
@@ -913,6 +914,7 @@ class CoworkService {
       turnInstructions: options.turnInstructions,
       activeSkillIds: options.activeSkillIds,
       imageAttachments: options.imageAttachments,
+      planControl: options.planControl,
     });
     if (!result.success) {
       store.dispatch(setStreaming(false));
@@ -944,6 +946,22 @@ class CoworkService {
     }
 
     return true;
+  }
+
+  async getPlanModeState(sessionId: string): Promise<PlanControlState | null> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.getPlanModeState) throw new Error('Plan mode state API is unavailable.');
+    const result = await cowork.getPlanModeState(sessionId);
+    if (!result.success) throw new Error(result.error || 'Failed to read plan mode state.');
+    return result.state ?? null;
+  }
+
+  async controlPlanMode(sessionId: string, control: PlanControl): Promise<PlanControlState | null> {
+    const cowork = window.electron?.cowork;
+    if (!cowork?.controlPlanMode) throw new Error('Plan mode control API is unavailable.');
+    const result = await cowork.controlPlanMode({ sessionId, control });
+    if (!result.success) throw new Error(result.error || 'Failed to update plan mode state.');
+    return result.state ?? null;
   }
 
   async forkSession(options: CoworkForkSessionOptions): Promise<CoworkSession | null> {

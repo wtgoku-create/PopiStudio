@@ -1,0 +1,15 @@
+{
+  "id": "popi-plan-mode",
+  "name": "Popi Plan Mode",
+  "description": "Read-only planning mode with explicit plan handoff.",
+  "contracts": {
+    "tools": ["plan_mode_complete"]
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

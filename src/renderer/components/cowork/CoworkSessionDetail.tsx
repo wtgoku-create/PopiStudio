@@ -32,6 +32,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo,useRef, useStat
 import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 
+import { PlanControlAction } from '../../../shared/cowork/planProtocol';
 import { dedupeArtifactsForDisplay } from '../../services/artifactParser';
 import { coworkService } from '../../services/cowork';
 import { i18nService } from '../../services/i18n';
@@ -175,6 +176,15 @@ const hashProposedPlanText = (value: string): string => {
 const findLatestProposedPlan = (messages: CoworkMessage[]): LatestProposedPlan | null => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+    const isPlanToolResult = message.type === 'tool_result'
+      && message.metadata?.toolName === 'plan_mode_complete'
+      && message.content.trim();
+    if (isPlanToolResult) {
+      return {
+        messageId: message.id,
+        planTextHash: hashProposedPlanText(message.content.trim()),
+      };
+    }
     if (message.type !== 'assistant' || !message.content.trim()) continue;
     const proposedPlan = parseProposedPlanBlock(message.content);
     if (!proposedPlan.planText?.trim()) continue;
@@ -1866,21 +1876,34 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
 
   useEffect(() => {
     if (!sessionId || !latestProposedPlan) return;
-    if (draftCollaborationMode !== CoworkCollaborationMode.Plan) return;
-    if (isSessionBusy || currentSession?.status === CoworkSessionStatusValue.Running) return;
-    const isSamePlan = planConfirmation?.messageId === latestProposedPlan.messageId
-      && planConfirmation.planTextHash === latestProposedPlan.planTextHash;
-    if (isSamePlan) return;
-    dispatch(setPlanConfirmationAwaiting({
-      sessionId,
-      messageId: latestProposedPlan.messageId,
-      planTextHash: latestProposedPlan.planTextHash,
-    }));
+    if (currentSession?.status === CoworkSessionStatusValue.Running) return;
+    let cancelled = false;
+    void coworkService.getPlanModeState(sessionId).then((state) => {
+      if (cancelled || state?.status !== 'awaiting_approval') return;
+      dispatch(setDraftCollaborationMode({
+        draftKey: sessionId,
+        mode: CoworkCollaborationMode.Plan,
+      }));
+      const isSamePlan = planConfirmation?.messageId === latestProposedPlan.messageId
+        && planConfirmation.planTextHash === latestProposedPlan.planTextHash;
+      if (isSamePlan) return;
+      dispatch(setPlanConfirmationAwaiting({
+        sessionId,
+        messageId: latestProposedPlan.messageId,
+        planTextHash: latestProposedPlan.planTextHash,
+      }));
+    }).catch((error) => {
+      if (!cancelled) {
+        console.warn('[CoworkSessionDetail] failed to sync plan approval state:', error);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [
     currentSession?.status,
+    currentSession?.id,
     dispatch,
-    draftCollaborationMode,
-    isSessionBusy,
     latestProposedPlan,
     planConfirmation?.messageId,
     planConfirmation?.planTextHash,
@@ -1902,7 +1925,14 @@ const CoworkSessionDetail: React.FC<CoworkSessionDetailProps> = ({
     const result = await onContinue(
       i18nService.t('coworkPlanConfirmExecutionPrompt'),
       undefined,
-      { collaborationMode: CoworkCollaborationMode.Default },
+      {
+        collaborationMode: CoworkCollaborationMode.Default,
+        planControl: {
+          action: PlanControlAction.Approve,
+          planHash: latestProposedPlan.planTextHash,
+          revision: 1,
+        },
+      },
     );
     if (result === false) {
       dispatch(setDraftCollaborationMode({

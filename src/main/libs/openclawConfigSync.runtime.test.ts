@@ -285,6 +285,20 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(config.plugins.allow).toContain('ask-user-question');
   });
 
+  test('enables and allowlists the bundled plan mode plugin', async () => {
+    const sync = await createSync();
+
+    const result = sync.sync('plan-mode-plugin-allowlist');
+    expect(result.ok).toBe(true);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(config.plugins.entries['popi-plan-mode']).toEqual({
+      enabled: true,
+      hooks: { allowPromptInjection: true },
+    });
+    expect(config.plugins.allow).toContain('popi-plan-mode');
+  });
+
   test('does not create an agent model allowlist for OpenAI OAuth when system proxy is enabled', async () => {
     const { ProviderName } = await import('../../shared/providers');
     const { setSystemProxyEnabled } = await import('./systemProxy');

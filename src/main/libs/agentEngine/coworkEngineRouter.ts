@@ -2,12 +2,13 @@ import { EventEmitter } from 'events';
 
 import type { OpenClawSessionPatch } from '../../../common/openclawSession';
 import type { CoworkGoal } from '../../../shared/cowork/goal';
+import type { PlanControl, PlanControlState } from '../../../shared/cowork/planProtocol';
 import type { CoworkSteerResponse } from '../../../shared/cowork/steer';
 import type {
   CoworkAgentEngine,
-  CoworkCreateRuntimeSessionOptions,
   CoworkContextUsage,
   CoworkContinueOptions,
+  CoworkCreateRuntimeSessionOptions,
   CoworkForkCompactionSummary,
   CoworkRuntime,
   CoworkRuntimeEvents,
@@ -117,6 +118,15 @@ export class CoworkEngineRouter extends EventEmitter implements CoworkRuntime {
       return null;
     }
     return this.runtime.getContextUsage(sessionId);
+  }
+
+  async getPlanControlState(sessionId: string): Promise<PlanControlState | null> {
+    return this.runtime.getPlanControlState?.(sessionId) ?? null;
+  }
+
+  async controlPlanMode(sessionId: string, control: PlanControl): Promise<PlanControlState | null> {
+    if (!this.runtime.controlPlanMode) return null;
+    return this.runtime.controlPlanMode(sessionId, control);
   }
 
   async compactContext(sessionId: string): Promise<{ compacted: boolean; reason?: string; usage?: CoworkContextUsage | null }> {
