@@ -1973,6 +1973,7 @@ export class OpenClawConfigSync {
       },
       models: {
         mode: 'replace',
+        pricing: { enabled: false },
         providers: allProvidersMap,
       },
       agents: {

@@ -147,28 +147,23 @@ if (currentTag === desiredVersion) {
 
 log(`Current: ${currentTag || '(not on a tag)'}. Switching to ${desiredVersion} ...`);
 
-// Fetch only the pinned tag when it is not available locally. OpenClaw is a
-// large repository, so unshallowing the entire history just to switch release
-// tags is both slow and prone to network failures.
-let tagCheck = gitExitCode(['rev-parse', '--verify', `refs/tags/${desiredVersion}`], {
-  cwd: openclawSrc,
-});
-if (tagCheck !== 0) {
-  try {
-    log(`Fetching target tag ${desiredVersion} with shallow history ...`);
-    git(
-      ['fetch', '--depth', '1', 'origin', 'tag', desiredVersion],
-      { cwd: openclawSrc, stdio: 'inherit' },
-    );
-  } catch (e) {
-    die(`Failed to fetch tag ${desiredVersion}: ${e.message}`);
+// Fetch tags (unshallow if needed)
+try {
+  const isShallow = fs.existsSync(path.join(openclawSrc, '.git', 'shallow'));
+  if (isShallow) {
+    log('Repository is shallow, fetching full history for tags ...');
+    git(['fetch', '--unshallow', '--tags', 'origin'], { cwd: openclawSrc, stdio: 'inherit' });
+  } else {
+    git(['fetch', '--tags', 'origin'], { cwd: openclawSrc, stdio: 'inherit' });
   }
-  tagCheck = gitExitCode(['rev-parse', '--verify', `refs/tags/${desiredVersion}`], {
-    cwd: openclawSrc,
-  });
+} catch (e) {
+  die(`Failed to fetch tags: ${e.message}`);
 }
 
 // Verify the desired tag exists
+const tagCheck = gitExitCode(['rev-parse', '--verify', `refs/tags/${desiredVersion}`], {
+  cwd: openclawSrc,
+});
 if (tagCheck !== 0) {
   die(`Tag ${desiredVersion} not found in the OpenClaw repository. Check openclaw.version in package.json.`);
 }

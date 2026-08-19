@@ -366,7 +366,7 @@ describe('OpenClawConfigSync runtime config output', () => {
     expect(result.ok).toBe(true);
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    expect(config.models.pricing).toBeUndefined();
+    expect(config.models.pricing).toEqual({ enabled: false });
     expect(config.models.providers['openai-codex']).toBeDefined();
     expect(config.models.providers.deepseek).toBeDefined();
     expect(config.agents.defaults.models).toBeUndefined();

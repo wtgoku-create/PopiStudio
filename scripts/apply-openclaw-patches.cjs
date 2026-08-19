@@ -63,33 +63,6 @@ if (patchFiles.length === 0) {
 console.log(`[apply-openclaw-patches] Applying patches for openclaw ${openclawVersion} (${patchFiles.length} file(s))`);
 
 const strongPatchValidators = {
-  'zz-openclaw-chat-send-extra-system-prompt.patch': [
-    {
-      file: 'packages/gateway-protocol/src/schema/logs-chat.ts',
-      snippets: [
-        'extraSystemPrompt: Type.Optional(Type.String({ maxLength: 100_000 }))',
-      ],
-    },
-    {
-      file: 'src/auto-reply/get-reply-options.types.ts',
-      snippets: [
-        'extraSystemPrompt?: string;',
-      ],
-    },
-    {
-      file: 'src/auto-reply/reply/get-reply-run.ts',
-      snippets: [
-        'opts?.extraSystemPrompt',
-      ],
-    },
-    {
-      file: 'src/gateway/server-methods/chat.ts',
-      snippets: [
-        'extraSystemPrompt requires admin scope',
-        'extraSystemPrompt: normalizeOptionalText(p.extraSystemPrompt)',
-      ],
-    },
-  ],
   'openclaw-terminate-run-on-critical-tool-loop.patch': [
     {
       file: 'packages/agent-core/src/agent.ts',
