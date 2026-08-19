@@ -1066,7 +1066,7 @@ test('syncChannelUserMessages inserts a late cron user prompt before current too
   expect(session.messages[0].content).toBe('[cron:job-1 会议准备] 请梳理今天会议');
 });
 
-test('ensureActiveTurn inserts the cron prompt before runtime tool messages', () => {
+test('ensureActiveTurn inserts a cron prompt placeholder before runtime tool messages', () => {
   const { session, store } = createReconcileStore([]);
   const adapter = new OpenClawRuntimeAdapter(store, {} as never, {
     resolveCronJobPrompt: (jobId) => ({
@@ -1092,10 +1092,51 @@ test('ensureActiveTurn inserts the cron prompt before runtime tool messages', ()
   expect(session.messages.map(message => message.type)).toEqual(['user', 'tool_use']);
   expect(session.messages[0].content).toContain('[cron:job-1 科技早报] 请收集新闻\nCurrent time: ');
   expect(session.messages[0].content).toContain('\nReference UTC: ');
+  expect(session.messages[0].metadata).toMatchObject({
+    openclawCronPromptPlaceholder: true,
+  });
   expect(session.messages[1].content).toBe('Using tool: Read');
 });
 
-test('ensureActiveTurn inserts the cron prompt before earlier runtime system errors', () => {
+test('ensureActiveTurn does not prefetch gateway user history for cron sessions', () => {
+  const { session, store } = createReconcileStore([]);
+  const adapter = new OpenClawRuntimeAdapter(store, {} as never, {
+    resolveCronJobPrompt: (jobId) => ({
+      message: '请收集新闻',
+      name: jobId === 'job-1' ? '科技早报' : null,
+    }),
+  });
+  adapter.channelSessionSync = {
+    isChannelSessionKey: (sessionKey: string) => sessionKey.startsWith('agent:main:cron:'),
+  } as never;
+  const prefetchSpy = vi
+    .spyOn(adapter, 'prefetchChannelUserMessages')
+    .mockResolvedValue(undefined);
+
+  adapter.ensureActiveTurn(session.id, 'agent:main:cron:job-1:run:run-1', 'run-1');
+
+  expect(adapter.activeTurns.get(session.id)?.pendingUserSync).toBe(false);
+  expect(prefetchSpy).not.toHaveBeenCalled();
+  expect(session.messages.filter(message => message.type === 'user')).toHaveLength(1);
+});
+
+test('ensureActiveTurn still prefetches gateway user history for IM channel sessions', () => {
+  const { session, store } = createReconcileStore([]);
+  const adapter = new OpenClawRuntimeAdapter(store, {} as never);
+  adapter.channelSessionSync = {
+    isChannelSessionKey: (sessionKey: string) => sessionKey.startsWith('agent:main:feishu:'),
+  } as never;
+  const prefetchSpy = vi
+    .spyOn(adapter, 'prefetchChannelUserMessages')
+    .mockResolvedValue(undefined);
+
+  adapter.ensureActiveTurn(session.id, 'agent:main:feishu:direct:ou_123', 'run-1');
+
+  expect(adapter.activeTurns.get(session.id)?.pendingUserSync).toBe(true);
+  expect(prefetchSpy).toHaveBeenCalledWith(session.id, 'agent:main:feishu:direct:ou_123');
+});
+
+test('ensureActiveTurn inserts a cron prompt placeholder before earlier runtime system errors', () => {
   const { session, store } = createReconcileStore([
     {
       id: 'system-error-1',
@@ -1121,20 +1162,24 @@ test('ensureActiveTurn inserts the cron prompt before earlier runtime system err
 
   expect(session.messages.map(message => message.type)).toEqual(['user', 'system']);
   expect(session.messages[0].content).toContain('[cron:job-1 科技早报] 请收集新闻\nCurrent time: ');
-  expect(session.messages[0].content).toContain('\nReference UTC: ');
+  expect(session.messages[0].metadata).toMatchObject({
+    openclawCronPromptPlaceholder: true,
+  });
   expect(session.messages[1].content).toBe('请求过于频繁，请稍后再试');
   expect(emittedMessages).toEqual([
     {
       message: expect.objectContaining({
         type: 'user',
-        content: expect.stringContaining('[cron:job-1 科技早报] 请收集新闻\nCurrent time: '),
+        metadata: expect.objectContaining({
+          openclawCronPromptPlaceholder: true,
+        }),
       }),
       beforeMessageId: 'system-error-1',
     },
   ]);
 });
 
-test('ensureActiveTurn appends a second cron prompt after the previous run output', () => {
+test('ensureActiveTurn appends the next cron prompt placeholder after previous run output', () => {
   const { session, store } = createReconcileStore([
     {
       id: 'run-1-user',
@@ -1170,8 +1215,8 @@ test('ensureActiveTurn appends a second cron prompt after the previous run outpu
   expect(session.messages.map(message => message.type)).toEqual(['user', 'tool_use', 'assistant', 'user']);
   expect(session.messages[0].content).toBe('[cron:job-1 科技早报] 请收集新闻');
   expect(session.messages[3].content).toContain('[cron:job-1 科技早报] 请收集新闻\nCurrent time: ');
-  expect(session.messages[3].content).toContain('\nReference UTC: ');
   expect(session.messages[3].metadata).toMatchObject({
+    openclawCronPromptPlaceholder: true,
     openclawCronRunSessionKey: 'agent:main:cron:job-1:run:run-2',
     openclawCronRunEntryIndex: 0,
   });
@@ -1419,6 +1464,80 @@ test('syncCronRunHistory does not update a previous cron run user message on the
     { type: 'user', content: '[cron:job-1 科技早报] 第二次' },
     { type: 'assistant', content: '第二次结果' },
   ]);
+});
+
+test('syncCronRunHistory does not reuse a resolved placeholder from a previous cron run', async () => {
+  const { session, store } = createReconcileStore([
+    {
+      id: 'prev-user',
+      type: 'user',
+      content: '[cron:job-1 科技早报] 第一次',
+      timestamp: 1,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:run-1', 0, {
+        openclawCronPromptPlaceholder: true,
+      }),
+    },
+    {
+      id: 'prev-assistant',
+      type: 'assistant',
+      content: '第一次结果',
+      timestamp: 2,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:run-1', 1),
+    },
+    {
+      id: 'current-placeholder',
+      type: 'user',
+      content: '[cron:job-1 科技早报] 第二次\nCurrent time: Thursday, July 30, 2026 - 15:47 (Asia/Shanghai)',
+      timestamp: 3,
+      metadata: buildCronRunHistoryMetadata('agent:main:cron:job-1:run:runtime-run-id', 0, {
+        openclawCronPromptPlaceholder: true,
+      }),
+    },
+  ]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+  adapter.gatewayClient = {
+    start: () => {},
+    stop: () => {},
+    request: async () => ({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            '[cron:job-1 科技早报] 第二次',
+            'Current time: Thursday, July 30th, 2026 - 15:47 PM (Asia/Shanghai)',
+            'Reference UTC: 2026-07-30 07:47 UTC',
+          ].join('\n'),
+        },
+        { role: 'assistant', content: '第二次结果' },
+      ],
+    }),
+    onStatus: () => () => {},
+    getStatus: () => 'connected',
+  } as never;
+
+  await (adapter as unknown as {
+    syncCronRunHistory: (sessionId: string, sessionKey: string) => Promise<void>;
+  }).syncCronRunHistory(session.id, 'agent:main:cron:job-1:run:run-2');
+
+  expect(session.messages.map(message => ({
+    id: message.id,
+    type: message.type,
+    content: message.content,
+  }))).toEqual([
+    { id: 'prev-user', type: 'user', content: '[cron:job-1 科技早报] 第一次' },
+    { id: 'prev-assistant', type: 'assistant', content: '第一次结果' },
+    {
+      id: 'current-placeholder',
+      type: 'user',
+      content: [
+        '[cron:job-1 科技早报] 第二次',
+        'Current time: Thursday, July 30th, 2026 - 15:47 PM (Asia/Shanghai)',
+        'Reference UTC: 2026-07-30 07:47 UTC',
+      ].join('\n'),
+    },
+    { id: expect.any(String), type: 'assistant', content: '第二次结果' },
+  ]);
+  expect(session.messages[2].metadata).not.toHaveProperty('openclawCronPromptPlaceholder');
 });
 
 test('reconcileWithHistory: already in sync — skips replace', async () => {

@@ -104,7 +104,7 @@ import {
   type CronRunLocalHistoryEntry,
   findCronRunHistoryLocalMatch,
   getCronRunHistorySessionKey,
-  isCronRunPromptContentCoveredByMessage,
+  mergeCronRunHistoryMetadata,
   isSameCronRunHistorySessionKey,
   shouldReplaceLocalConversationWithCronHistory,
 } from './openclawCronRunHistorySync';
@@ -8448,10 +8448,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
         if (matchingLocal) {
           usedLocalMessageIds.add(matchingLocal.id);
-          const metadata = {
-            ...(matchingLocal.metadata ?? {}),
-            ...(authoritative.metadata ?? {}),
-          };
+          const metadata = mergeCronRunHistoryMetadata(matchingLocal.metadata, authoritative.metadata);
           this.store.updateMessage(sessionId, matchingLocal.id, {
             content: authoritative.text,
             metadata,
@@ -9574,7 +9571,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     return `${sessionKey}:run:${runId.trim()}`;
   }
 
-  private ensureCronRunPromptMessage(sessionId: string, sessionKey: string, runId: string): void {
+  private ensureCronRunPromptPlaceholder(sessionId: string, sessionKey: string, runId: string): void {
     const baseContent = this.resolveCronRunPromptContent(sessionKey);
     if (!baseContent) return;
     const content = this.formatCronRunPromptWithTime(baseContent);
@@ -9584,7 +9581,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     if (!session) return;
     const alreadyExists = session.messages.some((message) => (
       message.type === 'user'
-      && isCronRunPromptContentCoveredByMessage(message.content, content)
+      && message.metadata?.openclawCronPromptPlaceholder === true
       && isSameCronRunHistorySessionKey(getCronRunHistorySessionKey(message.metadata), promptSessionKey)
     ));
     if (alreadyExists) return;
@@ -9595,6 +9592,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       metadata: buildCronRunHistoryMetadata(promptSessionKey, 0, {
         isStreaming: false,
         isFinal: true,
+        openclawCronPromptPlaceholder: true,
       }),
     } as const;
     const hasConversationMessages = session.messages.some(message => (
@@ -9645,6 +9643,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     const isChannel = this.channelSessionSync
       && !isManagedSessionKey(sessionKey)
       && this.channelSessionSync.isChannelSessionKey(sessionKey);
+    const shouldPrefetchChannelUsers = parseChannelSessionKey(sessionKey) !== null;
     console.debug(
       '[OpenClawRuntime] created active turn.',
       `Session ${sessionId}.`,
@@ -9681,20 +9680,22 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       thinkingMessageId: null,
       currentThinkingText: '',
       thinkingMessageIdByKey: new Map(),
-      pendingUserSync: !!isChannel,
+      pendingUserSync: shouldPrefetchChannelUsers,
       bufferedChatPayloads: [],
       bufferedAgentPayloads: [],
     });
     if (runId) {
       this.sessionIdByRunId.set(runId, sessionId);
     }
-    this.ensureCronRunPromptMessage(sessionId, sessionKey, turnRunId);
+    this.ensureCronRunPromptPlaceholder(sessionId, sessionKey, turnRunId);
     this.store.updateSession(sessionId, { status: 'running' });
     this.emitSessionStatus(sessionId, 'running');
     this.startTurnTimeoutWatchdog(sessionId);
 
-    // For channel sessions, prefetch user messages before streaming starts
-    if (isChannel) {
+    // For real IM/channel sessions, prefetch user messages before streaming starts.
+    // Cron sessions are also "channel-like" for discovery, but cron prompts are
+    // synced from OpenClaw history as the single source of truth.
+    if (shouldPrefetchChannelUsers) {
       void this.prefetchChannelUserMessages(sessionId, sessionKey);
     }
   }

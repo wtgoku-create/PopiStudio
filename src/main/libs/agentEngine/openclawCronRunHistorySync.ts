@@ -19,6 +19,7 @@ export type CronRunLocalHistoryEntry = CronRunHistoryEntry & {
 const CronRunHistoryMetadataKey = {
   SessionKey: 'openclawCronRunSessionKey',
   EntryIndex: 'openclawCronRunEntryIndex',
+  PromptPlaceholder: 'openclawCronPromptPlaceholder',
 } as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -102,6 +103,22 @@ export const getCronRunHistoryEntryIndex = (metadata: unknown): number | null =>
   if (!isRecord(metadata)) return null;
   const value = metadata[CronRunHistoryMetadataKey.EntryIndex];
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+};
+
+export const mergeCronRunHistoryMetadata = (
+  localMetadata: Record<string, unknown> | undefined,
+  authoritativeMetadata: Record<string, unknown> | undefined,
+): Record<string, unknown> => {
+  const metadata = {
+    ...(localMetadata ?? {}),
+    ...(authoritativeMetadata ?? {}),
+  };
+  delete metadata[CronRunHistoryMetadataKey.PromptPlaceholder];
+  return metadata;
+};
+
+const isCronRunPromptPlaceholder = (metadata: unknown): boolean => {
+  return isRecord(metadata) && metadata[CronRunHistoryMetadataKey.PromptPlaceholder] === true;
 };
 
 export const isSameCronRunHistorySessionKey = (left: string | null, right: string): boolean => {
@@ -255,6 +272,20 @@ export const findCronRunHistoryLocalMatch = (
       && isCoveredHistoryEntry(entry, authoritative);
   });
   if (legacyJobMatch) return legacyJobMatch;
+
+  const placeholderMatch = [...availableEntries].reverse().find((entry) => {
+    const importedSessionKey = getCronRunHistorySessionKey(entry.metadata);
+    const importedEntryIndex = getCronRunHistoryEntryIndex(entry.metadata);
+    const authoritativeEntryIndex = getCronRunHistoryEntryIndex(authoritative.metadata);
+    return entry.role === 'user'
+      && authoritative.role === 'user'
+      && isCronRunPromptPlaceholder(entry.metadata)
+      && isSameCronRunJobSessionKey(importedSessionKey, sessionKey)
+      && importedEntryIndex != null
+      && authoritativeEntryIndex != null
+      && importedEntryIndex === authoritativeEntryIndex;
+  });
+  if (placeholderMatch) return placeholderMatch;
 
   if (
     authoritative.role === 'user'
