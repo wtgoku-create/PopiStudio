@@ -32,7 +32,6 @@ import {
 import { COWORK_MESSAGE_PAGE_SIZE, COWORK_SESSION_PAGE_SIZE, CoworkForkMode, CoworkIpcChannel } from '../shared/cowork/constants';
 import { CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { containsPlanModePrompt } from '../shared/cowork/planMode';
-import type { PlanControl } from '../shared/cowork/planProtocol';
 import {
   type CoworkPromptDocument,
   CoworkPromptSegmentKind,
@@ -3424,7 +3423,6 @@ if (!gotTheLock) {
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
     agentId?: string;
     modelOverride?: string;
-    planControl?: PlanControl;
   }) => {
     try {
       const engineStatus = await ensureOpenClawRunningForCowork();
@@ -3544,7 +3542,6 @@ if (!gotTheLock) {
           selectedTextSnippets,
           browserAnnotations,
           agentId: options.agentId,
-          planControl: options.planControl,
         });
       })().catch(error => {
         console.error('[Cowork] session error:', error);
@@ -3590,7 +3587,6 @@ if (!gotTheLock) {
     turnInstructions?: string;
     activeSkillIds?: string[];
     imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
-    planControl?: PlanControl;
   }) => {
     try {
       const engineStatus = await ensureOpenClawRunningForCowork();
@@ -3698,7 +3694,6 @@ if (!gotTheLock) {
           imageAttachments: browserAnnotationPayload.imageAttachments,
           selectedTextSnippets,
           browserAnnotations,
-          planControl: options.planControl,
         });
       })().catch(error => {
         console.error('[Cowork] continue error:', error);
@@ -3923,33 +3918,6 @@ if (!gotTheLock) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to fork session',
-      };
-    }
-  });
-
-  ipcMain.handle('cowork:plan:state', async (_event, sessionId: string) => {
-    try {
-      const state = await getCoworkEngineRouter().getPlanControlState(sessionId);
-      return { success: true, state };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to read plan mode state',
-      };
-    }
-  });
-
-  ipcMain.handle('cowork:plan:control', async (_event, options: {
-    sessionId: string;
-    control: PlanControl;
-  }) => {
-    try {
-      const state = await getCoworkEngineRouter().controlPlanMode(options.sessionId, options.control);
-      return { success: true, state };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to update plan mode state',
       };
     }
   });

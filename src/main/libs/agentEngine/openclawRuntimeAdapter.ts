@@ -31,12 +31,6 @@ import {
   PLAN_MODE_EXECUTION_OVERRIDE_MARKER,
 } from '../../../shared/cowork/planMode';
 import {
-  PLAN_CONTROL_GATEWAY_METHOD,
-  type PlanControl,
-  PlanControlAction,
-  type PlanControlState,
-} from '../../../shared/cowork/planProtocol';
-import {
   buildSelectedTextPromptSection,
   type CoworkSelectedTextSnippet,
 } from '../../../shared/cowork/selectedText';
@@ -154,13 +148,6 @@ const OpenClawGatewayMethod = {
   SessionsSubscribe: 'sessions.subscribe',
   SessionsMessagesSubscribe: 'sessions.messages.subscribe',
 } as const;
-const PlanControlStatus = {
-  Off: 'off',
-  Planning: 'planning',
-  AwaitingApproval: 'awaiting_approval',
-  Executing: 'executing',
-  Completed: 'completed',
-} as const;
 type OpenClawOutboundPrompt = {
   message: string;
   extraSystemPrompt?: string;
@@ -183,35 +170,6 @@ export const OPENCLAW_CHAT_SEND_PAYLOAD_LIMIT_BYTES = 30 * 1000 * 1000;
 export const OPENCLAW_CHAT_SEND_PAYLOAD_SAFETY_MARGIN_BYTES = 500 * 1000;
 export const OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES =
   OPENCLAW_CHAT_SEND_PAYLOAD_LIMIT_BYTES - OPENCLAW_CHAT_SEND_PAYLOAD_SAFETY_MARGIN_BYTES;
-
-const normalizePlanControlState = (value: unknown): PlanControlState | null => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const raw = value as Record<string, unknown>;
-  const rawStatus = typeof raw.status === 'string'
-    ? raw.status
-    : typeof raw.mode === 'string'
-      ? raw.mode
-      : PlanControlStatus.Off;
-  const status = Object.values(PlanControlStatus).includes(rawStatus as typeof PlanControlStatus[keyof typeof PlanControlStatus])
-    ? rawStatus as PlanControlState['status']
-    : PlanControlStatus.Off;
-  const revision = typeof raw.revision === 'number' && Number.isInteger(raw.revision) && raw.revision >= 0
-    ? raw.revision
-    : 0;
-  const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
-    ? raw.updatedAt
-    : Date.now();
-  return {
-    status,
-    ...(typeof raw.planId === 'string' ? { planId: raw.planId } : {}),
-    ...(typeof raw.planText === 'string'
-      ? { planText: raw.planText }
-      : typeof raw.plan === 'string' ? { planText: raw.plan } : {}),
-    ...(typeof raw.planHash === 'string' ? { planHash: raw.planHash } : {}),
-    revision,
-    updatedAt,
-  };
-};
 
 /**
  * 正则表达式，用于检测 Bash 命令中是否包含 popiart 调用。
@@ -2321,37 +2279,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
     };
   }
 
-  async getPlanControlState(sessionId: string): Promise<PlanControlState | null> {
-    return this.requestPlanControl(sessionId, { action: 'status' });
-  }
-
-  async controlPlanMode(sessionId: string, control: PlanControl): Promise<PlanControlState | null> {
-    if (control.action !== PlanControlAction.Status && this.activeTurns.has(sessionId)) {
-      throw new Error(
-        `Plan mode cannot be changed while session ${sessionId} is running. Stop the session before changing plan mode.`,
-      );
-    }
-    return this.requestPlanControl(sessionId, control);
-  }
-
-  private async requestPlanControl(
-    sessionId: string,
-    control: PlanControl,
-  ): Promise<PlanControlState | null> {
-    const session = this.store.getSession(sessionId);
-    if (!session) return null;
-    await this.ensureGatewayClientReady();
-    const client = this.requireGatewayClient();
-    const sessionKey = this.toSessionKey(sessionId, session.agentId || 'main');
-    this.rememberSessionKey(sessionId, sessionKey);
-    const result = await client.request<{ state?: unknown }>(
-      PLAN_CONTROL_GATEWAY_METHOD,
-      { sessionKey, ...control },
-      { timeoutMs: OpenClawRuntimeAdapter.SESSION_PATCH_TIMEOUT_MS },
-    );
-    return normalizePlanControlState(result?.state);
-  }
-
   async compactContext(sessionId: string): Promise<{ compacted: boolean; reason?: string; usage?: CoworkContextUsage | null }> {
     const client = this.requireGatewayClient();
     const sessionKey = this.getSessionKeysForSession(sessionId)[0];
@@ -3150,7 +3077,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       selectedTextSnippets: options.selectedTextSnippets,
       browserAnnotations: options.browserAnnotations,
       agentId: options.agentId,
-      planControl: options.planControl,
     });
   }
 
@@ -3164,7 +3090,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       imageAttachments: options.imageAttachments,
       selectedTextSnippets: options.selectedTextSnippets,
       browserAnnotations: options.browserAnnotations,
-      planControl: options.planControl,
     });
   }
 
@@ -3676,7 +3601,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       selectedTextSnippets?: CoworkSelectedTextSnippet[];
       browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
       agentId?: string;
-      planControl?: PlanControl;
     },
   ): Promise<void> {
     if (
@@ -3744,14 +3668,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       return;
     }
     this.startChannelPolling();
-
-    if (options.planControl) {
-      const client = this.requireGatewayClient();
-      await client.request(PLAN_CONTROL_GATEWAY_METHOD, {
-        sessionKey,
-        ...options.planControl,
-      }, { timeoutMs: OpenClawRuntimeAdapter.SESSION_PATCH_TIMEOUT_MS });
-    }
 
     const runId = randomUUID();
     const turnToken = this.nextTurnToken(sessionId);
@@ -4965,7 +4881,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           metadata: {
             toolResult: entry.resultText,
             toolUseId: entry.toolCallId,
-            toolName: entry.toolName,
             isError: entry.resultIsError,
             isStreaming: false,
             isFinal: true,
@@ -6638,7 +6553,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           metadata: {
             toolResult: finalContent,
             toolUseId: toolCallId,
-            toolName: toolNameRaw,
             error: finalError,
             isError,
             isStreaming: false,
@@ -6653,7 +6567,6 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           metadata: {
             toolResult: finalContent,
             toolUseId: toolCallId,
-            toolName: toolNameRaw,
             error: finalError,
             isError,
             isStreaming: false,

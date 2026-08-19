@@ -107,7 +107,6 @@ export const OPENCLAW_AGENT_TIMEOUT_SECONDS = 3600;
 const DINGTALK_OPENCLAW_CHANNEL = 'dingtalk-connector';
 const OPENCLAW_MEMORY_CORE_PLUGIN_ID = 'memory-core';
 const OPENCLAW_MODEL_COMPAT_PLUGIN_ID = 'lobsterai-model-compat';
-const OPENCLAW_PLAN_MODE_PLUGIN_ID = 'popi-plan-mode';
 export const OPENCLAW_BINDING_ANY_ACCOUNT_ID = '*';
 const OPENCLAW_DEFAULT_MODEL_MAX_TOKENS = 8192;
 const OpenClawModelReasoningEffort = {
@@ -1870,7 +1869,6 @@ export class OpenClawConfigSync {
       preinstalledPlugins.some((plugin) => pluginMatches(plugin, ...ids))
     );
     const hasAskUserPlugin = isBundledPluginAvailable('ask-user-question');
-    const hasPlanModePlugin = isBundledPluginAvailable(OPENCLAW_PLAN_MODE_PLUGIN_ID);
     const qwenPortalAuthPluginId = resolveOpenClawExtensionPluginId('qwen-portal-auth');
 
     // Detect if any provider uses Qwen/Aliyun DashScope URLs — OpenClaw auto-injects
@@ -2112,12 +2110,6 @@ export class OpenClawConfigSync {
             ? { feishu: { enabled: false } }
             : {}),
           ...(hasAskUserPlugin ? { 'ask-user-question': { enabled: true } } : {}),
-          ...(hasPlanModePlugin ? {
-            [OPENCLAW_PLAN_MODE_PLUGIN_ID]: {
-              enabled: true,
-              hooks: { allowPromptInjection: true },
-            },
-          } : {}),
           ...(Object.keys(finalizedCompatibility.modelProfiles).length > 0
             ? {
                 [OPENCLAW_MODEL_COMPAT_PLUGIN_ID]: {
@@ -2156,7 +2148,6 @@ export class OpenClawConfigSync {
             ? [OPENCLAW_MODEL_COMPAT_PLUGIN_ID]
             : []),
           ...preinstalledPlugins.map(plugin => plugin.pluginId),
-          ...(hasPlanModePlugin ? [OPENCLAW_PLAN_MODE_PLUGIN_ID] : []),
           ...userPlugins.filter(plugin => plugin.enabled).map(plugin => plugin.pluginId),
         ])).sort();
 

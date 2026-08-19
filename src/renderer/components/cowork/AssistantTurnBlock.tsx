@@ -19,7 +19,6 @@ import InformationCircleIcon from '../icons/InformationCircleIcon';
 import ActivityGroupBlock from './ActivityGroupBlock';
 import AssistantMessageItem from './AssistantMessageItem';
 import { MessageCopyButton } from './MessageActionButton';
-import ProposedPlanBlock from './ProposedPlanBlock';
 import {
   canFoldTurnProcess,
   chunkConsolidatedItemsForDisplay,
@@ -304,24 +303,6 @@ const AssistantTurnBlock: React.FC<{
       );
     }
     if (item.type === 'tool_group') {
-      const rawToolName = typeof item.group.toolUse.metadata?.toolName === 'string'
-        ? item.group.toolUse.metadata.toolName
-        : '';
-      if (rawToolName.toLowerCase() === 'plan_mode_complete') {
-        const planResult = item.group.toolResult;
-        if (!planResult || planResult.metadata?.isError) return null;
-        return (
-          <ProposedPlanBlock
-            key={`plan-${planResult.id}`}
-            content={getToolResultDisplay(planResult)}
-            resolveLocalFilePath={resolveLocalFilePath}
-            onImageClick={() => undefined}
-            showConfirmationActions={planConfirmationMessageId === planResult.id}
-            onConfirmExecution={() => onConfirmPlan?.(planResult.id)}
-            onAdjustPlan={() => onAdjustPlan?.(planResult.id)}
-          />
-        );
-      }
       const override = renderToolGroupOverride?.(item.group);
       if (override) {
         return <div key={`tool-${item.group.toolUse.id}`}>{override}</div>;

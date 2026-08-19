@@ -858,17 +858,6 @@ test('continueSession keeps per-turn instructions out of the user message', asyn
   });
 });
 
-test('plan mode mutations are rejected while the session turn is active', async () => {
-  const { session, store } = createReconcileStore([]);
-  const adapter = new OpenClawRuntimeAdapter(store, {});
-  const sessionKey = `agent:main:popiai:${session.id}`;
-  adapter.activeTurns.set(session.id, createActiveTurn(session.id, sessionKey, 'run-plan-mode'));
-
-  await expect(adapter.controlPlanMode(session.id, { action: 'cancel' })).rejects.toThrow(
-    'Plan mode cannot be changed while session session-1 is running',
-  );
-});
-
 // ==================== Reconcile tests ====================
 
 function createReconcileStore(messages: Array<Record<string, unknown>>) {

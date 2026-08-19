@@ -20,7 +20,6 @@ import {
   formatCoworkGoalUsage,
 } from '../../../shared/cowork/goal';
 import { isPlanImplementationApproval } from '../../../shared/cowork/planMode';
-import { PlanControlAction, type PlanControlState } from '../../../shared/cowork/planProtocol';
 import {
   type CoworkPromptDocument,
   CoworkPromptResourceSource,
@@ -95,6 +94,7 @@ import { getClipboardAttachmentFiles } from './clipboardAttachments';
 import FolderSelectorPopover from './FolderSelectorPopover';
 import RichCoworkPromptEditor, { type RichCoworkPromptEditorRef } from './RichCoworkPromptEditor';
 import SelectedTextSnippetBadge from './SelectedTextSnippetBadge';
+import { buildPlanAdjustmentSystemPrompt, buildPlanModeSystemPrompt } from './skillSystemPrompt';
 import { usePersistAgentModelSelection } from './usePersistAgentModelSelection';
 
 // CoworkAttachment is aliased from the Redux-persisted DraftAttachment type
@@ -123,24 +123,14 @@ const getGoalSummary = (goal: CoworkGoal): string => {
   return [getGoalStatusLabel(goal), usage].filter(Boolean).join(' · ');
 };
 
-const collaborationModeFromPlanState = (state: PlanControlState | null): CoworkCollaborationMode => (
-  state?.status === 'planning' || state?.status === 'awaiting_approval'
-    ? CoworkCollaborationMode.Plan
-    : CoworkCollaborationMode.Default
-);
-
 export interface CoworkPromptSubmitOptions {
   knowledgeBases?: Array<{ id: string; name: string }>;
   knowledgeFiles?: Array<{ id: string; title: string; knowledgeBaseName?: string; fileType?: string }>;
   selectedTextSnippets?: CoworkSelectedTextSnippet[];
   browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
   promptDocument?: CoworkPromptDocument;
+  skillPrompt?: string;
   collaborationMode?: CoworkCollaborationMode;
-  planControl?: {
-    action: 'start' | 'approve' | 'cancel' | 'status';
-    planHash?: string;
-    revision?: number;
-  };
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.tiff', '.tif', '.ico', '.avif']);
@@ -552,21 +542,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       (state: RootState) => state.cowork.planConfirmations[draftKey],
     );
     const isPlanMode = draftCollaborationMode === CoworkCollaborationMode.Plan;
-    const syncPlanModeState = useCallback(async (): Promise<CoworkCollaborationMode | undefined> => {
-      if (!sessionId) return draftCollaborationMode;
-      try {
-        const state = await coworkService.getPlanModeState(sessionId);
-        const mode = collaborationModeFromPlanState(state);
-        dispatch(setDraftCollaborationMode({ draftKey, mode }));
-        return mode;
-      } catch (error) {
-        console.warn('[CoworkPromptInput] failed to sync authoritative plan mode state:', error);
-        window.dispatchEvent(new CustomEvent('app:showToast', {
-          detail: error instanceof Error ? error.message : 'Failed to read plan mode state.',
-        }));
-        return undefined;
-      }
-    }, [dispatch, draftCollaborationMode, draftKey, sessionId]);
     const goalInputActive = Boolean(draftGoalInput);
     const goalInputMode = draftGoalInput?.mode ?? CoworkGoalInputMode.Start;
     const pendingSteers = useSelector((state: RootState) => (
@@ -929,11 +904,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [draftKey]); // intentionally omit other deps to only trigger on session switch
 
   useEffect(() => {
-    if (!sessionId) return;
-    void syncPlanModeState();
-  }, [sessionId, syncPlanModeState]);
-
-  useEffect(() => {
     if (value !== draftPrompt) {
       const timer = setTimeout(() => {
         dispatch(setDraftPrompt({ sessionId: draftKey, draft: value }));
@@ -960,13 +930,10 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
   }, [dispatch, draftGoalInput?.returnDraft, draftKey]);
 
   const handleSubmit = useCallback(async () => {
-    const syncedMode = await syncPlanModeState();
-    if (syncedMode === undefined) return;
-    const planModeForSubmit = syncedMode === CoworkCollaborationMode.Plan;
     const activeValue = steerInputActive ? steerValue : value;
     const trimmedValue = activeValue.trim();
     const currentPromptDocument = editorRef.current?.getDocument();
-    const exitsPlanModeForImplementation = planModeForSubmit
+    const exitsPlanModeForImplementation = isPlanMode
       && !goalInputActive
       && isPlanImplementationApproval(trimmedValue);
     const pendingPlanFeedback = (
@@ -975,7 +942,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     )
       ? planConfirmation
       : undefined;
-    const effectivePlanMode = planModeForSubmit && !goalInputActive && !exitsPlanModeForImplementation;
+    const effectivePlanMode = isPlanMode && !goalInputActive && !exitsPlanModeForImplementation;
     const effectiveCollaborationMode = effectivePlanMode
       ? CoworkCollaborationMode.Plan
       : CoworkCollaborationMode.Default;
@@ -1066,7 +1033,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         return;
       }
       const queuedSteerId = `steer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const queuedPromptDocument = planModeForSubmit && currentPromptDocument
+      const queuedPromptDocument = isPlanMode && currentPromptDocument
         ? stripCoworkPromptDocumentSkills(currentPromptDocument)
         : currentPromptDocument;
       dispatch(addPendingSteer({
@@ -1202,6 +1169,9 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       });
     }
     const normalizedBrowserAnnotations = normalizeBrowserAnnotationBatches(browserAnnotationBatches);
+    const skillPrompt = effectivePlanMode
+      ? (pendingPlanFeedback ? buildPlanAdjustmentSystemPrompt() : buildPlanModeSystemPrompt())
+      : undefined;
     const submitOptions: CoworkPromptSubmitOptions | undefined =
       hasSelectedKnowledgeBases
       || hasSelectedKnowledgeFiles
@@ -1209,6 +1179,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
       || normalizedBrowserAnnotations.length > 0
       || !!promptDocument?.resources.length
       || !!promptDocument?.skills?.length
+      || !!skillPrompt
       || effectiveCollaborationMode !== CoworkCollaborationMode.Default
       ? {
         ...(hasSelectedKnowledgeBases ? { knowledgeBases } : {}),
@@ -1216,18 +1187,8 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         ...(selectedTextSnippets.length > 0 ? { selectedTextSnippets } : {}),
         ...(normalizedBrowserAnnotations.length > 0 ? { browserAnnotations: normalizedBrowserAnnotations } : {}),
         ...((promptDocument?.resources.length || promptDocument?.skills?.length) ? { promptDocument } : {}),
+        ...(skillPrompt ? { skillPrompt } : {}),
         ...(effectiveCollaborationMode !== CoworkCollaborationMode.Default ? { collaborationMode: effectiveCollaborationMode } : {}),
-        ...(effectivePlanMode
-          ? { planControl: { action: PlanControlAction.Start } }
-          : exitsPlanModeForImplementation && planConfirmation
-            ? {
-              planControl: {
-                action: PlanControlAction.Approve,
-                planHash: planConfirmation.planTextHash,
-                revision: 1,
-              },
-            }
-            : {}),
       }
       : undefined;
     const submittedAttachments = attachments;
@@ -1284,7 +1245,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         editorRef.current?.focus();
       });
     }
-  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, draftGoalInput?.baseline, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, browserAnnotationBatches, pendingSteers.length, dispatch, draftKey, onSubmit, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseOptions, selectedKnowledgeFiles, configuredInlineSkills, planConfirmation, syncPlanModeState]);
+  }, [value, steerInputActive, steerValue, goalInputActive, goalInputMode, draftGoalInput?.baseline, resetGoalInput, isStreaming, disabled, isPatchingModel, sessionId, onGoalCommand, remoteManaged, canSteer, attachments, selectedTextSnippets, browserAnnotationBatches, pendingSteers.length, dispatch, draftKey, onSubmit, effectiveSelectedModel?.id, modelSupportsImage, selectedKnowledgeBaseOptions, selectedKnowledgeFiles, configuredInlineSkills, isPlanMode, planConfirmation]);
 
   const handleSelectSkill = useCallback((skill: Skill) => {
     if (!skill.skillPath.trim()) return;
@@ -1572,35 +1533,13 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     requestAnimationFrame(() => editorRef.current?.focus());
   }, [disabled, dispatch, draftKey, goalInputActive, isStreaming, remoteManaged, resetGoalInput, sessionId, steerDraft, steerInputActive, value]);
 
-  const handleTogglePlanMode = useCallback(async () => {
-    if (remoteManaged || disabled || isPatchingModel || isStreaming) return;
-    const syncedMode = await syncPlanModeState();
-    if (syncedMode === undefined) return;
-    const nextMode = syncedMode === CoworkCollaborationMode.Plan
-      ? CoworkCollaborationMode.Default
-      : CoworkCollaborationMode.Plan;
-    if (nextMode === CoworkCollaborationMode.Plan && goalInputActive) return;
-    if (sessionId) {
-      try {
-        const state = await coworkService.controlPlanMode(sessionId, {
-          action: nextMode === CoworkCollaborationMode.Plan
-            ? PlanControlAction.Start
-            : PlanControlAction.Cancel,
-        });
-        dispatch(setDraftCollaborationMode({
-          draftKey,
-          mode: collaborationModeFromPlanState(state),
-        }));
-      } catch (error) {
-        console.warn('[CoworkPromptInput] failed to update authoritative plan mode state:', error);
-        window.dispatchEvent(new CustomEvent('app:showToast', {
-          detail: error instanceof Error ? error.message : 'Failed to update plan mode state.',
-        }));
-        return;
-      }
-    } else {
-      dispatch(setDraftCollaborationMode({ draftKey, mode: nextMode }));
+  const handleTogglePlanMode = useCallback(() => {
+    if (remoteManaged || disabled || isPatchingModel) return;
+    const nextMode = isPlanMode ? CoworkCollaborationMode.Default : CoworkCollaborationMode.Plan;
+    if (nextMode === CoworkCollaborationMode.Plan && goalInputActive) {
+      resetGoalInput(true);
     }
+    dispatch(setDraftCollaborationMode({ draftKey, mode: nextMode }));
     if (
       nextMode === CoworkCollaborationMode.Default
       && planConfirmation
@@ -1614,17 +1553,22 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setShowAddMenu(false);
     handleCloseSkillsPopover();
     requestAnimationFrame(() => editorRef.current?.focus());
-  }, [disabled, dispatch, draftKey, goalInputActive, handleCloseSkillsPopover, isPatchingModel, isStreaming, planConfirmation, remoteManaged, sessionId, syncPlanModeState]);
+  }, [disabled, dispatch, draftKey, goalInputActive, handleCloseSkillsPopover, isPatchingModel, isPlanMode, planConfirmation?.messageId, planConfirmation?.state, remoteManaged, resetGoalInput]);
 
-  const handleEnableGoalInput = useCallback(async (mode: CoworkGoalInputMode = CoworkGoalInputMode.Start, initialValue?: string) => {
+  const handleEnableGoalInput = useCallback((mode: CoworkGoalInputMode = CoworkGoalInputMode.Start, initialValue?: string) => {
     if (disabled || remoteManaged || isPatchingModel) return;
     if (!onGoalCommand && sessionId) return;
-    const syncedMode = await syncPlanModeState();
-    if (syncedMode === undefined) return;
-    const planModeActive = syncedMode === CoworkCollaborationMode.Plan;
-    if (planModeActive) return;
     setShowAddMenu(false);
     handleCloseSkillsPopover();
+    if (isPlanMode) {
+      dispatch(setDraftCollaborationMode({ draftKey, mode: CoworkCollaborationMode.Default }));
+      if (planConfirmation && planConfirmation.state !== PlanConfirmationState.Handled) {
+        dispatch(setPlanConfirmationHandled({
+          sessionId: draftKey,
+          messageId: planConfirmation.messageId,
+        }));
+      }
+    }
     if (steerInputActive) {
       setSteerInputActive(false);
       if (sessionId) {
@@ -1642,7 +1586,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
     setValue(initialValue ?? '');
     dispatch(setDraftPrompt({ sessionId: draftKey, draft: initialValue ?? '' }));
     requestAnimationFrame(() => editorRef.current?.focus());
-  }, [disabled, dispatch, draftKey, handleCloseSkillsPopover, isPatchingModel, onGoalCommand, remoteManaged, sessionId, steerInputActive, steerValue, syncPlanModeState, value]);
+  }, [disabled, dispatch, draftKey, handleCloseSkillsPopover, isPatchingModel, isPlanMode, onGoalCommand, planConfirmation?.messageId, planConfirmation?.state, remoteManaged, sessionId, steerInputActive, steerValue, value]);
 
   const handleGoalCommandClick = useCallback((command: string) => {
     if (disabled || remoteManaged || isPatchingModel || !onGoalCommand) return;
@@ -3183,7 +3127,6 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
         ) : (
           <>
             {richEditorNode}
-            {planModeToolbarControl}
 
             {!remoteManaged && (
               <div className="flex items-center gap-1">
