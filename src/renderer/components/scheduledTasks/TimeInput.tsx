@@ -50,7 +50,7 @@ export function LoopingNumberInput({ value, max, onChange }: LoopingNumberInputP
       if (columnRef.current) columnRef.current.scrollTop = (options.length + value - 2) * 36;
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, options.length, value]);
+  }, [open, options.length]);
 
   const cycleHeight = options.length * 36;
   return (
@@ -80,7 +80,7 @@ export function LoopingNumberInput({ value, max, onChange }: LoopingNumberInputP
                 type="button"
                 onClick={() => onChange(option)}
                 className={`h-9 w-full rounded text-sm ${
-                  index >= options.length && index < options.length * 2 && option === value
+                  option === value
                     ? 'bg-primary font-semibold text-white'
                     : 'text-foreground hover:bg-surface-raised'
                 }`}
@@ -135,7 +135,7 @@ export default function TimeInput({
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, hour, minute, second]);
+  }, [open, hours.length, minutes.length]);
 
   const updatePart = (part: number, nextValue: number) => {
     const next = [hour, minute, second];
@@ -178,9 +178,7 @@ export default function TimeInput({
               {options.map((option, optionIndex) => {
                 const cycleLength = part === 0 ? hours.length : minutes.length;
                 const displayValue = option % cycleLength;
-                const selected = optionIndex >= cycleLength
-                  && optionIndex < cycleLength * 2
-                  && displayValue === [hour, minute, second][part];
+                const selected = displayValue === [hour, minute, second][part];
                 return (
                   <button
                     key={`${part}-${optionIndex}`}
