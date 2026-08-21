@@ -32,6 +32,7 @@ import {
   serializeAnalyticsList,
 } from './analytics';
 import ScheduledTaskTemplatePickerModal from './ScheduledTaskTemplatePickerModal';
+import TimeInput, { LoopingNumberInput } from './TimeInput';
 import { SCHEDULED_TASK_TEMPLATES, type ScheduledTaskTemplate } from './taskTemplates';
 import {
   channelOptionMatchesSelection,
@@ -1069,19 +1070,17 @@ const TaskForm: React.FC<TaskFormProps> = ({
               }}
               className={`${inputClass} flex-1 min-w-0`}
             />
-            <input
-              type="time"
-              step="1"
+            <TimeInput
+              includeSeconds
               value={fullTimeValue}
-              onChange={e => {
-                const parts = e.target.value.split(':').map(Number);
+              onChange={value => {
+                const parts = value.split(':').map(Number);
                 const patch: Partial<FormState> = {};
                 if (!Number.isNaN(parts[0])) patch.hour = parts[0];
                 if (!Number.isNaN(parts[1])) patch.minute = parts[1];
                 if (parts.length > 2 && !Number.isNaN(parts[2])) patch.second = parts[2];
                 updateForm(patch);
               }}
-              className={`${inputClass} flex-1 min-w-0`}
             />
           </div>
         </div>
@@ -1094,12 +1093,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
           <label className={labelClass}>{i18nService.t('scheduledTasksFormScheduleType')}</label>
           <div className="flex items-center gap-3">
             {renderPlanSelect()}
-            <input
-              type="time"
-              value={timeValue}
-              onChange={e => handleTimeChange(e.target.value)}
-              className={`${inputClass} flex-1 min-w-0`}
-            />
+            <TimeInput value={timeValue} onChange={handleTimeChange} />
           </div>
         </div>
       );
@@ -1111,17 +1105,11 @@ const TaskForm: React.FC<TaskFormProps> = ({
           <label className={labelClass}>{i18nService.t('scheduledTasksFormScheduleType')}</label>
           <div className="flex items-center gap-3">
             {renderPlanSelect()}
-            <select
+            <LoopingNumberInput
               value={form.minute}
-              onChange={e => updateForm({ minute: Number(e.target.value) })}
-              className={`${inputClass} !w-20 shrink-0 text-center`}
-            >
-              {Array.from({ length: 60 }, (_, i) => (
-                <option key={i} value={i}>
-                  {String(i).padStart(2, '0')}
-                </option>
-              ))}
-            </select>
+              max={59}
+              onChange={minute => updateForm({ minute })}
+            />
             <span className="shrink-0 text-sm text-secondary">
               {i18nService.t('scheduledTasksFormHourlyMinuteSuffix')}
             </span>
@@ -1166,12 +1154,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
           <label className={labelClass}>{i18nService.t('scheduledTasksFormScheduleType')}</label>
           <div className="flex items-center gap-3">
             {renderPlanSelect()}
-            <input
-              type="time"
-              value={timeValue}
-              onChange={e => handleTimeChange(e.target.value)}
-              className={`${inputClass} flex-1 min-w-0`}
-            />
+            <TimeInput value={timeValue} onChange={handleTimeChange} />
           </div>
           <div className="flex items-center gap-1.5 mt-2">
             {WEEKDAY_SHORT_LABELS.map(([key, dayValue]) => {
@@ -1213,12 +1196,7 @@ const TaskForm: React.FC<TaskFormProps> = ({
               </option>
             ))}
           </select>
-          <input
-            type="time"
-            value={timeValue}
-            onChange={e => handleTimeChange(e.target.value)}
-            className={`${inputClass} flex-1 min-w-0`}
-          />
+          <TimeInput value={timeValue} onChange={handleTimeChange} />
         </div>
       </div>
     );
