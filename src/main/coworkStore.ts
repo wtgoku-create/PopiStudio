@@ -1103,6 +1103,54 @@ export class CoworkStore {
       .run(CoworkSessionSourceKind.ScheduledTask, normalizedTaskId);
   }
 
+  getSessionIdByScheduledTaskId(taskId: string, agentId: string): string | null {
+    const normalizedTaskId = taskId.trim();
+    const normalizedAgentId = agentId.trim() || AgentId.Main;
+    if (!normalizedTaskId) return null;
+
+    const row = this.getOne<{ id: string }>(
+      `
+      SELECT s.id
+      FROM cowork_sessions s
+      INNER JOIN cowork_session_sources src
+        ON src.session_id = s.id
+       AND src.kind = ?
+       AND src.task_id = ?
+      WHERE s.parent_session_id IS NULL
+        AND COALESCE(NULLIF(TRIM(s.agent_id), ''), ?) = ?
+      ORDER BY s.created_at DESC, s.id DESC
+      LIMIT 1
+      `,
+      [
+        CoworkSessionSourceKind.ScheduledTask,
+        normalizedTaskId,
+        AgentId.Main,
+        normalizedAgentId,
+      ],
+    );
+    return row?.id ?? null;
+  }
+
+  getScheduledTaskIdBySessionId(sessionId: string): string | null {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) return null;
+
+    const row = this.getOne<{ task_id: string }>(
+      `
+      SELECT task_id
+      FROM cowork_session_sources
+      WHERE session_id = ?
+        AND kind = ?
+        AND task_id IS NOT NULL
+        AND TRIM(task_id) <> ''
+      ORDER BY updated_at DESC
+      LIMIT 1
+      `,
+      [normalizedSessionId, CoworkSessionSourceKind.ScheduledTask],
+    );
+    return row?.task_id?.trim() || null;
+  }
+
   getSession(id: string, messageLimit = COWORK_MESSAGE_PAGE_SIZE): CoworkSession | null {
     interface SessionRow {
       id: string;

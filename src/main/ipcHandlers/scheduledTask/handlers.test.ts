@@ -32,6 +32,12 @@ function makeDeps(
     listJobs: vi.fn(async () => []),
     listAllRuns: vi.fn(async () => []),
     addJob: vi.fn(async (input: { name?: string }) => ({ id: 'job-1', name: input?.name ?? '' })),
+    toggleJob: vi.fn(async (id: string, enabled: boolean) => ({
+      id,
+      name: 'Task',
+      enabled,
+      agentId: 'main',
+    })),
     updateJob: vi.fn(async (id: string, input: { name?: string }) => ({
       id,
       name: input?.name ?? '',
@@ -43,16 +49,21 @@ function makeDeps(
     connectGatewayIfNeeded: vi.fn(async () => {
       gatewayClient = {};
     }),
+    stopSession: vi.fn(),
     fetchSessionByKey: vi.fn(async () => null),
+  };
+  const coworkStore = {
+    getSessionIdByScheduledTaskId: vi.fn(() => 'task-session'),
   };
   const deps: ScheduledTaskHandlerDeps = {
     getCronJobService: () => cronJobService as unknown as CronJobService,
+    getCoworkStore: () => coworkStore,
     getIMGatewayManager: () => null,
     getCoworkSessionTitle: () => null,
     getOpenClawRuntimeAdapter: () => adapter,
   };
 
-  return { adapter, cronJobService, deps };
+  return { adapter, coworkStore, cronJobService, deps };
 }
 
 beforeEach(() => {
@@ -86,6 +97,52 @@ describe('registerScheduledTaskHandlers', () => {
     expect(adapter.connectGatewayIfNeeded).toHaveBeenCalledTimes(1);
     expect(cronJobService.listAllRuns).toHaveBeenCalledWith(20, 0, undefined);
     expect(result).toEqual({ success: true, ready: true, runs: [] });
+  });
+
+  test('stops a scheduled task by disabling it and aborting its cowork session', async () => {
+    const { adapter, coworkStore, cronJobService, deps } = makeDeps();
+    registerScheduledTaskHandlers(deps);
+
+    const handler = registeredHandlers.get(ScheduledTaskIpc.Stop);
+    expect(handler).toBeDefined();
+
+    const result = await handler?.(undefined, 'job-1');
+
+    expect(cronJobService.toggleJob).toHaveBeenCalledWith('job-1', false);
+    expect(coworkStore.getSessionIdByScheduledTaskId).toHaveBeenCalledWith('job-1', 'main');
+    expect(adapter.stopSession).toHaveBeenCalledWith('task-session');
+    expect(result).toEqual({
+      success: true,
+      result: true,
+      task: {
+        id: 'job-1',
+        name: 'Task',
+        enabled: false,
+        agentId: 'main',
+      },
+    });
+  });
+
+  test('aborts the scheduled task session when toggling a task off', async () => {
+    const { adapter, cronJobService, deps } = makeDeps();
+    registerScheduledTaskHandlers(deps);
+
+    const handler = registeredHandlers.get(ScheduledTaskIpc.Toggle);
+    expect(handler).toBeDefined();
+
+    const result = await handler?.(undefined, 'job-1', false);
+
+    expect(cronJobService.toggleJob).toHaveBeenCalledWith('job-1', false);
+    expect(adapter.stopSession).toHaveBeenCalledWith('task-session');
+    expect(result).toEqual({
+      success: true,
+      task: {
+        id: 'job-1',
+        name: 'Task',
+        enabled: false,
+        agentId: 'main',
+      },
+    });
   });
 
   test('reports not-ready without blocking while the engine is still starting', async () => {

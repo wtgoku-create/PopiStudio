@@ -1033,6 +1033,21 @@ test('fetchSessionByKey: cron run key uses gateway history instead of local sess
   ]);
 });
 
+test('resolveScheduledTaskRun reads cron task ids from active run session keys', () => {
+  const { session, store } = createReconcileStore([]);
+  const adapter = new OpenClawRuntimeAdapter(store, {});
+
+  adapter.activeTurns.set(
+    session.id,
+    createActiveTurn(session.id, 'agent:main:cron:job-1:run:run-1', 'run-1'),
+  );
+
+  expect(adapter.resolveScheduledTaskRun(session.id)).toEqual({
+    taskId: 'job-1',
+    agentId: 'main',
+  });
+});
+
 test('syncChannelUserMessages inserts a late cron user prompt before current tool activity', () => {
   const { session, store } = createReconcileStore([
     { id: 'tool-1', type: 'tool_use', content: '', timestamp: 1, metadata: { toolName: 'Read' } },

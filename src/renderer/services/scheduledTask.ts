@@ -268,7 +268,13 @@ export class ScheduledTaskService {
     if (!api) return;
 
     try {
-      await api.stop(id);
+      const result = await api.stop(id);
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to stop task');
+      }
+      if (result.task) {
+        store.dispatch(updateTask(result.task));
+      }
     } catch (err: unknown) {
       store.dispatch(setError(err instanceof Error ? err.message : String(err)));
       throw err;

@@ -124,6 +124,7 @@ export interface CoworkRuntime {
   submitSteer?(sessionId: string, text: string, clientSteerId: string): Promise<CoworkSteerResponse>;
   runGoalCommand?(sessionId: string, command: string): Promise<CoworkGoal | null>;
   stopSession(sessionId: string): void;
+  resolveScheduledTaskRun?(sessionId: string): { taskId: string; agentId?: string } | null;
   stopAllSessions(): void;
   respondToPermission(requestId: string, result: PermissionResult): void;
   isSessionActive(sessionId: string): boolean;

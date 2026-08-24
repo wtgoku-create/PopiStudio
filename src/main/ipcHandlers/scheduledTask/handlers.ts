@@ -93,6 +93,9 @@ function normalizeImAnnounceDeliveryTo(
 
 export interface ScheduledTaskHandlerDeps {
   getCronJobService: () => CronJobService;
+  getCoworkStore?: () => {
+    getSessionIdByScheduledTaskId: (taskId: string, agentId: string) => string | null;
+  };
   getIMGatewayManager: () => {
     getIMStore: () =>
       | {
@@ -125,6 +128,7 @@ export interface ScheduledTaskHandlerDeps {
     getGatewayClient: () => unknown;
     getEngineStatusSnapshot: () => { phase: OpenClawEnginePhase };
     connectGatewayIfNeeded: () => Promise<void>;
+    stopSession?: (sessionId: string) => void;
     fetchSessionByKey: (
       sessionKey: string,
       options?: { sessionId?: string | null },
@@ -536,7 +540,13 @@ async function ensureScheduledTaskGatewayClient(
 }
 
 export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): void {
-  const { getCronJobService, getIMGatewayManager, getOpenClawRuntimeAdapter, getCoworkSessionTitle } = deps;
+  const {
+    getCronJobService,
+    getCoworkStore,
+    getIMGatewayManager,
+    getOpenClawRuntimeAdapter,
+    getCoworkSessionTitle,
+  } = deps;
 
   ipcMain.handle(ScheduledTaskIpc.List, async () => {
     try {
@@ -624,6 +634,21 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
   ipcMain.handle(ScheduledTaskIpc.Toggle, async (_event, id: string, enabled: boolean) => {
     try {
       const task = await getCronJobService().toggleJob(id, enabled);
+      if (!enabled) {
+        const agentId = task.agentId?.trim() || AgentId.Main;
+        const sessionId = getCoworkStore?.().getSessionIdByScheduledTaskId(id, agentId)
+          ?? getCoworkStore?.().getSessionIdByScheduledTaskId(id, AgentId.Main)
+          ?? null;
+        console.log(
+          '[ScheduledTask] user disabled scheduled task, requesting runtime stop.',
+          `Task ${id}.`,
+          `Agent ${agentId}.`,
+          `Session ${sessionId || 'none'}.`,
+        );
+        if (sessionId) {
+          getOpenClawRuntimeAdapter()?.stopSession?.(sessionId);
+        }
+      }
       return { success: true, task };
     } catch (error) {
       return {
@@ -653,10 +678,30 @@ export function registerScheduledTaskHandlers(deps: ScheduledTaskHandlerDeps): v
     }
   });
 
-  ipcMain.handle(ScheduledTaskIpc.Stop, async (_event, _id: string) => {
-    // OpenClaw doesn't expose a direct stop API for running cron jobs
-    // The job will complete or timeout on its own
-    return { success: true, result: false };
+  ipcMain.handle(ScheduledTaskIpc.Stop, async (_event, id: string) => {
+    try {
+      const cronJobService = getCronJobService();
+      const task = await cronJobService.toggleJob(id, false);
+      const agentId = task.agentId?.trim() || AgentId.Main;
+      const sessionId = getCoworkStore?.().getSessionIdByScheduledTaskId(id, agentId)
+        ?? getCoworkStore?.().getSessionIdByScheduledTaskId(id, AgentId.Main)
+        ?? null;
+      console.log(
+        '[ScheduledTask] user stopped scheduled task, requesting runtime stop.',
+        `Task ${id}.`,
+        `Agent ${agentId}.`,
+        `Session ${sessionId || 'none'}.`,
+      );
+      if (sessionId) {
+        getOpenClawRuntimeAdapter()?.stopSession?.(sessionId);
+      }
+      return { success: true, result: true, task };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to stop task',
+      };
+    }
   });
 
   ipcMain.handle(

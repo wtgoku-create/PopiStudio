@@ -1167,7 +1167,12 @@ interface IElectronAPI {
       error?: string;
     }>;
     runManually: (id: string) => Promise<{ success: boolean; error?: string }>;
-    stop: (id: string) => Promise<{ success: boolean; error?: string }>;
+    stop: (id: string) => Promise<{
+      success: boolean;
+      result?: boolean;
+      task?: import('../../scheduledTask/types').ScheduledTask;
+      error?: string;
+    }>;
     listRuns: (
       taskId: string,
       limit?: number,

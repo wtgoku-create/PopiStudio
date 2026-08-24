@@ -141,6 +141,10 @@ export class CoworkEngineRouter extends EventEmitter implements CoworkRuntime {
     this.clearRequestEngineBySession(sessionId);
   }
 
+  resolveScheduledTaskRun(sessionId: string): { taskId: string; agentId?: string } | null {
+    return this.runtime.resolveScheduledTaskRun?.(sessionId) ?? null;
+  }
+
   stopAllSessions(): void {
     this.runtime.stopAllSessions();
     this.sessionEngine.clear();

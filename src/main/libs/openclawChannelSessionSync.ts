@@ -620,9 +620,13 @@ export class OpenClawChannelSessionSync {
     const cached = this.syncedSessionKeys.get(cronKey?.cacheKey ?? sessionKey)
       ?? this.syncedSessionKeys.get(sessionKey);
     if (cached) {
-      this.syncedSessionKeys.set(sessionKey, cached);
       return cached;
     }
+
+    // Run-scoped cron keys are intentionally not added to rejectedKeys. Their
+    // stable cache key is populated by resolveOrCreateCronSession, so retaining
+    // every unique runId here would grow memory over the lifetime of the app.
+    if (cronKey) return null;
 
     if (this.rejectedKeys.has(sessionKey)) return null;
 
@@ -841,18 +845,42 @@ export class OpenClawChannelSessionSync {
     const cached = this.syncedSessionKeys.get(cronKey.cacheKey)
       ?? this.syncedSessionKeys.get(sessionKey);
     if (cached) {
-      this.syncedSessionKeys.set(sessionKey, cached);
+      this.syncedSessionKeys.set(cronKey.cacheKey, cached);
       return cached;
     }
 
     const jobId = cronKey.jobId;
+    const agentId = cronKey.agentId || DEFAULT_MANAGED_AGENT_ID;
+    const persistedSessionId = typeof this.coworkStore.getSessionIdByScheduledTaskId === 'function'
+      ? this.coworkStore.getSessionIdByScheduledTaskId(jobId, agentId)
+      : null;
+    if (persistedSessionId) {
+      const persistedSession = this.coworkStore.getSession(persistedSessionId, 0);
+      if (persistedSession) {
+        this.updateLocalSessionCwdIfNeeded(persistedSession, agentId);
+        this.syncedSessionKeys.set(cronKey.cacheKey, persistedSessionId);
+        console.debug(
+          '[ChannelSessionSync] reused persisted cron session.',
+          `Task ${jobId}.`,
+          `Agent ${agentId}.`,
+          `Session ${persistedSessionId}.`,
+        );
+        return persistedSessionId;
+      }
+      console.warn(
+        '[ChannelSessionSync] ignored stale persisted cron session lookup.',
+        `Task ${jobId}.`,
+        `Agent ${agentId}.`,
+        `Session ${persistedSessionId}.`,
+      );
+    }
+
     // Prefer the human-readable job name for the session title; fall back to a short UUID prefix.
     const jobName = this.resolveJobName?.(jobId) ?? null;
     const cronLabel = t('cronSessionPrefix');
     const title = jobName
       ? `[${cronLabel}] ${jobName}`
       : `[${cronLabel}] ${jobId.length > 8 ? jobId.slice(0, 8) : jobId}`;
-    const agentId = cronKey.agentId || 'main';
     const cwd = this.getDefaultCwd(agentId);
     console.log(
       '[ChannelSessionSync] creating cron session: key=',
@@ -867,7 +895,6 @@ export class OpenClawChannelSessionSync {
     this.upsertScheduledTaskSessionSource(session.id, jobId, jobName);
 
     this.syncedSessionKeys.set(cronKey.cacheKey, session.id);
-    this.syncedSessionKeys.set(sessionKey, session.id);
     return session.id;
   }
   clearCache(): void {

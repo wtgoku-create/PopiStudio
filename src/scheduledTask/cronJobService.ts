@@ -126,6 +126,13 @@ interface GatewayRunLogEntry {
   deliveryError?: string;
 }
 
+const CRON_TOGGLE_VERIFY_DELAYS_MS = [0, 120, 300] as const;
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 interface CronJobServiceDeps {
   getGatewayClient: () => GatewayClientLike | null;
   ensureGatewayReady: () => Promise<void>;
@@ -705,6 +712,14 @@ export class CronJobService {
   }
 
   private async getJobRaw(id: string): Promise<GatewayJob | null> {
+    const client = await this.client();
+    try {
+      return await client.request<GatewayJob>('cron.get', { id });
+    } catch {
+      // Older gateway builds did not expose cron.get. Fall back to the list
+      // path so development runtimes remain usable during upgrades.
+    }
+
     try {
       const jobs = await this.listGatewayJobs({
         query: id,
@@ -716,11 +731,45 @@ export class CronJobService {
     }
   }
 
+  private async verifyToggledJob(
+    id: string,
+    enabled: boolean,
+    fallbackJob: GatewayJob,
+  ): Promise<GatewayJob> {
+    let lastSeenJob: GatewayJob | null = null;
+    for (const waitMs of CRON_TOGGLE_VERIFY_DELAYS_MS) {
+      await delay(waitMs);
+      const current = await this.getJobRaw(id);
+      if (current) {
+        lastSeenJob = current;
+        const hasDisabledSchedule = !enabled && current.state.nextRunAtMs !== undefined;
+        if (current.enabled === enabled && !hasDisabledSchedule) {
+          return current;
+        }
+      }
+    }
+
+    const resolvedJob = lastSeenJob ?? fallbackJob;
+    const hasDisabledSchedule = !enabled && resolvedJob.state.nextRunAtMs !== undefined;
+    if (resolvedJob.enabled === enabled && !hasDisabledSchedule) {
+      return resolvedJob;
+    }
+
+    throw new Error(
+      enabled
+        ? 'Scheduled task remained paused after enabling.'
+        : 'Scheduled task remained enabled after pausing.',
+    );
+  }
+
   async toggleJob(id: string, enabled: boolean): Promise<ScheduledTask> {
     const client = await this.client();
     const job = await client.request<GatewayJob>('cron.update', { id, patch: { enabled } });
-    this.cacheJobMetadata(job);
-    return mapGatewayJob(job);
+    const resolvedJob = await this.verifyToggledJob(id, enabled, job);
+    this.cacheJobMetadata(resolvedJob);
+    this.emitFullRefresh();
+    void this.pollOnce().finally(() => this.scheduleNextPoll());
+    return mapGatewayJob(resolvedJob);
   }
 
   async runJob(id: string): Promise<void> {
@@ -881,6 +930,7 @@ export class CronJobService {
     this.lastKnownRunAtMs.clear();
     this.jobNameCache.clear();
     this.jobDeliveryCache.clear();
+    this.jobPromptCache.clear();
     this.runningJobIds.clear();
     this.fastPollUntilMs = 0;
     this.firstPollDone = false;

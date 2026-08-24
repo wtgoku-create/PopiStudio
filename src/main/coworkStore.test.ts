@@ -284,6 +284,43 @@ test('listAgentSidebarSessions returns cached last message previews from session
   expect(sessions[0]?.lastMessagePreview).toBe('cached preview');
 });
 
+test('getSessionIdByScheduledTaskId returns the latest matching agent task session', () => {
+  insertSession('old-task-session', 'main', 1000);
+  insertSession('latest-task-session', 'main', 2000);
+  insertSession('other-agent-task-session', 'agent-2', 3000);
+  store.upsertSessionSource({
+    sessionId: 'old-task-session',
+    kind: CoworkSessionSourceKind.ScheduledTask,
+    taskId: 'task-1',
+  });
+  store.upsertSessionSource({
+    sessionId: 'latest-task-session',
+    kind: CoworkSessionSourceKind.ScheduledTask,
+    taskId: 'task-1',
+  });
+  store.upsertSessionSource({
+    sessionId: 'other-agent-task-session',
+    kind: CoworkSessionSourceKind.ScheduledTask,
+    taskId: 'task-1',
+  });
+
+  expect(store.getSessionIdByScheduledTaskId('task-1', 'main')).toBe('latest-task-session');
+  expect(store.getSessionIdByScheduledTaskId('task-1', 'agent-2')).toBe('other-agent-task-session');
+  expect(store.getSessionIdByScheduledTaskId('missing', 'main')).toBe(null);
+});
+
+test('getScheduledTaskIdBySessionId returns scheduled task source id', () => {
+  insertSession('task-session', 'main', 1000);
+  store.upsertSessionSource({
+    sessionId: 'task-session',
+    kind: CoworkSessionSourceKind.ScheduledTask,
+    taskId: 'task-1',
+  });
+
+  expect(store.getScheduledTaskIdBySessionId('task-session')).toBe('task-1');
+  expect(store.getScheduledTaskIdBySessionId('missing-session')).toBe(null);
+});
+
 test('forkSession copies visible history through the selected message', () => {
   insertSession('source-session', 'main', 1000);
   insertMessage('user-1', 'source-session', 'user', 'first request', null, 1, 1000);

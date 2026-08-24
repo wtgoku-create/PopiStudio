@@ -125,6 +125,28 @@ test('does not retry non-transient upstream fetch failures', async () => {
   }
 });
 
+test('cancels the upstream fetch without retrying when the proxy client disconnects', async () => {
+  const fetchMock = vi.mocked(net.fetch);
+  fetchMock.mockReset();
+  const controller = new AbortController();
+  fetchMock.mockImplementationOnce((_, init) => new Promise((_, reject) => {
+    const signal = init?.signal;
+    expect(signal).toBe(controller.signal);
+    signal?.addEventListener('abort', () => reject(new Error('request aborted')), { once: true });
+  }) as ReturnType<typeof net.fetch>);
+
+  const responsePromise = testUtils.fetchUpstreamWithRetry(
+    'https://example.invalid/api',
+    { method: 'POST' },
+    { method: 'POST', upstreamPath: '/api_client/anime/task/llmChat' },
+    controller.signal,
+  );
+  controller.abort('client disconnected');
+
+  await expect(responsePromise).resolves.toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 test('classifies SSE packets as terminal only on done, finish reason, error, or message stop', () => {
   const terminalPackets = [
     'data: [DONE]',

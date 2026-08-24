@@ -3925,7 +3925,28 @@ if (!gotTheLock) {
   ipcMain.handle('cowork:session:stop', async (_event, sessionId: string) => {
     try {
       const runtime = getCoworkEngineRouter();
+      const activeScheduledTaskRun = runtime.resolveScheduledTaskRun?.(sessionId);
+      const scheduledTaskId = getCoworkStore().getScheduledTaskIdBySessionId(sessionId)
+        ?? activeScheduledTaskRun?.taskId
+        ?? null;
+      const activeScheduledTaskAgentId = activeScheduledTaskRun?.agentId;
+      if (scheduledTaskId) {
+        console.log(
+          '[CoworkStop] resolved scheduled task binding before stopping session.',
+          `Session ${sessionId}.`,
+          `Task ${scheduledTaskId}.`,
+          `Agent ${activeScheduledTaskAgentId || 'unknown'}.`,
+        );
+      } else {
+        console.warn(
+          '[CoworkStop] session stop did not resolve a scheduled task binding.',
+          `Session ${sessionId}.`,
+        );
+      }
       runtime.stopSession(sessionId);
+      if (scheduledTaskId) {
+        await getCronJobService().toggleJob(scheduledTaskId, false);
+      }
       desktopNotificationManager.handleSessionStopped(sessionId);
       return { success: true };
     } catch (error) {
@@ -5083,6 +5104,7 @@ if (!gotTheLock) {
   });
   const scheduledTaskHandlerDeps: ScheduledTaskHandlerDeps = {
     getCronJobService,
+    getCoworkStore,
     getIMGatewayManager: () => ({
       getIMStore: () => ({
         getSessionMapping: (conversationId: string, platform: string) => {

@@ -197,6 +197,133 @@ describe('CronJobService gateway readiness', () => {
   });
 });
 
+describe('CronJobService task toggle', () => {
+  test('returns the authoritative job after toggling enabled state', async () => {
+    const updated = makeGatewayJob({ id: 'job-1', enabled: true });
+    const authoritative = makeGatewayJob({ id: 'job-1', enabled: false });
+    const requests: Array<{ method: string; params?: unknown }> = [];
+    const service = new CronJobService({
+      getGatewayClient: () => ({
+        request: async <T>(method: string, params?: unknown) => {
+          requests.push({ method, params });
+          if (method === 'cron.update') {
+            return updated as T;
+          }
+          if (method === 'cron.get') {
+            return authoritative as T;
+          }
+          return {} as T;
+        },
+      }),
+      ensureGatewayReady: async () => {},
+    });
+
+    const task = await service.toggleJob('job-1', false);
+
+    expect(task.enabled).toBe(false);
+    expect(requests).toEqual([
+      {
+        method: 'cron.update',
+        params: { id: 'job-1', patch: { enabled: false } },
+      },
+      {
+        method: 'cron.get',
+        params: { id: 'job-1' },
+      },
+    ]);
+  });
+
+  test('falls back to cron.list when cron.get is unavailable', async () => {
+    const updated = makeGatewayJob({ id: 'job-1', enabled: true });
+    const authoritative = makeGatewayJob({ id: 'job-1', enabled: false });
+    const requests: Array<{ method: string; params?: unknown }> = [];
+    const service = new CronJobService({
+      getGatewayClient: () => ({
+        request: async <T>(method: string, params?: unknown) => {
+          requests.push({ method, params });
+          if (method === 'cron.update') {
+            return updated as T;
+          }
+          if (method === 'cron.get') {
+            throw new Error('method not found');
+          }
+          if (method === 'cron.list') {
+            return { jobs: [authoritative] } as T;
+          }
+          return {} as T;
+        },
+      }),
+      ensureGatewayReady: async () => {},
+    });
+
+    const task = await service.toggleJob('job-1', false);
+
+    expect(task.enabled).toBe(false);
+    expect(requests).toEqual([
+      {
+        method: 'cron.update',
+        params: { id: 'job-1', patch: { enabled: false } },
+      },
+      {
+        method: 'cron.get',
+        params: { id: 'job-1' },
+      },
+      {
+        method: 'cron.list',
+        params: { includeDisabled: true, limit: 20, query: 'job-1' },
+      },
+    ]);
+  });
+
+  test('fails when the gateway keeps the task enabled after pausing', async () => {
+    const enabledJob = makeGatewayJob({ id: 'job-1', enabled: true });
+    const service = new CronJobService({
+      getGatewayClient: () => ({
+        request: async <T>(method: string) => {
+          if (method === 'cron.update') {
+            return enabledJob as T;
+          }
+          if (method === 'cron.get') {
+            return enabledJob as T;
+          }
+          return {} as T;
+        },
+      }),
+      ensureGatewayReady: async () => {},
+    });
+
+    await expect(service.toggleJob('job-1', false)).rejects.toThrow(
+      'Scheduled task remained enabled after pausing.',
+    );
+  });
+
+  test('fails when the gateway leaves a paused task scheduled', async () => {
+    const scheduledDisabledJob = makeGatewayJob({
+      id: 'job-1',
+      enabled: false,
+      state: { nextRunAtMs: 1_700_000_200_000 },
+    });
+    const service = new CronJobService({
+      getGatewayClient: () => ({
+        request: async <T>(method: string) => {
+          if (method === 'cron.update') {
+            return scheduledDisabledJob as T;
+          }
+          if (method === 'cron.get') {
+            return scheduledDisabledJob as T;
+          }
+          return {} as T;
+        },
+      }),
+      ensureGatewayReady: async () => {},
+    });
+
+    await expect(service.toggleJob('job-1', false)).rejects.toThrow(
+      'Scheduled task remained enabled after pausing.',
+    );
+  });
+});
+
 describe('CronJobService run history filtering', () => {
   test('filters global runs by application status after reading gateway entries', async () => {
     const job = makeGatewayJob({ id: 'job-1', name: 'User task' });
@@ -269,6 +396,7 @@ describe('CronJobService run history filtering', () => {
       true,
     );
   });
+
 });
 
 describe('CronJobService delivery cache', () => {

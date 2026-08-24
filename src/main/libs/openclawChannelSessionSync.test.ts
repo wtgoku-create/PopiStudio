@@ -344,6 +344,63 @@ test('channel sync reuses one local session for cron base and run keys', () => {
   });
 });
 
+test('channel sync does not reject uncached cron run keys', () => {
+  const sync = createSync();
+
+  expect(sync.resolveSession('agent:main:cron:job-1:run:run-1')).toBe(null);
+  expect((sync as unknown as { rejectedKeys: Set<string> }).rejectedKeys.has(
+    'agent:main:cron:job-1:run:run-1',
+  )).toBe(false);
+});
+
+test('channel sync reuses persisted scheduled task sessions across cron runs', () => {
+  const createSession = vi.fn();
+  const updateSession = vi.fn();
+  const sync = new OpenClawChannelSessionSync({
+    coworkStore: {
+      getSessionIdByScheduledTaskId: (taskId: string, agentId: string) => (
+        taskId === 'job-1' && agentId === 'main' ? 'cowork-cron-existing' : null
+      ),
+      getSession: (sessionId: string) => sessionId === 'cowork-cron-existing' ? ({
+        id: 'cowork-cron-existing',
+        title: '[Scheduled] existing',
+        claudeSessionId: null,
+        status: 'idle',
+        pinned: false,
+        cwd: '/old',
+        systemPrompt: '',
+        modelOverride: '',
+        executionMode: 'local',
+        activeSkillIds: [],
+        agentId: 'main',
+        messages: [],
+        messagesOffset: 0,
+        totalMessages: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      }) : null,
+      createSession,
+      updateSession,
+    },
+    imStore: {
+      getSessionMapping: () => null,
+      updateSessionLastActive: () => {},
+      deleteSessionMapping: () => {},
+      createSessionMapping: () => {},
+    },
+    getDefaultCwd: () => '/repo/main',
+  });
+
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-1')).toBe('cowork-cron-existing');
+  expect(sync.resolveOrCreateCronSession('agent:main:cron:job-1:run:run-2')).toBe('cowork-cron-existing');
+  expect(createSession).not.toHaveBeenCalled();
+  expect(updateSession).toHaveBeenCalledWith(
+    'cowork-cron-existing',
+    { cwd: '/repo/main' },
+    { touchUpdatedAt: false },
+  );
+});
+
 test('channel sync reuses target IM session for IM announce delivery jobs', () => {
   const createSession = vi.fn();
   const sync = new OpenClawChannelSessionSync({

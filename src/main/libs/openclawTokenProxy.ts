@@ -99,6 +99,27 @@ function collectRequestBody(req: http.IncomingMessage): Promise<Buffer> {
   });
 }
 
+function createClientAbortSignal(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): AbortSignal {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort('Proxy client disconnected.');
+    }
+  };
+
+  if (req.aborted || res.destroyed) {
+    abort();
+  } else {
+    req.once('aborted', abort);
+    res.once('close', abort);
+  }
+
+  return controller.signal;
+}
+
 function injectReasoningOptions(upstreamPath: string, body: Buffer): Buffer {
   if (upstreamPath !== POPIAI_LLM_CHAT_PATH || body.length === 0) {
     return body;
@@ -131,6 +152,7 @@ function injectReasoningOptions(upstreamPath: string, body: Buffer): Buffer {
 }
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const clientAbortSignal = createClientAbortSignal(req, res);
   try {
     const tokens = tokenGetter?.();
     const serverBaseUrl = serverBaseUrlGetter?.();
@@ -147,20 +169,44 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     }
 
     const body = await collectRequestBody(req);
+    if (clientAbortSignal.aborted) return;
 
     const upstreamPath = resolveUpstreamPath(req.url || '/');
     const forwardBody = injectReasoningOptions(upstreamPath, body);
     const upstreamUrl = `${serverBaseUrl}${upstreamPath}`;
     console.debug(`[OpenClawTokenProxy] forwarding request to ${upstreamUrl}`);
 
-    const result = await forwardRequest(upstreamUrl, upstreamPath, req.method || 'POST', tokens.accessToken, forwardBody, req.headers);
+    const result = await forwardRequest(
+      upstreamUrl,
+      upstreamPath,
+      req.method || 'POST',
+      tokens.accessToken,
+      forwardBody,
+      req.headers,
+      clientAbortSignal,
+    );
+    if (clientAbortSignal.aborted || res.destroyed) return;
     console.debug(`[OpenClawTokenProxy] upstream responded with status ${result.status}`);
 
-    if ((result.status === 401 || result.status === 403) && !result.skipAuthRefresh && tokenRefresher) {
+    if (
+      (result.status === 401 || result.status === 403)
+      && !result.skipAuthRefresh
+      && tokenRefresher
+      && !clientAbortSignal.aborted
+    ) {
       console.log(`[OpenClawTokenProxy] received ${result.status}, attempting token refresh`);
       const newToken = await tokenRefresher('openclaw-proxy');
       if (newToken) {
-        const retryResult = await forwardRequest(upstreamUrl, upstreamPath, req.method || 'POST', newToken, forwardBody, req.headers);
+        const retryResult = await forwardRequest(
+          upstreamUrl,
+          upstreamPath,
+          req.method || 'POST',
+          newToken,
+          forwardBody,
+          req.headers,
+          clientAbortSignal,
+        );
+        if (clientAbortSignal.aborted || res.destroyed) return;
         console.debug(`[OpenClawTokenProxy] upstream retry responded with status ${retryResult.status}`);
         pipeResponse(retryResult, res);
         return;
@@ -169,6 +215,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
     pipeResponse(result, res);
   } catch (err) {
+    if (clientAbortSignal.aborted || res.destroyed) return;
     console.error('[OpenClawTokenProxy] request handling error:', err);
     if (!res.headersSent) {
       res.writeHead(502, { 'Content-Type': 'application/json' });
@@ -472,11 +519,14 @@ async function fetchUpstreamWithRetry(
   url: string,
   init: UpstreamFetchInit,
   diagnostics: Pick<UpstreamDiagnostics, 'method' | 'upstreamPath'>,
+  abortSignal?: AbortSignal,
 ): Promise<UpstreamFetchResponse | null> {
   for (let attemptIndex = 0; attemptIndex <= OPENCLAW_TOKEN_PROXY_RETRY_DELAYS_MS.length; attemptIndex += 1) {
+    if (abortSignal?.aborted) return null;
     try {
-      return await net.fetch(url, init);
+      return await net.fetch(url, { ...init, signal: abortSignal });
     } catch (error) {
+      if (abortSignal?.aborted) return null;
       const errorCode = getTransientUpstreamFetchErrorCode(error);
       const isLastAttempt = attemptIndex >= OPENCLAW_TOKEN_PROXY_RETRY_DELAYS_MS.length;
       if (!errorCode || isLastAttempt) {
@@ -507,6 +557,7 @@ async function forwardRequest(
   accessToken: string,
   body: Buffer,
   incomingHeaders: http.IncomingHttpHeaders,
+  abortSignal?: AbortSignal,
 ): Promise<UpstreamResult> {
   const startedAt = Date.now();
   const headers: Record<string, string> = {
@@ -523,7 +574,7 @@ async function forwardRequest(
     method,
     headers,
     body: body.length > 0 ? new Uint8Array(body) : undefined,
-  }, { method, upstreamPath });
+  }, { method, upstreamPath }, abortSignal);
 
   if (!resp) {
     return {

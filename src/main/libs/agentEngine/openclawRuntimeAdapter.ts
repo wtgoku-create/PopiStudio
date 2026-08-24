@@ -144,6 +144,7 @@ const OpenClawGatewayEvent = {
   SessionTool: 'session.tool',
 } as const;
 const OpenClawGatewayMethod = {
+  ChatAbort: 'chat.abort',
   ChatSend: 'chat.send',
   SessionsSubscribe: 'sessions.subscribe',
   SessionsMessagesSubscribe: 'sessions.messages.subscribe',
@@ -1710,6 +1711,33 @@ const waitWithTimeout = async (promise: Promise<void>, timeoutMs: number): Promi
     }
   }
 };
+
+type OpenClawCronSessionKeyInfo = {
+  agentId: string | null;
+  jobId: string;
+};
+
+function parseOpenClawCronSessionKey(sessionKey: string): OpenClawCronSessionKeyInfo | null {
+  const normalizedSessionKey = sessionKey.trim();
+  const legacyMatch = normalizedSessionKey.match(/^cron:([^:\s]+)$/i);
+  if (legacyMatch) {
+    const jobId = legacyMatch[1];
+    return {
+      agentId: null,
+      jobId,
+    };
+  }
+
+  const agentMatch = normalizedSessionKey.match(/^agent:([^:]+):cron:([^:\s]+)(?::run:.+)?$/i);
+  if (!agentMatch) return null;
+
+  const agentId = agentMatch[1];
+  const jobId = agentMatch[2];
+  return {
+    agentId,
+    jobId,
+  };
+}
 
 export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntime {
   private readonly store: CoworkStore;
@@ -3402,7 +3430,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       this.finalizeStoppedStreamingMessages(sessionId, turn);
       if (client) {
         console.log(`[OpenClawRuntime] user requested stop, aborting gateway run ${turn.runId}.`);
-        void client.request('chat.abort', {
+        void client.request(OpenClawGatewayMethod.ChatAbort, {
           sessionKey: turn.sessionKey,
           runId: turn.runId,
         }).catch((error) => {
@@ -3418,7 +3446,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           `Parent session ${sessionId}.`,
           `Child key ${childSessionKey}.`,
         );
-        void client.request('chat.abort', {
+        void client.request(OpenClawGatewayMethod.ChatAbort, {
           sessionKey: childSessionKey,
         }).catch((error) => {
           console.warn('[OpenClawRuntime] failed to abort subagent session:', error);
@@ -3469,6 +3497,36 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
 
   isSessionActive(sessionId: string): boolean {
     return this.activeTurns.has(sessionId);
+  }
+
+  resolveScheduledTaskRun(sessionId: string): { taskId: string; agentId?: string } | null {
+    const activeTurn = this.activeTurns.get(sessionId);
+    if (!activeTurn) {
+      console.debug(
+        '[OpenClawRuntime] scheduled task run resolution skipped because the session has no active turn.',
+        `Session ${sessionId}.`,
+      );
+      return null;
+    }
+    const cronKey = parseOpenClawCronSessionKey(activeTurn.sessionKey);
+    if (!cronKey) {
+      console.warn(
+        '[OpenClawRuntime] scheduled task run resolution failed because the active turn is not a cron session.',
+        `Session ${sessionId}.`,
+        `Session key ${activeTurn.sessionKey}.`,
+      );
+      return null;
+    }
+    console.log(
+      '[OpenClawRuntime] resolved scheduled task run from active session.',
+      `Session ${sessionId}.`,
+      `Task ${cronKey.jobId}.`,
+      `Agent ${cronKey.agentId || DEFAULT_MANAGED_AGENT_ID}.`,
+    );
+    return {
+      taskId: cronKey.jobId,
+      ...(cronKey.agentId ? { agentId: cronKey.agentId } : {}),
+    };
   }
 
   hasActiveSessions(): boolean {

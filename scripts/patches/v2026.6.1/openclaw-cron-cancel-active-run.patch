@@ -1,0 +1,161 @@
+diff --git a/src/cron/service/active-runs.ts b/src/cron/service/active-runs.ts
+new file mode 100644
+index 0000000000..a57e217a0b
+--- /dev/null
++++ b/src/cron/service/active-runs.ts
+@@ -0,0 +1,59 @@
++type ActiveCronRunAbortRegistration = {
++  jobId: string;
++  controller: AbortController;
++};
++
++const activeCronRunAbortControllersByJobId = new Map<string, Set<AbortController>>();
++
++function normalizeCronJobId(jobId: string | undefined): string {
++  return jobId?.trim() ?? "";
++}
++
++export function registerActiveCronRunAbortController(
++  registration: ActiveCronRunAbortRegistration,
++): () => void {
++  const jobId = normalizeCronJobId(registration.jobId);
++  if (!jobId) {
++    return () => {};
++  }
++  let controllers = activeCronRunAbortControllersByJobId.get(jobId);
++  if (!controllers) {
++    controllers = new Set();
++    activeCronRunAbortControllersByJobId.set(jobId, controllers);
++  }
++  controllers.add(registration.controller);
++  return () => {
++    const currentControllers = activeCronRunAbortControllersByJobId.get(jobId);
++    if (!currentControllers) {
++      return;
++    }
++    currentControllers.delete(registration.controller);
++    if (currentControllers.size === 0) {
++      activeCronRunAbortControllersByJobId.delete(jobId);
++    }
++  };
++}
++
++export function cancelActiveCronRunByJobId(params: {
++  jobId: string | undefined;
++  reason?: string;
++}): { found: boolean; cancelled: boolean } {
++  const jobId = normalizeCronJobId(params.jobId);
++  if (!jobId) {
++    return { found: false, cancelled: false };
++  }
++  const controllers = activeCronRunAbortControllersByJobId.get(jobId);
++  if (!controllers || controllers.size === 0) {
++    return { found: false, cancelled: false };
++  }
++  const reason = params.reason?.trim() || "Cron run cancelled by operator.";
++  let cancelled = false;
++  for (const controller of controllers) {
++    if (controller.signal.aborted) {
++      continue;
++    }
++    controller.abort(reason);
++    cancelled = true;
++  }
++  return { found: true, cancelled };
++}
+diff --git a/src/cron/service/timer.ts b/src/cron/service/timer.ts
+index 9d0a0dcb3e..641fc0b49d 100644
+--- a/src/cron/service/timer.ts
++++ b/src/cron/service/timer.ts
+@@ -13,7 +13,8 @@ import {
+   resolveAgentIdFromSessionKey,
+ } from "../../routing/session-key.js";
+ import { deliveryContextFromSession } from "../../utils/delivery-context.shared.js";
+ import type { DeliveryContext } from "../../utils/delivery-context.types.js";
++import { registerActiveCronRunAbortController } from "./active-runs.js";
+ import { clearCronJobActive, markCronJobActive } from "../active-jobs.js";
+ import { resolveCronDeliveryPlan, resolveFailureDestination } from "../delivery-plan.js";
+ import { resolveCronExecutionRetryHint } from "../retry-hint.js";
+@@ -124,11 +125,19 @@ export async function executeJobCoreWithTimeout(
+   job: CronJob,
+ ): Promise<Awaited<ReturnType<typeof executeJobCore>>> {
+   const jobTimeoutMs = resolveCronJobTimeoutMs(job);
++  const runAbortController = new AbortController();
++  const unregisterActiveCronRun = registerActiveCronRunAbortController({
++    jobId: job.id,
++    controller: runAbortController,
++  });
+   if (typeof jobTimeoutMs !== "number") {
+-    return await executeJobCore(state, job);
++    try {
++      return await executeJobCore(state, job, runAbortController.signal);
++    } finally {
++      unregisterActiveCronRun();
++    }
+   }
+
+-  const runAbortController = new AbortController();
+   let timeoutReason: string | undefined;
+   const timeoutMarker = Symbol("cron-timeout");
+   let resolveTimeout: ((value: typeof timeoutMarker) => void) | undefined;
+@@ -136,6 +143,11 @@ export async function executeJobCoreWithTimeout(
+     resolveTimeout = resolve;
+   });
+
++  const notifyAbort = () => {
++    resolveTimeout?.(timeoutMarker);
++  };
++  runAbortController.signal.addEventListener("abort", notifyAbort, { once: true });
++
+   // Detached agent runs report setup phases separately; defer the wall-clock
+   // timeout until the runner starts so cold setup gets a clearer failure reason.
+   const deferTimeoutUntilExecutionStart =
+@@ -170,6 +182,16 @@ export async function executeJobCoreWithTimeout(
+     if (first !== timeoutMarker) {
+       return first;
+     }
++    if (timeoutReason === undefined && runAbortController.signal.aborted) {
++      const error = abortErrorMessage(runAbortController.signal);
++      return {
++        status: "error",
++        error,
++        diagnostics: createCronRunDiagnosticsFromError("cron-setup", error, {
++          nowMs: state.deps.nowMs,
++        }),
++      };
++    }
+     const activeExecution = watchdog.activeExecution();
+     await cleanupTimedOutCronAgentRun(state, job, jobTimeoutMs, activeExecution);
+     const error = timeoutReason ?? timeoutErrorMessage(activeExecution);
+@@ -183,5 +205,7 @@ export async function executeJobCoreWithTimeout(
+     };
+   } finally {
+     watchdog.dispose();
++    runAbortController.signal.removeEventListener("abort", notifyAbort);
++    unregisterActiveCronRun();
+   }
+ }
+
+diff --git a/src/gateway/server-methods/cron.ts b/src/gateway/server-methods/cron.ts
+index 2b7172d7bf..0000000000 100644
+--- a/src/gateway/server-methods/cron.ts
++++ b/src/gateway/server-methods/cron.ts
+@@ -20,4 +20,5 @@ import {
+ } from "../../cron/run-log.js";
++import { cancelActiveCronRunByJobId } from "../../cron/service/active-runs.js";
+ import { applyJobPatch } from "../../cron/service/jobs.js";
+ import { isInvalidCronSessionTargetIdError } from "../../cron/session-target.js";
+ import type { CronDelivery, CronJob, CronJobCreate, CronJobPatch } from "../../cron/types.js";
+@@ -549,5 +550,12 @@ export const cronHandlers: GatewayRequestHandlers = {
+       return;
+     }
+     context.logGateway.info("cron: job updated", { jobId });
++    if (patch.enabled === false) {
++      const cancelled = cancelActiveCronRunByJobId({
++        jobId,
++        reason: "Cron job disabled by operator.",
++      });
++      context.logGateway.info("cron: active job run cancelled after disable", { jobId, ...cancelled });
++    }
+     respond(true, job, undefined);
+   },
