@@ -1349,6 +1349,8 @@ class CoworkService {
         store.dispatch(setStreaming(cached.status === 'running'));
       } else {
         store.dispatch(setCurrentSessionId(sessionId));
+        store.dispatch(setCurrentSession(null));
+        store.dispatch(setStreaming(false));
       }
     }
 
@@ -1442,7 +1444,11 @@ class CoworkService {
     // load failed, so reconcile it back to the still-shown session to avoid the
     // switching placeholder getting stuck. Only act if this is the latest load.
     if (requestId === this.latestLoadSessionRequestId) {
-      store.dispatch(setCurrentSessionId(store.getState().cowork.currentSession?.id ?? null));
+      if (previouslyLoadedSession) {
+        store.dispatch(setCurrentSession(previouslyLoadedSession));
+      } else {
+        store.dispatch(setCurrentSessionId(null));
+      }
     }
     return null;
   }

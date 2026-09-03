@@ -18,6 +18,7 @@ import { quickActionService } from '../../services/quickAction';
 import { RootState } from '../../store';
 import {
   selectCoworkConfig,
+  selectCurrentSessionId,
   selectCurrentSession,
   selectIsStreaming,
 } from '../../store/selectors/coworkSelectors';
@@ -105,6 +106,7 @@ const CoworkView: React.FC<CoworkViewProps> = ({
   const promptInputRef = useRef<CoworkPromptInputRef>(null);
 
   const currentSession = useSelector(selectCurrentSession);
+  const currentSessionId = useSelector(selectCurrentSessionId);
   const isStreaming = useSelector(selectIsStreaming);
   const config = useSelector(selectCoworkConfig);
   const isLoggedIn = useSelector((state: RootState) => state.auth.isLoggedIn);
@@ -431,6 +433,10 @@ const CoworkView: React.FC<CoworkViewProps> = ({
 
   const handleContinueSession = async (prompt: string, imageAttachments?: CoworkImageAttachment[], options?: CoworkPromptSubmitOptions) => {
     if (!currentSession) return false;
+    if (currentSessionId !== currentSession.id) {
+      window.dispatchEvent(new CustomEvent('app:showToast', { detail: i18nService.t('coworkSessionLoading') }));
+      return false;
+    }
     // Prevent duplicate submissions
     if (isContinuingRef.current) return false;
     if (openClawStatus && !isOpenClawReadyForSession(openClawStatus)) {

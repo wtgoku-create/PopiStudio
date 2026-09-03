@@ -10,6 +10,7 @@ export interface CoworkImageAttachment {
   name: string;
   mimeType: string;
   base64Data: string;
+  sourcePath?: string;
 }
 
 // Cowork session status

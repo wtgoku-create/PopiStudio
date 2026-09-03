@@ -567,7 +567,7 @@ interface IElectronAPI {
       title?: string;
       activeSkillIds?: string[];
       agentId?: string;
-      imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
+      imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string; sourcePath?: string }>;
     }) => Promise<{
       success: boolean;
       session?: CoworkSession;
@@ -586,7 +586,7 @@ interface IElectronAPI {
       systemPrompt?: string;
       turnInstructions?: string;
       activeSkillIds?: string[];
-      imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
+      imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string; sourcePath?: string }>;
     }) => Promise<{
       success: boolean;
       session?: CoworkSession;

@@ -74,6 +74,7 @@ export type CoworkImageAttachment = {
   name: string;
   mimeType: string;
   base64Data: string;
+  sourcePath?: string;
 };
 
 export type CoworkCreateRuntimeSessionOptions = {

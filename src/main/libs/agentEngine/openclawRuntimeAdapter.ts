@@ -172,6 +172,30 @@ export const OPENCLAW_CHAT_SEND_PAYLOAD_SAFETY_MARGIN_BYTES = 500 * 1000;
 export const OPENCLAW_CHAT_SEND_PAYLOAD_SAFE_LIMIT_BYTES =
   OPENCLAW_CHAT_SEND_PAYLOAD_LIMIT_BYTES - OPENCLAW_CHAT_SEND_PAYLOAD_SAFETY_MARGIN_BYTES;
 
+type RuntimeImageAttachmentInput = {
+  name: string;
+  mimeType: string;
+  base64Data: string;
+  sourcePath?: string;
+};
+
+const buildImageAttachmentSourcePrompt = (attachments?: RuntimeImageAttachmentInput[]): string => {
+  const lines = (attachments ?? [])
+    .map((attachment, index) => {
+      const sourcePath = attachment.sourcePath?.trim();
+      if (!sourcePath) return null;
+      return `${index + 1}. ${attachment.name} (${attachment.mimeType}) local path: ${sourcePath}`;
+    })
+    .filter((line): line is string => Boolean(line));
+
+  if (lines.length === 0) return '';
+  return [
+    '[Attached image source paths]',
+    'The images attached to this user turn were uploaded as image data. Use these local paths only when the user asks where the attached image came from or when a local file path is needed.',
+    ...lines,
+  ].join('\n');
+};
+
 /**
  * 正则表达式，用于检测 Bash 命令中是否包含 popiart 调用。
  *
@@ -3655,7 +3679,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       extraSystemPrompt?: string;
       skillIds?: string[];
       confirmationMode?: 'modal' | 'text';
-      imageAttachments?: Array<{ name: string; mimeType: string; base64Data: string }>;
+      imageAttachments?: RuntimeImageAttachmentInput[];
       selectedTextSnippets?: CoworkSelectedTextSnippet[];
       browserAnnotations?: CoworkBrowserAnnotationMessageBatch[];
       agentId?: string;
@@ -3838,7 +3862,12 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
       systemPromptText,
       options.extraSystemPrompt,
     );
-    const outboundMessage = stripNullChars(outboundPrompt.message);
+    const imageAttachmentSourcePrompt = buildImageAttachmentSourcePrompt(options.imageAttachments);
+    const outboundMessage = stripNullChars(
+      [outboundPrompt.message, imageAttachmentSourcePrompt]
+        .filter(part => part.trim())
+        .join('\n\n'),
+    );
     const extraSystemPrompt = outboundPrompt.extraSystemPrompt
       ? stripNullChars(outboundPrompt.extraSystemPrompt)
       : undefined;
@@ -3902,6 +3931,7 @@ export class OpenClawRuntimeAdapter extends EventEmitter implements CoworkRuntim
           name: img.name,
           mimeType: img.mimeType,
           base64Length: img.base64Data?.length ?? 0,
+          hasSourcePath: Boolean(img.sourcePath?.trim()),
         })) ?? [],
       });
       const attachments = options.imageAttachments?.length

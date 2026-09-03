@@ -1106,6 +1106,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
             name: attachment.name,
             mimeType: extracted.mimeType,
             base64Data: extracted.base64Data,
+            ...(!attachment.path.startsWith('inline:') ? { sourcePath: attachment.path } : {}),
           });
         } else {
           console.warn('[CoworkPromptInput] handleSubmit: extractBase64FromDataUrl returned null', {
@@ -1123,6 +1124,7 @@ const CoworkPromptInput = React.forwardRef<CoworkPromptInputRef, CoworkPromptInp
                 name: attachment.name,
                 mimeType: extracted.mimeType,
                 base64Data: extracted.base64Data,
+                sourcePath: attachment.path,
               });
               continue;
             }
