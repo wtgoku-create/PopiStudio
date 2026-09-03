@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from 'electron';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -98,6 +99,7 @@ type CoworkImageAttachmentInput = {
   name: string;
   mimeType: string;
   base64Data: string;
+  sourcePath?: string;
 };
 import { AppUpdateCoordinator, INSTALLATION_UUID_KEY } from './libs/appUpdateCoordinator';
 import type { BrowserAnnotationAssetIdentity, SaveBrowserAnnotationAssetInput } from './libs/browserAnnotationAssetStore';
@@ -828,6 +830,16 @@ const isLinux = process.platform === 'linux';
 const isMac = process.platform === 'darwin';
 const isWindows = process.platform === 'win32';
 const DEV_SERVER_URL = process.env.ELECTRON_START_URL || 'http://localhost:5175';
+const MacRuntimeArch = {
+  Arm64: 'arm64',
+  X64: 'x64',
+} as const;
+const RosettaTranslatedState = {
+  Yes: '1',
+} as const;
+const MAC_ARCH_WARNING_DISMISSED_KEY = 'mac_arch_warning_dismissed';
+const MAC_APPLE_SILICON_DOWNLOAD_URL =
+  process.env.POPIAI_MAC_ARM64_DOWNLOAD_URL || 'https://popiai.com/download';
 const enableVerboseLogging =
   process.env.ELECTRON_ENABLE_LOGGING === '1' ||
   process.env.ELECTRON_ENABLE_LOGGING === 'true';
@@ -845,6 +857,62 @@ const TITLEBAR_COLORS = {
   // Align light title bar with app light surface-muted tone to reduce visual contrast.
   light: { color: '#F3F4F6', symbolColor: '#1A1D23' },
 } as const;
+
+const isRunningUnderRosetta = (): boolean => {
+  if (!isMac || process.arch !== MacRuntimeArch.X64) {
+    return false;
+  }
+
+  try {
+    const result = spawnSync('/usr/sbin/sysctl', ['-in', 'sysctl.proc_translated'], {
+      encoding: 'utf8',
+      timeout: 1000,
+    });
+    return result.status === 0 && result.stdout.trim() === RosettaTranslatedState.Yes;
+  } catch (error) {
+    console.warn('[Main] Failed to detect Rosetta translation state:', error);
+    return false;
+  }
+};
+
+const shouldShowMacArchitectureWarning = (): boolean => {
+  if (!isMac || isDev || process.arch !== MacRuntimeArch.X64) {
+    return false;
+  }
+
+  if (getStore().get<boolean>(MAC_ARCH_WARNING_DISMISSED_KEY)) {
+    return false;
+  }
+
+  return isRunningUnderRosetta();
+};
+
+const maybeShowMacArchitectureWarning = async (): Promise<void> => {
+  if (!shouldShowMacArchitectureWarning()) {
+    return;
+  }
+
+  console.log('[Main] Apple Silicon Mac is running the Intel package; showing architecture warning');
+  const result = await dialog.showMessageBox({
+    type: 'warning',
+    title: t('macArchitectureWarningTitle'),
+    message: t('macArchitectureWarningMessage'),
+    detail: t('macArchitectureWarningDetail'),
+    buttons: [
+      t('macArchitectureWarningDownloadButton'),
+      t('macArchitectureWarningContinueButton'),
+    ],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+
+  getStore().set(MAC_ARCH_WARNING_DISMISSED_KEY, true);
+
+  if (result.response === 0) {
+    await shell.openExternal(MAC_APPLE_SILICON_DOWNLOAD_URL);
+  }
+};
 
 const safeDecodeURIComponent = (value: string): string => {
   try {
@@ -7832,6 +7900,8 @@ end tell'`, { timeout: 5000 });
     store = await initStore();
     profiler.measure('initStore');
     console.log('[Main] initApp: store initialized');
+    const initialAppLanguage = getStore().get<AppConfigSettings>('app_config')?.language;
+    setLanguage(initialAppLanguage === 'en' ? 'en' : 'zh');
     initializeKeyfromAttribution(store);
     refreshEndpointsTestMode(store);
     sqliteBackupManager = new SqliteBackupManager(app.getPath('userData'));
@@ -8101,6 +8171,9 @@ end tell'`, { timeout: 5000 });
     createWindow();
     profiler.measure('createWindow');
     console.log('[Main] initApp: window created');
+    void maybeShowMacArchitectureWarning().catch((error) => {
+      console.warn('[Main] Failed to show Mac architecture warning:', error);
+    });
 
     // ── Step 2-4: Skill bootstrap (non-blocking) ────────────────────
     console.log('[Main] initApp: starting skill bootstrap');

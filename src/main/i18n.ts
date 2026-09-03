@@ -268,6 +268,14 @@ const translations: Record<LanguageType, Record<string, string>> = {
     emailTestSuccess: '连接测试成功！',
     emailTestFailed: '连接测试失败：{error}',
 
+    // macOS architecture warning
+    macArchitectureWarningTitle: '安装包可能不匹配',
+    macArchitectureWarningMessage: '检测到你的 Mac 是 Apple 芯片机型，但当前运行的是 Intel 版本。',
+    macArchitectureWarningDetail:
+      '这个版本通常可以通过 Rosetta 运行，但性能和兼容性可能不如 Apple 芯片版本。建议下载 Apple 芯片版本。',
+    macArchitectureWarningDownloadButton: '下载 Apple 芯片版本',
+    macArchitectureWarningContinueButton: '继续使用',
+
     'enterprise.updateBlocked': '版本更新由企业统一管理',
   },
   en: {
@@ -563,6 +571,15 @@ const translations: Record<LanguageType, Record<string, string>> = {
     testConnection: 'Test Connection',
     emailTestSuccess: 'Connection test successful!',
     emailTestFailed: 'Connection test failed: {error}',
+
+    // macOS architecture warning
+    macArchitectureWarningTitle: 'Installer may not match this Mac',
+    macArchitectureWarningMessage:
+      'This Mac uses Apple silicon, but the Intel version is currently running.',
+    macArchitectureWarningDetail:
+      'This version can usually run through Rosetta, but performance and compatibility may be worse than the Apple silicon version. We recommend downloading the Apple silicon version.',
+    macArchitectureWarningDownloadButton: 'Download Apple Silicon Version',
+    macArchitectureWarningContinueButton: 'Continue',
 
     'enterprise.updateBlocked': 'Updates are managed by enterprise',
   },
