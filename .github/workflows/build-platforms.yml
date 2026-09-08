@@ -42,6 +42,11 @@ jobs:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('package.json') }}
           restore-keys: npm-${{ runner.os }}-
+
+      - name: Raise macOS open files limit
+        run: |
+          ulimit -n 65536 || true
+          echo "Open files limit: $(ulimit -n)"
       
       - run: npm install
       
@@ -92,8 +97,6 @@ jobs:
       
       - name: Build macOS
         run: |
-          ulimit -n 65536 || true
-          echo "Open files limit: $(ulimit -n)"
           npm run clean:release
           npm run dist:mac:x64 -- --publish never
         env:
@@ -111,8 +114,6 @@ jobs:
 
       - name: Build macOS arm64
         run: |
-          ulimit -n 65536 || true
-          echo "Open files limit: $(ulimit -n)"
           npm run clean:release
           npm run dist:mac:arm64 -- --publish never
         env:

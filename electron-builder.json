@@ -78,6 +78,9 @@
     "category": "public.app-category.productivity",
     "hardenedRuntime": true,
     "gatekeeperAssess": false,
+    "signIgnore": [
+      ".*/Contents/Resources/cfmind/.*\\.(cjs|css|cts|html|js|json|map|md|mdx|mjs|mts|scss|ts|txt|yaml|yml)$"
+    ],
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.plist",
     "extendInfo": {
