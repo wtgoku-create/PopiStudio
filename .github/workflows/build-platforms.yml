@@ -53,6 +53,42 @@ jobs:
           else
             echo "⚠ OpenClaw runtime not found, build may fail"
           fi
+
+      - name: Import macOS signing certificate
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          if [ -z "${CSC_LINK:-}" ]; then
+            echo "macOS signing certificate is not configured, skipping certificate import"
+            exit 0
+          fi
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/build-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/build-certificate.p12"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          case "$CSC_LINK" in
+            http://*|https://*)
+              curl --fail --location --silent --show-error "$CSC_LINK" --output "$CERTIFICATE_PATH"
+              ;;
+            data:*)
+              printf '%s' "${CSC_LINK#*,}" | base64 --decode > "$CERTIFICATE_PATH"
+              ;;
+            *)
+              printf '%s' "$CSC_LINK" | base64 --decode > "$CERTIFICATE_PATH"
+              ;;
+          esac
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$CSC_KEY_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+          echo "CSC_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
       
       - name: Build macOS
         run: |
@@ -63,9 +99,6 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
           POPIARTCLI_GITHUB_TOKEN: ${{ secrets.POPIARTCLI_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          # 签名环境变量 (如果有证书)
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -85,8 +118,6 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
           POPIARTCLI_GITHUB_TOKEN: ${{ secrets.POPIARTCLI_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -96,6 +127,13 @@ jobs:
           name: macos-build-arm64
           path: release/*.dmg
           retention-days: 7
+
+      - name: Delete macOS signing keychain
+        if: ${{ always() }}
+        run: |
+          if [ -n "${CSC_KEYCHAIN:-}" ]; then
+            security delete-keychain "$CSC_KEYCHAIN"
+          fi
 
   # ========== Windows 构建 ==========
   build-windows:
