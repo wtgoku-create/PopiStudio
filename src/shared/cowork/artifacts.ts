@@ -1,3 +1,8 @@
+import {
+  CoworkSystemMessageKind,
+  isInternalCompactionSystemText,
+} from '../../common/coworkSystemMessages';
+
 export const ArtifactTypeValue = {
   Html: 'html',
   Svg: 'svg',
@@ -14,10 +19,17 @@ export const ArtifactTypeValue = {
 } as const;
 export type ArtifactType = typeof ArtifactTypeValue[keyof typeof ArtifactTypeValue];
 
+export const ArtifactMediaOriginType = {
+  GeneratedVideo: 'generated-video',
+} as const;
+export type ArtifactMediaOriginType =
+  typeof ArtifactMediaOriginType[keyof typeof ArtifactMediaOriginType];
+
 export const PREVIEWABLE_ARTIFACT_TYPES = new Set<ArtifactType>([
   ArtifactTypeValue.Html,
   ArtifactTypeValue.Svg,
   ArtifactTypeValue.Mermaid,
+  ArtifactTypeValue.Code,
   ArtifactTypeValue.Image,
   ArtifactTypeValue.Video,
   ArtifactTypeValue.Audio,
@@ -37,9 +49,21 @@ export const ArtifactPreviewStatus = {
 } as const;
 export type ArtifactPreviewStatus = typeof ArtifactPreviewStatus[keyof typeof ArtifactPreviewStatus];
 
+export const LocalServiceProjectCandidateSource = {
+  TextLabeledPath: 'text-labeled-path',
+  TextCdCommand: 'text-cd-command',
+  TextFileLink: 'text-file-link',
+  TextCommonParent: 'text-common-parent',
+  ToolCdCommand: 'tool-cd-command',
+  ToolWorkingDirectory: 'tool-working-directory',
+  ToolPwdResult: 'tool-pwd-result',
+} as const;
+export type LocalServiceProjectCandidateSource =
+  typeof LocalServiceProjectCandidateSource[keyof typeof LocalServiceProjectCandidateSource];
+
 export interface LocalServiceProjectCandidate {
   directory: string;
-  source: 'text-labeled-path' | 'text-cd-command' | 'text-file-link' | 'text-common-parent';
+  source: LocalServiceProjectCandidateSource;
   confidence: number;
   reason?: string;
   evidence?: string;
@@ -59,6 +83,12 @@ export interface Artifact {
   filePath?: string;
   url?: string;
   remoteUrl?: string;
+  mediaOrigin?: {
+    type: ArtifactMediaOriginType;
+    taskId: string;
+    outputIndex: number;
+  };
+  legacyGeneratedVideoCandidate?: boolean;
   source?: 'tool' | 'message' | 'manual';
   localService?: {
     url: string;
@@ -391,7 +421,7 @@ function fileUrlPathToDirectory(value: string, linkText?: string): string {
   return targetLooksLikeFile ? pathDirectoryName(decoded) : decoded.replace(/[\\/]+$/g, '');
 }
 
-function collectProjectDirectoryCandidatesFromText(
+export function collectProjectDirectoryCandidatesFromText(
   messageContent: string,
   baseDirectory?: string,
   messageId?: string,
@@ -420,20 +450,20 @@ function collectProjectDirectoryCandidatesFromText(
   const labelRe = new RegExp(PROJECT_DIRECTORY_LABEL_RE.source, 'gi');
   let labelMatch: RegExpExecArray | null;
   while ((labelMatch = labelRe.exec(messageContent)) !== null) {
-    addCandidate(labelMatch[1] || labelMatch[2] || '', 'text-labeled-path', 85, labelMatch[0], 'labeled project directory');
+    addCandidate(labelMatch[1] || labelMatch[2] || '', LocalServiceProjectCandidateSource.TextLabeledPath, 85, labelMatch[0], 'labeled project directory');
   }
 
   const cdRe = new RegExp(CD_COMMAND_RE.source, 'gi');
   let cdMatch: RegExpExecArray | null;
   while ((cdMatch = cdRe.exec(messageContent)) !== null) {
-    addCandidate(cdMatch[1] || cdMatch[2] || cdMatch[3] || cdMatch[4] || '', 'text-cd-command', 80, cdMatch[0], 'cd command');
+    addCandidate(cdMatch[1] || cdMatch[2] || cdMatch[3] || cdMatch[4] || '', LocalServiceProjectCandidateSource.TextCdCommand, 80, cdMatch[0], 'cd command');
   }
 
   const fileLinkRe = /\[([^\]]*)\]\((file:\/\/[^)\s]+)\)/gi;
   let fileLinkMatch: RegExpExecArray | null;
   while ((fileLinkMatch = fileLinkRe.exec(messageContent)) !== null) {
     const directory = fileUrlPathToDirectory(fileLinkMatch[2], fileLinkMatch[1]);
-    if (directory) addCandidate(directory, 'text-file-link', 70, fileLinkMatch[0], 'file link directory');
+    if (directory) addCandidate(directory, LocalServiceProjectCandidateSource.TextFileLink, 70, fileLinkMatch[0], 'file link directory');
   }
 
   return candidates;
@@ -529,6 +559,18 @@ function getLocalServiceProjectConfidence(
   return defaultProjectDirectory && normalizedProjectDirectory === defaultProjectDirectory ? 0 : 1;
 }
 
+function getGeneratedVideoOriginConfidence(artifact: Artifact): number {
+  if (artifact.type !== ArtifactTypeValue.Video) return 0;
+  if (artifact.mediaOrigin?.type === ArtifactMediaOriginType.GeneratedVideo) return 2;
+  if (
+    artifact.legacyGeneratedVideoCandidate
+    && /^https:\/\//i.test(artifact.remoteUrl?.trim() || '')
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
 export const shouldPreferArtifactForDisplay = (
   candidate: Artifact,
   current: Artifact,
@@ -543,6 +585,12 @@ export const shouldPreferArtifactForDisplay = (
     if (candidateProjectConfidence !== currentProjectConfidence) {
       return candidateProjectConfidence > currentProjectConfidence;
     }
+  }
+
+  const candidateGeneratedVideoOriginConfidence = getGeneratedVideoOriginConfidence(candidate);
+  const currentGeneratedVideoOriginConfidence = getGeneratedVideoOriginConfidence(current);
+  if (candidateGeneratedVideoOriginConfidence !== currentGeneratedVideoOriginConfidence) {
+    return candidateGeneratedVideoOriginConfidence > currentGeneratedVideoOriginConfidence;
   }
 
   const currentHasFileProtocol = Boolean(current.filePath && /^file:/i.test(current.filePath));
@@ -980,8 +1028,17 @@ export function parseToolResultMediaArtifacts(
   const details = toolResultMsg.metadata.toolResultDetails;
   if (!details || typeof details !== 'object' || Array.isArray(details)) return [];
 
-  const assets = (details as Record<string, unknown>).assets;
+  const detailsRecord = details as Record<string, unknown>;
+  const assets = detailsRecord.assets;
   if (!Array.isArray(assets)) return [];
+  const taskIdValue = detailsRecord.taskId;
+  const taskId = (typeof taskIdValue === 'string' || typeof taskIdValue === 'number')
+    && /^[1-9]\d*$/.test(String(taskIdValue).trim())
+    ? String(taskIdValue).trim()
+    : undefined;
+  const isLegacyGeneratedVideoResult = detailsRecord.mediaType === ArtifactTypeValue.Video
+    || /^Saved generated videos?:/i.test(toolResultMsg.content.trim())
+    || /^Video generation succeeded\./i.test(toolResultMsg.content.trim());
 
   const artifacts: Artifact[] = [];
   for (let index = 0; index < assets.length; index += 1) {
@@ -1001,8 +1058,12 @@ export function parseToolResultMediaArtifacts(
       : typeof item.localPath === 'string' && item.localPath.trim()
         ? normalizeArtifactFilePath(item.localPath)
         : '';
-    if (artifactType === ArtifactTypeValue.Video && !filePath) continue;
     if (!url && !filePath) continue;
+    const outputIndex = typeof item.outputIndex === 'number'
+      && Number.isInteger(item.outputIndex)
+      && item.outputIndex >= 0
+      ? item.outputIndex
+      : index;
 
     const remoteFileName = artifactType === ArtifactTypeValue.Image && url
       ? getRemoteImageFileName(url, index + 1)
@@ -1021,7 +1082,19 @@ export function parseToolResultMediaArtifacts(
       content: filePath ? '' : url,
       fileName: filename,
       ...(filePath ? { filePath } : {}),
-      ...(filePath && url ? { remoteUrl: url } : {}),
+      ...(url ? { remoteUrl: url } : {}),
+      ...(artifactType === ArtifactTypeValue.Video && taskId
+        ? {
+            mediaOrigin: {
+              type: ArtifactMediaOriginType.GeneratedVideo,
+              taskId,
+              outputIndex,
+            },
+          }
+        : {}),
+      ...(artifactType === ArtifactTypeValue.Video && !taskId && url && isLegacyGeneratedVideoResult
+        ? { legacyGeneratedVideoCandidate: true }
+        : {}),
       source: 'tool',
       createdAt: toolResultMsg.timestamp || Date.now(),
     });
@@ -1119,12 +1192,375 @@ export function parseToolArtifact(
   };
 }
 
+const LOCAL_SERVICE_SHELL_TOOL_NAMES = new Set(['bash', 'exec', 'execcommand', 'shell']);
+const LOCAL_SERVICE_BROWSER_ACTIONS = new Set(['goto', 'navigate', 'open']);
+const LOCAL_SERVICE_COMMAND_KEYS = ['command', 'cmd', 'script'] as const;
+const LOCAL_SERVICE_WORKING_DIRECTORY_KEYS = [
+  'cwd',
+  'workdir',
+  'workingDirectory',
+  'working_directory',
+  'projectDirectory',
+  'project_directory',
+] as const;
+const LOCAL_SERVICE_URL_KEYS = ['url', 'targetUrl', 'target_url', 'href'] as const;
+const LOCAL_SERVICE_START_COMMAND_RE = /(?:^|[\n;]|&&|\|\|)\s*(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|serve|preview)\b|(?:npx|pnpx|bunx)\s+(?:vite|next|nuxt|serve|http-server)\b|(?:vite|next|nuxt)\s+(?:dev|start|preview)\b|python(?:3)?\s+-m\s+http\.server\b|(?:uvicorn|gunicorn)\b|flask\s+run\b|rails\s+(?:server|s)\b|php\s+-S\b|cargo\s+run\b|go\s+run\b|node\s+[^\s;&|]+|\.\/[\w.-]*(?:start|serve)[\w.-]*\b|make\s+(?:start|serve|dev)\b)/i;
+const LOCAL_SERVICE_PWD_COMMAND_RE = /^\s*(?:(?:cd(?:\s+\/d)?\s+(?:"[^"]+"|'[^']+'|`[^`]+`|[^\s;&|]+))\s*(?:&&|;)\s*)?(?:pwd|get-location)\s*$/i;
+const LOCAL_SERVICE_ABSOLUTE_DIRECTORY_RE = /^(?:\/(?!\/).+|[A-Za-z]:[\\/].+|\\\\[^\\/]+[\\/][^\\/]+.*)$/;
+const LOCAL_SERVICE_ANSI_ESCAPE_RE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+const LOCAL_SERVICE_MAX_TOOL_TEXT_LENGTH = 32_000;
+
+interface LocalServiceDirectoryEvidence {
+  kind: 'text' | 'tool';
+  order: number;
+  candidates: LocalServiceProjectCandidate[];
+  ports: Set<number>;
+  isServiceStart: boolean;
+}
+
+interface LocalServiceEvidence {
+  kind: 'assistant' | 'browser';
+  order: number;
+  artifact: Artifact;
+}
+
+interface LocalServiceShellContext {
+  commands: string[];
+  ports: Set<number>;
+  isServiceStart: boolean;
+}
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+
+function normalizeContextToolName(toolName: unknown): string {
+  return typeof toolName === 'string' ? toolName.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+}
+
+function isLocalServiceShellTool(toolName: unknown): boolean {
+  const normalized = normalizeContextToolName(toolName);
+  return LOCAL_SERVICE_SHELL_TOOL_NAMES.has(normalized) || normalized.endsWith('execcommand');
+}
+
+function getContextStringValues(
+  input: Record<string, unknown>,
+  keys: readonly string[],
+): string[] {
+  return keys.flatMap(key => {
+    const value = input[key];
+    return typeof value === 'string' && value.trim() ? [value.trim()] : [];
+  });
+}
+
+function getLocalServiceToolCommands(input: Record<string, unknown>): string[] {
+  const commands = getContextStringValues(input, LOCAL_SERVICE_COMMAND_KEYS);
+  const commandList = input.commands;
+  if (Array.isArray(commandList)) {
+    commands.push(...commandList.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())));
+  } else if (typeof commandList === 'string' && commandList.trim()) {
+    commands.push(commandList.trim());
+  }
+  return commands.map(command => command.slice(0, LOCAL_SERVICE_MAX_TOOL_TEXT_LENGTH));
+}
+
+function collectLocalServicePorts(value: string): Set<number> {
+  const ports = new Set<number>();
+  const patterns = [
+    /\bhttps?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\]):(\d{1,5})\b/gi,
+    /(?:^|[^\d])(?:--port(?:=|\s+)|-p\s+|PORT\s*=\s*|:)(\d{2,5})(?!\d)/g,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(value)) !== null) {
+      const port = Number(match[1]);
+      if (Number.isInteger(port) && port > 0 && port <= 65535) ports.add(port);
+    }
+  }
+  return ports;
+}
+
+function getLocalServiceUrlPort(url: string): number | null {
+  try {
+    const parsed = new URL(url);
+    const port = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80));
+    return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+function mergeLocalServiceCandidates(
+  ...groups: Array<readonly LocalServiceProjectCandidate[] | undefined>
+): LocalServiceProjectCandidate[] {
+  const merged = new Map<string, LocalServiceProjectCandidate>();
+  for (const candidate of groups.flatMap(group => group ?? [])) {
+    const key = normalizeProjectDirectoryForDedup(candidate.directory);
+    const current = merged.get(key);
+    if (key && (!current || candidate.confidence > current.confidence)) merged.set(key, candidate);
+  }
+  return Array.from(merged.values());
+}
+
+function createToolDirectoryCandidate(
+  directory: string,
+  source: LocalServiceProjectCandidateSource,
+  confidence: number,
+  messageId: string,
+  baseDirectory?: string,
+): LocalServiceProjectCandidate | null {
+  if (!directory.trim() || /\$\(|\$\{|%[^%]+%/.test(directory)) return null;
+  const candidate = collectProjectDirectoryCandidatesFromText(
+    `project directory: ${directory}`,
+    baseDirectory,
+    messageId,
+  )[0];
+  return candidate ? { ...candidate, source, confidence } : null;
+}
+
+function parseContextualLocalServiceArtifactsFromTurn(
+  messages: ArtifactMessage[],
+  sessionId: string,
+  workingDirectory?: string,
+): Artifact[] {
+  const directoryEvidence: LocalServiceDirectoryEvidence[] = [];
+  const serviceEvidence: LocalServiceEvidence[] = [];
+  const shellContextByToolUseId = new Map<string, LocalServiceShellContext>();
+  let adjacentShellContext: LocalServiceShellContext | null = null;
+
+  messages.forEach((message, order) => {
+    if (message.type === 'assistant') {
+      adjacentShellContext = null;
+      if (message.metadata?.isThinking || !message.content) return;
+      const candidates = collectProjectDirectoryCandidatesFromText(
+        message.content,
+        workingDirectory,
+        message.id,
+      );
+      if (candidates.length > 0) {
+        directoryEvidence.push({
+          kind: 'text',
+          order,
+          candidates,
+          ports: collectLocalServicePorts(message.content),
+          isServiceStart: false,
+        });
+      }
+      for (const artifact of parseLocalServiceUrlsFromText(
+        message.content,
+        message.id,
+        sessionId,
+        { projectDirectory: workingDirectory },
+      )) {
+        serviceEvidence.push({
+          kind: 'assistant',
+          order,
+          artifact: { ...artifact, createdAt: message.timestamp || artifact.createdAt },
+        });
+      }
+      return;
+    }
+
+    if (message.type === 'tool_use') {
+      const input = asRecord(message.metadata?.toolInput);
+      if (isLocalServiceShellTool(message.metadata?.toolName)) {
+        const commands = getLocalServiceToolCommands(input);
+        const workingDirectories = getContextStringValues(input, LOCAL_SERVICE_WORKING_DIRECTORY_KEYS);
+        const baseDirectory = workingDirectories[workingDirectories.length - 1] || workingDirectory;
+        const commandCandidates = commands.flatMap(command =>
+          collectProjectDirectoryCandidatesFromText(command, baseDirectory, message.id)
+            .filter(candidate => candidate.source === LocalServiceProjectCandidateSource.TextCdCommand)
+            .map(candidate => ({
+              ...candidate,
+              source: LocalServiceProjectCandidateSource.ToolCdCommand,
+              confidence: 94,
+            }))
+        );
+        const cwdCandidates = workingDirectories.flatMap(directory => {
+          const candidate = createToolDirectoryCandidate(
+            directory,
+            LocalServiceProjectCandidateSource.ToolWorkingDirectory,
+            92,
+            message.id,
+            workingDirectory,
+          );
+          return candidate ? [candidate] : [];
+        });
+        const ports = new Set<number>();
+        for (const command of commands) {
+          for (const port of collectLocalServicePorts(command)) ports.add(port);
+        }
+        const context = {
+          commands,
+          ports,
+          isServiceStart: commands.some(command => LOCAL_SERVICE_START_COMMAND_RE.test(command)),
+        };
+        const candidates = mergeLocalServiceCandidates(commandCandidates.reverse(), cwdCandidates.reverse());
+        if (candidates.length > 0) {
+          directoryEvidence.push({ kind: 'tool', order, candidates, ...context });
+        }
+        const toolUseId = message.metadata?.toolUseId;
+        if (typeof toolUseId === 'string') shellContextByToolUseId.set(toolUseId, context);
+        adjacentShellContext = context;
+      } else {
+        adjacentShellContext = null;
+      }
+
+      const toolName = normalizeContextToolName(message.metadata?.toolName);
+      const action = typeof input.action === 'string' ? input.action.trim().toLowerCase() : '';
+      if (toolName.includes('browser') && (!action || LOCAL_SERVICE_BROWSER_ACTIONS.has(action))) {
+        for (const url of getContextStringValues(input, LOCAL_SERVICE_URL_KEYS)) {
+          for (const artifact of parseLocalServiceUrlsFromText(url, message.id, sessionId)) {
+            serviceEvidence.push({
+              kind: 'browser',
+              order,
+              artifact: { ...artifact, createdAt: message.timestamp || artifact.createdAt },
+            });
+          }
+        }
+      }
+      return;
+    }
+
+    if (message.type === 'tool_result') {
+      const toolUseId = message.metadata?.toolUseId;
+      const shellContext = typeof toolUseId === 'string'
+        ? shellContextByToolUseId.get(toolUseId)
+        : adjacentShellContext;
+      adjacentShellContext = null;
+      if (
+        !shellContext
+        || message.metadata?.isError
+        || shellContext.commands.length !== 1
+        || !LOCAL_SERVICE_PWD_COMMAND_RE.test(shellContext.commands[0])
+      ) return;
+      const resultText = message.content.slice(0, LOCAL_SERVICE_MAX_TOOL_TEXT_LENGTH)
+        .replace(LOCAL_SERVICE_ANSI_ESCAPE_RE, '');
+      const directory = resultText.split(/\r?\n/)
+        .map(line => line.trim().replace(/^["'`]|["'`]$/g, ''))
+        .find(line => LOCAL_SERVICE_ABSOLUTE_DIRECTORY_RE.test(line));
+      if (!directory) return;
+      const candidate = createToolDirectoryCandidate(
+        directory,
+        LocalServiceProjectCandidateSource.ToolPwdResult,
+        95,
+        message.id,
+        workingDirectory,
+      );
+      if (candidate) {
+        directoryEvidence.push({
+          kind: 'tool',
+          order,
+          candidates: [candidate],
+          ports: shellContext.ports,
+          isServiceStart: shellContext.isServiceStart,
+        });
+      }
+      return;
+    }
+
+    adjacentShellContext = null;
+  });
+
+  const servicesByIdentity = new Map<string, {
+    artifact: Artifact;
+    candidates: LocalServiceProjectCandidate[];
+  }>();
+  for (const event of serviceEvidence) {
+    const identity = getLocalServicePortIdentityKey(event.artifact.url || event.artifact.content);
+    if (!identity) continue;
+    const port = getLocalServiceUrlPort(event.artifact.url || event.artifact.content);
+    const priorEvidence = directoryEvidence.filter(item => item.order <= event.order);
+    const findClosestEvidence = (
+      predicate: (item: LocalServiceDirectoryEvidence) => boolean,
+    ): LocalServiceDirectoryEvidence | undefined => {
+      for (let index = priorEvidence.length - 1; index >= 0; index -= 1) {
+        if (predicate(priorEvidence[index])) return priorEvidence[index];
+      }
+      return undefined;
+    };
+    const portMatches = port
+      ? priorEvidence.filter(item => item.kind === 'tool' && item.ports.has(port)).reverse()
+      : [];
+    const closestStart = findClosestEvidence(item => item.kind === 'tool' && item.isServiceStart);
+    const closestTool = findClosestEvidence(item => item.kind === 'tool');
+    const closestText = findClosestEvidence(item => item.kind === 'text');
+    const candidates = mergeLocalServiceCandidates(
+      ...portMatches.map(item => item.candidates),
+      closestStart?.candidates,
+      event.artifact.localService?.projectCandidates,
+      closestText?.candidates,
+      closestTool?.candidates,
+    );
+    const existing = servicesByIdentity.get(identity);
+    if (!existing) {
+      servicesByIdentity.set(identity, { artifact: event.artifact, candidates });
+    } else {
+      existing.candidates = event.kind === 'browser'
+        ? mergeLocalServiceCandidates(candidates, existing.candidates)
+        : mergeLocalServiceCandidates(existing.candidates, candidates);
+      if (event.kind === 'assistant') existing.artifact = event.artifact;
+    }
+  }
+
+  return Array.from(servicesByIdentity.values()).map(({ artifact, candidates }) => ({
+    ...artifact,
+    type: ArtifactTypeValue.LocalService,
+    localService: {
+      url: artifact.url || artifact.content,
+      origin: artifact.localService?.origin || normalizeLocalServiceOrigin(artifact.url || artifact.content),
+      ...(candidates[0]?.directory ? { projectDirectory: candidates[0].directory } : {}),
+      ...(candidates.length > 0 ? { projectCandidates: candidates } : {}),
+    },
+  }));
+}
+
+function isLocalServiceConversationBoundary(message: ArtifactMessage): boolean {
+  if (message.type === 'user') return true;
+  if (message.type !== 'system') return false;
+  const kind = message.metadata?.kind;
+  return kind === CoworkSystemMessageKind.ContextCompaction
+    || kind === CoworkSystemMessageKind.ForkCompactionSummary
+    || (!kind && isInternalCompactionSystemText(message.content));
+}
+
+export function parseLocalServiceArtifactsFromMessages(
+  messages: ArtifactMessage[],
+  sessionId: string,
+  options: { workingDirectory?: string } = {},
+): Artifact[] {
+  const artifacts: Artifact[] = [];
+  let turnMessages: ArtifactMessage[] = [];
+  const flushTurn = () => {
+    if (turnMessages.length > 0) {
+      artifacts.push(...parseContextualLocalServiceArtifactsFromTurn(
+        turnMessages,
+        sessionId,
+        options.workingDirectory,
+      ));
+    }
+    turnMessages = [];
+  };
+  for (const message of messages) {
+    if (isLocalServiceConversationBoundary(message)) {
+      flushTurn();
+    } else {
+      turnMessages.push(message);
+    }
+  }
+  flushTurn();
+  return artifacts;
+}
+
 export function collectSessionArtifacts(
   messages: ArtifactMessage[],
   sessionId: string,
   cwd?: string,
 ): Artifact[] {
-  const detected: Artifact[] = [];
+  const detected = parseLocalServiceArtifactsFromMessages(messages, sessionId, {
+    workingDirectory: cwd,
+  });
 
   const absolutize = (artifact: Artifact): Artifact =>
     artifact.filePath
@@ -1155,27 +1591,9 @@ export function collectSessionArtifacts(
     pushFileArtifactIfNew(absolutize(artifact), seenFilePaths);
   };
 
-  const pushLocalServiceArtifactIfNew = (artifact: Artifact, seenLocalServiceUrls: Set<string>) => {
-    const url = artifact.url || artifact.content;
-    const normalized = normalizeLocalServiceUrlForDedup(url);
-    if (!url || seenLocalServiceUrls.has(normalized)) return;
-    seenLocalServiceUrls.add(normalized);
-    detected.push(artifact);
-  };
-
   for (const msg of messages) {
     if (msg.type === 'assistant' && !msg.metadata?.isThinking && msg.content) {
       const seenFilePaths = new Set<string>();
-      const seenLocalServiceUrls = new Set<string>();
-      const localServiceArtifacts = parseLocalServiceUrlsFromText(
-        msg.content,
-        msg.id,
-        sessionId,
-        { projectDirectory: cwd },
-      );
-      for (const serviceArtifact of localServiceArtifacts) {
-        pushLocalServiceArtifactIfNew(serviceArtifact, seenLocalServiceUrls);
-      }
 
       const fileLinks = parseFileLinksFromMessage(msg.content, msg.id, sessionId);
       for (const fileLink of fileLinks) {

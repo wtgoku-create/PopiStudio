@@ -2029,6 +2029,12 @@ export class CoworkStore {
       !Array.isArray(metadata.localService)
       ? metadata.localService as Artifact['localService']
       : undefined;
+    const mediaOrigin = metadata?.mediaOrigin &&
+      typeof metadata.mediaOrigin === 'object' &&
+      !Array.isArray(metadata.mediaOrigin)
+      ? metadata.mediaOrigin as Artifact['mediaOrigin']
+      : undefined;
+    const legacyGeneratedVideoCandidate = metadata?.legacyGeneratedVideoCandidate === true;
 
     return {
       id: row.id,
@@ -2043,6 +2049,8 @@ export class CoworkStore {
       ...(row.remote_url ? { remoteUrl: row.remote_url } : {}),
       ...(row.source ? { source: row.source as Artifact['source'] } : {}),
       ...(localService ? { localService } : {}),
+      ...(mediaOrigin ? { mediaOrigin } : {}),
+      ...(legacyGeneratedVideoCandidate ? { legacyGeneratedVideoCandidate: true } : {}),
       ...(row.content_version != null ? { contentVersion: row.content_version } : {}),
       ...(metadata ? { metadata } : {}),
       createdAt: row.created_at,
@@ -2213,9 +2221,14 @@ export class CoworkStore {
           artifact.url ?? null,
           artifact.remoteUrl ?? null,
           artifact.source ?? null,
-          artifact.metadata || artifact.localService ? JSON.stringify({
+          artifact.metadata || artifact.localService || artifact.mediaOrigin || artifact.legacyGeneratedVideoCandidate
+            ? JSON.stringify({
             ...(artifact.metadata ?? {}),
             ...(artifact.localService ? { localService: artifact.localService } : {}),
+            ...(artifact.mediaOrigin ? { mediaOrigin: artifact.mediaOrigin } : {}),
+            ...(artifact.legacyGeneratedVideoCandidate
+              ? { legacyGeneratedVideoCandidate: true }
+              : {}),
           }) : null,
           artifact.contentVersion ?? null,
           artifact.createdAt,

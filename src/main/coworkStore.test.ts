@@ -25,6 +25,7 @@ import path from 'path';
 
 import { CoworkSystemMessageKind } from '../common/coworkSystemMessages';
 import { AgentAvatarSvg, DefaultAgentAvatarIcon, encodeAgentAvatarIcon } from '../shared/agent/avatar';
+import { ArtifactMediaOriginType } from '../shared/cowork/artifacts';
 import { CoworkForkMode, CoworkSessionSourceKind } from '../shared/cowork/constants';
 import { CoworkGoalStatus } from '../shared/cowork/goal';
 import { CoworkStore } from './coworkStore';
@@ -477,6 +478,37 @@ test('addMessage syncs detected artifacts into the resource table', () => {
     fileName: 'report.pdf',
     filePath,
     content: '',
+  });
+});
+
+test('generated video origin survives artifact persistence', () => {
+  const sid = 'sess-generated-video-origin';
+  insertSession(sid);
+
+  store.addMessage(sid, {
+    type: 'tool_result',
+    content: 'Video generation succeeded.',
+    metadata: {
+      toolResultDetails: {
+        taskId: 42,
+        assets: [{
+          type: 'video',
+          url: 'https://cdn.example.com/generated.mp4',
+          filename: 'generated.mp4',
+          outputIndex: 2,
+        }],
+      },
+    },
+  });
+
+  expect(store.listArtifacts(sid)[0]).toMatchObject({
+    type: 'video',
+    remoteUrl: 'https://cdn.example.com/generated.mp4',
+    mediaOrigin: {
+      type: ArtifactMediaOriginType.GeneratedVideo,
+      taskId: '42',
+      outputIndex: 2,
+    },
   });
 });
 

@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { collectSessionArtifacts, loadDetectedFileArtifact } from './artifactDetection';
 import { ArtifactTypeValue } from '../types/artifact';
 import type { CoworkMessage } from '../types/cowork';
+import { collectSessionArtifacts, loadDetectedFileArtifact } from './artifactDetection';
 
 const message = (
   id: string,
@@ -55,6 +55,66 @@ describe('collectSessionArtifacts', () => {
     ], 's1', '/repo');
 
     expect(artifacts).toHaveLength(0);
+  });
+
+  test('links a service started from a child directory to browser navigation', () => {
+    const artifacts = collectSessionArtifacts([
+      message('user-1', 'user', '启动服务'),
+      message('tool-1', 'tool_use', '', {
+        toolUseId: 'call-1',
+        toolName: 'exec_command',
+        toolInput: {
+          cwd: '/repo',
+          cmd: 'cd ./web && npm run dev -- --port 4173',
+        },
+      }),
+      message('browser-1', 'tool_use', '', {
+        toolName: 'browser',
+        toolInput: { action: 'navigate', url: 'http://localhost:4173/app' },
+      }),
+    ], 's1', '/repo');
+
+    const service = artifacts.find(item => item.type === ArtifactTypeValue.LocalService);
+    expect(service?.localService?.projectDirectory).toBe('/repo/web');
+  });
+
+  test('does not carry service directory evidence across user turns', () => {
+    const artifacts = collectSessionArtifacts([
+      message('user-1', 'user', '启动旧服务'),
+      message('tool-1', 'tool_use', '', {
+        toolName: 'bash',
+        toolInput: { command: 'cd /repo/old && npm run dev' },
+      }),
+      message('user-2', 'user', '打开另一个服务'),
+      message('browser-2', 'tool_use', '', {
+        toolName: 'browser',
+        toolInput: { action: 'navigate', url: 'http://localhost:3000' },
+      }),
+    ], 's1', '/repo');
+
+    const service = artifacts.find(item => item.type === ArtifactTypeValue.LocalService);
+    expect(service?.localService?.projectDirectory).toBeUndefined();
+  });
+
+  test('uses an explicit pwd result as service directory evidence', () => {
+    const artifacts = collectSessionArtifacts([
+      message('user-1', 'user', '打开服务'),
+      message('tool-1', 'tool_use', '', {
+        toolUseId: 'call-1',
+        toolName: 'bash',
+        toolInput: { command: 'pwd' },
+      }),
+      message('result-1', 'tool_result', '/repo/web\n', {
+        toolUseId: 'call-1',
+      }),
+      message('browser-1', 'tool_use', '', {
+        toolName: 'browser',
+        toolInput: { action: 'open', url: 'http://localhost:8080' },
+      }),
+    ], 's1', '/repo');
+
+    const service = artifacts.find(item => item.type === ArtifactTypeValue.LocalService);
+    expect(service?.localService?.projectDirectory).toBe('/repo/web');
   });
 });
 

@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'vitest';
 
 import type { Artifact } from '../types/artifact';
-import { dedupeArtifactsForDisplay, normalizeFilePathForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseRemoteImageArtifactsFromText, parseToolArtifact, parseToolResultMediaArtifacts, shouldParseFilePathsFromToolResult } from './artifactParser';
+import { ArtifactMediaOriginType, dedupeArtifactsForDisplay, normalizeFilePathForDedup, parseFileLinksFromMessage, parseFilePathsFromText, parseLocalServiceUrlsFromText, parseMediaTokensFromText, parseRemoteImageArtifactsFromText, parseToolArtifact, parseToolResultMediaArtifacts, PREVIEWABLE_ARTIFACT_TYPES, shouldParseFilePathsFromToolResult } from './artifactParser';
+
+test('code artifacts are previewable', () => {
+  expect(PREVIEWABLE_ARTIFACT_TYPES.has('code')).toBe(true);
+});
 
 describe('normalizeFilePathForDedup', () => {
   test('strips leading / before Windows drive letter', () => {
@@ -336,6 +340,34 @@ describe('parseToolResultMediaArtifacts', () => {
 
     expect(artifacts).toHaveLength(0);
   });
+
+  test('keeps remote generated videos and records their task origin', () => {
+    const artifacts = parseToolResultMediaArtifacts({
+      id: 'result-video',
+      type: 'tool_result',
+      content: 'Video generation succeeded.',
+      timestamp: 123,
+      metadata: {
+        toolResultDetails: {
+          taskId: 42,
+          assets: [{
+            type: 'video',
+            url: 'https://cdn.example.com/generated.mp4',
+            filename: 'generated.mp4',
+            outputIndex: 3,
+          }],
+        },
+      },
+    }, 'sess1');
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].remoteUrl).toBe('https://cdn.example.com/generated.mp4');
+    expect(artifacts[0].mediaOrigin).toEqual({
+      type: ArtifactMediaOriginType.GeneratedVideo,
+      taskId: '42',
+      outputIndex: 3,
+    });
+  });
 });
 
 describe('shouldParseFilePathsFromToolResult', () => {
@@ -444,5 +476,32 @@ describe('dedupeArtifactsForDisplay', () => {
     ]);
 
     expect(artifacts.map(item => item.id)).toEqual(['service-3000', 'service-5174']);
+  });
+
+  test('prefers a generated-video result over a newer legacy duplicate', () => {
+    const artifacts = dedupeArtifactsForDisplay([
+      artifact({
+        id: 'generated',
+        type: 'video',
+        fileName: 'clip.mp4',
+        remoteUrl: 'https://cdn.example.com/clip.mp4',
+        mediaOrigin: {
+          type: ArtifactMediaOriginType.GeneratedVideo,
+          taskId: '42',
+          outputIndex: 0,
+        },
+      }),
+      artifact({
+        id: 'legacy',
+        type: 'video',
+        fileName: 'clip.mp4',
+        remoteUrl: 'https://cdn.example.com/clip.mp4',
+        legacyGeneratedVideoCandidate: true,
+        createdAt: 300,
+      }),
+    ]);
+
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0].id).toBe('generated');
   });
 });
