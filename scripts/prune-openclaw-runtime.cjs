@@ -21,6 +21,11 @@ const PATTERNS_TO_DELETE = [
   /\.d\.ts$/i,
   /\.d\.cts$/i,
   /\.d\.mts$/i,
+  // Package source files not loaded by the packaged runtime
+  /\.ts$/i,
+  /\.cts$/i,
+  /\.mts$/i,
+  /\.tsx$/i,
   // Documentation files
   /^readme(\.(md|txt|rst))?$/i,
   /^changelog(\.(md|txt|rst))?$/i,
@@ -373,6 +378,20 @@ function main() {
         const extNodeModules = path.join(extensionsDir, ext.name, 'node_modules');
         if (fs.existsSync(extNodeModules)) {
           cleanDir(extNodeModules, stats);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Step 5: Clean node_modules inside third-party extensions. Keep extension
+  // source files intact; only remove package metadata/source noise from deps.
+  if (fs.existsSync(thirdPartyDir)) {
+    try {
+      for (const plugin of fs.readdirSync(thirdPartyDir, { withFileTypes: true })) {
+        if (!plugin.isDirectory()) continue;
+        const pluginNodeModules = path.join(thirdPartyDir, plugin.name, 'node_modules');
+        if (fs.existsSync(pluginNodeModules)) {
+          cleanDir(pluginNodeModules, stats);
         }
       }
     } catch { /* ignore */ }
