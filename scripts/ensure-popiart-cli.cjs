@@ -13,6 +13,8 @@ const PACKAGE_JSON_PATH = path.join(PROJECT_ROOT, 'package.json');
 const VENDOR_ROOT = path.join(PROJECT_ROOT, 'vendor', 'popiart-cli');
 const DEFAULT_REPO = 'wtgoku-create/popiartcli';
 const DEFAULT_VERSION = 'latest';
+const DOWNLOAD_ATTEMPTS = 4;
+const DOWNLOAD_RETRY_BASE_DELAY_MS = 1500;
 
 const TARGET_CONFIG = {
   'mac-x64': {
@@ -289,18 +291,48 @@ function pickBestAsset(release, targetId) {
 
 async function downloadFile(url, outPath) {
   console.log(`[ensure-popiart-cli] Downloading asset from ${url} to ${outPath}`);
-  const response = await fetch(url, {
-    headers: createGitHubHeaders('application/octet-stream'),
-  });
 
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download PopiArt CLI asset: HTTP ${response.status}`);
+  let lastError = null;
+  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(url, {
+        headers: createGitHubHeaders('application/octet-stream'),
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outPath));
+      const size = fs.statSync(outPath).size;
+      console.log(`[ensure-popiart-cli] Downloaded asset to ${outPath} (${size} bytes)`);
+      return;
+    } catch (error) {
+      lastError = error;
+      try {
+        if (fs.existsSync(outPath)) fs.rmSync(outPath, { force: true });
+      } catch { /* ignore cleanup errors */ }
+
+      if (attempt === DOWNLOAD_ATTEMPTS) {
+        break;
+      }
+
+      const delayMs = DOWNLOAD_RETRY_BASE_DELAY_MS * attempt;
+      console.warn(
+        `[ensure-popiart-cli] Download attempt ${attempt} failed, retrying in ${delayMs}ms: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
   }
 
-  fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outPath));
-  const size = fs.statSync(outPath).size;
-  console.log(`[ensure-popiart-cli] Downloaded asset to ${outPath} (${size} bytes)`);
+  throw new Error(
+    `Failed to download PopiArt CLI asset after ${DOWNLOAD_ATTEMPTS} attempts: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
 }
 
 function walkFiles(rootDir) {
@@ -503,7 +535,25 @@ async function ensurePopiArtCliTarget(targetId) {
   try {
     const assetPath = path.join(tempRoot, asset.name);
     console.log(`[ensure-popiart-cli] Created temporary workspace for ${targetId}: ${tempRoot}`);
-    await downloadFile(asset.browser_download_url, assetPath);
+    try {
+      await downloadFile(asset.browser_download_url, assetPath);
+    } catch (error) {
+      if (preparedMetadata && fs.existsSync(preparedExecutable)) {
+        console.warn(
+          `[ensure-popiart-cli] Failed to download ${targetId} from GitHub, using cached CLI instead: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return {
+          targetId,
+          releaseTag,
+          assetName: preparedMetadata.assetName || asset.name,
+          executablePath: preparedExecutable,
+          cached: true,
+        };
+      }
+      throw error;
+    }
 
     let resolvedBinary = assetPath;
     const lower = asset.name.toLowerCase();
